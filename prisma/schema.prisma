@@ -1,0 +1,262 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── JERARQUÍA DE NEGOCIO ────────────────────────────────────────────────────
+
+model Local {
+  id     Int    @id @default(autoincrement())
+  nombre String @unique
+
+  puntosDeVenta PuntoDeVenta[]
+  compras       Compra[]
+  ventas        Venta[]
+
+  @@map("locales")
+}
+
+model PuntoDeVenta {
+  id      Int    @id @default(autoincrement())
+  nombre  String
+  localId Int
+
+  local   Local    @relation(fields: [localId], references: [id])
+  compras Compra[]
+  ventas  Venta[]
+
+  @@unique([nombre, localId])
+  @@map("puntos_de_venta")
+}
+
+// ─── MAESTROS ────────────────────────────────────────────────────────────────
+
+model RubroConceptoCaja {
+  id       Int     @id @default(autoincrement())
+  codigo   String  @unique
+  nombre   String
+  calcRent String?
+
+  conceptosCaja ConceptoCaja[]
+
+  @@map("rubros_concepto_caja")
+}
+
+model ConceptoCaja {
+  id     Int     @id @default(autoincrement())
+  codigo String  @unique
+  nombre String
+  tipo   String?
+  codImp String?
+
+  codRga String?
+  rubro  RubroConceptoCaja? @relation(fields: [codRga], references: [codigo])
+
+  compras Compra[]
+
+  @@map("conceptos_caja")
+}
+
+model RubroArticulo {
+  id         Int      @id @default(autoincrement())
+  codigo     String   @unique
+  nombre     String
+  color      String?
+  grupoNro   String?
+  grupoCol   String?
+  grupoFot   String?
+  excluyeInf Boolean?
+  evento     String?
+  deliAct    Boolean?
+  eveFor     String?
+  eveForm    String?
+  eveFormH   String?
+  discont    Decimal?
+  fechaUpda  DateTime?
+  modoVista  String?
+
+  subrubros SubrubroArticulo[]
+  articulos Articulo[]
+
+  @@map("rubros_articulo")
+}
+
+model SubrubroArticulo {
+  id        Int      @id @default(autoincrement())
+  codigo    String   @unique
+  nombre    String
+  deliAct   Boolean?
+  eveFor    String?
+  eveForm   String?
+  eveFormH  String?
+  fechaUpda DateTime?
+
+  codRua String?
+  rubro  RubroArticulo? @relation(fields: [codRua], references: [codigo])
+
+  articulos Articulo[]
+
+  @@map("subrubros_articulo")
+}
+
+model Articulo {
+  codigo  String   @id
+  nombre  String
+  precio1 Decimal?
+  precio2 Decimal?
+  precio3 Decimal?
+  precio4 Decimal?
+
+  codRua   String?
+  codSua   String?
+  rubro    RubroArticulo?    @relation(fields: [codRua], references: [codigo])
+  subrubro SubrubroArticulo? @relation(fields: [codSua], references: [codigo])
+
+  detallesCompra DetalleCompra[]
+
+  @@map("articulos")
+}
+
+model Proveedor {
+  id        Int      @id @default(autoincrement())
+  codigo    String   @unique
+  nombre    String?
+  razon     String?
+  direccion String?
+  localidad String?
+  contacto  String?
+  telefono  String?
+  fax       String?
+  celular   String?
+  tipoIva   String?
+  cuit      String?
+  cbu       String?
+  aliasCbu  String?
+  diasVenc  Int?
+  iva       Decimal?
+  ivaDif    Decimal?
+  email     String?
+  observac  String?
+  fecUltipp DateTime?
+  detPerc   String?
+
+  compras        Compra[]
+  detallesCompra DetalleCompra[]
+
+  @@map("proveedores")
+}
+
+// ─── TRANSACCIONALES ─────────────────────────────────────────────────────────
+
+model Compra {
+  rowId       String  @id
+  comprobante String? // generado en ETL: COD_CPB + NUMERO1(4) + NUMERO2(8)
+
+  codCga    String?
+  concepto  String?
+  fecha     DateTime?
+  codigo    String?  // código proveedor del ERP (texto)
+  proveedor String?  // nombre proveedor del ERP (texto)
+  detalle   String?
+  observac  String?
+  importe   Decimal?
+  importeTrabajado Decimal? // = importe en Fase 1; campo para prorrateo en Fase 2
+  impInt    Decimal?
+  imputac   String?
+  per1      Decimal?
+  per2      Decimal?
+  per3      Decimal?
+
+  localId        Int?
+  puntoDeVentaId Int?
+  local          Local?        @relation(fields: [localId], references: [id])
+  puntoDeVenta   PuntoDeVenta? @relation(fields: [puntoDeVentaId], references: [id])
+
+  conceptoCodigo String?
+  conceptoCaja   ConceptoCaja? @relation(fields: [conceptoCodigo], references: [codigo])
+
+  proveedorId  Int?
+  proveedorRef Proveedor? @relation(fields: [proveedorId], references: [id])
+
+  detalles DetalleCompra[]
+
+  @@index([fecha])
+  @@index([localId, puntoDeVentaId])
+  @@index([comprobante])
+  @@map("compras")
+}
+
+model DetalleCompra {
+  rowId       String @id
+
+  codPro      String?
+  codCpb      String?
+  numero1     String?
+  numero2     String?
+  comprobante String? // COD_CPB + NUMERO1(4) + NUMERO2(8) — FK lógica hacia compras
+
+  fecha    DateTime?
+  codigo   String?  // id producto del ERP
+  nombre   String?
+  medida   String?
+  cantidad Decimal?
+  neto     Decimal?
+  totalIns Decimal?
+  naTot    Decimal?
+  impNtTot Decimal?
+  tasa     Decimal?
+  iva      Decimal?
+  impInt   Decimal?
+  percep   Decimal?
+  observac String?
+
+  compraId String?
+  compra   Compra? @relation(fields: [compraId], references: [rowId])
+
+  articuloCodigo String?
+  articulo       Articulo? @relation(fields: [articuloCodigo], references: [codigo])
+
+  proveedorId Int?
+  proveedor   Proveedor? @relation(fields: [proveedorId], references: [id])
+
+  @@index([comprobante])
+  @@index([compraId])
+  @@map("detalle_compras")
+}
+
+model Venta {
+  rowId      String @id
+
+  turno      String?
+  comprobant String?
+  hora       String?
+  tipo       String?
+  mesa       String?
+  mozo       String?
+  cub        String?
+  cobro      String?  // texto forma de cobro
+  codCobro   String?  // id forma de cobro
+  importe    Decimal?
+  importeTrabajado Decimal? // = importe en Fase 1; campo para prorrateo en Fase 2
+  total      Decimal?
+  descuento  Decimal?
+  cliNombre  String?
+  cliRazon   String?
+  cliCut     String?
+  fecha      DateTime?
+  codSuc     String?
+  nombreSuc  String?
+  cupon      String?
+
+  localId        Int?
+  puntoDeVentaId Int?
+  local          Local?        @relation(fields: [localId], references: [id])
+  puntoDeVenta   PuntoDeVenta? @relation(fields: [puntoDeVentaId], references: [id])
+
+  @@index([fecha])
+  @@index([localId, puntoDeVentaId])
+  @@map("ventas")
+}
