@@ -48,6 +48,23 @@ export function normalizeText(val: unknown): string | null {
   return s === "" ? null : s;
 }
 
+// ─── Normalización de campos estructurados ───────────────────────────────────
+
+export function normalizePhone(val: unknown): string | null {
+  if (val == null) return null;
+  const s = String(val).trim();
+  if (s === "") return null;
+  if (/^[\d\s\-()+]+$/.test(s)) return s.replace(/\s+/g, "");
+  return s;
+}
+
+export function normalizeCuit(val: unknown): string | null {
+  if (val == null) return null;
+  const s = String(val).trim();
+  if (s === "") return null;
+  return s.replace(/[-\s]/g, "");
+}
+
 // ─── Excel ────────────────────────────────────────────────────────────────────
 
 export function readExcelBuffer(buffer: Buffer): ETLRow[] {

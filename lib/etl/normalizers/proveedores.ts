@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { normalizeText, trim, toBool } from "../helpers";
+import { normalizeText, trim, toBool, normalizePhone, normalizeCuit } from "../helpers";
 import type { ETLRow, ETLRowError } from "../types";
 
 export async function normalizeProveedores(
@@ -23,11 +23,11 @@ export async function normalizeProveedores(
         direccion: normalizeText(r["DIRECCION"]),
         localidad: normalizeText(r["LOCALIDAD"]),
         contacto: normalizeText(r["CONTACTO"]),
-        telefono: trim(r["TELEFONO"]),
-        fax: trim(r["FAX"]),
-        celular: trim(r["CELULAR"]),
+        telefono: normalizePhone(r["TELEFONO"]),
+        fax: normalizePhone(r["FAX"]),
+        celular: normalizePhone(r["CELULAR"]),
         tipoIva: r["TIPO_IVA"] != null ? String(r["TIPO_IVA"]) : null,
-        cuit: trim(r["CUIT"]),
+        cuit: normalizeCuit(r["CUIT"]),
         cbu: trim(r["CBU"]),
         aliasCbu: trim(r["ALIASCBU"]),
         diasVenc: r["DIAS_VENC"] != null ? Number(r["DIAS_VENC"]) : null,
