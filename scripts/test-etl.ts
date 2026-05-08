@@ -1,9 +1,10 @@
-import * as fs from "fs";
 import * as path from "path";
 import { config } from "dotenv";
 
 config({ path: path.join(process.cwd(), ".env") });
+config({ path: path.join(process.cwd(), ".env.local"), override: true });
 
+import { createClient } from "@supabase/supabase-js";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { getExcelHeaders, readExcelBuffer } from "../lib/etl/helpers";
@@ -14,6 +15,14 @@ import { normalizeSubrubrosArticulo } from "../lib/etl/normalizers/subrubros-art
 import { normalizeConceptosCaja } from "../lib/etl/normalizers/conceptos-caja";
 import { normalizeArticulos } from "../lib/etl/normalizers/articulos";
 import { normalizeProveedores } from "../lib/etl/normalizers/proveedores";
+
+const BUCKET = "seeds";
+const FOLDER = "maestros/version_1";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -27,42 +36,52 @@ const NORMALIZERS = {
   proveedores: normalizeProveedores,
 } as const;
 
-const SEED_DIR =
-  process.env.SEED_DIR ??
-  path.join(process.env.HOME!, "Downloads", "Diego Albo", "seedsVersion1");
-
-// Orden FK-safe
-const FILES = [
-  "rubrosConceptosDeCajaV7.XLSX",
-  "rubrosDeArticulosV7.XLSX",
-  "subrubroDe ArticulosV7.XLSX",
-  "conceptosDeCajaV7.XLSX",
-  "listadoDeArticulosV7.XLSX",
-  "proovedoresV7.XLSX",
-];
-
 async function main() {
-  console.log("=== Test ETL Motor ===\n");
-  console.log(`Leyendo desde: ${SEED_DIR}\n`);
+  console.log("=== Test ETL desde Supabase Storage ===\n");
+  console.log(`Bucket: ${BUCKET} / ${FOLDER}\n`);
 
-  for (const filename of FILES) {
-    const filePath = path.join(SEED_DIR, filename);
-    if (!fs.existsSync(filePath)) {
-      console.warn(`  [SKIP] No encontrado: ${filename}`);
+  const { data: files, error: listError } = await supabase.storage
+    .from(BUCKET)
+    .list(FOLDER, { sortBy: { column: "name", order: "asc" } });
+
+  if (listError) {
+    console.error("Error listando archivos:", listError.message);
+    process.exit(1);
+  }
+
+  const xlsxFiles = (files ?? []).filter((f) =>
+    f.name.match(/\.(xlsx|xls)$/i)
+  );
+
+  if (xlsxFiles.length === 0) {
+    console.warn("No se encontraron archivos Excel en la carpeta.");
+    process.exit(0);
+  }
+
+  console.log(`${xlsxFiles.length} archivos encontrados:\n`);
+
+  for (const file of xlsxFiles) {
+    const filePath = `${FOLDER}/${file.name}`;
+    console.log(`→ ${file.name}`);
+
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .download(filePath);
+
+    if (error || !data) {
+      console.error(`  [ERROR] No se pudo descargar: ${error?.message}`);
       continue;
     }
 
-    const buffer = fs.readFileSync(filePath);
+    const buffer = Buffer.from(await data.arrayBuffer());
     const headers = getExcelHeaders(buffer);
     const fileType = detectFileType(headers);
 
     if (!fileType) {
-      console.error(`  [ERROR] Tipo no detectado: ${filename}`);
-      console.error(`  Headers: ${headers.join(", ")}`);
+      console.error(`  [ERROR] Tipo no detectado. Headers: ${headers.join(", ")}`);
       continue;
     }
 
-    console.log(`→ ${filename}`);
     console.log(`  Tipo detectado: ${fileType}`);
 
     const startMs = Date.now();
@@ -79,9 +98,7 @@ async function main() {
       errors.slice(0, 3).forEach((e) =>
         console.error(`    [fila ${e.rowIndex}] codigo:${e.rawCodigo} — ${e.message}`)
       );
-      if (errors.length > 3) {
-        console.error(`    ... y ${errors.length - 3} errores más`);
-      }
+      if (errors.length > 3) console.error(`    ... y ${errors.length - 3} más`);
     }
 
     console.log();
