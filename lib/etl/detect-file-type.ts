@@ -8,6 +8,9 @@ const DETECTION_RULES: [ETLFileType, string[]][] = [
   ["conceptosCaja",      ["TIPO", "COD_IMP", "COD_RGA"]],
   ["articulos",          ["PRECIO1", "PRECIO2", "PRECIO3", "PRECIO4"]],
   ["proveedores",        ["RAZON", "CUIT", "CBU", "ALIASCBU"]],
+  ["detalleCompras",     ["COD_CPB", "NUMERO1", "NUMERO2", "TOTALINS"]],
+  ["compras",            ["COD_CGA", "IMPUTAC", "PER1"]],
+  ["ventas",             ["TURNO", "COMPROBANT", "COBRO", "COD_COBRO"]],
 ];
 
 export function detectFileType(headers: string[]): ETLFileType | null {

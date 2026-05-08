@@ -4,9 +4,17 @@ export type ETLFileType =
   | "subrubrosArticulo"
   | "conceptosCaja"
   | "articulos"
-  | "proveedores";
+  | "proveedores"
+  | "compras"
+  | "detalleCompras"
+  | "ventas";
 
 export type ETLRow = Record<string, unknown>;
+
+export interface ETLContext {
+  localId?: number;
+  puntoDeVentaId?: number;
+}
 
 export interface ETLRowError {
   rowIndex: number;

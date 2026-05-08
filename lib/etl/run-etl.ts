@@ -7,20 +7,34 @@ import { normalizeSubrubrosArticulo } from "./normalizers/subrubros-articulo";
 import { normalizeConceptosCaja } from "./normalizers/conceptos-caja";
 import { normalizeArticulos } from "./normalizers/articulos";
 import { normalizeProveedores } from "./normalizers/proveedores";
-import type { ETLReport } from "./types";
+import { normalizeCompras } from "./normalizers/compras";
+import { normalizeDetalleCompras } from "./normalizers/detalle-compras";
+import { normalizeVentas } from "./normalizers/ventas";
+import type { ETLReport, ETLContext, ETLRow, ETLRowError } from "./types";
+import type { PrismaClient } from "@prisma/client";
 
-const NORMALIZERS = {
+type NormalizerFn = (
+  rows: ETLRow[],
+  prisma: PrismaClient,
+  ctx?: ETLContext
+) => Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }>;
+
+const NORMALIZERS: Record<string, NormalizerFn> = {
   rubrosConceptoCaja: normalizeRubrosConceptoCaja,
-  rubrosArticulo: normalizeRubrosArticulo,
-  subrubrosArticulo: normalizeSubrubrosArticulo,
-  conceptosCaja: normalizeConceptosCaja,
-  articulos: normalizeArticulos,
-  proveedores: normalizeProveedores,
-} as const;
+  rubrosArticulo:     normalizeRubrosArticulo,
+  subrubrosArticulo:  normalizeSubrubrosArticulo,
+  conceptosCaja:      normalizeConceptosCaja,
+  articulos:          normalizeArticulos,
+  proveedores:        normalizeProveedores,
+  compras:            normalizeCompras,
+  detalleCompras:     normalizeDetalleCompras,
+  ventas:             normalizeVentas,
+};
 
 export async function runETL(
   buffer: Buffer,
-  storagePath?: string
+  storagePath?: string,
+  ctx?: ETLContext
 ): Promise<ETLReport> {
   const startMs = Date.now();
 
@@ -35,7 +49,7 @@ export async function runETL(
 
   const rows = readExcelBuffer(buffer);
   const normalizer = NORMALIZERS[fileType];
-  const { created, updated, skipped, errors } = await normalizer(rows, prisma);
+  const { created, updated, skipped, errors } = await normalizer(rows, prisma, ctx);
 
   return {
     fileType,
