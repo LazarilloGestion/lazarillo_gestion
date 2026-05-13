@@ -1,7 +1,18 @@
 import { createHash } from "crypto";
 import type { PrismaClient } from "@prisma/client";
-import { normalizeText, trim, toDecimal, excelDateToISO } from "../helpers";
+import { trim, toDecimal, excelDateToISO } from "../helpers";
+
+// Convierte "A 0606-00761530" → "A060600761530" (mismo formato que detalle_compras.comprobante)
+function parseComprobanteFromDetalle(raw: unknown): string | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const match = s.match(/^(\S+)\s+(\d+)-(\d+)$/);
+  if (!match) return null;
+  const [, cod, num1, num2] = match;
+  return cod + num1.padStart(4, "0") + num2.padStart(8, "0");
+}
 import type { ETLRow, ETLRowError, ETLContext } from "../types";
+
 
 function makeRowId(r: ETLRow): string {
   const key = [r["COD_CGA"], r["FECHA"], r["CODIGO"], r["CONCEPTO"], r["IMPORTE"]]
@@ -28,13 +39,14 @@ export async function normalizeCompras(
       const rowId = makeRowId(r);
       const importe = toDecimal(r["IMPORTE"]);
       const data = {
-        codCga:    trim(r["COD_CGA"]),
-        concepto:  normalizeText(r["CONCEPTO"]),
-        fecha:     excelDateToISO(r["FECHA"]) ? new Date(excelDateToISO(r["FECHA"])!) : null,
-        codigo:    trim(r["CODIGO"]),
-        proveedor: normalizeText(r["PROVEEDOR"]),
-        detalle:   normalizeText(r["DETALLE"]),
-        observac:  normalizeText(r["OBSERVAC"]),
+        codCga:      trim(r["COD_CGA"]),
+        concepto:    trim(r["CONCEPTO"]),
+        comprobante: parseComprobanteFromDetalle(r["DETALLE"]),
+        fecha:       excelDateToISO(r["FECHA"]) ? new Date(excelDateToISO(r["FECHA"])!) : null,
+        codigo:      trim(r["CODIGO"]),
+        proveedor:   trim(r["PROVEEDOR"]),
+        detalle:     trim(r["DETALLE"]),
+        observac:    trim(r["OBSERVAC"]),
         importe:   importe != null ? importe : null,
         importeTrabajado: importe != null ? importe : null,
         impInt:    toDecimal(r["IMP_INT"]),
@@ -60,6 +72,15 @@ export async function normalizeCompras(
       });
     }
   }
+
+  // Vincular detalle_compras que ya existen con las compras recién actualizadas
+  await prisma.$executeRaw`
+    UPDATE detalle_compras dc
+    SET "compraId" = c."rowId"
+    FROM compras c
+    WHERE dc.comprobante = c.comprobante
+      AND dc."compraId" IS NULL
+  `;
 
   return { created, updated, skipped, errors };
 }

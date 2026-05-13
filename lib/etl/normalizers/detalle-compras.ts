@@ -70,5 +70,14 @@ export async function normalizeDetalleCompras(
     }
   }
 
+  // Vincular compraId: hacer match por comprobante entre ambas tablas
+  await prisma.$executeRaw`
+    UPDATE detalle_compras dc
+    SET "compraId" = c."rowId"
+    FROM compras c
+    WHERE dc.comprobante = c.comprobante
+      AND dc."compraId" IS NULL
+  `;
+
   return { created, updated, skipped, errors };
 }
