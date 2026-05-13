@@ -36,10 +36,11 @@ export async function normalizeVentas(
   let created = 0, updated = 0;
   const errors: ETLRowError[] = [];
 
-  const filled = fillPartialRows(rows);
-  // Filtrar filas sin turno ni importe (líneas vacías o totales)
-  const filtered = filled.filter((r) => r["turno"] != null && r["importe"] != null);
-  const skipped = rows.length - filtered.length;
+  // Filtrar primero: eliminar encabezados de fecha/totales del día (turno Y cod_cobro ambos nulos)
+  const validRows = rows.filter((r) => !(r["turno"] == null && r["cod_cobro"] == null));
+  const skipped = rows.length - validRows.length;
+  // Luego completar filas parciales (ventas con múltiples formas de pago)
+  const filtered = fillPartialRows(validRows);
 
   for (let i = 0; i < filtered.length; i++) {
     const r = filtered[i];
