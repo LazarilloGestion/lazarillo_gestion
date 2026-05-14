@@ -28,6 +28,22 @@ export async function normalizeDetalleCompras(
   const filtered = rows.filter((r) => r["COD_CPB"] != null && r["CODIGO"] != null);
   const skipped = rows.length - filtered.length;
 
+  const codigosArt = [...new Set(filtered.map((r) => trim(r["CODIGO"])).filter(Boolean))] as string[];
+  const artSet = new Set(
+    (await prisma.articulo.findMany({
+      where: { codigo: { in: codigosArt } },
+      select: { codigo: true },
+    })).map((a) => a.codigo)
+  );
+
+  const codigosProvDet = [...new Set(filtered.map((r) => trim(r["COD_PRO"])).filter(Boolean))] as string[];
+  const provMapDet = new Map(
+    (await prisma.proveedor.findMany({
+      where: { codigo: { in: codigosProvDet } },
+      select: { id: true, codigo: true },
+    })).map((p) => [p.codigo, p.id])
+  );
+
   for (let i = 0; i < filtered.length; i++) {
     const r = filtered[i];
     const rawCodigo = r["CODIGO"];
@@ -52,7 +68,9 @@ export async function normalizeDetalleCompras(
         iva:         toDecimal(r["IVA"]),
         impInt:      toDecimal(r["IMP_INT"]),
         percep:      toDecimal(r["PERCEP"]),
-        observac:    normalizeText(r["OBSERVAC"]),
+        observac:      normalizeText(r["OBSERVAC"]),
+        articuloCodigo: artSet.has(trim(r["CODIGO"]) ?? "") ? trim(r["CODIGO"]) : null,
+        proveedorId:    provMapDet.get(trim(r["COD_PRO"]) ?? "") ?? null,
       };
       const existing = await prisma.detalleCompra.findUnique({ where: { rowId }, select: { rowId: true } });
       await prisma.detalleCompra.upsert({

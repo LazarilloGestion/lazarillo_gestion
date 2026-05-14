@@ -32,6 +32,22 @@ export async function normalizeCompras(
   const filtered = rows.filter((r) => r["COD_CGA"] != null || r["FECHA"] != null);
   const skipped = rows.length - filtered.length;
 
+  const codigosProv = [...new Set(filtered.map((r) => trim(r["CODIGO"])).filter(Boolean))] as string[];
+  const provMap = new Map(
+    (await prisma.proveedor.findMany({
+      where: { codigo: { in: codigosProv } },
+      select: { id: true, codigo: true },
+    })).map((p) => [p.codigo, p.id])
+  );
+
+  const codigosConcepto = [...new Set(filtered.map((r) => trim(r["COD_CGA"])).filter(Boolean))] as string[];
+  const conceptoSet = new Set(
+    (await prisma.conceptoCaja.findMany({
+      where: { codigo: { in: codigosConcepto } },
+      select: { codigo: true },
+    })).map((c) => c.codigo)
+  );
+
   for (let i = 0; i < filtered.length; i++) {
     const r = filtered[i];
     const rawCodigo = r["CODIGO"];
@@ -54,6 +70,8 @@ export async function normalizeCompras(
         per1:      toDecimal(r["PER1"]),
         per2:      toDecimal(r["PER2"]),
         per3:      toDecimal(r["PER3"]),
+        proveedorId:    provMap.get(trim(r["CODIGO"]) ?? "") ?? null,
+        conceptoCodigo: conceptoSet.has(trim(r["COD_CGA"]) ?? "") ? trim(r["COD_CGA"]) : null,
         localId:        ctx?.localId ?? null,
         puntoDeVentaId: ctx?.puntoDeVentaId ?? null,
       };
