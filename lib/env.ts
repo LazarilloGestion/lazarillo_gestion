@@ -5,9 +5,13 @@ const EnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url("NEXT_PUBLIC_SUPABASE_URL debe ser una URL válida"),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1, "NEXT_PUBLIC_SUPABASE_ANON_KEY requerida"),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1, "SUPABASE_SERVICE_ROLE_KEY requerida"),
+  GOOGLE_CLIENT_ID: z.string().min(1, "GOOGLE_CLIENT_ID requerida"),
+  GOOGLE_CLIENT_SECRET: z.string().min(1, "GOOGLE_CLIENT_SECRET requerida"),
 });
 
-export const env = (() => {
+type Env = z.infer<typeof EnvSchema>;
+
+function parseEnv(): Env {
   const result = EnvSchema.safeParse(process.env);
   if (!result.success) {
     const msgs = result.error.issues
@@ -16,4 +20,13 @@ export const env = (() => {
     throw new Error(`Variables de entorno faltantes o inválidas:\n${msgs}`);
   }
   return result.data;
-})();
+}
+
+// Lazy: valida al primer acceso (runtime), no al importar el módulo (build time).
+let _cached: Env | null = null;
+export const env = new Proxy({} as Env, {
+  get(_, key: string) {
+    if (!_cached) _cached = parseEnv();
+    return _cached[key as keyof Env];
+  },
+});
