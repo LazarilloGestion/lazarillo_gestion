@@ -1,19 +1,20 @@
 import { createHash } from "crypto";
 import type { PrismaClient } from "@prisma/client";
-import { trim, toDecimal, excelDateToISO } from "../helpers";
+import { trim, toDecimal, safeDate } from "../helpers";
+import { processBatch } from "../normalizer-utils";
 import type { ETLRow, ETLRowError, ETLContext } from "../types";
 
 function makeRowId(r: ETLRow): string {
-  const key = [r["turno"], r["comprobant"], r["cod_cobro"], r["cobro"], r["importe"]]
+  const key = [r["TURNO"], r["COMPROBANT"], r["COD_COBRO"], r["COBRO"], r["IMPORTE"]]
     .map((v) => String(v ?? ""))
     .join("|");
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
 }
 
-// Completa las cols A-F (turno→mozo) cuando una venta tiene múltiples formas de pago.
+// Completa TURNO→MOZO cuando una venta tiene múltiples formas de pago.
 // El ERP deja esos campos vacíos en las filas secundarias; se heredan de la fila anterior.
 function fillPartialRows(rows: ETLRow[]): ETLRow[] {
-  const CARRY_FIELDS = ["turno", "comprobant", "hora", "tipo", "mesa", "mozo"];
+  const CARRY_FIELDS = ["TURNO", "COMPROBANT", "HORA", "TIPO", "MESA", "MOZO"];
   let last: Partial<ETLRow> = {};
   return rows.map((r) => {
     const filled = { ...r };
@@ -34,59 +35,59 @@ export async function normalizeVentas(
   ctx?: ETLContext
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   let created = 0, updated = 0;
-  const errors: ETLRowError[] = [];
 
-  // Filtrar primero: eliminar encabezados de fecha/totales del día (turno Y cod_cobro ambos nulos)
-  const validRows = rows.filter((r) => !(r["turno"] == null && r["cod_cobro"] == null));
+  // Filtrar primero: eliminar encabezados de fecha/totales del día (TURNO Y COD_COBRO ambos nulos)
+  const validRows = rows.filter((r) => !(r["TURNO"] == null && r["COD_COBRO"] == null));
   const skipped = rows.length - validRows.length;
   // Luego completar filas parciales (ventas con múltiples formas de pago)
   const filtered = fillPartialRows(validRows);
 
-  for (let i = 0; i < filtered.length; i++) {
-    const r = filtered[i];
-    const rawCodigo = r["comprobant"];
-    try {
+  const allRowIds = filtered.map((r) => makeRowId(r));
+  const existingRowIds = new Set(
+    (await prisma.venta.findMany({
+      where: { rowId: { in: allRowIds } },
+      select: { rowId: true },
+    })).map((v) => v.rowId)
+  );
+
+  const errors = await processBatch(
+    filtered,
+    async (r) => {
       const rowId = makeRowId(r);
-      const importe = toDecimal(r["importe"]);
+      const importe = toDecimal(r["IMPORTE"]);
       const data = {
-        turno:       trim(r["turno"]),
-        comprobant:  trim(r["comprobant"]),
-        hora:        trim(r["hora"]),
-        tipo:        trim(r["tipo"]),
-        mesa:        trim(r["mesa"]),
-        mozo:        trim(r["mozo"]),
-        cub:         trim(r["cub"]),
-        cobro:       trim(r["cobro"]),
-        codCobro:    trim(r["cod_cobro"]),
-        importe:     importe,
+        turno:       trim(r["TURNO"]),
+        comprobant:  trim(r["COMPROBANT"]),
+        hora:        trim(r["HORA"]),
+        tipo:        trim(r["TIPO"]),
+        mesa:        trim(r["MESA"]),
+        mozo:        trim(r["MOZO"]),
+        cub:         trim(r["CUB"]),
+        cobro:       trim(r["COBRO"]),
+        codCobro:    trim(r["COD_COBRO"]),
+        importe:          importe,
         importeTrabajado: importe,
-        total:       toDecimal(r["total"]),
-        descuento:   toDecimal(r["descuento"]),
-        cliNombre:   trim(r["clinombre"]),
-        cliRazon:    trim(r["clirazon"]),
-        cliCut:      trim(r["clicuit"]),
-        fecha:       excelDateToISO(r["fecha"]) ? new Date(excelDateToISO(r["fecha"])!) : null,
-        codSuc:      trim(r["cod_suc"]),
-        nombreSuc:   trim(r["nombresuc"]),
-        cupon:       trim(r["cupon"]),
+        total:       toDecimal(r["TOTAL"]),
+        descuento:   toDecimal(r["DESCUENTO"]),
+        cliNombre:   trim(r["CLINOMBRE"]),
+        cliRazon:    trim(r["CLIRAZON"]),
+        cliCut:      trim(r["CLICUIT"]),
+        fecha:       safeDate(r["FECHA"]),
+        codSuc:      trim(r["COD_SUC"]),
+        nombreSuc:   trim(r["NOMBRESUC"]),
+        cupon:       trim(r["CUPON"]),
         localId:        ctx?.localId ?? null,
         puntoDeVentaId: ctx?.puntoDeVentaId ?? null,
       };
-      const existing = await prisma.venta.findUnique({ where: { rowId }, select: { rowId: true } });
       await prisma.venta.upsert({
         where:  { rowId },
         update: data,
         create: { rowId, ...data },
       });
-      if (existing) updated++; else created++;
-    } catch (err) {
-      errors.push({
-        rowIndex: i,
-        rawCodigo,
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+      if (existingRowIds.has(rowId)) updated++; else created++;
+    },
+    (r) => r["COMPROBANT"]
+  );
 
   return { created, updated, skipped, errors };
 }

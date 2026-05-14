@@ -1,9 +1,4 @@
-import * as path from "path";
-import { config } from "dotenv";
-
-config({ path: path.join(process.cwd(), ".env") });
-config({ path: path.join(process.cwd(), ".env.local"), override: true });
-
+import "./load-env";
 import { createClient } from "@supabase/supabase-js";
 import type { ETLContext, ETLReport } from "../lib/etl/types";
 

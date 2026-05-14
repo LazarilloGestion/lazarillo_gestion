@@ -32,6 +32,14 @@ export function excelDateToISO(val: unknown): string | null {
   return null;
 }
 
+// Convierte un valor Excel de fecha a Date, validando el resultado.
+export function safeDate(val: unknown): Date | null {
+  const iso = excelDateToISO(val);
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 // ─── Normalización de texto ───────────────────────────────────────────────────
 
 export function normalizeText(val: unknown): string | null {
@@ -67,13 +75,23 @@ export function normalizeCuit(val: unknown): string | null {
 
 // ─── Excel ────────────────────────────────────────────────────────────────────
 
+// Normaliza todas las keys a UPPERCASE para acceso consistente en todos los normalizers.
 export function readExcelBuffer(buffer: Buffer): ETLRow[] {
   const wb = XLSX.read(buffer, { type: "buffer" });
-  return XLSX.utils.sheet_to_json<ETLRow>(wb.Sheets[wb.SheetNames[0]]);
+  if (!wb.SheetNames.length) return [];
+  const rows = XLSX.utils.sheet_to_json<ETLRow>(wb.Sheets[wb.SheetNames[0]]);
+  return rows.map((r) => {
+    const normalized: ETLRow = {};
+    for (const key of Object.keys(r)) {
+      normalized[key.trim().toUpperCase()] = r[key];
+    }
+    return normalized;
+  });
 }
 
 export function getExcelHeaders(buffer: Buffer): string[] {
   const wb = XLSX.read(buffer, { type: "buffer" });
+  if (!wb.SheetNames.length) return [];
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const [headerRow] = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
   return Array.isArray(headerRow) ? (headerRow as string[]) : [];

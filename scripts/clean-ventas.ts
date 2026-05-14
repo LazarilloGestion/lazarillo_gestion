@@ -1,7 +1,10 @@
-import * as path from "path";
-import { config } from "dotenv";
-config({ path: path.join(process.cwd(), ".env") });
-config({ path: path.join(process.cwd(), ".env.local"), override: true });
+import "./load-env";
+
+if (process.argv[2] !== "--confirm") {
+  console.error("Esta operación elimina TODOS los datos de ventas de la DB.");
+  console.error("Para ejecutar: npx tsx scripts/clean-ventas.ts --confirm");
+  process.exit(1);
+}
 
 async function main() {
   const { prisma } = await import("../lib/prisma");

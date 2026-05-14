@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizeText, toDecimal } from "../helpers";
+import { processBatch } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
 
 export async function normalizeArticulos(
@@ -7,16 +8,25 @@ export async function normalizeArticulos(
   prisma: PrismaClient
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   let created = 0, updated = 0;
-  const errors: ETLRowError[] = [];
 
-  const filtered = rows.filter((r) => r["CODIGO"] != null);
+  const filtered = rows.filter((r) => {
+    const c = String(r["CODIGO"] ?? "").trim();
+    return c !== "";
+  });
   const skipped = rows.length - filtered.length;
 
-  for (let i = 0; i < filtered.length; i++) {
-    const r = filtered[i];
-    const rawCodigo = r["CODIGO"];
-    try {
-      const codigo = String(rawCodigo);
+  const allCodigos = filtered.map((r) => String(r["CODIGO"]).trim());
+  const existingCodigos = new Set(
+    (await prisma.articulo.findMany({
+      where: { codigo: { in: allCodigos } },
+      select: { codigo: true },
+    })).map((x) => x.codigo)
+  );
+
+  const errors = await processBatch(
+    filtered,
+    async (r) => {
+      const codigo = String(r["CODIGO"]).trim();
       const data = {
         nombre: normalizeText(r["NOMBRE"]) ?? "(sin nombre)",
         precio1: toDecimal(r["PRECIO1"]),
@@ -32,24 +42,15 @@ export async function normalizeArticulos(
             ? String(r["COD_SUA"])
             : null,
       };
-      const existing = await prisma.articulo.findUnique({
-        where: { codigo },
-        select: { codigo: true },
-      });
       await prisma.articulo.upsert({
         where: { codigo },
         update: data,
         create: { codigo, ...data },
       });
-      if (existing) updated++; else created++;
-    } catch (err) {
-      errors.push({
-        rowIndex: i,
-        rawCodigo,
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+      if (existingCodigos.has(codigo)) updated++; else created++;
+    },
+    (r) => r["CODIGO"]
+  );
 
   return { created, updated, skipped, errors };
 }

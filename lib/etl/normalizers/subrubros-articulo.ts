@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { normalizeText, trim, toBool, excelDateToISO } from "../helpers";
+import { processBatch } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
 
 export async function normalizeSubrubrosArticulo(
@@ -7,16 +8,25 @@ export async function normalizeSubrubrosArticulo(
   prisma: PrismaClient
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   let created = 0, updated = 0;
-  const errors: ETLRowError[] = [];
 
-  const filtered = rows.filter((r) => r["ID"] != null);
+  const filtered = rows.filter((r) => {
+    const c = trim(r["CODIGO"]);
+    return c != null && c !== "";
+  });
   const skipped = rows.length - filtered.length;
 
-  for (let i = 0; i < filtered.length; i++) {
-    const r = filtered[i];
-    const rawCodigo = r["CODIGO"];
-    try {
-      const codigo = String(rawCodigo);
+  const allCodigos = filtered.map((r) => String(r["CODIGO"]).trim());
+  const existingCodigos = new Set(
+    (await prisma.subrubroArticulo.findMany({
+      where: { codigo: { in: allCodigos } },
+      select: { codigo: true },
+    })).map((x) => x.codigo)
+  );
+
+  const errors = await processBatch(
+    filtered,
+    async (r) => {
+      const codigo = String(r["CODIGO"]).trim();
       const fechaRaw = excelDateToISO(r["FECHA_UPDA"]);
       const data = {
         nombre: normalizeText(r["NOMBRE"]) ?? "(sin nombre)",
@@ -26,24 +36,15 @@ export async function normalizeSubrubrosArticulo(
         eveFormH: trim(r["EVE_FORMH"]),
         fechaUpda: fechaRaw ? new Date(fechaRaw) : null,
       };
-      const existing = await prisma.subrubroArticulo.findUnique({
-        where: { codigo },
-        select: { codigo: true },
-      });
       await prisma.subrubroArticulo.upsert({
         where: { codigo },
         update: data,
         create: { codigo, ...data },
       });
-      if (existing) updated++; else created++;
-    } catch (err) {
-      errors.push({
-        rowIndex: i,
-        rawCodigo,
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+      if (existingCodigos.has(codigo)) updated++; else created++;
+    },
+    (r) => r["CODIGO"]
+  );
 
   return { created, updated, skipped, errors };
 }

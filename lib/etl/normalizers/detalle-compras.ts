@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import type { PrismaClient } from "@prisma/client";
-import { normalizeText, trim, toDecimal, excelDateToISO } from "../helpers";
+import { normalizeText, trim, toDecimal, safeDate } from "../helpers";
+import { processBatch, linkDetalleComprasByComprobante } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
 
 function makeComprobante(r: ETLRow): string | null {
@@ -23,7 +24,6 @@ export async function normalizeDetalleCompras(
   prisma: PrismaClient
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   let created = 0, updated = 0;
-  const errors: ETLRowError[] = [];
 
   const filtered = rows.filter((r) => r["COD_CPB"] != null && r["CODIGO"] != null);
   const skipped = rows.length - filtered.length;
@@ -44,10 +44,17 @@ export async function normalizeDetalleCompras(
     })).map((p) => [p.codigo, p.id])
   );
 
-  for (let i = 0; i < filtered.length; i++) {
-    const r = filtered[i];
-    const rawCodigo = r["CODIGO"];
-    try {
+  const allRowIds = filtered.map((r) => makeRowId(r));
+  const existingRowIds = new Set(
+    (await prisma.detalleCompra.findMany({
+      where: { rowId: { in: allRowIds } },
+      select: { rowId: true },
+    })).map((d) => d.rowId)
+  );
+
+  const errors = await processBatch(
+    filtered,
+    async (r) => {
       const rowId = makeRowId(r);
       const data = {
         codPro:      trim(r["COD_PRO"]),
@@ -55,47 +62,34 @@ export async function normalizeDetalleCompras(
         numero1:     trim(r["NUMERO1"]),
         numero2:     trim(r["NUMERO2"]),
         comprobante: makeComprobante(r),
-        fecha:       excelDateToISO(r["FECHA"]) ? new Date(excelDateToISO(r["FECHA"])!) : null,
+        fecha:       safeDate(r["FECHA"]),
         codigo:      trim(r["CODIGO"]),
         nombre:      normalizeText(r["NOMBRE"]),
         medida:      trim(r["MEDIDA"]),
         cantidad:    toDecimal(r["CANTIDAD"]),
         neto:        toDecimal(r["NETO"]),
         totalIns:    toDecimal(r["TOTALINS"]),
-        naTot:       toDecimal(r["IVATOT"]),
+        ivaTot:      toDecimal(r["IVATOT"]),
         impNtTot:    toDecimal(r["IMPINTTOT"]),
         tasa:        toDecimal(r["TASA"]),
         iva:         toDecimal(r["IVA"]),
         impInt:      toDecimal(r["IMP_INT"]),
         percep:      toDecimal(r["PERCEP"]),
-        observac:      normalizeText(r["OBSERVAC"]),
+        observac:    normalizeText(r["OBSERVAC"]),
         articuloCodigo: artSet.has(trim(r["CODIGO"]) ?? "") ? trim(r["CODIGO"]) : null,
         proveedorId:    provMapDet.get(trim(r["COD_PRO"]) ?? "") ?? null,
       };
-      const existing = await prisma.detalleCompra.findUnique({ where: { rowId }, select: { rowId: true } });
       await prisma.detalleCompra.upsert({
         where:  { rowId },
         update: data,
         create: { rowId, ...data },
       });
-      if (existing) updated++; else created++;
-    } catch (err) {
-      errors.push({
-        rowIndex: i,
-        rawCodigo,
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+      if (existingRowIds.has(rowId)) updated++; else created++;
+    },
+    (r) => r["CODIGO"]
+  );
 
-  // Vincular compraId: hacer match por comprobante entre ambas tablas
-  await prisma.$executeRaw`
-    UPDATE detalle_compras dc
-    SET "compraId" = c."rowId"
-    FROM compras c
-    WHERE dc.comprobante = c.comprobante
-      AND dc."compraId" IS NULL
-  `;
+  await linkDetalleComprasByComprobante(prisma);
 
   return { created, updated, skipped, errors };
 }

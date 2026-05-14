@@ -205,7 +205,7 @@ model DetalleCompra {
   cantidad Decimal?
   neto     Decimal?
   totalIns Decimal?
-  naTot    Decimal?
+  ivaTot   Decimal?
   impNtTot Decimal?
   tasa     Decimal?
   iva      Decimal?
