@@ -6,13 +6,15 @@ import { Prisma } from "@prisma/client";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-  if (error || !user) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  if (process.env.NODE_ENV !== "development") {
+    const supabase = await createClient();
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
+    if (error || !user) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
   }
 
   const { searchParams } = new URL(request.url);
