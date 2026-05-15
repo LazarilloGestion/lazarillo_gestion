@@ -1,3 +1,11 @@
+import type { PrismaClient } from "@prisma/client";
+
+// Compatible con PrismaClient y con el cliente de transacción (sin $connect/$disconnect/$transaction)
+export type DbClient = Omit<
+  PrismaClient,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
+>;
+
 export type ETLFileType =
   | "rubrosConceptoCaja"
   | "rubrosArticulo"

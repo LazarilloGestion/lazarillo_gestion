@@ -10,12 +10,11 @@ import { normalizeProveedores } from "./normalizers/proveedores";
 import { normalizeCompras } from "./normalizers/compras";
 import { normalizeDetalleCompras } from "./normalizers/detalle-compras";
 import { normalizeVentas } from "./normalizers/ventas";
-import type { ETLReport, ETLContext, ETLRow, ETLRowError } from "./types";
-import type { PrismaClient } from "@prisma/client";
+import type { ETLReport, ETLContext, ETLRow, ETLRowError, DbClient } from "./types";
 
 type NormalizerFn = (
   rows: ETLRow[],
-  prisma: PrismaClient,
+  db: DbClient,
   ctx?: ETLContext
 ) => Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }>;
 
@@ -34,7 +33,8 @@ const NORMALIZERS: Record<string, NormalizerFn> = {
 export async function runETL(
   buffer: Buffer,
   storagePath?: string,
-  ctx?: ETLContext
+  ctx?: ETLContext,
+  db?: DbClient
 ): Promise<ETLReport> {
   const startMs = Date.now();
 
@@ -49,7 +49,8 @@ export async function runETL(
 
   const rows = readExcelBuffer(buffer);
   const normalizer = NORMALIZERS[fileType];
-  const { created, updated, skipped, errors } = await normalizer(rows, prisma, ctx);
+  const client = db ?? (prisma as unknown as DbClient);
+  const { created, updated, skipped, errors } = await normalizer(rows, client, ctx);
 
   return {
     fileType,

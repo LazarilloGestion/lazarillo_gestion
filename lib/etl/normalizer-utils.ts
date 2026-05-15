@@ -1,12 +1,11 @@
-import type { PrismaClient } from "@prisma/client";
-import type { ETLRowError } from "./types";
+import type { DbClient, ETLRowError } from "./types";
 
 const BATCH_SIZE = 50;
 
 // Vincula detalle_compras.compraId por coincidencia de comprobante.
 // Se llama al final de normalizeCompras y normalizeDetalleCompras para
 // que el orden de importación no afecte el vínculo.
-export async function linkDetalleComprasByComprobante(prisma: PrismaClient): Promise<void> {
+export async function linkDetalleComprasByComprobante(prisma: DbClient): Promise<void> {
   await prisma.$executeRaw`
     UPDATE detalle_compras dc
     SET "compraId" = c."rowId"

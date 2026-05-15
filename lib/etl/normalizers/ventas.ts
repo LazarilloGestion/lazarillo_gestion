@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
-import type { PrismaClient } from "@prisma/client";
-import { trim, toDecimal, safeDate } from "../helpers";
+import type { DbClient } from "../types";
+import { trim, toDecimal, toDecimalStr, safeDate } from "../helpers";
 import { processBatch } from "../normalizer-utils";
 import type { ETLRow, ETLRowError, ETLContext } from "../types";
 
@@ -31,7 +31,7 @@ function fillPartialRows(rows: ETLRow[]): ETLRow[] {
 
 export async function normalizeVentas(
   rows: ETLRow[],
-  prisma: PrismaClient,
+  prisma: DbClient,
   ctx?: ETLContext
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   let created = 0, updated = 0;
@@ -54,7 +54,7 @@ export async function normalizeVentas(
     filtered,
     async (r) => {
       const rowId = makeRowId(r);
-      const importe = toDecimal(r["IMPORTE"]);
+      const importe = toDecimalStr(r["IMPORTE"]);
       const data = {
         turno:       trim(r["TURNO"]),
         comprobant:  trim(r["COMPROBANT"]),
@@ -67,8 +67,8 @@ export async function normalizeVentas(
         codCobro:    trim(r["COD_COBRO"]),
         importe:          importe,
         importeTrabajado: importe,
-        total:       toDecimal(r["TOTAL"]),
-        descuento:   toDecimal(r["DESCUENTO"]),
+        total:       toDecimalStr(r["TOTAL"]),
+        descuento:   toDecimalStr(r["DESCUENTO"]),
         cliNombre:   trim(r["CLINOMBRE"]),
         cliRazon:    trim(r["CLIRAZON"]),
         cliCut:      trim(r["CLICUIT"]),

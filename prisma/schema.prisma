@@ -57,6 +57,7 @@ model ConceptoCaja {
 
   compras Compra[]
 
+  @@index([codRga])
   @@map("conceptos_caja")
 }
 

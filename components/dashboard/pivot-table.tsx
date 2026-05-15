@@ -1,9 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtARS } from "@/lib/utils";
+import { MONTHS, MONTH_IDXS } from "@/lib/dashboard/constants";
+import { buildDashboardUrl } from "@/lib/dashboard/params";
 import type {
   PivotData,
   PivotRubroRow,
@@ -13,20 +16,10 @@ import type {
 } from "@/lib/dashboard/types";
 import { DetalleModal } from "./detalle-modal";
 
-const MONTHS = [
-  "Ene", "Feb", "Mar", "Abr", "May", "Jun",
-  "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
-];
-const MONTH_IDXS = Array.from({ length: 12 }, (_, i) => i + 1);
+const EPSILON = 0.01; // Umbral: valores < $0.01 se tratan como cero
 
-const fmt = new Intl.NumberFormat("es-AR", {
-  style: "currency",
-  currency: "ARS",
-  maximumFractionDigits: 0,
-});
-
-function fmtVal(v: number | undefined): string {
-  return v ? fmt.format(v) : "—";
+function hasValue(v: number | undefined): boolean {
+  return (v ?? 0) > EPSILON;
 }
 
 type FlatRow =
@@ -63,14 +56,15 @@ export function PivotTable() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
 
-  const params = new URLSearchParams({ year: String(year) });
-  if (localId) params.set("localId", String(localId));
-  if (pdvId) params.set("pdvId", String(pdvId));
+  const url = useMemo(
+    () => buildDashboardUrl("/api/dashboard/pivot", { year, localId, pdvId }),
+    [year, localId, pdvId]
+  );
 
   const { data, isLoading, error } = useQuery<PivotData>({
     queryKey: ["pivot", year, localId, pdvId],
     queryFn: async () => {
-      const res = await fetch(`/api/dashboard/pivot?${params}`);
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Error cargando datos");
       return res.json();
     },
@@ -120,8 +114,8 @@ export function PivotTable() {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-muted/60 border-b">
-              <th className="sticky left-0 z-20 bg-muted/60 text-left px-4 py-3 font-medium text-muted-foreground min-w-[220px] whitespace-nowrap">
+            <tr className="bg-muted border-b">
+              <th className="sticky left-0 z-20 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Concepto / Proveedor
               </th>
               {MONTHS.map((m) => (
@@ -142,15 +136,25 @@ export function PivotTable() {
             {flatRows.map((item) => {
               if (item.type === "rubro") {
                 const rubro = item.data;
+                const isExpanded = expanded.has(rubro.id);
                 return (
                   <tr
                     key={rubro.id}
-                    className="border-b bg-muted/25 font-semibold cursor-pointer hover:bg-muted/50 transition-colors"
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    className="border-b bg-muted/25 font-semibold cursor-pointer hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                     onClick={() => toggleRow(rubro.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleRow(rubro.id);
+                      }
+                    }}
                   >
-                    <td className="sticky left-0 z-10 bg-inherit px-4 py-2.5">
+                    <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
                       <span className="flex items-center gap-1.5">
-                        {expanded.has(rubro.id) ? (
+                        {isExpanded ? (
                           <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
                         ) : (
                           <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
@@ -163,15 +167,15 @@ export function PivotTable() {
                         key={mes}
                         className={cn(
                           "text-right px-3 py-2.5 tabular-nums",
-                          rubro.values[mes] && "cursor-pointer hover:text-primary"
+                          hasValue(rubro.values[mes]) && "cursor-pointer hover:text-primary"
                         )}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (rubro.values[mes])
+                          if (hasValue(rubro.values[mes]))
                             openDetalle({ mes, rubroCodigo: rubro.rubroCodigo });
                         }}
                       >
-                        {fmtVal(rubro.values[mes])}
+                        {fmtARS(rubro.values[mes])}
                       </td>
                     ))}
                     <td
@@ -181,7 +185,7 @@ export function PivotTable() {
                         openDetalle({ rubroCodigo: rubro.rubroCodigo });
                       }}
                     >
-                      {fmt.format(rubro.rowTotal)}
+                      {fmtARS(rubro.rowTotal)}
                     </td>
                   </tr>
                 );
@@ -189,15 +193,25 @@ export function PivotTable() {
 
               if (item.type === "concepto") {
                 const concepto = item.data;
+                const isExpanded = expanded.has(concepto.id);
                 return (
                   <tr
                     key={concepto.id}
-                    className="border-b cursor-pointer hover:bg-accent/40 transition-colors"
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    className="border-b cursor-pointer hover:bg-accent/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                     onClick={() => toggleRow(concepto.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        toggleRow(concepto.id);
+                      }
+                    }}
                   >
-                    <td className="sticky left-0 z-10 bg-background px-4 py-2">
+                    <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
                       <span className="flex items-center gap-1.5 pl-5">
-                        {expanded.has(concepto.id) ? (
+                        {isExpanded ? (
                           <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
                         ) : (
                           <ChevronRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
@@ -210,15 +224,15 @@ export function PivotTable() {
                         key={mes}
                         className={cn(
                           "text-right px-3 py-2 tabular-nums text-muted-foreground",
-                          concepto.values[mes] && "cursor-pointer hover:text-foreground"
+                          hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
                         )}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (concepto.values[mes])
+                          if (hasValue(concepto.values[mes]))
                             openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo });
                         }}
                       >
-                        {fmtVal(concepto.values[mes])}
+                        {fmtARS(concepto.values[mes])}
                       </td>
                     ))}
                     <td
@@ -228,7 +242,7 @@ export function PivotTable() {
                         openDetalle({ conceptoCodigo: concepto.conceptoCodigo });
                       }}
                     >
-                      {fmt.format(concepto.rowTotal)}
+                      {fmtARS(concepto.rowTotal)}
                     </td>
                   </tr>
                 );
@@ -240,7 +254,7 @@ export function PivotTable() {
                   key={prov.id}
                   className="border-b hover:bg-accent/20 transition-colors"
                 >
-                  <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-muted-foreground pl-14 text-xs">
+                  <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-muted-foreground pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]">
                     {prov.nombre}
                   </td>
                   {MONTH_IDXS.map((mes) => (
@@ -248,10 +262,10 @@ export function PivotTable() {
                       key={mes}
                       className={cn(
                         "text-right px-3 py-1.5 tabular-nums text-muted-foreground text-xs",
-                        prov.values[mes] && "cursor-pointer hover:text-foreground"
+                        hasValue(prov.values[mes]) && "cursor-pointer hover:text-foreground"
                       )}
                       onClick={() => {
-                        if (prov.values[mes])
+                        if (hasValue(prov.values[mes]))
                           openDetalle({
                             mes,
                             conceptoCodigo: prov.conceptoCodigo,
@@ -259,7 +273,7 @@ export function PivotTable() {
                           });
                       }}
                     >
-                      {fmtVal(prov.values[mes])}
+                      {fmtARS(prov.values[mes])}
                     </td>
                   ))}
                   <td
@@ -271,7 +285,7 @@ export function PivotTable() {
                       })
                     }
                   >
-                    {fmt.format(prov.rowTotal)}
+                    {fmtARS(prov.rowTotal)}
                   </td>
                 </tr>
               );
@@ -279,17 +293,17 @@ export function PivotTable() {
           </tbody>
 
           <tfoot>
-            <tr className="border-t-2 bg-muted/60 font-semibold">
-              <td className="sticky left-0 z-10 bg-muted/60 px-4 py-3 text-sm">
+            <tr className="border-t-2 bg-muted font-semibold">
+              <td className="sticky left-0 z-10 bg-muted px-4 py-3 text-sm shadow-[1px_0_0_0_hsl(var(--border))]">
                 Total {year}
               </td>
               {MONTH_IDXS.map((mes) => (
                 <td key={mes} className="text-right px-3 py-3 tabular-nums">
-                  {fmtVal(data.columnTotals[mes])}
+                  {fmtARS(data.columnTotals[mes])}
                 </td>
               ))}
               <td className="text-right px-4 py-3 tabular-nums text-primary font-bold">
-                {fmt.format(data.grandTotal)}
+                {fmtARS(data.grandTotal)}
               </td>
             </tr>
           </tfoot>

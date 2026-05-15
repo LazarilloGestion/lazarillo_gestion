@@ -1,43 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
+import { requireAuth } from "@/lib/auth/require-auth";
+import { parseDashboardParams } from "@/lib/dashboard/params";
 import type {
   PivotData,
   PivotRubroRow,
   PivotConceptoRow,
   PivotProveedorRow,
+  SqlRow,
 } from "@/lib/dashboard/types";
 
 export const dynamic = "force-dynamic";
 
-type SqlRow = {
-  rubro_codigo: string;
-  rubro_nombre: string;
-  concepto_codigo: string;
-  concepto_nombre: string;
-  proveedor_id: number | null;
-  proveedor_nombre: string;
-  mes: number;
-  total: number;
-};
-
 export async function GET(request: NextRequest) {
-  if (process.env.NODE_ENV !== "development") {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
-    if (error || !user) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
-  }
+  const denied = await requireAuth();
+  if (denied) return denied;
 
   const { searchParams } = new URL(request.url);
-  const year = Number(searchParams.get("year")) || new Date().getFullYear();
-  const localId = searchParams.get("localId") ? Number(searchParams.get("localId")) : null;
-  const pdvId = searchParams.get("pdvId") ? Number(searchParams.get("pdvId")) : null;
+  const { year, localId, pdvId } = parseDashboardParams(searchParams);
 
   const conditions: Prisma.Sql[] = [
     Prisma.sql`EXTRACT(YEAR FROM c.fecha) = ${year}`,
@@ -49,6 +30,7 @@ export async function GET(request: NextRequest) {
 
   const where = Prisma.join(conditions, " AND ");
 
+  // SUM devuelve numeric (Prisma.Decimal) — no castear a float para evitar drift.
   const rows = await prisma.$queryRaw<SqlRow[]>(Prisma.sql`
     SELECT
       COALESCE(rc.codigo, '__sin_rubro')                          AS rubro_codigo,
@@ -58,7 +40,7 @@ export async function GET(request: NextRequest) {
       p.id                                                        AS proveedor_id,
       COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor') AS proveedor_nombre,
       EXTRACT(MONTH FROM c.fecha)::int                           AS mes,
-      SUM(c.importe)::float                                      AS total
+      SUM(c.importe)                                             AS total
     FROM compras c
     LEFT JOIN conceptos_caja cc       ON c."conceptoCodigo" = cc.codigo
     LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
@@ -74,6 +56,8 @@ export async function GET(request: NextRequest) {
 function buildPivotData(sqlRows: SqlRow[]): PivotData {
   const rubroMap = new Map<string, PivotRubroRow>();
   const conceptoMap = new Map<string, PivotConceptoRow>();
+  // Map por proveedor dentro de cada concepto para O(1) lookup
+  const provRowMap = new Map<string, PivotProveedorRow>();
 
   for (const row of sqlRows) {
     const {
@@ -86,6 +70,11 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
       mes,
       total,
     } = row;
+
+    // Convertir Decimal/string a number preservando precisión
+    const t = typeof total === "object" && total !== null
+      ? Number(total.toString())
+      : Number(total);
 
     const provKey = proveedor_id != null ? String(proveedor_id) : "__sin_prov";
     const concKey = `${rubro_codigo}|${concepto_codigo}`;
@@ -102,7 +91,8 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
         children: [],
       });
     }
-    const rubro = rubroMap.get(rubro_codigo)!;
+    const rubro = rubroMap.get(rubro_codigo);
+    if (!rubro) throw new Error(`Rubro ${rubro_codigo} not found in map`);
 
     if (!conceptoMap.has(concKey)) {
       const concepto: PivotConceptoRow = {
@@ -118,11 +108,11 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
       conceptoMap.set(concKey, concepto);
       rubro.children.push(concepto);
     }
-    const concepto = conceptoMap.get(concKey)!;
+    const concepto = conceptoMap.get(concKey);
+    if (!concepto) throw new Error(`Concepto ${concKey} not found in map`);
 
-    let provRow = concepto.children.find((p) => p.id === provRowId);
-    if (!provRow) {
-      provRow = {
+    if (!provRowMap.has(provRowId)) {
+      const provRow: PivotProveedorRow = {
         level: 2,
         id: provRowId,
         nombre: proveedor_nombre,
@@ -132,10 +122,12 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
         values: {},
         rowTotal: 0,
       };
+      provRowMap.set(provRowId, provRow);
       concepto.children.push(provRow);
     }
+    const provRow = provRowMap.get(provRowId);
+    if (!provRow) throw new Error(`ProvRow ${provRowId} not found in map`);
 
-    const t = Number(total);
     provRow.values[mes] = (provRow.values[mes] ?? 0) + t;
     provRow.rowTotal += t;
   }

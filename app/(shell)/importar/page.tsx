@@ -11,26 +11,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Info } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ETLReport } from "@/lib/etl/types";
+import type { Local } from "@/lib/types/domain";
 
 type UploadState =
   | { status: "idle" }
   | { status: "uploading" }
-  | { status: "success"; report: ETLReport }
-  | { status: "error"; message: string };
-
-interface PuntoDeVenta {
-  id: number;
-  nombre: string;
-}
-
-interface Local {
-  id: number;
-  nombre: string;
-  puntosDeVenta: PuntoDeVenta[];
-}
+  | { status: "success"; reports: ETLReport[] }
+  | { status: "error"; message: string; reports?: ETLReport[] };
 
 const FILE_TYPE_LABELS: Record<string, string> = {
   rubrosConceptoCaja: "Rubros Concepto Caja",
@@ -50,39 +40,45 @@ export default function ImportarPage() {
   const [localId, setLocalId] = useState<string>("");
   const [puntoDeVentaId, setPuntoDeVentaId] = useState<string>("");
   const [dragOver, setDragOver] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/locales")
       .then((r) => r.json())
       .then((data: Local[]) => setLocales(Array.isArray(data) ? data : []))
-      .catch(() => {});
+      .catch((err) => console.error("Error cargando locales:", err));
   }, []);
 
   const puntosDeVenta =
     locales.find((l) => String(l.id) === localId)?.puntosDeVenta ?? [];
 
-  function pickFile(file: File) {
-    setSelectedFile(file);
-    setState({ status: "idle" });
+  function pickFiles(fileList: FileList) {
+    const arr = Array.from(fileList);
+    if (arr.length > 0) {
+      setSelectedFiles(arr);
+      setState({ status: "idle" });
+    }
+  }
+
+  function removeFile(index: number) {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) pickFile(file);
+    if (e.dataTransfer.files?.length) pickFiles(e.dataTransfer.files);
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
 
     setState({ status: "uploading" });
 
     const body = new FormData();
-    body.append("file", selectedFile);
+    for (const f of selectedFiles) body.append("files", f);
     if (localId) body.append("localId", localId);
     if (puntoDeVentaId) body.append("puntoDeVentaId", puntoDeVentaId);
 
@@ -90,12 +86,16 @@ export default function ImportarPage() {
       const res = await fetch("/api/etl/upload", { method: "POST", body });
       const json = await res.json();
       if (!res.ok) {
-        setState({ status: "error", message: json.error ?? "Error desconocido" });
+        setState({
+          status: "error",
+          message: json.error ?? "Error desconocido",
+          reports: json.reports,
+        });
       } else {
-        setState({ status: "success", report: json as ETLReport });
+        setState({ status: "success", reports: json as ETLReport[] });
       }
     } catch {
-      setState({ status: "error", message: "Error de red al subir el archivo" });
+      setState({ status: "error", message: "Error de red al subir los archivos" });
     }
   }
 
@@ -104,22 +104,18 @@ export default function ImportarPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Importar datos</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Subí un archivo Excel exportado del ERP. El tipo se detecta automáticamente.
+          Subí uno o varios archivos Excel del ERP. El tipo y el orden se detectan automáticamente.
         </p>
-      </div>
-
-      <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30 px-4 py-3 text-xs text-blue-700 dark:text-blue-400">
-        <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-        <span>
-          <strong>Orden maestros:</strong> Rubros Concepto Caja → Rubros Artículo → Subrubros Artículo → Conceptos Caja → Artículos → Proveedores
-        </span>
       </div>
 
       <Card>
         <CardContent className="pt-5 flex flex-col gap-5">
           {locales.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">Local <span className="text-muted-foreground font-normal">(archivos transaccionales)</span></label>
+              <label className="text-sm font-medium">
+                Local{" "}
+                <span className="text-muted-foreground font-normal">(archivos transaccionales)</span>
+              </label>
               <div className="flex gap-2">
                 <Select
                   value={localId}
@@ -161,7 +157,7 @@ export default function ImportarPage() {
                 "relative flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors cursor-pointer",
                 dragOver
                   ? "border-primary bg-primary/5"
-                  : selectedFile
+                  : selectedFiles.length > 0
                   ? "border-green-400 bg-green-50 dark:bg-green-950/20"
                   : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30"
               )}
@@ -174,19 +170,23 @@ export default function ImportarPage() {
                 ref={inputRef}
                 type="file"
                 accept=".xlsx,.xls"
+                multiple
                 className="sr-only"
                 onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) pickFile(f);
+                  if (e.target.files?.length) pickFiles(e.target.files);
                 }}
               />
-              {selectedFile ? (
+              {selectedFiles.length > 0 ? (
                 <>
                   <FileSpreadsheet className="w-8 h-8 text-green-500" />
                   <div>
-                    <p className="text-sm font-medium">{selectedFile.name}</p>
+                    <p className="text-sm font-medium">
+                      {selectedFiles.length === 1
+                        ? selectedFiles[0].name
+                        : `${selectedFiles.length} archivos seleccionados`}
+                    </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {(selectedFile.size / 1024).toFixed(0)} KB · Click para cambiar
+                      Click para cambiar
                     </p>
                   </div>
                 </>
@@ -195,30 +195,72 @@ export default function ImportarPage() {
                   <Upload className="w-8 h-8 text-muted-foreground" />
                   <div>
                     <p className="text-sm font-medium">Arrastrá o hacé click para seleccionar</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">.xlsx o .xls</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      .xlsx o .xls · podés subir varios a la vez
+                    </p>
                   </div>
                 </>
               )}
             </div>
 
+            {selectedFiles.length > 1 && (
+              <ul className="flex flex-col gap-1">
+                {selectedFiles.map((f, i) => (
+                  <li
+                    key={i}
+                    className="flex items-center justify-between rounded-md border px-3 py-1.5 text-xs"
+                  >
+                    <span className="truncate text-muted-foreground">{f.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      className="ml-2 shrink-0 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
             <Button
               type="submit"
-              disabled={!selectedFile || state.status === "uploading"}
+              disabled={selectedFiles.length === 0 || state.status === "uploading"}
               className="w-full"
             >
-              {state.status === "uploading" ? "Procesando..." : "Importar archivo"}
+              {state.status === "uploading"
+                ? "Procesando..."
+                : selectedFiles.length > 1
+                ? `Importar ${selectedFiles.length} archivos`
+                : "Importar archivo"}
             </Button>
           </form>
         </CardContent>
       </Card>
 
-      {state.status === "success" && <ReportCard report={state.report} />}
+      {state.status === "success" && (
+        <div className="flex flex-col gap-3">
+          {state.reports.map((r, i) => (
+            <ReportCard key={i} report={r} />
+          ))}
+        </div>
+      )}
 
       {state.status === "error" && (
-        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-          {state.message}
-        </div>
+        <>
+          <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            {state.message}
+          </div>
+          {state.reports && state.reports.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <p className="text-xs text-muted-foreground">Archivos procesados antes del error:</p>
+              {state.reports.map((r, i) => (
+                <ReportCard key={i} report={r} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -230,17 +272,14 @@ function ReportCard({ report }: { report: ETLReport }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-sm flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 text-green-500" />
-          Importación completada
+          {FILE_TYPE_LABELS[report.fileType] ?? report.fileType}
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-wrap gap-2 text-sm">
-          <span className="text-muted-foreground">Tipo:</span>
-          <strong>{FILE_TYPE_LABELS[report.fileType] ?? report.fileType}</strong>
-          <span className="text-muted-foreground">·</span>
-          <span className="text-muted-foreground">{report.totalRows} filas</span>
-          <span className="text-muted-foreground">·</span>
-          <span className="text-muted-foreground">{report.durationMs}ms</span>
+        <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+          <span>{report.totalRows} filas</span>
+          <span>·</span>
+          <span>{report.durationMs}ms</span>
         </div>
 
         <div className="flex gap-2 flex-wrap">

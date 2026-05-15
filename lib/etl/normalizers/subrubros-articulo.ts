@@ -1,11 +1,11 @@
-import type { PrismaClient } from "@prisma/client";
+import type { DbClient } from "../types";
 import { normalizeText, trim, toBool, excelDateToISO } from "../helpers";
 import { processBatch } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
 
 export async function normalizeSubrubrosArticulo(
   rows: ETLRow[],
-  prisma: PrismaClient
+  prisma: DbClient
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   let created = 0, updated = 0;
 

@@ -15,6 +15,15 @@ export function toDecimal(val: unknown): number | null {
   return isNaN(n) ? null : n;
 }
 
+// Para campos monetarios (Decimal? en Prisma): devuelve string para preservar
+// precisión completa y evitar drift de punto flotante IEEE 754.
+export function toDecimalStr(val: unknown): string | null {
+  if (val == null || val === "" || val === " ") return null;
+  const s = String(val).trim();
+  if (s === "" || isNaN(Number(s))) return null;
+  return s;
+}
+
 export function toBool(val: unknown): boolean | null {
   if (val == null) return null;
   if (typeof val === "boolean") return val;

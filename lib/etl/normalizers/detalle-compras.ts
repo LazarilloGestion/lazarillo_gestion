@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
-import type { PrismaClient } from "@prisma/client";
-import { normalizeText, trim, toDecimal, safeDate } from "../helpers";
+import type { DbClient } from "../types";
+import { normalizeText, trim, toDecimal, toDecimalStr, safeDate } from "../helpers";
 import { processBatch, linkDetalleComprasByComprobante } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
 
@@ -21,7 +21,7 @@ function makeRowId(r: ETLRow): string {
 
 export async function normalizeDetalleCompras(
   rows: ETLRow[],
-  prisma: PrismaClient
+  prisma: DbClient
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   let created = 0, updated = 0;
 
@@ -66,15 +66,15 @@ export async function normalizeDetalleCompras(
         codigo:      trim(r["CODIGO"]),
         nombre:      normalizeText(r["NOMBRE"]),
         medida:      trim(r["MEDIDA"]),
-        cantidad:    toDecimal(r["CANTIDAD"]),
-        neto:        toDecimal(r["NETO"]),
-        totalIns:    toDecimal(r["TOTALINS"]),
-        ivaTot:      toDecimal(r["IVATOT"]),
-        impNtTot:    toDecimal(r["IMPINTTOT"]),
-        tasa:        toDecimal(r["TASA"]),
-        iva:         toDecimal(r["IVA"]),
-        impInt:      toDecimal(r["IMP_INT"]),
-        percep:      toDecimal(r["PERCEP"]),
+        cantidad:    toDecimal(r["CANTIDAD"]),   // cantidad de unidades, no monetario
+        neto:        toDecimalStr(r["NETO"]),
+        totalIns:    toDecimalStr(r["TOTALINS"]),
+        ivaTot:      toDecimalStr(r["IVATOT"]),
+        impNtTot:    toDecimalStr(r["IMPINTTOT"]),
+        tasa:        toDecimal(r["TASA"]),        // porcentaje, no monetario
+        iva:         toDecimalStr(r["IVA"]),
+        impInt:      toDecimalStr(r["IMP_INT"]),
+        percep:      toDecimalStr(r["PERCEP"]),
         observac:    normalizeText(r["OBSERVAC"]),
         articuloCodigo: artSet.has(trim(r["CODIGO"]) ?? "") ? trim(r["CODIGO"]) : null,
         proveedorId:    provMapDet.get(trim(r["COD_PRO"]) ?? "") ?? null,

@@ -6,27 +6,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { DetalleFilter } from "@/lib/dashboard/types";
-
-type CompraDetalle = {
-  rowId: string;
-  fecha: string | null;
-  importe: number | null;
-  proveedor: string | null;
-  proveedorRef: { nombre: string | null; razon: string | null } | null;
-  local: { nombre: string } | null;
-  puntoDeVenta: { nombre: string } | null;
-  conceptoCaja: {
-    nombre: string;
-    rubro: { nombre: string } | null;
-  } | null;
-};
-
-const fmt = new Intl.NumberFormat("es-AR", {
-  style: "currency",
-  currency: "ARS",
-  maximumFractionDigits: 0,
-});
+import { fmtARS } from "@/lib/utils";
+import type { DetalleFilter, CompraDetalle } from "@/lib/dashboard/types";
 
 function buildUrl(filter: DetalleFilter): string {
   const params = new URLSearchParams({ year: String(filter.year) });
@@ -46,12 +27,15 @@ export function DetalleModal({
   filter: DetalleFilter | null;
   onClose: () => void;
 }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery<CompraDetalle[]>({
     queryKey: ["detalle", filter],
     queryFn: async () => {
-      const res = await fetch(buildUrl(filter!));
+      if (!filter) throw new Error("Filter requerido");
+      const res = await fetch(buildUrl(filter));
       if (!res.ok) throw new Error("Error cargando detalle");
-      return res.json() as Promise<CompraDetalle[]>;
+      const json = await res.json();
+      if (!Array.isArray(json)) throw new Error("Respuesta inesperada del servidor");
+      return json as CompraDetalle[];
     },
     enabled: filter !== null,
   });
@@ -72,6 +56,12 @@ export function DetalleModal({
           {isLoading && (
             <p className="text-sm text-muted-foreground py-6 text-center">
               Cargando...
+            </p>
+          )}
+
+          {error && (
+            <p className="text-sm text-destructive py-6 text-center">
+              Error al cargar los datos.
             </p>
           )}
 
@@ -121,7 +111,7 @@ export function DetalleModal({
                         {c.conceptoCaja?.rubro?.nombre ?? "—"}
                       </td>
                       <td className="py-1.5 text-right tabular-nums">
-                        {c.importe != null ? fmt.format(c.importe) : "—"}
+                        {fmtARS(c.importe != null ? Number(c.importe) : null)}
                       </td>
                     </tr>
                   ))}

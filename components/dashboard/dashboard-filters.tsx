@@ -9,16 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-interface PuntoDeVenta {
-  id: number;
-  nombre: string;
-}
-interface Local {
-  id: number;
-  nombre: string;
-  puntosDeVenta: PuntoDeVenta[];
-}
+import type { Local } from "@/lib/types/domain";
 
 const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: currentYear - 2019 }, (_, i) => currentYear - i);
@@ -33,10 +24,14 @@ export function DashboardFilters() {
   const pdvId = searchParams.get("pdvId") ?? "";
 
   useEffect(() => {
-    fetch("/api/locales")
+    const controller = new AbortController();
+    fetch("/api/locales", { signal: controller.signal })
       .then((r) => r.json())
       .then((data: Local[]) => setLocales(Array.isArray(data) ? data : []))
-      .catch(() => {});
+      .catch((err) => {
+        if (err.name !== "AbortError") console.error("Error cargando locales:", err);
+      });
+    return () => controller.abort();
   }, []);
 
   const puntosDeVenta =

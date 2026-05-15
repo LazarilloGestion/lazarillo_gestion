@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
-import type { PrismaClient } from "@prisma/client";
-import { trim, toDecimal, safeDate } from "../helpers";
+import type { DbClient } from "../types";
+import { trim, toDecimal, toDecimalStr, safeDate } from "../helpers";
 import { processBatch, linkDetalleComprasByComprobante } from "../normalizer-utils";
 import type { ETLRow, ETLRowError, ETLContext } from "../types";
 
@@ -23,7 +23,7 @@ function makeRowId(r: ETLRow): string {
 
 export async function normalizeCompras(
   rows: ETLRow[],
-  prisma: PrismaClient,
+  prisma: DbClient,
   ctx?: ETLContext
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   let created = 0, updated = 0;
@@ -59,7 +59,7 @@ export async function normalizeCompras(
     filtered,
     async (r) => {
       const rowId = makeRowId(r);
-      const importe = toDecimal(r["IMPORTE"]);
+      const importe = toDecimalStr(r["IMPORTE"]);
       const data = {
         codCga:      trim(r["COD_CGA"]),
         concepto:    trim(r["CONCEPTO"]),
@@ -71,11 +71,11 @@ export async function normalizeCompras(
         observac:    trim(r["OBSERVAC"]),
         importe:          importe,
         importeTrabajado: importe,
-        impInt:    toDecimal(r["IMP_INT"]),
+        impInt:    toDecimalStr(r["IMP_INT"]),
         imputac:   trim(r["IMPUTAC"]),
-        per1:      toDecimal(r["PER1"]),
-        per2:      toDecimal(r["PER2"]),
-        per3:      toDecimal(r["PER3"]),
+        per1:      toDecimalStr(r["PER1"]),
+        per2:      toDecimalStr(r["PER2"]),
+        per3:      toDecimalStr(r["PER3"]),
         proveedorId:    provMap.get(trim(r["CODIGO"]) ?? "") ?? null,
         conceptoCodigo: conceptoSet.has(trim(r["COD_CGA"]) ?? "") ? trim(r["COD_CGA"]) : null,
         localId:        ctx?.localId ?? null,
