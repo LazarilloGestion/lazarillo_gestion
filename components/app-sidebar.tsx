@@ -2,19 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Upload, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Upload } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -26,16 +27,20 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="h-14 flex flex-row items-center px-4 border-b">
-        <span className="font-semibold text-sm tracking-tight leading-tight group-data-[collapsible=icon]:hidden">
-          Lazarillo
-          <span className="text-muted-foreground font-normal"> Gestión</span>
-        </span>
-        <ChevronRight className="hidden group-data-[collapsible=icon]:block w-4 h-4 text-muted-foreground mx-auto" />
+      <SidebarHeader className="h-12 flex flex-row items-center px-4 border-b">
+        <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
+          <div className="w-6 h-6 rounded bg-foreground flex items-center justify-center shrink-0">
+            <span className="text-background text-[10px] font-bold">LG</span>
+          </div>
+          <span className="font-semibold text-sm tracking-tight group-data-[collapsible=icon]:hidden">
+            Lazarillo <span className="text-muted-foreground font-normal">Gestión</span>
+          </span>
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
         <SidebarGroup>
+          <SidebarGroupLabel>Navegación</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {NAV.map(({ href, label, icon: Icon }) => (
@@ -45,7 +50,7 @@ export function AppSidebar() {
                     isActive={pathname === href}
                     tooltip={label}
                   >
-                    <Link href={href} className={cn(pathname === href && "font-medium")}>
+                    <Link href={href}>
                       <Icon />
                       <span>{label}</span>
                     </Link>
@@ -56,6 +61,18 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
+      <SidebarFooter className="border-t">
+        <div className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-muted transition-colors cursor-default group-data-[collapsible=icon]:justify-center">
+          <div className="w-7 h-7 rounded-full bg-foreground flex items-center justify-center shrink-0">
+            <span className="text-background text-xs font-semibold">L</span>
+          </div>
+          <div className="flex flex-col min-w-0 group-data-[collapsible=icon]:hidden">
+            <span className="text-xs font-medium truncate">Lazarillo</span>
+            <span className="text-[11px] text-muted-foreground truncate">gestión operativa</span>
+          </div>
+        </div>
+      </SidebarFooter>
 
       <SidebarRail />
     </Sidebar>

@@ -117,7 +117,7 @@ export function PivotTable() {
 
   return (
     <>
-      <div className="rounded-lg border overflow-x-auto shadow-sm">
+      <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/60 border-b">
