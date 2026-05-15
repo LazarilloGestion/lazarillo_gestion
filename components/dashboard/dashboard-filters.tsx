@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { CalendarDays, Building2, Store } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -50,56 +51,65 @@ export function DashboardFilters() {
   }
 
   return (
-    <div className="flex flex-wrap gap-3 items-center">
-      <Select value={year} onValueChange={(v) => updateFilter("year", v)}>
-        <SelectTrigger className="w-28">
-          <SelectValue placeholder="Año" />
-        </SelectTrigger>
-        <SelectContent>
-          {YEARS.map((y) => (
-            <SelectItem key={y} value={String(y)}>
-              {y}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="flex flex-wrap gap-2 items-center">
+      <div className="flex items-center gap-1.5 text-muted-foreground">
+        <CalendarDays className="w-4 h-4" />
+        <Select value={year} onValueChange={(v) => updateFilter("year", v)}>
+          <SelectTrigger className="w-24 h-8 text-sm">
+            <SelectValue placeholder="Año" />
+          </SelectTrigger>
+          <SelectContent>
+            {YEARS.map((y) => (
+              <SelectItem key={y} value={String(y)}>
+                {y}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       {locales.length > 0 && (
         <>
-          <Select
-            value={localId || "__all"}
-            onValueChange={(v) => updateFilter("localId", v)}
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Todos los locales" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all">Todos los locales</SelectItem>
-              {locales.map((l) => (
-                <SelectItem key={l.id} value={String(l.id)}>
-                  {l.nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {localId && puntosDeVenta.length > 0 && (
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <Building2 className="w-4 h-4" />
             <Select
-              value={pdvId || "__all"}
-              onValueChange={(v) => updateFilter("pdvId", v)}
+              value={localId || "__all"}
+              onValueChange={(v) => updateFilter("localId", v)}
             >
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Todos los PDV" />
+              <SelectTrigger className="w-44 h-8 text-sm">
+                <SelectValue placeholder="Todos los locales" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__all">Todos los PDV</SelectItem>
-                {puntosDeVenta.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.nombre}
+                <SelectItem value="__all">Todos los locales</SelectItem>
+                {locales.map((l) => (
+                  <SelectItem key={l.id} value={String(l.id)}>
+                    {l.nombre}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {localId && puntosDeVenta.length > 0 && (
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Store className="w-4 h-4" />
+              <Select
+                value={pdvId || "__all"}
+                onValueChange={(v) => updateFilter("pdvId", v)}
+              >
+                <SelectTrigger className="w-48 h-8 text-sm">
+                  <SelectValue placeholder="Todos los PDV" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all">Todos los PDV</SelectItem>
+                  {puntosDeVenta.map((p) => (
+                    <SelectItem key={p.id} value={String(p.id)}>
+                      {p.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
         </>
       )}
