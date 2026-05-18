@@ -1,11 +1,14 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { getAuthUser } from "@/lib/auth/get-user";
 
-export default function ShellLayout({ children }: { children: React.ReactNode }) {
+export default async function ShellLayout({ children }: { children: React.ReactNode }) {
+  const user = await getAuthUser();
+
   return (
     <SidebarProvider>
-      <AppSidebar />
+      <AppSidebar user={user} />
       <div className="flex flex-col flex-1 min-w-0">
         <header className="h-12 flex items-center px-3 border-b bg-background sticky top-0 z-30 gap-2">
           <SidebarTrigger className="h-8 w-8 shrink-0" />

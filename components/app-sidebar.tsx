@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Upload } from "lucide-react";
+import type { User } from "@supabase/supabase-js";
 import {
   Sidebar,
   SidebarContent,
@@ -16,14 +18,20 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { LogoutButton } from "@/components/auth/logout-button";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/importar", label: "Importar datos", icon: Upload },
 ];
 
-export function AppSidebar() {
+export function AppSidebar({ user }: { user: User | null }) {
   const pathname = usePathname();
+
+  const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;
+  const displayName = (user?.user_metadata?.full_name as string | undefined) ?? user?.email ?? "Usuario";
+  const email = user?.email ?? "";
+  const initials = email.slice(0, 2).toUpperCase() || "?";
 
   return (
     <Sidebar collapsible="icon">
@@ -62,16 +70,30 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t">
-        <div className="flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-muted transition-colors cursor-default group-data-[collapsible=icon]:justify-center">
-          <div className="w-7 h-7 rounded-full bg-foreground flex items-center justify-center shrink-0">
-            <span className="text-background text-xs font-semibold">L</span>
+      <SidebarFooter className="border-t p-2 space-y-1">
+        <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-md group-data-[collapsible=icon]:justify-center">
+          <div className="w-7 h-7 rounded-full overflow-hidden bg-foreground flex items-center justify-center shrink-0">
+            {avatarUrl ? (
+              <Image
+                src={avatarUrl}
+                alt="Avatar"
+                width={28}
+                height={28}
+                className="object-cover"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <span className="text-background text-xs font-semibold">
+                {initials}
+              </span>
+            )}
           </div>
           <div className="flex flex-col min-w-0 group-data-[collapsible=icon]:hidden">
-            <span className="text-xs font-medium truncate">Lazarillo</span>
-            <span className="text-[11px] text-muted-foreground truncate">gestión operativa</span>
+            <span className="text-xs font-medium truncate">{displayName}</span>
+            <span className="text-[11px] text-muted-foreground truncate">{email}</span>
           </div>
         </div>
+        <LogoutButton />
       </SidebarFooter>
 
       <SidebarRail />

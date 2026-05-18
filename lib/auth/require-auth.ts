@@ -2,13 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Verifica sesión activa. Retorna null si autorizado, NextResponse 401 si no.
- * En desarrollo se omite para poder usar las APIs sin login configurado.
+ * Segunda capa de protección para API Route Handlers (defense in depth).
+ * El middleware ya bloquea requests sin sesión, pero esto valida explícitamente
+ * dentro del handler. Retorna null si autorizado, NextResponse 401 si no.
  */
 export async function requireAuth(): Promise<NextResponse | null> {
-  const isDev = process.env.NODE_ENV === "development";
-  if (isDev) return null;
-
   const supabase = await createClient();
   const {
     data: { user },
