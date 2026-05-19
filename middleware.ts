@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createMiddlewareClient } from "@/lib/supabase/middleware";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback"];
+const ALLOWED_EMAILS = ["lazarillogestion@gmail.com"];
 
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
@@ -20,6 +21,12 @@ export async function middleware(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(p + "/")
   );
+
+  // Email no autorizado → cerrar sesión y redirigir
+  if (user && !ALLOWED_EMAILS.includes(user.email ?? "")) {
+    await supabase.auth.signOut();
+    return NextResponse.redirect(new URL("/login?error=unauthorized", request.url));
+  }
 
   // Autenticado + intenta /login → redirigir al dashboard
   if (user && pathname === "/login") {
