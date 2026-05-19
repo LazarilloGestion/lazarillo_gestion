@@ -3,8 +3,7 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { fmtARS } from "@/lib/utils";
+import { cn, fmtARS } from "@/lib/utils";
 import { MONTHS, MONTH_IDXS } from "@/lib/dashboard/constants";
 import { buildDashboardUrl } from "@/lib/dashboard/params";
 import type {

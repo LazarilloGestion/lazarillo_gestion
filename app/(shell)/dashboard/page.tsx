@@ -1,7 +1,12 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { DashboardFilters } from "@/components/dashboard/dashboard-filters";
 import { PivotTable } from "@/components/dashboard/pivot-table";
 import { Skeleton } from "@/components/ui/skeleton";
+
+export const metadata: Metadata = {
+  title: "Dashboard | Lazarillo Gestión",
+};
 
 export default function DashboardPage() {
   return (

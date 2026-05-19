@@ -11,13 +11,13 @@ import {
 } from "@/components/ui/select";
 import type { Local } from "@/lib/types/domain";
 
-const currentYear = new Date().getFullYear();
-const YEARS = Array.from({ length: currentYear - 2019 }, (_, i) => currentYear - i);
-
 export function DashboardFilters() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [locales, setLocales] = useState<Local[]>([]);
+
+  const currentYear = new Date().getFullYear();
+  const YEARS = Array.from({ length: currentYear - 2019 }, (_, i) => currentYear - i);
 
   const year = searchParams.get("year") ?? String(currentYear);
   const localId = searchParams.get("localId") ?? "";

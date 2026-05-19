@@ -1,6 +1,11 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { LoginForm } from "@/components/auth/login-form";
+
+export const metadata: Metadata = {
+  title: "Iniciar sesión | Lazarillo Gestión",
+};
 
 interface Props {
   searchParams: Promise<{ next?: string; error?: string }>;

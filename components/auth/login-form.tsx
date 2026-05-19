@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,7 +42,7 @@ interface LoginFormProps {
 
 export function LoginForm({ next, hasError }: LoginFormProps) {
   const [loading, setLoading] = useState(false);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   async function handleGoogleLogin() {
     setLoading(true);

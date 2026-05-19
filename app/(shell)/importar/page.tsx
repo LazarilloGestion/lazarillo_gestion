@@ -44,10 +44,12 @@ export default function ImportarPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetch("/api/locales")
+    const controller = new AbortController();
+    fetch("/api/locales", { signal: controller.signal })
       .then((r) => r.json())
       .then((data: Local[]) => setLocales(Array.isArray(data) ? data : []))
-      .catch((err) => console.error("Error cargando locales:", err));
+      .catch((err) => { if (err.name !== "AbortError") console.error("Error cargando locales:", err); });
+    return () => controller.abort();
   }, []);
 
   const puntosDeVenta =
@@ -207,7 +209,7 @@ export default function ImportarPage() {
               <ul className="flex flex-col gap-1">
                 {selectedFiles.map((f, i) => (
                   <li
-                    key={i}
+                    key={f.name + f.lastModified}
                     className="flex items-center justify-between rounded-md border px-3 py-1.5 text-xs"
                   >
                     <span className="truncate text-muted-foreground">{f.name}</span>
