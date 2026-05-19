@@ -3,10 +3,23 @@ import { runETL } from "@/lib/etl/run-etl";
 import { getExcelHeaders } from "@/lib/etl/helpers";
 import { detectFileType } from "@/lib/etl/detect-file-type";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { env } from "@/lib/env";
-import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
+
+// Cliente Prisma con conexión directa (sin PgBouncer) para transacciones largas de ETL.
+// DATABASE_URL usa pgbouncer=true (transaction pooling) que interrumpe tx >30s.
+// DIRECT_URL apunta al pooler en modo session o al servidor directo.
+const g = globalThis as unknown as { _prismaEtl?: PrismaClient };
+function getEtlClient(): PrismaClient {
+  if (!g._prismaEtl) {
+    const url = env.DIRECT_URL ?? env.DATABASE_URL;
+    g._prismaEtl = new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
+  }
+  return g._prismaEtl;
+}
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -113,9 +126,9 @@ export async function POST(req: NextRequest) {
       // Cada archivo se procesa en una transacción atómica.
       // Si el ETL lanza (tipo no detectado, error de parse), se hace rollback completo.
       // Errores de fila individuales se colectan dentro del normalizer sin abortar.
-      const report = await prisma.$transaction(
+      const report = await getEtlClient().$transaction(
         async (tx) => runETL(buffer, storagePath, ctx, tx as unknown as DbClient),
-        { timeout: 300_000 } // 5 min por archivo
+        { timeout: 300_000 } // 5 min — usa DIRECT_URL para evitar límites de PgBouncer
       );
       reports.push(report);
     } catch (err) {

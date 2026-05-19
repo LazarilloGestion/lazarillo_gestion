@@ -15,7 +15,9 @@ function parseComprobanteFromDetalle(raw: unknown): string | null {
 }
 
 function makeRowId(r: ETLRow): string {
-  const key = [r["COD_CGA"], r["FECHA"], r["CODIGO"], r["CONCEPTO"], r["IMPORTE"]]
+  // No incluir IMPORTE: si el ERP corrige el monto, el rowId debe mantenerse
+  // igual para que el upsert actualice el registro existente en lugar de crear uno nuevo.
+  const key = [r["COD_CGA"], r["FECHA"], r["CODIGO"], r["CONCEPTO"]]
     .map((v) => String(v ?? ""))
     .join("|");
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
@@ -28,7 +30,7 @@ export async function normalizeCompras(
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   let created = 0, updated = 0;
 
-  const filtered = rows.filter((r) => r["COD_CGA"] != null || r["FECHA"] != null);
+  const filtered = rows.filter((r) => r["COD_CGA"] != null && r["FECHA"] != null);
   const skipped = rows.length - filtered.length;
 
   const codigosProv = [...new Set(filtered.map((r) => trim(r["CODIGO"])).filter(Boolean))] as string[];
