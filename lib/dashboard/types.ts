@@ -63,7 +63,7 @@ export type SqlRow = {
 export type CompraDetalle = {
   rowId: string;
   fecha: string | null;
-  importe: unknown; // Decimal serializado como string o number
+  importe: string | number | null; // Decimal serializado como string o number
   proveedor: string | null;
   proveedorRef: { id: number; nombre: string | null; razon: string | null } | null;
   local: { nombre: string } | null;

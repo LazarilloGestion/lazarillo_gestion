@@ -141,7 +141,6 @@ model Proveedor {
   ivaDif    Decimal?
   email     String?
   observac  String?
-  fecUltipp DateTime?
   detPerc   String?
 
   compras        Compra[]
