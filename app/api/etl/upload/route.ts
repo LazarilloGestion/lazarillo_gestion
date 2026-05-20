@@ -140,5 +140,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Link global post-batch: cubre el caso donde compras y detalles
+  // se subieron en sesiones separadas o en orden inverso al esperado.
+  await getEtlClient().$executeRaw`
+    UPDATE detalle_compras dc
+    SET "compraId" = c."rowId"
+    FROM compras c
+    WHERE dc.comprobante = c.comprobante
+      AND dc."compraId" IS NULL
+  `;
+
   return NextResponse.json(reports);
 }

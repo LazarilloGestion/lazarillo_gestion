@@ -4,6 +4,11 @@ import { trim, toDecimal, toDecimalStr, safeDate } from "../helpers";
 import { processBatch, linkDetalleComprasByComprobante } from "../normalizer-utils";
 import type { ETLRow, ETLRowError, ETLContext } from "../types";
 
+// Códigos del ERP en compras que difieren del COD_CPB en detalle_compras
+const CODE_ALIASES: Record<string, string> = {
+  TIC: "Z",
+};
+
 // Convierte "A 0606-00761530" → "A060600761530" (mismo formato que detalle_compras.comprobante)
 function parseComprobanteFromDetalle(raw: unknown): string | null {
   const s = String(raw ?? "").trim();
@@ -11,7 +16,8 @@ function parseComprobanteFromDetalle(raw: unknown): string | null {
   const match = s.match(/^(\S+)\s+(\d+)-(\d+)$/);
   if (!match) return null;
   const [, cod, num1, num2] = match;
-  return cod + num1.padStart(4, "0") + num2.padStart(8, "0");
+  const normalizedCod = CODE_ALIASES[cod.toUpperCase()] ?? cod.toUpperCase();
+  return normalizedCod + num1.padStart(4, "0") + num2.padStart(8, "0");
 }
 
 function makeRowId(r: ETLRow): string {
