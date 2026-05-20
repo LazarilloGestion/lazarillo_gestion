@@ -105,7 +105,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="overflow-hidden p-0 gap-0 border-border/60 bg-[#1a1a1a] shadow-2xl shadow-black/60 sm:max-w-2xl rounded-xl">
+      <DialogContent className="overflow-hidden p-0 gap-0 border-border/60 shadow-2xl sm:max-w-2xl rounded-xl">
         <DialogTitle className="sr-only">Buscador</DialogTitle>
 
         <Command className="bg-transparent [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4">
@@ -175,7 +175,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                             key={s.id}
                             value={`${type} ${s.label}`}
                             onSelect={() => handleSelect(s)}
-                            className="mx-1 rounded-lg px-2 py-2 gap-3 data-[selected=true]:bg-white/8 aria-selected:bg-white/8 cursor-pointer"
+                            className="mx-1 rounded-lg px-2 py-2 gap-3 cursor-pointer"
                           >
                             <span className={`flex h-6 w-6 items-center justify-center rounded-md shrink-0 ${cfg.bg}`}>
                               <Icon className={`h-3 w-3 ${cfg.color}`} />
@@ -198,22 +198,22 @@ export function CommandPalette({ open, onOpenChange }: Props) {
           <div className="h-px bg-border/40" />
           <div className="flex items-center gap-4 px-4 py-2.5 text-[11px] text-muted-foreground/40">
             <span className="flex items-center gap-1">
-              <kbd className="inline-flex h-4 w-4 items-center justify-center rounded border border-border/40 bg-white/5">
+              <kbd className="inline-flex h-4 w-4 items-center justify-center rounded border border-border/40 bg-muted">
                 <ChevronUp className="h-2.5 w-2.5" />
               </kbd>
-              <kbd className="inline-flex h-4 w-4 items-center justify-center rounded border border-border/40 bg-white/5">
+              <kbd className="inline-flex h-4 w-4 items-center justify-center rounded border border-border/40 bg-muted">
                 <ChevronDown className="h-2.5 w-2.5" />
               </kbd>
               navegar
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="inline-flex h-4 px-1 items-center justify-center rounded border border-border/40 bg-white/5">
+              <kbd className="inline-flex h-4 px-1 items-center justify-center rounded border border-border/40 bg-muted">
                 <CornerDownLeft className="h-2.5 w-2.5" />
               </kbd>
               seleccionar
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="inline-flex h-4 px-1.5 items-center justify-center rounded border border-border/40 bg-white/5 font-mono">
+              <kbd className="inline-flex h-4 px-1.5 items-center justify-center rounded border border-border/40 bg-muted font-mono">
                 esc
               </kbd>
               cerrar
