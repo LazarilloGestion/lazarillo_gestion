@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown } from "lucide-react";
@@ -51,23 +51,61 @@ export function PivotTable() {
   const pdvId = searchParams.get("pdvId")
     ? Number(searchParams.get("pdvId"))
     : undefined;
+  const rubroCodigo = searchParams.get("rubroCodigo") ?? undefined;
+  const conceptoCodigo = searchParams.get("conceptoCodigo") ?? undefined;
+  const proveedorId = searchParams.get("proveedorId")
+    ? Number(searchParams.get("proveedorId"))
+    : undefined;
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
+  const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number }>({});
 
   const url = useMemo(
-    () => buildDashboardUrl("/api/dashboard/pivot", { year, localId, pdvId }),
-    [year, localId, pdvId]
+    () =>
+      buildDashboardUrl("/api/dashboard/pivot", {
+        year,
+        localId,
+        pdvId,
+        rubroCodigo,
+        conceptoCodigo,
+        proveedorId,
+      }),
+    [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId]
   );
 
   const { data, isLoading, error } = useQuery<PivotData>({
-    queryKey: ["pivot", year, localId, pdvId],
+    queryKey: ["pivot", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId],
     queryFn: async () => {
       const res = await fetch(url);
       if (!res.ok) throw new Error("Error cargando datos");
       return res.json();
     },
+    staleTime: 30_000,
   });
+
+  // Auto-expandir cuando hay filtro de concepto o proveedor; colapsar al quitar filtro.
+  // Usa ref para detectar si el filtro cambió vs. un refetch silencioso, evitando
+  // pisar el estado manual de colapso cuando TanStack Query revalida en background.
+  useEffect(() => {
+    if (!data) return;
+    const prev = prevFilterRef.current;
+    const filterChanged =
+      prev.conceptoCodigo !== conceptoCodigo || prev.proveedorId !== proveedorId;
+    prevFilterRef.current = { conceptoCodigo, proveedorId };
+    if (!filterChanged) return;
+
+    if (conceptoCodigo || proveedorId) {
+      const ids = new Set<string>();
+      for (const rubro of data.rows) {
+        ids.add(rubro.id);
+        for (const concepto of rubro.children) ids.add(concepto.id);
+      }
+      setExpanded(ids);
+    } else {
+      setExpanded(new Set());
+    }
+  }, [data, conceptoCodigo, proveedorId]);
 
   function toggleRow(id: string) {
     setExpanded((prev) => {
@@ -81,6 +119,11 @@ export function PivotTable() {
   function openDetalle(extra: Omit<DetalleFilter, "year" | "localId" | "pdvId">) {
     setDetalleFilter({ year, localId, pdvId, ...extra });
   }
+
+  const flatRows = useMemo(
+    () => (data ? flattenRows(data, expanded) : []),
+    [data, expanded]
+  );
 
   if (isLoading) {
     return (
@@ -105,8 +148,6 @@ export function PivotTable() {
       </div>
     );
   }
-
-  const flatRows = flattenRows(data, expanded);
 
   return (
     <>
@@ -139,27 +180,21 @@ export function PivotTable() {
                 return (
                   <tr
                     key={rubro.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-expanded={isExpanded}
-                    className="border-b bg-muted/25 font-semibold cursor-pointer hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                    onClick={() => toggleRow(rubro.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        toggleRow(rubro.id);
-                      }
-                    }}
+                    className="border-b bg-muted/25 font-semibold hover:bg-muted/50 transition-colors"
                   >
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
-                      <span className="flex items-center gap-1.5">
+                      <button
+                        className="flex items-center gap-1.5 w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                        onClick={() => toggleRow(rubro.id)}
+                        aria-expanded={isExpanded}
+                      >
                         {isExpanded ? (
                           <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
                         ) : (
                           <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
                         )}
                         {rubro.nombre}
-                      </span>
+                      </button>
                     </td>
                     {MONTH_IDXS.map((mes) => (
                       <td
@@ -196,27 +231,21 @@ export function PivotTable() {
                 return (
                   <tr
                     key={concepto.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-expanded={isExpanded}
-                    className="border-b cursor-pointer hover:bg-accent/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                    onClick={() => toggleRow(concepto.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        toggleRow(concepto.id);
-                      }
-                    }}
+                    className="border-b hover:bg-accent/40 transition-colors"
                   >
                     <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
-                      <span className="flex items-center gap-1.5 pl-5">
+                      <button
+                        className="flex items-center gap-1.5 pl-5 w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
+                        onClick={() => toggleRow(concepto.id)}
+                        aria-expanded={isExpanded}
+                      >
                         {isExpanded ? (
                           <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
                         ) : (
                           <ChevronRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
                         )}
                         {concepto.nombre}
-                      </span>
+                      </button>
                     </td>
                     {MONTH_IDXS.map((mes) => (
                       <td

@@ -18,8 +18,19 @@ export async function GET(request: NextRequest) {
   if (denied) return denied;
 
   const { searchParams } = new URL(request.url);
-  const { year, localId, pdvId } = parseDashboardParams(searchParams);
+  const params = parseDashboardParams(searchParams);
 
+  if (
+    (params.localId !== undefined && isNaN(params.localId)) ||
+    (params.pdvId !== undefined && isNaN(params.pdvId)) ||
+    (params.proveedorId !== undefined && isNaN(params.proveedorId))
+  ) {
+    return NextResponse.json({ error: "Invalid numeric parameter" }, { status: 400 });
+  }
+
+  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId } = params;
+
+  try {
   const conditions: Prisma.Sql[] = [
     Prisma.sql`EXTRACT(YEAR FROM c.fecha) = ${year}`,
     Prisma.sql`c.fecha IS NOT NULL`,
@@ -27,6 +38,9 @@ export async function GET(request: NextRequest) {
   ];
   if (localId) conditions.push(Prisma.sql`c."localId" = ${localId}`);
   if (pdvId) conditions.push(Prisma.sql`c."puntoDeVentaId" = ${pdvId}`);
+  if (rubroCodigo) conditions.push(Prisma.sql`COALESCE(rc.codigo, '__sin_rubro') = ${rubroCodigo}`);
+  if (conceptoCodigo) conditions.push(Prisma.sql`COALESCE(cc.codigo, '__sin_concepto') = ${conceptoCodigo}`);
+  if (proveedorId) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
 
   const where = Prisma.join(conditions, " AND ");
 
@@ -51,6 +65,10 @@ export async function GET(request: NextRequest) {
   `);
 
   return NextResponse.json(buildPivotData(rows));
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
 
 function buildPivotData(sqlRows: SqlRow[]): PivotData {

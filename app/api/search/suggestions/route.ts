@@ -1,0 +1,68 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/auth/require-auth";
+
+export const dynamic = "force-dynamic";
+
+export type Suggestion = {
+  id: string;
+  label: string;
+  type: "rubro" | "concepto" | "proveedor";
+  // payload que se mapea a URL param
+  param: "rubroCodigo" | "conceptoCodigo" | "proveedorId";
+  value: string;
+};
+
+export async function GET() {
+  const denied = await requireAuth();
+  if (denied) return denied;
+
+  try {
+    const [rubros, conceptos, proveedores] = await Promise.all([
+      prisma.rubroConceptoCaja.findMany({
+        select: { codigo: true, nombre: true },
+        orderBy: { nombre: "asc" },
+        take: 500,
+      }),
+      prisma.conceptoCaja.findMany({
+        select: { codigo: true, nombre: true },
+        orderBy: { nombre: "asc" },
+        take: 500,
+      }),
+      prisma.proveedor.findMany({
+        select: { id: true, nombre: true, razon: true },
+        orderBy: [{ nombre: "asc" }],
+        take: 200,
+      }),
+    ]);
+
+    const suggestions: Suggestion[] = [
+      ...rubros.map((r) => ({
+        id: `rubro:${r.codigo}`,
+        label: r.nombre ?? r.codigo,
+        type: "rubro" as const,
+        param: "rubroCodigo" as const,
+        value: r.codigo,
+      })),
+      ...conceptos.map((c) => ({
+        id: `concepto:${c.codigo}`,
+        label: c.nombre ?? c.codigo,
+        type: "concepto" as const,
+        param: "conceptoCodigo" as const,
+        value: c.codigo,
+      })),
+      ...proveedores.map((p) => ({
+        id: `proveedor:${p.id}`,
+        label: p.nombre ?? p.razon ?? `Proveedor ${p.id}`,
+        type: "proveedor" as const,
+        param: "proveedorId" as const,
+        value: String(p.id),
+      })),
+    ];
+
+    return NextResponse.json(suggestions);
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
