@@ -17,6 +17,14 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Lazarillo Gestión",
   description: "Sistema de gestión operativa",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Lazarillo",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export default function RootLayout({
