@@ -4,7 +4,7 @@ import { createMiddlewareClient } from "@/lib/supabase/middleware";
 const PUBLIC_PATHS = ["/login", "/auth/callback"];
 const ALLOWED_EMAILS = ["lazarillogestion@gmail.com"];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
 
   const response = NextResponse.next({
