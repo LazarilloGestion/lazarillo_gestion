@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown } from "lucide-react";
-import { cn, fmtARS } from "@/lib/utils";
+import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS, MONTH_IDXS } from "@/lib/dashboard/constants";
 import { buildDashboardUrl } from "@/lib/dashboard/params";
 import type {
@@ -127,8 +127,8 @@ export function PivotTable() {
 
   if (isLoading) {
     return (
-      <div className="text-sm text-muted-foreground py-16 text-center">
-        Cargando datos...
+      <div className="flex flex-1 items-center justify-center h-full">
+        <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-muted-foreground/20 border-t-muted-foreground" />
       </div>
     );
   }
@@ -151,22 +151,22 @@ export function PivotTable() {
 
   return (
     <>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="overflow-auto flex-1 min-h-0">
+        <table className="w-full text-sm border-separate border-spacing-0">
           <thead>
             <tr className="bg-muted border-b">
-              <th className="sticky left-0 z-20 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+              <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Concepto / Proveedor
               </th>
               {MONTHS.map((m) => (
                 <th
                   key={m}
-                  className="text-right px-3 py-3 font-medium text-muted-foreground min-w-[90px] whitespace-nowrap"
+                  className="sticky top-0 z-20 bg-muted text-right px-3 py-3 font-medium text-muted-foreground min-w-[90px] whitespace-nowrap"
                 >
                   {m}
                 </th>
               ))}
-              <th className="text-right px-4 py-3 font-medium text-muted-foreground min-w-[110px] whitespace-nowrap">
+              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-medium text-muted-foreground min-w-[110px] whitespace-nowrap">
                 Total
               </th>
             </tr>
@@ -283,7 +283,7 @@ export function PivotTable() {
                   className="border-b hover:bg-accent/20 transition-colors"
                 >
                   <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-muted-foreground pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]">
-                    {prov.nombre}
+                    {normalize(prov.nombre)}
                   </td>
                   {MONTH_IDXS.map((mes) => (
                     <td

@@ -14,3 +14,10 @@ export const ARS = new Intl.NumberFormat("es-AR", {
 export function fmtARS(value: number | undefined | null): string {
   return value != null && value !== 0 ? ARS.format(value) : "—";
 }
+
+export function normalize(s: string | null | undefined): string {
+  if (!s) return "—";
+  return s === s.toUpperCase()
+    ? s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+    : s;
+}

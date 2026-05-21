@@ -29,6 +29,7 @@ export function DashboardFilters() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [locales, setLocales] = useState<Local[]>([]);
+  const [localesLoading, setLocalesLoading] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   const year = searchParams.get("year") ?? String(CURRENT_YEAR);
@@ -55,7 +56,8 @@ export function DashboardFilters() {
       .then((data: Local[]) => setLocales(Array.isArray(data) ? data : []))
       .catch((err) => {
         if (err.name !== "AbortError") console.error("Error cargando locales:", err);
-      });
+      })
+      .finally(() => setLocalesLoading(false));
     return () => controller.abort();
   }, []);
 
@@ -111,50 +113,47 @@ export function DashboardFilters() {
           </Select>
         </div>
 
-        {locales.length > 0 && (
-          <>
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Building2 className="w-4 h-4" />
-              <Select
-                value={localId || "__all"}
-                onValueChange={(v) => updateFilter("localId", v)}
-              >
-                <SelectTrigger className="w-44 h-8 text-sm">
-                  <SelectValue placeholder="Todos los locales" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all">Todos los locales</SelectItem>
-                  {locales.map((l) => (
-                    <SelectItem key={l.id} value={String(l.id)}>
-                      {l.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <Building2 className="w-4 h-4" />
+          <Select
+            value={localId || "__all"}
+            onValueChange={(v) => updateFilter("localId", v)}
+            disabled={localesLoading}
+          >
+            <SelectTrigger className="w-44 h-8 text-sm">
+              <SelectValue placeholder="Todos los locales" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all">Todos los locales</SelectItem>
+              {locales.map((l) => (
+                <SelectItem key={l.id} value={String(l.id)}>
+                  {l.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-            {localId && puntosDeVenta.length > 0 && (
-              <div className="flex items-center gap-1.5 text-muted-foreground">
-                <Store className="w-4 h-4" />
-                <Select
-                  value={pdvId || "__all"}
-                  onValueChange={(v) => updateFilter("pdvId", v)}
-                >
-                  <SelectTrigger className="w-48 h-8 text-sm">
-                    <SelectValue placeholder="Todos los PDV" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all">Todos los PDV</SelectItem>
-                    {puntosDeVenta.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </>
+        {!localesLoading && localId && puntosDeVenta.length > 0 && (
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <Store className="w-4 h-4" />
+            <Select
+              value={pdvId || "__all"}
+              onValueChange={(v) => updateFilter("pdvId", v)}
+            >
+              <SelectTrigger className="w-48 h-8 text-sm">
+                <SelectValue placeholder="Todos los PDV" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all">Todos los PDV</SelectItem>
+                {puntosDeVenta.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         )}
 
         {/* Botón ⌘K */}

@@ -37,6 +37,7 @@ const FILE_TYPE_LABELS: Record<string, string> = {
 export default function ImportarPage() {
   const [state, setState] = useState<UploadState>({ status: "idle" });
   const [locales, setLocales] = useState<Local[]>([]);
+  const [localesLoading, setLocalesLoading] = useState(true);
   const [localId, setLocalId] = useState<string>("");
   const [puntoDeVentaId, setPuntoDeVentaId] = useState<string>("");
   const [dragOver, setDragOver] = useState(false);
@@ -48,7 +49,8 @@ export default function ImportarPage() {
     fetch("/api/locales", { signal: controller.signal })
       .then((r) => r.json())
       .then((data: Local[]) => setLocales(Array.isArray(data) ? data : []))
-      .catch((err) => { if (err.name !== "AbortError") console.error("Error cargando locales:", err); });
+      .catch((err) => { if (err.name !== "AbortError") console.error("Error cargando locales:", err); })
+      .finally(() => setLocalesLoading(false));
     return () => controller.abort();
   }, []);
 
@@ -112,46 +114,45 @@ export default function ImportarPage() {
 
       <Card>
         <CardContent className="pt-5 flex flex-col gap-5">
-          {locales.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium">
-                Local{" "}
-                <span className="text-muted-foreground font-normal">(archivos transaccionales)</span>
-              </label>
-              <div className="flex gap-2">
-                <Select
-                  value={localId}
-                  onValueChange={(v) => { setLocalId(v); setPuntoDeVentaId(""); }}
-                >
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium">
+              Local{" "}
+              <span className="text-muted-foreground font-normal">(archivos transaccionales)</span>
+            </label>
+            <div className="flex gap-2">
+              <Select
+                value={localId}
+                onValueChange={(v) => { setLocalId(v); setPuntoDeVentaId(""); }}
+                disabled={localesLoading}
+              >
+                <SelectTrigger className="flex-1">
+                  <SelectValue placeholder={localesLoading ? "Cargando…" : "Sin local"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {locales.map((l) => (
+                    <SelectItem key={l.id} value={String(l.id)}>
+                      {l.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {puntosDeVenta.length > 0 && (
+                <Select value={puntoDeVentaId} onValueChange={setPuntoDeVentaId}>
                   <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Sin local" />
+                    <SelectValue placeholder="Sin punto de venta" />
                   </SelectTrigger>
                   <SelectContent>
-                    {locales.map((l) => (
-                      <SelectItem key={l.id} value={String(l.id)}>
-                        {l.nombre}
+                    {puntosDeVenta.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.nombre}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-
-                {puntosDeVenta.length > 0 && (
-                  <Select value={puntoDeVentaId} onValueChange={setPuntoDeVentaId}>
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Sin punto de venta" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {puntosDeVenta.map((p) => (
-                        <SelectItem key={p.id} value={String(p.id)}>
-                          {p.nombre}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
+              )}
             </div>
-          )}
+          </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div

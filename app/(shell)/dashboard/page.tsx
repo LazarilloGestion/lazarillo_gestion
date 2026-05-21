@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function DashboardPage() {
   return (
-    <div className="p-6 space-y-5">
+    <div className="flex flex-col h-full p-6 gap-5">
       <div className="flex flex-col gap-1">
         <h1 className="text-lg font-semibold tracking-tight">Dashboard de Compras</h1>
         <p className="text-sm text-muted-foreground">
@@ -22,7 +22,7 @@ export default function DashboardPage() {
         <DashboardFilters />
       </Suspense>
 
-      <div className="bg-background rounded-xl border shadow-sm overflow-hidden">
+      <div className="flex-1 min-h-0 bg-background rounded-xl border shadow-sm overflow-hidden flex flex-col">
         <Suspense fallback={<TableSkeleton />}>
           <PivotTable />
         </Suspense>

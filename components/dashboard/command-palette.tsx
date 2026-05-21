@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, type ElementType } from "react";
+import React, { useEffect, useState, useCallback, useMemo, type ElementType } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Layers, Tag, Truck, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -99,8 +99,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
         cfg: TYPE_CONFIG[type],
         items: suggestions.filter((s) => s.type === type),
       })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [suggestions, typeFilter, query]
+    [suggestions, typeFilter]
   );
 
   return (
@@ -164,7 +163,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                   if (items.length === 0) return null;
                   const Icon = cfg.icon;
                   return (
-                    <span key={type}>
+                    <React.Fragment key={type}>
                       {idx > 0 && <CommandSeparator className="bg-border/30" />}
                       <CommandGroup
                         heading={cfg.plural}
@@ -187,7 +186,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                           </CommandItem>
                         ))}
                       </CommandGroup>
-                    </span>
+                    </React.Fragment>
                   );
                 })}
               </>
