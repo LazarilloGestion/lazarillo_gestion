@@ -12,6 +12,9 @@ export default async function ShellLayout({ children }: { children: React.ReactN
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
         <header className="h-12 flex items-center px-3 border-b bg-background sticky top-0 z-30 gap-2">
           <SidebarTrigger className="h-8 w-8 shrink-0" />
+          <span className="sm:hidden text-sm font-semibold tracking-tight">
+            Lazarillo <span className="text-muted-foreground font-normal">Gestión</span>
+          </span>
           <div className="ml-auto flex items-center gap-1">
             <ThemeToggle />
           </div>
