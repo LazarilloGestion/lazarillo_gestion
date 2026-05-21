@@ -40,10 +40,10 @@ export function DetalleModal({
 
   return (
     <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="w-fit min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
+      <DialogContent className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 min-h-0 min-w-max">
+        <div className="overflow-auto flex-1 min-h-0">
           {isLoading && (
             <>
               <div className="px-6 py-4 border-b border-border/60 shrink-0">
@@ -72,7 +72,7 @@ export function DetalleModal({
           )}
 
           {count > 0 && (
-            <table className="text-sm">
+            <table className="text-sm min-w-max w-full">
 
               <thead className="sticky top-0 bg-popover">
                 <tr>

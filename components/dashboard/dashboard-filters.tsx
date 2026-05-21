@@ -96,9 +96,9 @@ export function DashboardFilters() {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-2 items-center">
+      <div className="flex gap-2 items-center">
         <div className="flex items-center gap-1.5 text-muted-foreground">
-          <CalendarDays className="w-4 h-4" />
+          <CalendarDays className="w-4 h-4 shrink-0" />
           <Select value={year} onValueChange={(v) => updateFilter("year", v)}>
             <SelectTrigger className="w-24 h-8 text-sm">
               <SelectValue placeholder="Año" />
@@ -113,14 +113,14 @@ export function DashboardFilters() {
           </Select>
         </div>
 
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          <Building2 className="w-4 h-4" />
+        <div className="flex items-center gap-1.5 text-muted-foreground min-w-0 flex-1 sm:flex-none">
+          <Building2 className="w-4 h-4 shrink-0" />
           <Select
             value={localId || "__all"}
             onValueChange={(v) => updateFilter("localId", v)}
             disabled={localesLoading}
           >
-            <SelectTrigger className="w-44 h-8 text-sm">
+            <SelectTrigger className="w-full sm:w-44 h-8 text-sm">
               <SelectValue placeholder="Todos los locales" />
             </SelectTrigger>
             <SelectContent>
@@ -135,13 +135,13 @@ export function DashboardFilters() {
         </div>
 
         {!localesLoading && localId && puntosDeVenta.length > 0 && (
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <Store className="w-4 h-4" />
+          <div className="flex items-center gap-1.5 text-muted-foreground min-w-0 flex-1 sm:flex-none">
+            <Store className="w-4 h-4 shrink-0" />
             <Select
               value={pdvId || "__all"}
               onValueChange={(v) => updateFilter("pdvId", v)}
             >
-              <SelectTrigger className="w-48 h-8 text-sm">
+              <SelectTrigger className="w-full sm:w-48 h-8 text-sm">
                 <SelectValue placeholder="Todos los PDV" />
               </SelectTrigger>
               <SelectContent>
@@ -156,15 +156,15 @@ export function DashboardFilters() {
           </div>
         )}
 
-        {/* Botón ⌘K */}
+        {/* Botón ⌘K — icono en mobile, texto+kbd en desktop */}
         <Button
           variant="outline"
           size="sm"
-          className="h-8 gap-1.5 text-muted-foreground text-sm font-normal ml-auto"
+          className="h-8 w-8 p-0 sm:w-auto sm:px-3 sm:gap-1.5 text-muted-foreground ml-auto shrink-0"
           onClick={() => setPaletteOpen(true)}
         >
           <Search className="w-3.5 h-3.5" />
-          Buscar
+          <span className="hidden sm:inline text-sm font-normal">Buscar</span>
           <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
             <span className="text-xs">⌘</span>K
           </kbd>
