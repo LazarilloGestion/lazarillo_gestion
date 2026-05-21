@@ -17,6 +17,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { LogoutButton } from "@/components/auth/logout-button";
 
@@ -27,6 +28,7 @@ const NAV = [
 
 export function AppSidebar({ user }: { user: User | null }) {
   const pathname = usePathname();
+  const { setOpenMobile } = useSidebar();
 
   const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;
   const displayName = (user?.user_metadata?.full_name as string | undefined) ?? user?.email ?? "Usuario";
@@ -58,7 +60,7 @@ export function AppSidebar({ user }: { user: User | null }) {
                     isActive={pathname === href}
                     tooltip={label}
                   >
-                    <Link href={href}>
+                    <Link href={href} onClick={() => setOpenMobile(false)}>
                       <Icon />
                       <span>{label}</span>
                     </Link>
