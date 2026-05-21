@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { DashboardFilters } from "@/components/dashboard/dashboard-filters";
-import { PivotTable } from "@/components/dashboard/pivot-table";
+import { DashboardTabContent } from "@/components/dashboard/dashboard-tab-content";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata: Metadata = {
@@ -12,9 +12,9 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col h-full p-6 gap-5">
       <div className="flex flex-col gap-1">
-        <h1 className="text-lg font-semibold tracking-tight">Dashboard de Compras</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
         <p className="text-sm text-muted-foreground">
-          Vista anual por rubro, concepto y proveedor
+          Vista anual por rubro / tipo de cobro
         </p>
       </div>
 
@@ -24,7 +24,7 @@ export default function DashboardPage() {
 
       <div className="flex-1 min-h-0 bg-background rounded-xl border shadow-sm overflow-hidden flex flex-col">
         <Suspense fallback={<TableSkeleton />}>
-          <PivotTable />
+          <DashboardTabContent />
         </Suspense>
       </div>
     </div>

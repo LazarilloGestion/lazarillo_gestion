@@ -24,7 +24,6 @@ export async function GET(request: NextRequest) {
   const mes = mesSchema.safeParse(searchParams.get("mes")).data;
   const proveedorId = idSchema.safeParse(searchParams.get("proveedorId")).data;
 
-  // Validar strings de códigos: máx 50 chars, solo permitir si pasan
   const conceptoCodigoRaw = searchParams.get("conceptoCodigo");
   const rubroCodigoRaw = searchParams.get("rubroCodigo");
   const conceptoCodigo = conceptoCodigoRaw
@@ -45,8 +44,6 @@ export async function GET(request: NextRequest) {
     ...(proveedorId !== undefined && { proveedorId }),
   };
 
-  // Rubro filter: resolver conceptos del rubro en una sola query,
-  // luego usarlos como condición IN (evita N+1 y saca ventaja del índice codRga).
   if (rubroCodigo && !conceptoCodigo) {
     const conceptos = await prisma.conceptoCaja.findMany({
       where: { codRga: rubroCodigo },
@@ -75,8 +72,11 @@ export async function GET(request: NextRequest) {
       },
     },
     orderBy: { fecha: "asc" },
-    take: 500,
+    take: 501,
   });
 
-  return NextResponse.json(compras);
+  const hasMore = compras.length > 500;
+  const data = hasMore ? compras.slice(0, 500) : compras;
+
+  return NextResponse.json({ data, hasMore });
 }

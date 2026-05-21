@@ -6,40 +6,19 @@ import { ChevronRight, ChevronDown } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS, MONTH_IDXS } from "@/lib/dashboard/constants";
 import { buildDashboardUrl } from "@/lib/dashboard/params";
+import { flattenRows } from "@/lib/dashboard/pivot-utils";
 import type {
   PivotData,
   PivotRubroRow,
   PivotConceptoRow,
-  PivotProveedorRow,
   DetalleFilter,
 } from "@/lib/dashboard/types";
 import { DetalleModal } from "./detalle-modal";
 
-const EPSILON = 0.01; // Umbral: valores < $0.01 se tratan como cero
+const EPSILON = 0.01;
 
 function hasValue(v: number | undefined): boolean {
   return (v ?? 0) > EPSILON;
-}
-
-type FlatRow =
-  | { type: "rubro"; data: PivotRubroRow }
-  | { type: "concepto"; data: PivotConceptoRow }
-  | { type: "proveedor"; data: PivotProveedorRow };
-
-function flattenRows(pivotData: PivotData, expanded: Set<string>): FlatRow[] {
-  const result: FlatRow[] = [];
-  for (const rubro of pivotData.rows) {
-    result.push({ type: "rubro", data: rubro });
-    if (!expanded.has(rubro.id)) continue;
-    for (const concepto of rubro.children) {
-      result.push({ type: "concepto", data: concepto });
-      if (!expanded.has(concepto.id)) continue;
-      for (const prov of concepto.children) {
-        result.push({ type: "proveedor", data: prov });
-      }
-    }
-  }
-  return result;
 }
 
 export function PivotTable() {
@@ -85,8 +64,6 @@ export function PivotTable() {
   });
 
   // Auto-expandir cuando hay filtro de concepto o proveedor; colapsar al quitar filtro.
-  // Usa ref para detectar si el filtro cambió vs. un refetch silencioso, evitando
-  // pisar el estado manual de colapso cuando TanStack Query revalida en background.
   useEffect(() => {
     if (!data) return;
     const prev = prevFilterRef.current;
@@ -121,7 +98,7 @@ export function PivotTable() {
   }
 
   const flatRows = useMemo(
-    () => (data ? flattenRows(data, expanded) : []),
+    () => (data ? flattenRows(data, expanded, 3) : []),
     [data, expanded]
   );
 
@@ -175,7 +152,7 @@ export function PivotTable() {
           <tbody>
             {flatRows.map((item) => {
               if (item.type === "rubro") {
-                const rubro = item.data;
+                const rubro = item.data as PivotRubroRow;
                 const isExpanded = expanded.has(rubro.id);
                 return (
                   <tr
@@ -226,7 +203,7 @@ export function PivotTable() {
               }
 
               if (item.type === "concepto") {
-                const concepto = item.data;
+                const concepto = item.data as PivotConceptoRow;
                 const isExpanded = expanded.has(concepto.id);
                 return (
                   <tr

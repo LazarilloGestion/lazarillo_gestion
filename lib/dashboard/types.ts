@@ -1,30 +1,35 @@
+// Tipo compartido para valores Decimal de Prisma ($queryRaw devuelve Decimal objects)
+export type DecimalLike = { toString(): string } | number | string;
+
+// --- Pivot row types (readonly: nunca se mutan después de construcción) ---
+
 export type PivotProveedorRow = {
-  level: 2;
-  id: string;
-  nombre: string;
-  proveedorId: number | null;
-  conceptoCodigo: string;
-  rubroCodigo: string;
+  readonly level: 2;
+  readonly id: string;
+  readonly nombre: string;
+  readonly proveedorId: number | null;
+  readonly conceptoCodigo: string;
+  readonly rubroCodigo: string;
   values: Record<number, number>;
   rowTotal: number;
 };
 
 export type PivotConceptoRow = {
-  level: 1;
-  id: string;
-  nombre: string;
-  conceptoCodigo: string;
-  rubroCodigo: string;
+  readonly level: 1;
+  readonly id: string;
+  readonly nombre: string;
+  readonly conceptoCodigo: string;
+  readonly rubroCodigo: string;
   values: Record<number, number>;
   rowTotal: number;
   children: PivotProveedorRow[];
 };
 
 export type PivotRubroRow = {
-  level: 0;
-  id: string;
-  nombre: string;
-  rubroCodigo: string;
+  readonly level: 0;
+  readonly id: string;
+  readonly nombre: string;
+  readonly rubroCodigo: string;
   values: Record<number, number>;
   rowTotal: number;
   children: PivotConceptoRow[];
@@ -36,17 +41,33 @@ export type PivotData = {
   grandTotal: number;
 };
 
-export type DetalleFilter = {
+// --- Filtros de detalle ---
+
+type BaseDashboardFilter = {
   year: number;
   localId?: number;
   pdvId?: number;
   mes?: number;
+};
+
+export type DetalleFilter = BaseDashboardFilter & {
   rubroCodigo?: string;
   conceptoCodigo?: string;
   proveedorId?: number;
 };
 
-// Forma del resultado de la raw query en /api/dashboard/pivot
+export type VentasDetalleFilter = BaseDashboardFilter & {
+  tipoCodigo?: string;
+  cobroCodigo?: string;
+};
+
+// Respuesta genérica de endpoints de detalle (indica si hay más de 500 registros)
+export type DetalleResponse<T> = {
+  data: T[];
+  hasMore: boolean;
+};
+
+// --- Forma del resultado de la raw query en /api/dashboard/pivot ---
 export type SqlRow = {
   rubro_codigo: string;
   rubro_nombre: string;
@@ -55,15 +76,43 @@ export type SqlRow = {
   proveedor_id: number | null;
   proveedor_nombre: string;
   mes: number;
-  // SUM retorna numeric → Prisma lo mapea a Decimal; manejamos ambas formas
-  total: { toString(): string } | number | string;
+  total: DecimalLike;
 };
 
-// Forma de cada compra devuelta por /api/dashboard/detalle
+// --- Ventas ---
+
+export type VentasSqlRow = {
+  tipo_codigo: string;
+  tipo_nombre: string;
+  cobro_codigo: string;
+  cobro_nombre: string;
+  mes: number;
+  total: DecimalLike;
+};
+
+export type VentaDetalle = {
+  rowId: string;
+  fecha: string | null;
+  importe: string | number | null;
+  tipo: string | null;
+  cobro: string | null;
+  turno: string | null;
+  comprobant: string | null;
+  hora: string | null;
+  mesa: string | null;
+  mozo: string | null;
+  total: string | number | null;
+  descuento: string | number | null;
+  cupon: string | null;
+  local: { nombre: string } | null;
+  puntoDeVenta: { nombre: string } | null;
+};
+
+// --- Forma de cada compra devuelta por /api/dashboard/detalle ---
 export type CompraDetalle = {
   rowId: string;
   fecha: string | null;
-  importe: string | number | null; // Decimal serializado como string o number
+  importe: string | number | null;
   proveedor: string | null;
   proveedorRef: { id: number; nombre: string | null; razon: string | null } | null;
   local: { nombre: string } | null;

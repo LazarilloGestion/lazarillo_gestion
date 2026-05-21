@@ -32,12 +32,15 @@ export function DashboardFilters() {
   const [localesLoading, setLocalesLoading] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
+  const activeTab = searchParams.get("tab") ?? "compras";
+  const isVentas = activeTab === "ventas";
+
   const year = searchParams.get("year") ?? String(CURRENT_YEAR);
   const localId = searchParams.get("localId") ?? "";
   const pdvId = searchParams.get("pdvId") ?? "";
 
-  // Chip activo del palette (solo hay uno a la vez)
-  const activeSearchParam = PALETTE_PARAMS.find((p) => searchParams.get(p));
+  // Chip activo del palette (solo hay uno a la vez; no aplica en tab ventas)
+  const activeSearchParam = !isVentas ? PALETTE_PARAMS.find((p) => searchParams.get(p)) : undefined;
   const activeSearchLabel = searchParams.get("_searchLabel");
   const activeChips = activeSearchParam
     ? [
@@ -61,8 +64,9 @@ export function DashboardFilters() {
     return () => controller.abort();
   }, []);
 
-  // ⌘K / Ctrl+K global
+  // ⌘K / Ctrl+K global — solo en tab compras
   useEffect(() => {
+    if (isVentas) return;
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
@@ -71,7 +75,7 @@ export function DashboardFilters() {
     }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [isVentas]);
 
   const puntosDeVenta =
     locales.find((l) => String(l.id) === localId)?.puntosDeVenta ?? [];
@@ -156,19 +160,21 @@ export function DashboardFilters() {
           </div>
         )}
 
-        {/* Botón ⌘K — icono en mobile, texto+kbd en desktop */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 w-8 p-0 sm:w-auto sm:px-3 sm:gap-1.5 text-muted-foreground ml-auto shrink-0"
-          onClick={() => setPaletteOpen(true)}
-        >
-          <Search className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline text-sm font-normal">Buscar</span>
-          <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
-            <span className="text-xs">⌘</span>K
-          </kbd>
-        </Button>
+        {/* Botón ⌘K — solo en tab compras */}
+        {!isVentas && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 w-8 p-0 sm:w-auto sm:px-3 sm:gap-1.5 text-muted-foreground ml-auto shrink-0"
+            onClick={() => setPaletteOpen(true)}
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline text-sm font-normal">Buscar</span>
+            <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
+              <span className="text-xs">⌘</span>K
+            </kbd>
+          </Button>
+        )}
       </div>
 
       {/* Chips de filtros activos del palette */}
@@ -194,7 +200,7 @@ export function DashboardFilters() {
         </div>
       )}
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      {!isVentas && <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />}
     </div>
   );
 }
