@@ -1,42 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runETL } from "@/lib/etl/run-etl";
-import { getExcelHeaders } from "@/lib/etl/helpers";
-import { detectFileType } from "@/lib/etl/detect-file-type";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { getFileOrder } from "@/lib/etl/file-processor";
 import { env } from "@/lib/env";
 import { requireAuth } from "@/lib/auth/require-auth";
+import { getEtlClient } from "@/lib/etl/etl-client";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
-
-// Cliente Prisma con conexión directa (sin PgBouncer) para transacciones largas de ETL.
-// DATABASE_URL usa pgbouncer=true (transaction pooling) que interrumpe tx >30s.
-// DIRECT_URL apunta al pooler en modo session o al servidor directo.
-const g = globalThis as unknown as { _prismaEtl?: PrismaClient };
-function getEtlClient(): PrismaClient {
-  if (!g._prismaEtl) {
-    const url = env.DIRECT_URL ?? env.DATABASE_URL;
-    g._prismaEtl = new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
-  }
-  return g._prismaEtl;
-}
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB por archivo
-
-const DEPENDENCY_ORDER = [
-  "rubrosConceptoCaja",
-  "rubrosArticulo",
-  "subrubrosArticulo",
-  "conceptosCaja",
-  "articulos",
-  "proveedores",
-  "compras",
-  "detalleCompras",
-  "ventas",
-];
 
 export async function POST(req: NextRequest) {
   const denied = await requireAuth();
@@ -81,21 +55,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const headers = getExcelHeaders(buffer);
-    const fileType = detectFileType(headers);
-    const idx = fileType ? DEPENDENCY_ORDER.indexOf(fileType) : -1;
-    entries.push({ file, buffer, order: idx === -1 ? 999 : idx });
+    entries.push({ file, buffer, order: getFileOrder(buffer) });
   }
 
   entries.sort((a, b) => a.order - b.order);
 
   // Storage admin client (reutilizado para todos los archivos)
-  let supabaseAdmin: ReturnType<typeof createAdminClient> | null = null;
+  let supabaseAdmin: ReturnType<typeof getSupabaseAdmin> | null = null;
   try {
-    supabaseAdmin = createAdminClient(
-      env.NEXT_PUBLIC_SUPABASE_URL,
-      env.SUPABASE_SERVICE_ROLE_KEY
-    );
+    supabaseAdmin = getSupabaseAdmin();
   } catch {
     // continúa sin storage
   }

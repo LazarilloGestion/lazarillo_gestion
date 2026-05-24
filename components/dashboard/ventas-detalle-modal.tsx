@@ -1,6 +1,6 @@
 "use client";
 import { CalendarDays, Building2, Tag, Layers, ArrowDownUp, Users } from "lucide-react";
-import { fmtARS, normalize } from "@/lib/utils";
+import { fmtARS, fmtDate, normalize } from "@/lib/utils";
 import { buildVentasDetalleUrl } from "@/lib/dashboard/params";
 import type { VentasDetalleFilter, VentaDetalle } from "@/lib/dashboard/types";
 import { DetalleModalBase, type ColDef } from "./detalle-modal";
@@ -19,7 +19,7 @@ const VENTAS_COLS: ColDef[] = [
 
 function renderVentasRow(v: VentaDetalle): React.ReactNode[] {
   return [
-    v.fecha ? new Date(v.fecha).toLocaleDateString("es-AR") : "—",
+    fmtDate(v.fecha),
     normalize(v.local?.nombre),
     normalize(v.tipo),
     normalize(v.cobro),

@@ -15,6 +15,11 @@ export function fmtARS(value: number | undefined | null): string {
   return value != null && value !== 0 ? ARS.format(value) : "—";
 }
 
+export function fmtDate(date: string | Date | null | undefined): string {
+  if (!date) return "—";
+  return new Date(date).toLocaleDateString("es-AR");
+}
+
 export function normalize(s: string | null | undefined): string {
   if (!s) return "—";
   return s === s.toUpperCase()

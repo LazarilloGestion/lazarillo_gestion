@@ -1,46 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runETL } from "@/lib/etl/run-etl";
-import { getExcelHeaders } from "@/lib/etl/helpers";
-import { detectFileType } from "@/lib/etl/detect-file-type";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { env } from "@/lib/env";
 import { requireAuth } from "@/lib/auth/require-auth";
+import { getFileOrder } from "@/lib/etl/file-processor";
+import { getEtlClient } from "@/lib/etl/etl-client";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
-
-const g = globalThis as unknown as { _prismaEtl?: PrismaClient };
-function getEtlClient(): PrismaClient {
-  if (!g._prismaEtl) {
-    const url = env.DIRECT_URL ?? env.DATABASE_URL;
-    g._prismaEtl = new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
-  }
-  return g._prismaEtl;
-}
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-const DEPENDENCY_ORDER = [
-  "rubrosConceptoCaja",
-  "rubrosArticulo",
-  "subrubrosArticulo",
-  "conceptosCaja",
-  "articulos",
-  "proveedores",
-  "compras",
-  "detalleCompras",
-  "ventas",
-];
 
 export async function GET(req: NextRequest) {
   const denied = await requireAuth();
   if (denied) return denied;
 
-  const supabaseAdmin = createAdminClient(
-    env.NEXT_PUBLIC_SUPABASE_URL,
-    env.SUPABASE_SERVICE_ROLE_KEY
-  );
+  const supabaseAdmin = getSupabaseAdmin();
 
   const { searchParams } = new URL(req.url);
   const prefix = searchParams.get("prefix") ?? "uploads";
@@ -74,10 +47,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Se requiere al menos un path en "paths"' }, { status: 400 });
   }
 
-  const supabaseAdmin = createAdminClient(
-    env.NEXT_PUBLIC_SUPABASE_URL,
-    env.SUPABASE_SERVICE_ROLE_KEY
-  );
+  const supabaseAdmin = getSupabaseAdmin();
 
   const ctx: ETLContext = {
     localId: localId != null ? Number(localId) : undefined,
@@ -97,10 +67,7 @@ export async function POST(req: NextRequest) {
     }
 
     const buffer = Buffer.from(await data.arrayBuffer());
-    const headers = getExcelHeaders(buffer);
-    const fileType = detectFileType(headers);
-    const idx = fileType ? DEPENDENCY_ORDER.indexOf(fileType) : -1;
-    entries.push({ path, buffer, order: idx === -1 ? 999 : idx });
+    entries.push({ path, buffer, order: getFileOrder(buffer) });
   }
 
   entries.sort((a, b) => a.order - b.order);

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { env } from "@/lib/env";
 import { requireAuthUser } from "@/lib/auth/require-auth";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { refreshGoogleAccessToken, listDriveFiles } from "@/lib/drive/client";
 
 export const runtime = "nodejs";
@@ -11,7 +10,7 @@ export async function GET() {
   if (auth.response) return auth.response;
   const { user } = auth;
 
-  const admin = createAdminClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const admin = getSupabaseAdmin();
 
   let config: { folder_id: string | null; refresh_token: string | null } | null;
   try {

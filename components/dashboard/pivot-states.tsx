@@ -1,9 +1,10 @@
 import { SearchX } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 export function PivotLoading() {
   return (
     <div className="flex flex-1 items-center justify-center h-full">
-      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-muted-foreground/20 border-t-muted-foreground" />
+      <Spinner />
     </div>
   );
 }

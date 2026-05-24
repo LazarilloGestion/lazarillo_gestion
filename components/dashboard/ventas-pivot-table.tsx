@@ -1,8 +1,9 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, ChevronDown } from "lucide-react";
+import { useExpandableSet } from "@/hooks/use-expandable-set";
+import { useFetchQuery } from "@/hooks/use-fetch-query";
+import { ExpandableButton } from "@/components/ui/expandable-button";
 import { cn, fmtARS } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { buildVentasPivotUrl } from "@/lib/dashboard/params";
@@ -27,7 +28,7 @@ export function VentasPivotTable() {
     ? Number(searchParams.get("pdvId"))
     : undefined;
 
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const { expanded, toggle: toggleRow } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<VentasDetalleFilter | null>(null);
 
   const { months, activeMonths } = usePivotMonths();
@@ -37,24 +38,10 @@ export function VentasPivotTable() {
     [year, localId, pdvId, activeMonths]
   );
 
-  const { data, isLoading, error } = useQuery<PivotData>({
-    queryKey: ["pivot-ventas", year, localId, pdvId, months],
-    queryFn: async () => {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Error cargando datos");
-      return res.json();
-    },
-    staleTime: 30_000,
-  });
-
-  function toggleRow(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  const { data, isLoading, error } = useFetchQuery<PivotData>(
+    ["pivot-ventas", year, localId, pdvId, months],
+    url
+  );
 
   function openDetalle(extra: Omit<VentasDetalleFilter, "year" | "localId" | "pdvId">) {
     setDetalleFilter({ year, localId, pdvId, ...extra });
@@ -103,18 +90,9 @@ export function VentasPivotTable() {
                     className="border-b bg-muted/25 font-semibold hover:bg-muted/50 transition-colors"
                   >
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
-                      <button
-                        className="flex items-center gap-1.5 w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-                        onClick={() => toggleRow(tipo.id)}
-                        aria-expanded={isExpanded}
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
-                        )}
+                      <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(tipo.id)}>
                         {tipo.nombre}
-                      </button>
+                      </ExpandableButton>
                     </td>
                     {months.map((mes) => (
                       <td

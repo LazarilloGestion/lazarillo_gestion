@@ -4,11 +4,9 @@ import { requireAuth } from "@/lib/auth/require-auth";
 import { parseVentasParams } from "@/lib/dashboard/params";
 import { SIN_TIPO_CODE, SIN_COBRO_CODE } from "@/lib/dashboard/constants";
 import { z } from "zod";
+import { mesSchema, yearSchema, codigoSchema } from "@/lib/dashboard/schemas";
 
 export const dynamic = "force-dynamic";
-
-const mesSchema = z.coerce.number().int().min(1).max(12);
-const yearSchema = z.coerce.number().int().min(1900).max(2100);
 
 export async function GET(request: NextRequest) {
   const denied = await requireAuth();
@@ -25,10 +23,10 @@ export async function GET(request: NextRequest) {
   const tipoCodigoRaw = searchParams.get("tipoCodigo");
   const cobroCodigoRaw = searchParams.get("cobroCodigo");
   const tipoCodigo = tipoCodigoRaw
-    ? z.string().max(50).safeParse(tipoCodigoRaw).data
+    ? codigoSchema.safeParse(tipoCodigoRaw).data
     : undefined;
   const cobroCodigo = cobroCodigoRaw
-    ? z.string().max(50).safeParse(cobroCodigoRaw).data
+    ? codigoSchema.safeParse(cobroCodigoRaw).data
     : undefined;
 
   const fechaStart = mes ? new Date(year, mes - 1, 1) : new Date(year, 0, 1);

@@ -1,6 +1,6 @@
 import type { DbClient } from "../types";
 import { normalizeText, trim, toBool, normalizePhone, normalizeCuit } from "../helpers";
-import { processBatch } from "../normalizer-utils";
+import { processBatch, preloadExistingCodes } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
 
 export async function normalizeProveedores(
@@ -16,11 +16,8 @@ export async function normalizeProveedores(
   const skipped = rows.length - filtered.length;
 
   const allCodigos = filtered.map((r) => String(r["CODIGO"]).trim());
-  const existingCodigos = new Set(
-    (await prisma.proveedor.findMany({
-      where: { codigo: { in: allCodigos } },
-      select: { codigo: true },
-    })).map((x) => x.codigo)
+  const existingCodigos = await preloadExistingCodes(allCodigos, (codes) =>
+    prisma.proveedor.findMany({ where: { codigo: { in: codes } }, select: { codigo: true } })
   );
 
   const errors = await processBatch(

@@ -2,6 +2,16 @@ import type { DbClient, ETLRowError } from "./types";
 
 const BATCH_SIZE = 50;
 
+// Pre-carga los códigos existentes en un Set para O(1) lookup durante upsert.
+export async function preloadExistingCodes(
+  codigos: string[],
+  fetcher: (codes: string[]) => Promise<Array<{ codigo: string }>>
+): Promise<Set<string>> {
+  if (codigos.length === 0) return new Set();
+  const existing = await fetcher(codigos);
+  return new Set(existing.map((x) => x.codigo));
+}
+
 // Vincula detalle_compras.compraId por coincidencia de comprobante.
 // Se llama al final de normalizeCompras y normalizeDetalleCompras para
 // que el orden de importación no afecte el vínculo.

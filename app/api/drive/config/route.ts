@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { env } from "@/lib/env";
 import { requireAuthUser } from "@/lib/auth/require-auth";
 import { refreshGoogleAccessToken, getDriveFolderName } from "@/lib/drive/client";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
-
-function adminClient() {
-  return createAdminClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
-}
 
 /** GET — devuelve la config de Drive del usuario autenticado */
 export async function GET() {
@@ -16,7 +11,7 @@ export async function GET() {
   if (auth.response) return auth.response;
   const { user } = auth;
 
-  const admin = adminClient();
+  const admin = getSupabaseAdmin();
   const { data } = await admin
     .from("user_drive_config")
     .select("folder_id, folder_name")
@@ -50,7 +45,7 @@ export async function PUT(req: NextRequest) {
   const folderId = extractFolderId(raw);
   if (!folderId) return NextResponse.json({ error: "URL o ID de carpeta inválido" }, { status: 400 });
 
-  const admin = adminClient();
+  const admin = getSupabaseAdmin();
 
   // Obtener refresh_token guardado para conseguir access token y resolver el nombre
   const { data: config } = await admin

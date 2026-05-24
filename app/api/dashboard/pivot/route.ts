@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { parseDashboardParams } from "@/lib/dashboard/params";
+import { buildPivotConditions } from "@/lib/dashboard/query-builders";
 import type {
   PivotData,
   PivotRubroRow,
@@ -31,18 +32,7 @@ export async function GET(request: NextRequest) {
   const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months } = params;
 
   try {
-  const conditions: Prisma.Sql[] = [
-    Prisma.sql`EXTRACT(YEAR FROM c.fecha) = ${year}`,
-    Prisma.sql`c.fecha IS NOT NULL`,
-    Prisma.sql`c.importe IS NOT NULL`,
-  ];
-  if (localId) conditions.push(Prisma.sql`c."localId" = ${localId}`);
-  if (pdvId) conditions.push(Prisma.sql`c."puntoDeVentaId" = ${pdvId}`);
-  if (rubroCodigo) conditions.push(Prisma.sql`COALESCE(rc.codigo, '__sin_rubro') = ${rubroCodigo}`);
-  if (conceptoCodigo) conditions.push(Prisma.sql`COALESCE(cc.codigo, '__sin_concepto') = ${conceptoCodigo}`);
-  if (proveedorId) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
-  if (months?.length) conditions.push(Prisma.sql`EXTRACT(MONTH FROM c.fecha)::int IN (${Prisma.join(months.map((m) => Prisma.sql`${m}`))})`);
-
+  const conditions = buildPivotConditions({ year, tableAlias: "c", localId, pdvId, months, rubroCodigo, conceptoCodigo, proveedorId });
   const where = Prisma.join(conditions, " AND ");
 
   // SUM devuelve numeric (Prisma.Decimal) — no castear a float para evitar drift.

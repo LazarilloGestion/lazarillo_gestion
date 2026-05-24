@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
+import { useExpandableSet } from "@/hooks/use-expandable-set";
+import { useFetchQuery } from "@/hooks/use-fetch-query";
+import { ExpandableButton } from "@/components/ui/expandable-button";
+import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { buildDashboardUrl, buildVentasPivotUrl } from "@/lib/dashboard/params";
@@ -43,7 +45,7 @@ export function PivotTable() {
   const sortCol: SortCol | null = sortColRaw === "total" ? "total" : sortColRaw ? Number(sortColRaw) : null;
   const sortDir: SortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
 
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const { expanded, setExpanded, toggle: toggleRow } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
   const [ventasDetalleFilter, setVentasDetalleFilter] = useState<VentasDetalleFilter | null>(null);
   const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number }>({});
@@ -62,30 +64,20 @@ export function PivotTable() {
     [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, activeMonths]
   );
 
-  const { data, isLoading, error } = useQuery<PivotData>({
-    queryKey: ["pivot", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months],
-    queryFn: async () => {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Error cargando datos");
-      return res.json();
-    },
-    staleTime: 30_000,
-  });
+  const { data, isLoading, error } = useFetchQuery<PivotData>(
+    ["pivot", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months],
+    url
+  );
 
   const ventasUrl = useMemo(
     () => buildVentasPivotUrl("/api/dashboard/pivot-ventas", { year, localId, pdvId, months: activeMonths }),
     [year, localId, pdvId, activeMonths]
   );
 
-  const { data: ventasData } = useQuery<PivotData>({
-    queryKey: ["pivot-ventas", year, localId, pdvId, months],
-    queryFn: async () => {
-      const res = await fetch(ventasUrl);
-      if (!res.ok) throw new Error("Error cargando ventas");
-      return res.json();
-    },
-    staleTime: 30_000,
-  });
+  const { data: ventasData } = useFetchQuery<PivotData>(
+    ["pivot-ventas", year, localId, pdvId, months],
+    ventasUrl
+  );
 
   // Auto-expandir cuando hay filtro de concepto o proveedor; colapsar al quitar filtro.
   useEffect(() => {
@@ -107,15 +99,6 @@ export function PivotTable() {
       setExpanded(new Set());
     }
   }, [data, conceptoCodigo, proveedorId]);
-
-  function toggleRow(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
 
   function openDetalle(extra: Omit<DetalleFilter, "year" | "localId" | "pdvId">) {
     setDetalleFilter({ year, localId, pdvId, ...extra });
@@ -285,18 +268,9 @@ export function PivotTable() {
                     className="border-b bg-muted/25 font-semibold hover:bg-muted/50 transition-colors"
                   >
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
-                      <button
-                        className="flex items-center gap-1.5 w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-                        onClick={() => toggleRow(rubro.id)}
-                        aria-expanded={isExpanded}
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
-                        )}
+                      <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(rubro.id)}>
                         {rubro.nombre}
-                      </button>
+                      </ExpandableButton>
                     </td>
                     {months.map((mes) => (
                       <td
@@ -336,18 +310,9 @@ export function PivotTable() {
                     className="border-b hover:bg-accent/40 transition-colors"
                   >
                     <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
-                      <button
-                        className="flex items-center gap-1.5 pl-5 w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
-                        onClick={() => toggleRow(concepto.id)}
-                        aria-expanded={isExpanded}
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                        )}
+                      <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(concepto.id)} indent="pl-5" iconSize="w-3.5 h-3.5">
                         {concepto.nombre}
-                      </button>
+                      </ExpandableButton>
                     </td>
                     {months.map((mes) => (
                       <td

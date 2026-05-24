@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { env } from "@/lib/env";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -21,10 +20,7 @@ export async function GET(request: NextRequest) {
       // Persistir refresh token de Google para poder renovar el access token de Drive
       // provider_refresh_token solo viene en el primer consentimiento — guardarlo siempre que esté presente
       if (session.provider_refresh_token && session.user) {
-        const admin = createAdminClient(
-          env.NEXT_PUBLIC_SUPABASE_URL,
-          env.SUPABASE_SERVICE_ROLE_KEY
-        );
+        const admin = getSupabaseAdmin();
         const { error: upsertError } = await admin.from("user_drive_config").upsert(
           {
             user_id: session.user.id,

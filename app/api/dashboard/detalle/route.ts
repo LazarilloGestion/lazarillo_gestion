@@ -3,12 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { z } from "zod";
+import { mesSchema, yearSchema, idSchema, codigoSchema } from "@/lib/dashboard/schemas";
 
 export const dynamic = "force-dynamic";
-
-const mesSchema = z.coerce.number().int().min(1).max(12);
-const yearSchema = z.coerce.number().int().min(1900).max(2100);
-const idSchema = z.coerce.number().int().positive();
 
 export async function GET(request: NextRequest) {
   const denied = await requireAuth();
@@ -27,10 +24,10 @@ export async function GET(request: NextRequest) {
   const conceptoCodigoRaw = searchParams.get("conceptoCodigo");
   const rubroCodigoRaw = searchParams.get("rubroCodigo");
   const conceptoCodigo = conceptoCodigoRaw
-    ? z.string().max(50).safeParse(conceptoCodigoRaw).data
+    ? codigoSchema.safeParse(conceptoCodigoRaw).data
     : undefined;
   const rubroCodigo = rubroCodigoRaw
-    ? z.string().max(50).safeParse(rubroCodigoRaw).data
+    ? codigoSchema.safeParse(rubroCodigoRaw).data
     : undefined;
 
   const fechaStart = mes ? new Date(year, mes - 1, 1) : new Date(year, 0, 1);

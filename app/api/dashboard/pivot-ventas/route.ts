@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { parseVentasParams } from "@/lib/dashboard/params";
+import { buildPivotConditions } from "@/lib/dashboard/query-builders";
 import { toNumber } from "@/lib/dashboard/pivot-utils";
 import {
   SIN_TIPO_CODE, SIN_TIPO_NOMBRE,
@@ -34,15 +35,7 @@ export async function GET(request: NextRequest) {
   const { year, localId, pdvId, months } = params;
 
   try {
-    const conditions: Prisma.Sql[] = [
-      Prisma.sql`EXTRACT(YEAR FROM v.fecha) = ${year}`,
-      Prisma.sql`v.fecha IS NOT NULL`,
-      Prisma.sql`v.importe IS NOT NULL`,
-    ];
-    if (localId) conditions.push(Prisma.sql`v."localId" = ${localId}`);
-    if (pdvId) conditions.push(Prisma.sql`v."puntoDeVentaId" = ${pdvId}`);
-    if (months?.length) conditions.push(Prisma.sql`EXTRACT(MONTH FROM v.fecha)::int IN (${Prisma.join(months.map((m) => Prisma.sql`${m}`))})`);
-
+    const conditions = buildPivotConditions({ year, tableAlias: "v", localId, pdvId, months });
     const where = Prisma.join(conditions, " AND ");
 
     const rows = await prisma.$queryRaw<VentasSqlRow[]>(Prisma.sql`

@@ -1,6 +1,6 @@
 import type { DbClient } from "../types";
 import { normalizeText, toDecimal } from "../helpers";
-import { processBatch } from "../normalizer-utils";
+import { processBatch, preloadExistingCodes } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
 
 export async function normalizeArticulos(
@@ -16,11 +16,8 @@ export async function normalizeArticulos(
   const skipped = rows.length - filtered.length;
 
   const allCodigos = filtered.map((r) => String(r["CODIGO"]).trim());
-  const existingCodigos = new Set(
-    (await prisma.articulo.findMany({
-      where: { codigo: { in: allCodigos } },
-      select: { codigo: true },
-    })).map((x) => x.codigo)
+  const existingCodigos = await preloadExistingCodes(allCodigos, (codes) =>
+    prisma.articulo.findMany({ where: { codigo: { in: codes } }, select: { codigo: true } })
   );
 
   const errors = await processBatch(

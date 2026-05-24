@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { fmtARS, normalize } from "@/lib/utils";
+import { fmtARS, fmtDate, normalize } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 import { buildComprasDetalleUrl } from "@/lib/dashboard/params";
 import type { DetalleFilter, DetalleResponse, CompraDetalle } from "@/lib/dashboard/types";
 
@@ -56,47 +57,46 @@ export function DetalleModalBase<T extends { rowId: string | number }>({
     <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
 
-        <div className="overflow-auto flex-1 min-h-0">
-          <table className="text-sm min-w-max w-full">
-            <thead className="sticky top-0 z-10 bg-popover">
-              <tr>
-                <th colSpan={cols.length} className="px-6 pt-4 pb-3 text-left">
-                  <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
-                </th>
-              </tr>
-              <tr className="border-b border-border/60">
-                {cols.map(({ label, icon: Icon, color, bg, right }) => (
-                  <th key={label} className={`px-4 py-3 ${right ? "text-right" : "text-left"}`}>
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                      <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${bg}`}>
-                        <Icon className={`h-3 w-3 ${color}`} />
-                      </span>
-                      {label}
-                    </span>
+        {(!isLoading && !error && count > 0) ? null : (
+          <div className="px-6 pt-4 pb-3 shrink-0">
+            <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
+          </div>
+        )}
+
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <Spinner />
+          </div>
+        )}
+        {error && (
+          <div className="py-12 text-center text-sm text-destructive">Error al cargar los datos.</div>
+        )}
+        {!isLoading && !error && count === 0 && (
+          <div className="py-12 text-center text-sm text-muted-foreground">Sin registros para la selección.</div>
+        )}
+
+        {!isLoading && !error && count > 0 && (
+          <div className="overflow-auto flex-1 min-h-0">
+            <table className="text-sm min-w-max w-full">
+              <thead className="sticky top-0 z-10 bg-popover">
+                <tr>
+                  <th colSpan={cols.length} className="px-6 pt-4 pb-3 text-left">
+                    <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
                   </th>
-                ))}
-              </tr>
-            </thead>
-
-            {isLoading && (
-              <tbody><tr><td colSpan={cols.length}>
-                <div className="flex items-center justify-center py-12">
-                  <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-muted-foreground/20 border-t-muted-foreground" />
-                </div>
-              </td></tr></tbody>
-            )}
-            {error && (
-              <tbody><tr><td colSpan={cols.length}>
-                <div className="py-12 text-center text-sm text-destructive">Error al cargar los datos.</div>
-              </td></tr></tbody>
-            )}
-            {!isLoading && !error && count === 0 && (
-              <tbody><tr><td colSpan={cols.length}>
-                <div className="py-12 text-center text-sm text-muted-foreground">Sin registros para la selección.</div>
-              </td></tr></tbody>
-            )}
-
-            {!isLoading && !error && count > 0 && (
+                </tr>
+                <tr className="border-b border-border/60">
+                  {cols.map(({ label, icon: Icon, color, bg, right }) => (
+                    <th key={label} className={`px-4 py-3 ${right ? "text-right" : "text-left"}`}>
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${bg}`}>
+                          <Icon className={`h-3 w-3 ${color}`} />
+                        </span>
+                        {label}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
                 {data?.map((item) => (
                   <tr key={item.rowId} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
@@ -111,9 +111,9 @@ export function DetalleModalBase<T extends { rowId: string | number }>({
                   </tr>
                 ))}
               </tbody>
-            )}
-          </table>
-        </div>
+            </table>
+          </div>
+        )}
 
         {(count > 0 || hasMore) && (
           <div className="border-t border-border/60 px-6 py-2.5 shrink-0 text-[11px] text-muted-foreground/60">
@@ -141,7 +141,7 @@ const COMPRAS_COLS: ColDef[] = [
 
 function renderComprasRow(c: CompraDetalle): React.ReactNode[] {
   return [
-    c.fecha ? new Date(c.fecha).toLocaleDateString("es-AR") : "—",
+    fmtDate(c.fecha),
     normalize(c.local?.nombre),
     normalize(c.proveedor ?? c.proveedorRef?.nombre ?? c.proveedorRef?.razon),
     normalize(c.conceptoCaja?.nombre),
