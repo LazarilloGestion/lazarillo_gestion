@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -17,4 +18,20 @@ export async function requireAuth(): Promise<NextResponse | null> {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
   return null;
+}
+
+/**
+ * Como requireAuth() pero retorna el user autenticado para que el handler
+ * no necesite llamar getUser() una segunda vez.
+ */
+export async function requireAuthUser(): Promise<
+  { user: User; response: null } | { user: null; response: NextResponse }
+> {
+  const supabase = await createClient();
+  const { data: { user }, error } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return { user: null, response: NextResponse.json({ error: "No autorizado" }, { status: 401 }) };
+  }
+  return { user, response: null };
 }

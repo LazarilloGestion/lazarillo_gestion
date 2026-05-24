@@ -52,10 +52,12 @@ export function LoginForm({ next, hasError }: LoginFormProps) {
       provider: "google",
       options: {
         redirectTo,
-        scopes: "openid email profile",
+        scopes: "openid email profile https://www.googleapis.com/auth/drive.readonly",
         queryParams: {
-          // Forzar selector de cuenta — importante en dispositivos compartidos
-          prompt: "select_account",
+          // "consent" fuerza re-emisión del refresh_token en cada login,
+          // necesario para recuperar acceso si el token fue revocado.
+          prompt: "consent",
+          access_type: "offline",
         },
       },
     });
