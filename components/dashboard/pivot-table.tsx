@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronRight, ChevronDown, SearchX } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS, MONTH_IDXS } from "@/lib/dashboard/constants";
 import { buildDashboardUrl } from "@/lib/dashboard/params";
@@ -120,8 +120,9 @@ export function PivotTable() {
 
   if (!data || data.rows.length === 0) {
     return (
-      <div className="text-sm text-muted-foreground py-16 text-center">
-        Sin datos para los filtros seleccionados.
+      <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
+        <SearchX className="w-8 h-8 opacity-40" />
+        <p className="text-sm">Sin datos para los filtros seleccionados.</p>
       </div>
     );
   }

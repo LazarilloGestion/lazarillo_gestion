@@ -45,14 +45,32 @@ export function DetalleModal({
     <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
 
+        {/* Header title — siempre visible fuera del scroll */}
+        <div className="px-6 pt-4 pb-3 shrink-0">
+          <DialogTitle className="text-base font-semibold">Detalle de compras</DialogTitle>
+        </div>
+
+        {/* Estados: loading / error / vacío — centrados respecto al modal, no a la tabla */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-muted-foreground/20 border-t-muted-foreground" />
+          </div>
+        )}
+        {error && (
+          <div className="py-12 text-center text-sm text-destructive">
+            Error al cargar los datos.
+          </div>
+        )}
+        {!isLoading && !error && count === 0 && (
+          <div className="py-12 text-center text-sm text-muted-foreground">
+            Sin registros para la selección.
+          </div>
+        )}
+
+        {!isLoading && !error && count > 0 && (
         <div className="overflow-auto flex-1 min-h-0">
           <table className="text-sm min-w-max w-full">
             <thead className="sticky top-0 bg-popover">
-              <tr>
-                <th colSpan={COLS.length} className="px-6 pt-4 pb-3 text-left">
-                  <DialogTitle className="text-base font-semibold">Detalle de compras</DialogTitle>
-                </th>
-              </tr>
               <tr className="border-b border-border/60">
                 {COLS.map(({ label, icon: Icon, color, bg, right }) => (
                   <th key={label} className={`px-4 py-3 ${right ? "text-right" : "text-left"}`}>
@@ -68,27 +86,6 @@ export function DetalleModal({
             </thead>
 
             <tbody>
-              {isLoading && (
-                <tr>
-                  <td colSpan={COLS.length} className="py-12 text-center">
-                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-[3px] border-muted-foreground/20 border-t-muted-foreground" />
-                  </td>
-                </tr>
-              )}
-              {error && (
-                <tr>
-                  <td colSpan={COLS.length} className="py-12 text-center text-sm text-destructive">
-                    Error al cargar los datos.
-                  </td>
-                </tr>
-              )}
-              {!isLoading && !error && count === 0 && (
-                <tr>
-                  <td colSpan={COLS.length} className="py-12 text-center text-sm text-muted-foreground">
-                    Sin registros para la selección.
-                  </td>
-                </tr>
-              )}
               {data?.map((c) => (
                 <tr key={c.rowId} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
                   <td className="px-4 py-2.5 text-muted-foreground tabular-nums whitespace-nowrap">
@@ -114,6 +111,7 @@ export function DetalleModal({
             </tbody>
           </table>
         </div>
+        )}
 
         {(count > 0 || hasMore) && (
           <div className="border-t border-border/60 px-6 py-2.5 shrink-0 text-[11px] text-muted-foreground/60">

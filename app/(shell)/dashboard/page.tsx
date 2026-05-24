@@ -8,14 +8,25 @@ export const metadata: Metadata = {
   title: "Dashboard | Lazarillo Gestión",
 };
 
-export default function DashboardPage() {
+const SUBTITLES: Record<string, string> = {
+  compras: "Vista anual por rubro / tipo de cobro",
+  ventas: "Vista anual por punto de venta / tipo de cobro",
+};
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const params = await searchParams;
+  const tab = typeof params.tab === "string" ? params.tab : "compras";
+  const subtitle = SUBTITLES[tab] ?? SUBTITLES.compras;
+
   return (
     <div className="flex flex-col h-full p-6 gap-5">
       <div className="flex flex-col gap-1">
         <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          Vista anual por rubro / tipo de cobro
-        </p>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
       </div>
 
       <Suspense fallback={<FiltersSkeleton />}>
