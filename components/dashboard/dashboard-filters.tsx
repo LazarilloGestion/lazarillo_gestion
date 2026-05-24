@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { CalendarDays, Building2, Store, Search, X } from "lucide-react";
+import { CalendarDays, Building2, Store, Search, X, Filter } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -25,6 +26,8 @@ const PALETTE_PARAMS = Object.keys(PALETTE_PARAM_LABELS);
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: CURRENT_YEAR - 2019 }, (_, i) => CURRENT_YEAR - i);
 
+const MONTH_LABELS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
 export function DashboardFilters() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -38,6 +41,13 @@ export function DashboardFilters() {
   const year = searchParams.get("year") ?? String(CURRENT_YEAR);
   const localId = searchParams.get("localId") ?? "";
   const pdvId = searchParams.get("pdvId") ?? "";
+
+  const selectedMonths = useMemo(() => {
+    const raw = searchParams.get("months");
+    if (!raw) return new Set<number>();
+    const parsed = raw.split(",").map(Number).filter((n) => n >= 1 && n <= 12);
+    return new Set(parsed);
+  }, [searchParams]);
 
   // Chip activo del palette (solo hay uno a la vez; no aplica en tab ventas)
   const activeSearchParam = !isVentas ? PALETTE_PARAMS.find((p) => searchParams.get(p)) : undefined;
@@ -85,6 +95,28 @@ export function DashboardFilters() {
     if (value && value !== "__all") params.set(key, value);
     else params.delete(key);
     if (key === "localId") params.delete("pdvId");
+    router.replace(`/dashboard?${params.toString()}`);
+  }
+
+  function toggleMonth(idx: number) {
+    const params = new URLSearchParams(searchParams.toString());
+    const next = new Set(selectedMonths);
+    if (next.has(idx)) {
+      next.delete(idx);
+    } else {
+      next.add(idx);
+    }
+    if (next.size === 0 || next.size === 12) {
+      params.delete("months");
+    } else {
+      params.set("months", Array.from(next).sort((a, b) => a - b).join(","));
+    }
+    router.replace(`/dashboard?${params.toString()}`);
+  }
+
+  function clearMonths() {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("months");
     router.replace(`/dashboard?${params.toString()}`);
   }
 
@@ -174,6 +206,39 @@ export function DashboardFilters() {
               <span className="text-xs">⌘</span>K
             </kbd>
           </Button>
+        )}
+      </div>
+
+      {/* Filtro de meses */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        {MONTH_LABELS.map((label, i) => {
+          const idx = i + 1;
+          const active = selectedMonths.has(idx);
+          return (
+            <button
+              key={idx}
+              onClick={() => toggleMonth(idx)}
+              aria-pressed={active}
+              className={cn(
+                "h-6 px-2 rounded text-xs font-medium transition-colors border",
+                active
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+        {selectedMonths.size > 0 && (
+          <button
+            onClick={clearMonths}
+            className="h-6 px-1.5 rounded text-xs text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Limpiar filtro de meses"
+          >
+            <X className="w-3 h-3" />
+          </button>
         )}
       </div>
 

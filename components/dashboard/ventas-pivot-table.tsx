@@ -2,11 +2,13 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, ChevronDown, SearchX } from "lucide-react";
+import { ChevronRight, ChevronDown } from "lucide-react";
 import { cn, fmtARS } from "@/lib/utils";
-import { MONTHS, MONTH_IDXS } from "@/lib/dashboard/constants";
+import { MONTHS } from "@/lib/dashboard/constants";
 import { buildVentasPivotUrl } from "@/lib/dashboard/params";
-import { flattenRows } from "@/lib/dashboard/pivot-utils";
+import { flattenRows, hasValue } from "@/lib/dashboard/pivot-utils";
+import { usePivotMonths } from "@/hooks/use-pivot-months";
+import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import type {
   PivotData,
   PivotRubroRow,
@@ -14,12 +16,6 @@ import type {
   VentasDetalleFilter,
 } from "@/lib/dashboard/types";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
-
-const EPSILON = 0.01;
-
-function hasValue(v: number | undefined): boolean {
-  return (v ?? 0) > EPSILON;
-}
 
 export function VentasPivotTable() {
   const searchParams = useSearchParams();
@@ -34,13 +30,15 @@ export function VentasPivotTable() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detalleFilter, setDetalleFilter] = useState<VentasDetalleFilter | null>(null);
 
+  const { months, activeMonths } = usePivotMonths();
+
   const url = useMemo(
-    () => buildVentasPivotUrl("/api/dashboard/pivot-ventas", { year, localId, pdvId }),
-    [year, localId, pdvId]
+    () => buildVentasPivotUrl("/api/dashboard/pivot-ventas", { year, localId, pdvId, months: activeMonths }),
+    [year, localId, pdvId, activeMonths]
   );
 
   const { data, isLoading, error } = useQuery<PivotData>({
-    queryKey: ["pivot-ventas", year, localId, pdvId],
+    queryKey: ["pivot-ventas", year, localId, pdvId, months],
     queryFn: async () => {
       const res = await fetch(url);
       if (!res.ok) throw new Error("Error cargando datos");
@@ -67,30 +65,9 @@ export function VentasPivotTable() {
     [data, expanded]
   );
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-1 items-center justify-center h-full">
-        <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-muted-foreground/20 border-t-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-sm text-destructive py-16 text-center">
-        Error al cargar los datos.
-      </div>
-    );
-  }
-
-  if (!data || data.rows.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-        <SearchX className="w-8 h-8 opacity-40" />
-        <p className="text-sm">Sin datos para los filtros seleccionados.</p>
-      </div>
-    );
-  }
+  if (isLoading) return <PivotLoading />;
+  if (error) return <PivotError />;
+  if (!data || data.rows.length === 0) return <PivotEmpty />;
 
   return (
     <>
@@ -101,12 +78,12 @@ export function VentasPivotTable() {
               <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Tipo / Forma de cobro
               </th>
-              {MONTHS.map((m) => (
+              {months.map((idx) => (
                 <th
-                  key={m}
+                  key={idx}
                   className="sticky top-0 z-20 bg-muted text-right px-3 py-3 font-medium text-muted-foreground min-w-[90px] whitespace-nowrap"
                 >
-                  {m}
+                  {MONTHS[idx - 1]}
                 </th>
               ))}
               <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-medium text-muted-foreground min-w-[110px] whitespace-nowrap">
@@ -139,7 +116,7 @@ export function VentasPivotTable() {
                         {tipo.nombre}
                       </button>
                     </td>
-                    {MONTH_IDXS.map((mes) => (
+                    {months.map((mes) => (
                       <td
                         key={mes}
                         className={cn(
@@ -177,7 +154,7 @@ export function VentasPivotTable() {
                   <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
                     <span className="pl-7 block text-left">{cobro.nombre}</span>
                   </td>
-                  {MONTH_IDXS.map((mes) => (
+                  {months.map((mes) => (
                     <td
                       key={mes}
                       className={cn(
@@ -219,7 +196,7 @@ export function VentasPivotTable() {
               <td className="sticky left-0 z-10 bg-muted px-4 py-3 text-sm shadow-[1px_0_0_0_hsl(var(--border))]">
                 Total {year}
               </td>
-              {MONTH_IDXS.map((mes) => (
+              {months.map((mes) => (
                 <td key={mes} className="text-right px-3 py-3 tabular-nums">
                   {fmtARS(data.columnTotals[mes])}
                 </td>

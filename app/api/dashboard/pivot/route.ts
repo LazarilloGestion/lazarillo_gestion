@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid numeric parameter" }, { status: 400 });
   }
 
-  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId } = params;
+  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months } = params;
 
   try {
   const conditions: Prisma.Sql[] = [
@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
   if (rubroCodigo) conditions.push(Prisma.sql`COALESCE(rc.codigo, '__sin_rubro') = ${rubroCodigo}`);
   if (conceptoCodigo) conditions.push(Prisma.sql`COALESCE(cc.codigo, '__sin_concepto') = ${conceptoCodigo}`);
   if (proveedorId) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
+  if (months?.length) conditions.push(Prisma.sql`EXTRACT(MONTH FROM c.fecha)::int IN (${Prisma.join(months.map((m) => Prisma.sql`${m}`))})`);
 
   const where = Prisma.join(conditions, " AND ");
 

@@ -7,14 +7,14 @@ export interface DashboardParams {
   rubroCodigo?: string;
   conceptoCodigo?: string;
   proveedorId?: number;
+  months?: number[];
 }
 
 export interface VentasDashboardParams {
   year: number;
   localId?: number;
   pdvId?: number;
-  tipoCodigo?: string;
-  cobroCodigo?: string;
+  months?: number[];
 }
 
 function toInt(s: string | null): number | undefined {
@@ -23,26 +23,34 @@ function toInt(s: string | null): number | undefined {
   return Number.isInteger(n) ? n : undefined;
 }
 
+function parseMonths(s: string | null): number[] | undefined {
+  if (!s) return undefined;
+  const parsed = s.split(",").map(Number).filter((n) => n >= 1 && n <= 12);
+  return parsed.length > 0 && parsed.length < 12 ? parsed : undefined;
+}
+
 export function parseDashboardParams(sp: URLSearchParams): DashboardParams {
-  const year = Number(sp.get("year")) || new Date().getFullYear();
+  const raw = Number(sp.get("year"));
+  const year = Number.isInteger(raw) && raw >= 2000 && raw <= 2100 ? raw : new Date().getFullYear();
   return {
     year,
     localId: toInt(sp.get("localId")),
     pdvId: toInt(sp.get("pdvId")),
-    rubroCodigo: sp.get("rubroCodigo") ?? undefined,
-    conceptoCodigo: sp.get("conceptoCodigo") ?? undefined,
+    rubroCodigo: sp.get("rubroCodigo")?.slice(0, 64) ?? undefined,
+    conceptoCodigo: sp.get("conceptoCodigo")?.slice(0, 64) ?? undefined,
     proveedorId: toInt(sp.get("proveedorId")),
+    months: parseMonths(sp.get("months")),
   };
 }
 
 export function parseVentasParams(sp: URLSearchParams): VentasDashboardParams {
-  const year = Number(sp.get("year")) || new Date().getFullYear();
+  const raw = Number(sp.get("year"));
+  const year = Number.isInteger(raw) && raw >= 2000 && raw <= 2100 ? raw : new Date().getFullYear();
   return {
     year,
     localId: toInt(sp.get("localId")),
     pdvId: toInt(sp.get("pdvId")),
-    tipoCodigo: sp.get("tipoCodigo") ?? undefined,
-    cobroCodigo: sp.get("cobroCodigo") ?? undefined,
+    months: parseMonths(sp.get("months")),
   };
 }
 
@@ -53,13 +61,15 @@ export function buildDashboardUrl(base: string, params: DashboardParams): string
   if (params.rubroCodigo) sp.set("rubroCodigo", params.rubroCodigo);
   if (params.conceptoCodigo) sp.set("conceptoCodigo", params.conceptoCodigo);
   if (params.proveedorId != null) sp.set("proveedorId", String(params.proveedorId));
+  if (params.months?.length) sp.set("months", params.months.join(","));
   return `${base}?${sp.toString()}`;
 }
 
-export function buildVentasPivotUrl(base: string, params: Pick<VentasDashboardParams, "year" | "localId" | "pdvId">): string {
+export function buildVentasPivotUrl(base: string, params: Pick<VentasDashboardParams, "year" | "localId" | "pdvId" | "months">): string {
   const sp = new URLSearchParams({ year: String(params.year) });
   if (params.localId != null) sp.set("localId", String(params.localId));
   if (params.pdvId != null) sp.set("pdvId", String(params.pdvId));
+  if (params.months?.length) sp.set("months", params.months.join(","));
   return `${base}?${sp.toString()}`;
 }
 

@@ -58,7 +58,7 @@ const FILE_TYPE_LABELS: Record<string, string> = {
 type Tab = "subir" | "drive";
 
 export default function ImportarPage() {
-  const [tab, setTab] = useState<Tab>("subir");
+  const [tab, setTab] = useState<Tab>("drive");
 
   // filtros compartidos entre tabs
   const [locales, setLocales] = useState<Local[]>([]);
@@ -127,7 +127,7 @@ export default function ImportarPage() {
 
       {/* Tab bar */}
       <div className="flex border-b gap-1">
-        {(["subir", "drive"] as const).map((t) => (
+        {(["drive", "subir"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
