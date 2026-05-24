@@ -56,7 +56,7 @@ export function LoginForm({ next, hasError }: LoginFormProps) {
         queryParams: {
           // "consent" fuerza re-emisión del refresh_token en cada login,
           // necesario para recuperar acceso si el token fue revocado.
-          prompt: "consent",
+          prompt: "select_account",
           access_type: "offline",
         },
       },
