@@ -55,7 +55,8 @@ model ConceptoCaja {
   codRga String?
   rubro  RubroConceptoCaja? @relation(fields: [codRga], references: [codigo])
 
-  compras Compra[]
+  compras        Compra[] @relation("conceptoPrincipal")
+  comprasManuales Compra[] @relation("conceptoManual")
 
   @@index([codRga])
   @@map("conceptos_caja")
@@ -170,13 +171,20 @@ model Compra {
   per2      Decimal?
   per3      Decimal?
 
+  // Overrides manuales — sobreviven re-importaciones
+  importeManual Decimal?
+  fechaManual   DateTime?
+
   localId        Int?
   puntoDeVentaId Int?
   local          Local?        @relation(fields: [localId], references: [id])
   puntoDeVenta   PuntoDeVenta? @relation(fields: [puntoDeVentaId], references: [id])
 
   conceptoCodigo String?
-  conceptoCaja   ConceptoCaja? @relation(fields: [conceptoCodigo], references: [codigo])
+  conceptoCaja   ConceptoCaja? @relation("conceptoPrincipal", fields: [conceptoCodigo], references: [codigo])
+
+  conceptoCodigoManual String?
+  conceptoCajaManual   ConceptoCaja? @relation("conceptoManual", fields: [conceptoCodigoManual], references: [codigo])
 
   proveedorId  Int?
   proveedorRef Proveedor? @relation(fields: [proveedorId], references: [id])
@@ -241,6 +249,7 @@ model Venta {
   codCobro   String?  // id forma de cobro
   importe    Decimal?
   importeTrabajado Decimal? // = importe en Fase 1; campo para prorrateo en Fase 2
+  importeManual    Decimal?
   total      Decimal?
   descuento  Decimal?
   cliNombre  String?

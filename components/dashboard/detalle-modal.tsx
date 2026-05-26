@@ -1,14 +1,20 @@
 "use client";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { fmtARS, fmtDate, normalize } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import { buildComprasDetalleUrl } from "@/lib/dashboard/params";
 import type { DetalleFilter, DetalleResponse, CompraDetalle } from "@/lib/dashboard/types";
-
-// ─── Generic base ────────────────────────────────────────────────────────────
+import {
+  EditActionButtons, EditTriggerButton, EditedDot, toEditString,
+} from "./edit-row-controls";
 
 export interface ColDef {
   label: string;
@@ -18,117 +24,28 @@ export interface ColDef {
   right: boolean;
 }
 
-export function DetalleModalBase<T extends { rowId: string | number }>({
-  title,
-  filter,
-  buildUrl,
-  queryKey,
-  cols,
-  renderRow,
-  onClose,
-}: {
-  title: string;
-  filter: unknown | null;
-  buildUrl: (f: NonNullable<typeof filter>) => string;
-  queryKey: unknown[];
-  cols: readonly ColDef[];
-  renderRow: (item: T) => React.ReactNode[];
-  onClose: () => void;
-}) {
-  const { data: response, isLoading, error } = useQuery<DetalleResponse<T>>({
-    queryKey,
-    queryFn: async () => {
-      if (!filter) throw new Error("Filter requerido");
-      const res = await fetch(buildUrl(filter));
-      if (!res.ok) throw new Error("Error cargando detalle");
-      return res.json() as Promise<DetalleResponse<T>>;
-    },
-    enabled: filter !== null,
-    staleTime: 60_000,
-    retry: 2,
-    retryDelay: (i) => Math.min(1000 * 2 ** i, 30_000),
-  });
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-  const data = response?.data;
-  const hasMore = response?.hasMore ?? false;
-  const count = data?.length ?? 0;
+type ConceptoOption = { codigo: string; nombre: string; rubroNombre: string };
 
-  return (
-    <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
+type EditState = {
+  rowId: string;
+  importeManual: string;
+  fechaManual: string;
+  conceptoCodigoManual: string;
+};
 
-        {(!isLoading && !error && count > 0) ? null : (
-          <div className="px-6 pt-4 pb-3 shrink-0">
-            <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
-          </div>
-        )}
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-        {isLoading && (
-          <div className="flex items-center justify-center py-12">
-            <Spinner />
-          </div>
-        )}
-        {error && (
-          <div className="py-12 text-center text-sm text-destructive">Error al cargar los datos.</div>
-        )}
-        {!isLoading && !error && count === 0 && (
-          <div className="py-12 text-center text-sm text-muted-foreground">Sin registros para la selección.</div>
-        )}
-
-        {!isLoading && !error && count > 0 && (
-          <div className="overflow-auto flex-1 min-h-0">
-            <table className="text-sm min-w-max w-full">
-              <thead className="sticky top-0 z-10 bg-popover">
-                <tr>
-                  <th colSpan={cols.length} className="px-6 pt-4 pb-3 text-left">
-                    <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
-                  </th>
-                </tr>
-                <tr className="border-b border-border/60">
-                  {cols.map(({ label, icon: Icon, color, bg, right }) => (
-                    <th key={label} className={`px-4 py-3 ${right ? "text-right" : "text-left"}`}>
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${bg}`}>
-                          <Icon className={`h-3 w-3 ${color}`} />
-                        </span>
-                        {label}
-                      </span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data?.map((item) => (
-                  <tr key={item.rowId} className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
-                    {renderRow(item).map((cell, i) => (
-                      <td
-                        key={i}
-                        className={`px-4 py-2.5 ${cols[i]?.right ? "text-right tabular-nums font-medium whitespace-nowrap" : "truncate"}`}
-                      >
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {(count > 0 || hasMore) && (
-          <div className="border-t border-border/60 px-6 py-2.5 shrink-0 text-[11px] text-muted-foreground/60">
-            {hasMore
-              ? "Hay más de 500 registros — refiná los filtros para ver todos"
-              : `${count} registro${count !== 1 ? "s" : ""}`}
-          </div>
-        )}
-
-      </DialogContent>
-    </Dialog>
-  );
+function isEdited(c: CompraDetalle) {
+  return c.importeManual != null || c.fechaManual != null || c.conceptoCodigoManual != null;
 }
 
-// ─── Compras ─────────────────────────────────────────────────────────────────
+function toDateInputValue(iso: string | null | undefined): string {
+  return iso?.slice(0, 10) ?? "";
+}
+
+// ─── Column definitions ───────────────────────────────────────────────────────
 
 const COMPRAS_COLS: ColDef[] = [
   { label: "Fecha",     icon: CalendarDays, color: "text-muted-foreground", bg: "bg-muted",          right: false },
@@ -139,27 +56,253 @@ const COMPRAS_COLS: ColDef[] = [
   { label: "Importe",   icon: ArrowDownUp,  color: "text-muted-foreground", bg: "bg-muted",          right: true  },
 ];
 
-function renderComprasRow(c: CompraDetalle): React.ReactNode[] {
-  return [
-    fmtDate(c.fecha),
-    normalize(c.local?.nombre),
-    normalize(c.proveedor ?? c.proveedorRef?.nombre ?? c.proveedorRef?.razon),
-    normalize(c.conceptoCaja?.nombre),
-    normalize(c.conceptoCaja?.rubro?.nombre),
-    fmtARS(c.importe != null ? Number(c.importe) : null),
-  ];
+// ─── Row component ────────────────────────────────────────────────────────────
+
+function ComprasRow({
+  item,
+  editing,
+  conceptoOptions,
+  onEdit,
+  onSave,
+  onCancel,
+  saving,
+}: {
+  item: CompraDetalle;
+  editing: EditState | null;
+  conceptoOptions: ConceptoOption[];
+  onEdit: (state: EditState) => void;
+  onSave: (state: EditState) => void;
+  onCancel: () => void;
+  saving: boolean;
+}) {
+  const isEditing = editing?.rowId === item.rowId;
+  const effectiveFecha = item.fechaManual ?? item.fecha;
+  const effectiveImporte = item.importeManual ?? item.importe;
+  const effectiveConcepto = item.conceptoCajaManual ?? item.conceptoCaja;
+
+  if (isEditing) {
+    const selectedConcepto = conceptoOptions.find(c => c.codigo === editing!.conceptoCodigoManual);
+    return (
+      <tr className="border-b border-border/40 last:border-0 bg-muted/20">
+        <td className="px-2 py-1.5">
+          <Input
+            type="date"
+            className="h-7 text-xs w-32"
+            value={editing!.fechaManual}
+            onChange={e => onEdit({ ...editing!, fechaManual: e.target.value })}
+          />
+        </td>
+        <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
+          {normalize(item.local?.nombre)}
+        </td>
+        <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
+          {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
+        </td>
+        <td className="px-2 py-1.5">
+          <Select
+            value={editing!.conceptoCodigoManual}
+            onValueChange={v => onEdit({ ...editing!, conceptoCodigoManual: v })}
+          >
+            <SelectTrigger className="h-7 text-xs w-44">
+              <SelectValue placeholder="Sin cambio" />
+            </SelectTrigger>
+            <SelectContent>
+              {conceptoOptions.map(opt => (
+                <SelectItem key={opt.codigo} value={opt.codigo}>{opt.nombre}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </td>
+        {/* Rubro auto-populated from selected concept */}
+        <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
+          {selectedConcepto?.rubroNombre ?? normalize(effectiveConcepto?.rubro?.nombre)}
+        </td>
+        <td className="px-2 py-1.5 text-right">
+          <Input
+            type="number"
+            step="0.01"
+            className="h-7 text-xs w-28 text-right"
+            value={editing!.importeManual}
+            onChange={e => onEdit({ ...editing!, importeManual: e.target.value })}
+          />
+        </td>
+        <td className="px-2 py-1.5">
+          <EditActionButtons onSave={() => onSave(editing!)} onCancel={onCancel} saving={saving} />
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className="group border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+      <td className="px-4 py-2.5 truncate">
+        <span className="flex items-center gap-1.5">
+          {isEdited(item) && <EditedDot />}
+          {fmtDate(effectiveFecha)}
+        </span>
+      </td>
+      <td className="px-4 py-2.5 truncate">{normalize(item.local?.nombre)}</td>
+      <td className="px-4 py-2.5 truncate">
+        {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
+      </td>
+      <td className="px-4 py-2.5 truncate">{normalize(effectiveConcepto?.nombre)}</td>
+      <td className="px-4 py-2.5 truncate">{normalize(effectiveConcepto?.rubro?.nombre)}</td>
+      <td className="px-4 py-2.5 text-right tabular-nums font-medium whitespace-nowrap">
+        {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
+      </td>
+      <td className="px-2 py-2.5">
+        <EditTriggerButton
+          onClick={() =>
+            onEdit({
+              rowId: String(item.rowId),
+              importeManual: toEditString(item.importeManual ?? item.importe),
+              fechaManual: toDateInputValue(item.fechaManual ?? item.fecha),
+              conceptoCodigoManual: item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "",
+            })
+          }
+        />
+      </td>
+    </tr>
+  );
 }
 
+// ─── Modal ────────────────────────────────────────────────────────────────────
+
 export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(() => ["detalle", filter], [filter]);
+
+  const { data: response, isLoading, error } = useQuery<DetalleResponse<CompraDetalle>>({
+    queryKey,
+    queryFn: async () => {
+      if (!filter) throw new Error("Filter requerido");
+      const res = await fetch(buildComprasDetalleUrl(filter));
+      if (!res.ok) throw new Error("Error cargando detalle");
+      return res.json() as Promise<DetalleResponse<CompraDetalle>>;
+    },
+    enabled: filter !== null,
+    staleTime: 60_000,
+    retry: 2,
+    retryDelay: (i) => Math.min(1000 * 2 ** i, 30_000),
+  });
+
+  const [editing, setEditing] = useState<EditState | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string }>>({
+    queryKey: ["suggestions"],
+    queryFn: () => fetch("/api/search/suggestions").then((r) => r.json()),
+    staleTime: 5 * 60_000,
+    enabled: filter !== null,
+  });
+
+  const conceptoOptions = useMemo<ConceptoOption[]>(
+    () => (suggestions ?? [])
+      .filter((s) => s.type === "concepto")
+      .map((s) => ({ codigo: s.value, nombre: s.label, rubroNombre: s.rubroNombre ?? "" })),
+    [suggestions]
+  );
+
+  const handleSave = useCallback(async (state: EditState) => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const body = {
+        importeManual:        state.importeManual !== "" ? parseFloat(state.importeManual) : null,
+        fechaManual:          state.fechaManual !== "" ? new Date(state.fechaManual + "T00:00:00Z").toISOString() : null,
+        conceptoCodigoManual: state.conceptoCodigoManual !== "" ? state.conceptoCodigoManual : null,
+      };
+      const res = await fetch(`/api/dashboard/compras/${state.rowId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Error al guardar");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey }),
+        queryClient.invalidateQueries({ queryKey: ["pivot"] }),
+      ]);
+      setEditing(null);
+    } catch {
+      setSaveError("No se pudo guardar. Intentá de nuevo.");
+    } finally {
+      setSaving(false);
+    }
+  }, [queryClient, queryKey]);
+
+  const data = response?.data;
+  const hasMore = response?.hasMore ?? false;
+  const count = data?.length ?? 0;
+
   return (
-    <DetalleModalBase<CompraDetalle>
-      title="Detalle de compras"
-      filter={filter}
-      buildUrl={(f) => buildComprasDetalleUrl(f as DetalleFilter)}
-      queryKey={["detalle", filter]}
-      cols={COMPRAS_COLS}
-      renderRow={renderComprasRow}
-      onClose={onClose}
-    />
+    <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) { setEditing(null); onClose(); } }}>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
+
+        {(!isLoading && !error && count > 0) ? null : (
+          <div className="px-6 pt-4 pb-3 shrink-0">
+            <DialogTitle className="text-base font-semibold">Detalle de compras</DialogTitle>
+          </div>
+        )}
+
+        {isLoading && <div className="flex items-center justify-center py-12"><Spinner /></div>}
+        {error && <div className="py-12 text-center text-sm text-destructive">Error al cargar los datos.</div>}
+        {!isLoading && !error && count === 0 && (
+          <div className="py-12 text-center text-sm text-muted-foreground">Sin registros para la selección.</div>
+        )}
+
+        {!isLoading && !error && count > 0 && (
+          <div className="overflow-auto flex-1 min-h-0">
+            <table className="text-sm min-w-max w-full">
+              <thead className="sticky top-0 z-10 bg-popover">
+                <tr>
+                  <th colSpan={COMPRAS_COLS.length + 1} className="px-6 pt-4 pb-3 text-left">
+                    <DialogTitle className="text-base font-semibold">Detalle de compras</DialogTitle>
+                  </th>
+                </tr>
+                <tr className="border-b border-border/60">
+                  {COMPRAS_COLS.map(({ label, icon: Icon, color, bg, right }) => (
+                    <th key={label} className={`px-4 py-3 ${right ? "text-right" : "text-left"}`}>
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${bg}`}>
+                          <Icon className={`h-3 w-3 ${color}`} />
+                        </span>
+                        {label}
+                      </span>
+                    </th>
+                  ))}
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {data?.map((item) => (
+                  <ComprasRow
+                    key={item.rowId}
+                    item={item}
+                    editing={editing}
+                    conceptoOptions={conceptoOptions}
+                    onEdit={setEditing}
+                    onSave={handleSave}
+                    onCancel={() => setEditing(null)}
+                    saving={saving}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {saveError && (
+          <div className="border-t border-destructive/30 px-6 py-2 text-xs text-destructive">{saveError}</div>
+        )}
+        {(count > 0 || hasMore) && (
+          <div className="border-t border-border/60 px-6 py-2.5 shrink-0 text-[11px] text-muted-foreground/60">
+            {hasMore
+              ? "Hay más de 500 registros — refiná los filtros para ver todos"
+              : `${count} registro${count !== 1 ? "s" : ""}`}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

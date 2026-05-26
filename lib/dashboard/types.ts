@@ -94,6 +94,7 @@ export type VentaDetalle = {
   rowId: string;
   fecha: string | null;
   importe: string | number | null;
+  importeManual: string | number | null;
   tipo: string | null;
   cobro: string | null;
   turno: string | null;
@@ -113,11 +114,21 @@ export type CompraDetalle = {
   rowId: string;
   fecha: string | null;
   importe: string | number | null;
+  importeManual: string | number | null;
+  fechaManual: string | null;
+  conceptoCodigoManual: string | null;
+  concepto: string | null;
   proveedor: string | null;
   proveedorRef: { id: number; nombre: string | null; razon: string | null } | null;
   local: { nombre: string } | null;
   puntoDeVenta: { nombre: string } | null;
   conceptoCaja: {
+    codigo: string;
+    nombre: string;
+    rubro: { nombre: string } | null;
+  } | null;
+  conceptoCajaManual: {
+    codigo: string;
     nombre: string;
     rubro: { nombre: string } | null;
   } | null;

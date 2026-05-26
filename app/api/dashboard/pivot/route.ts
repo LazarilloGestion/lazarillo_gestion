@@ -45,9 +45,9 @@ export async function GET(request: NextRequest) {
       p.id                                                        AS proveedor_id,
       COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor') AS proveedor_nombre,
       EXTRACT(MONTH FROM c.fecha)::int                           AS mes,
-      SUM(c.importe)                                             AS total
+      SUM(COALESCE(c."importeManual", c.importe))                AS total
     FROM compras c
-    LEFT JOIN conceptos_caja cc       ON c."conceptoCodigo" = cc.codigo
+    LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
     LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
     LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
     WHERE ${where}

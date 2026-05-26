@@ -37,8 +37,13 @@ export async function GET(request: NextRequest) {
     fecha: { gte: fechaStart, lt: fechaEnd },
     ...(localId !== undefined && { localId }),
     ...(pdvId !== undefined && { puntoDeVentaId: pdvId }),
-    ...(conceptoCodigo && { conceptoCodigo }),
     ...(proveedorId !== undefined && { proveedorId }),
+    ...(conceptoCodigo && {
+      OR: [
+        { conceptoCodigoManual: conceptoCodigo },
+        { conceptoCodigoManual: null, conceptoCodigo },
+      ],
+    }),
   };
 
   if (rubroCodigo && !conceptoCodigo) {
@@ -55,6 +60,10 @@ export async function GET(request: NextRequest) {
       rowId: true,
       fecha: true,
       importe: true,
+      importeManual: true,
+      fechaManual: true,
+      conceptoCodigoManual: true,
+      concepto: true,
       proveedor: true,
       proveedorRef: {
         select: { id: true, nombre: true, razon: true },
@@ -63,6 +72,14 @@ export async function GET(request: NextRequest) {
       puntoDeVenta: { select: { nombre: true } },
       conceptoCaja: {
         select: {
+          codigo: true,
+          nombre: true,
+          rubro: { select: { nombre: true } },
+        },
+      },
+      conceptoCajaManual: {
+        select: {
+          codigo: true,
           nombre: true,
           rubro: { select: { nombre: true } },
         },

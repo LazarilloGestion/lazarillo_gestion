@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
       rowId: true,
       fecha: true,
       importe: true,
+      importeManual: true,
       tipo: true,
       cobro: true,
       turno: true,

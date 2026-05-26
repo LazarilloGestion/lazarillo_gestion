@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
         COALESCE(v."codCobro", ${SIN_COBRO_CODE})  AS cobro_codigo,
         COALESCE(v.cobro, ${SIN_COBRO_NOMBRE})     AS cobro_nombre,
         EXTRACT(MONTH FROM v.fecha)::int           AS mes,
-        SUM(v.importe)                             AS total
+        SUM(COALESCE(v."importeManual", v.importe)) AS total
       FROM ventas v
       WHERE ${where}
       GROUP BY v.tipo, v."codCobro", v.cobro, EXTRACT(MONTH FROM v.fecha)::int

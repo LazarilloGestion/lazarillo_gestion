@@ -11,6 +11,7 @@ export type Suggestion = {
   // payload que se mapea a URL param
   param: "rubroCodigo" | "conceptoCodigo" | "proveedorId";
   value: string;
+  rubroNombre?: string; // solo para type === "concepto"
 };
 
 export async function GET() {
@@ -25,7 +26,7 @@ export async function GET() {
         take: 500,
       }),
       prisma.conceptoCaja.findMany({
-        select: { codigo: true, nombre: true },
+        select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } },
         orderBy: { nombre: "asc" },
         take: 500,
       }),
@@ -50,6 +51,7 @@ export async function GET() {
         type: "concepto" as const,
         param: "conceptoCodigo" as const,
         value: c.codigo,
+        rubroNombre: c.rubro?.nombre ?? undefined,
       })),
       ...proveedores.map((p) => ({
         id: `proveedor:${p.id}`,
