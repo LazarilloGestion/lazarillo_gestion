@@ -133,6 +133,14 @@ export function PivotTable() {
   if (error) return <PivotError />;
   if (!data || data.rows.length === 0) return <PivotEmpty />;
 
+  const allIds = new Set<string>();
+  for (const rubro of data.rows) {
+    allIds.add(rubro.id);
+    for (const concepto of rubro.children) allIds.add(concepto.id);
+  }
+  const allExpanded = allIds.size > 0 && [...allIds].every((id) => expanded.has(id));
+  const allCollapsed = expanded.size === 0;
+
   const ingresosPorMes = ventasData?.columnTotals ?? {};
   const egresosPorMes = data.columnTotals;
   const maxIngresos = Math.max(...months.map((m) => ingresosPorMes[m] ?? 0), 1);
@@ -146,6 +154,22 @@ export function PivotTable() {
 
   return (
     <>
+      <div className="flex justify-end gap-3 mb-1">
+        <button
+          onClick={() => setExpanded(new Set())}
+          disabled={allCollapsed}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
+          Colapsar todo
+        </button>
+        <button
+          onClick={() => setExpanded(new Set(allIds))}
+          disabled={allExpanded}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
+          Expandir todo
+        </button>
+      </div>
       <div className="overflow-auto flex-1 min-h-0">
         <table className="w-full text-sm border-separate border-spacing-0">
           <thead>

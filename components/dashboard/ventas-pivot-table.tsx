@@ -28,7 +28,7 @@ export function VentasPivotTable() {
     ? Number(searchParams.get("pdvId"))
     : undefined;
 
-  const { expanded, toggle: toggleRow } = useExpandableSet();
+  const { expanded, setExpanded, toggle: toggleRow } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<VentasDetalleFilter | null>(null);
 
   const { months, activeMonths } = usePivotMonths();
@@ -56,8 +56,28 @@ export function VentasPivotTable() {
   if (error) return <PivotError />;
   if (!data || data.rows.length === 0) return <PivotEmpty />;
 
+  const allIds = new Set<string>(data.rows.map((r) => r.id));
+  const allExpanded = allIds.size > 0 && [...allIds].every((id) => expanded.has(id));
+  const allCollapsed = expanded.size === 0;
+
   return (
     <>
+      <div className="flex justify-end gap-3 mb-1">
+        <button
+          onClick={() => setExpanded(new Set())}
+          disabled={allCollapsed}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
+          Colapsar todo
+        </button>
+        <button
+          onClick={() => setExpanded(new Set(allIds))}
+          disabled={allExpanded}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        >
+          Expandir todo
+        </button>
+      </div>
       <div className="overflow-auto flex-1 min-h-0">
         <table className="w-full text-sm border-separate border-spacing-0">
           <thead>
