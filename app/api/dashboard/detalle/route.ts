@@ -29,8 +29,8 @@ export async function GET(request: NextRequest) {
     ? codigoSchema.safeParse(rubroCodigoRaw).data
     : undefined;
 
-  const fechaStart = mes ? new Date(year, mes - 1, 1) : new Date(year, 0, 1);
-  const fechaEnd = mes ? new Date(year, mes, 1) : new Date(year + 1, 0, 1);
+  const fechaStart = mes ? new Date(Date.UTC(year, mes - 1, 1)) : new Date(Date.UTC(year, 0, 1));
+  const fechaEnd = mes ? new Date(Date.UTC(year, mes, 1)) : new Date(Date.UTC(year + 1, 0, 1));
 
   const where: Prisma.CompraWhereInput = {
     fecha: { gte: fechaStart, lt: fechaEnd },
