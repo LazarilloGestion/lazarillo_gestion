@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
-import { z } from "zod";
 import { mesSchema, yearSchema, idSchema, codigoSchema } from "@/lib/dashboard/schemas";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +50,12 @@ export async function GET(request: NextRequest) {
       where: { codRga: rubroCodigo },
       select: { codigo: true },
     });
-    where.conceptoCodigo = { in: conceptos.map((c) => c.codigo) };
+    const codigos = conceptos.map((c) => c.codigo);
+    where.OR = [
+      ...(Array.isArray(where.OR) ? where.OR : []),
+      { conceptoCodigoManual: { in: codigos } },
+      { conceptoCodigoManual: null, conceptoCodigo: { in: codigos } },
+    ];
   }
 
   const compras = await prisma.compra.findMany({
