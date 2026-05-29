@@ -148,7 +148,7 @@ export default function ImportarPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Importar datos</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Importá archivos Excel del ERP — desde tu computadora o desde Google Drive.
+          Importá archivos Excel del ERP — desde Google Drive o desde tu computadora.
         </p>
       </div>
 
