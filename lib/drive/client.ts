@@ -83,6 +83,50 @@ export async function downloadDriveFile(
   return Buffer.from(arrayBuffer);
 }
 
+/** Lista subcarpetas directas de una carpeta Drive. */
+export async function listDriveSubfolders(
+  accessToken: string,
+  folderId: string
+): Promise<{ id: string; name: string }[]> {
+  assertValidDriveId(folderId, "folder_id");
+
+  const q = `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+  const fields = "files(id,name)";
+  const url = `${DRIVE_API}/files?q=${encodeURIComponent(q)}&fields=${encodeURIComponent(fields)}&orderBy=name`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    console.error("[drive/client] Error listando subcarpetas Drive:", res.status, body);
+    throw new Error(`Error listando subcarpetas Drive: ${res.status}`);
+  }
+
+  const json = await res.json() as { files: { id: string; name: string }[] };
+  return json.files ?? [];
+}
+
+/**
+ * Lista todos los archivos .xlsx/.xls dentro de las subcarpetas directas de folderId.
+ * Útil para recolectar archivos de Compras/, Detalle Compras/, Ventas/ sin saber sus nombres.
+ */
+export async function listFilesInSubfolders(
+  accessToken: string,
+  folderId: string
+): Promise<DriveFile[]> {
+  const subfolders = await listDriveSubfolders(accessToken, folderId);
+  if (subfolders.length === 0) {
+    // Fallback: si no hay subcarpetas, listar archivos directos
+    return listDriveFiles(accessToken, folderId);
+  }
+  const results = await Promise.all(
+    subfolders.map((sf) => listDriveFiles(accessToken, sf.id))
+  );
+  return results.flat();
+}
+
 /** Obtiene el nombre de una carpeta Drive por su ID. */
 export async function getDriveFolderName(
   accessToken: string,

@@ -16,10 +16,10 @@ import {
   Upload, FileSpreadsheet, CheckCircle2, AlertCircle, X,
   FolderOpen, RefreshCw, CloudDownload, Settings, SearchX,
 } from "lucide-react";
-import { cn, fmtARS } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import type { ETLReport } from "@/lib/etl/types";
 import type { Local } from "@/lib/types/domain";
-import type { DriveFile, DriveConfig } from "@/lib/drive/types";
+import type { DriveFile, DriveConfig, DriveFilesResponse, DriveFolderWithFiles } from "@/lib/drive/types";
 
 // ── tipos ────────────────────────────────────────────────────────────────────
 
@@ -32,14 +32,13 @@ type UploadState =
 type DriveFilesState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "ready"; files: DriveFile[] }
+  | { status: "ready"; data: DriveFilesResponse }
   | { status: "error"; message: string };
 
-type DriveImportState =
-  | { status: "idle" }
-  | { status: "importing"; fileId: string }
-  | { status: "success"; fileId: string; reports: ETLReport[] }
-  | { status: "error"; fileId: string; message: string };
+type FileImportStatus = "idle" | "importing" | "success" | "error";
+type FileStates = Record<string, FileImportStatus>;
+type FileReports = Record<string, ETLReport[]>;
+type FileErrors = Record<string, string>;
 
 const FILE_TYPE_LABELS: Record<string, string> = {
   rubrosConceptoCaja: "Rubros Concepto Caja",
@@ -151,13 +150,7 @@ export default function ImportarPage() {
         />
       )}
 
-      {tab === "drive" && (
-        <DriveTab
-          localSelect={localSelect}
-          localId={localId}
-          puntoDeVentaId={puntoDeVentaId}
-        />
-      )}
+      {tab === "drive" && <DriveTab />}
     </div>
   );
 }
@@ -294,15 +287,7 @@ function SubirTab({
 
 // ── Tab: Desde Drive ──────────────────────────────────────────────────────────
 
-function DriveTab({
-  localSelect,
-  localId,
-  puntoDeVentaId,
-}: {
-  localSelect: React.ReactNode;
-  localId: string;
-  puntoDeVentaId: string;
-}) {
+function DriveTab() {
   const [config, setConfig] = useState<DriveConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -311,26 +296,31 @@ function DriveTab({
   const [configError, setConfigError] = useState("");
 
   const [filesState, setFilesState] = useState<DriveFilesState>({ status: "idle" });
-  const [importState, setImportState] = useState<DriveImportState>({ status: "idle" });
+
+  // Estado por archivo: status, reportes, errores
+  const [fileStatuses, setFileStatuses] = useState<FileStates>({});
+  const [fileReports, setFileReports] = useState<FileReports>({});
+  const [fileErrors, setFileErrors] = useState<FileErrors>({});
 
   // Cargar config al montar
   useEffect(() => {
     fetch("/api/drive/config")
-      .then((r) => { if (!r.ok) throw new Error("Error cargando config"); return r.json(); })
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d: DriveConfig) => setConfig(d))
       .catch(() => setConfig({ folder_id: null, folder_name: null }))
       .finally(() => setConfigLoading(false));
   }, []);
 
-  // Cargar archivos cuando hay carpeta configurada
   const loadFiles = useCallback(() => {
     setFilesState({ status: "loading" });
-    setImportState({ status: "idle" });
+    setFileStatuses({});
+    setFileReports({});
+    setFileErrors({});
     fetch("/api/drive/files")
-      .then((r) => r.json() as Promise<{ files?: DriveFile[]; error?: string }>)
+      .then((r) => r.json() as Promise<DriveFilesResponse & { error?: string }>)
       .then((d) => {
         if (d.error) setFilesState({ status: "error", message: d.error });
-        else setFilesState({ status: "ready", files: d.files ?? [] });
+        else setFilesState({ status: "ready", data: { maestros: d.maestros ?? [], folders: d.folders ?? [] } });
       })
       .catch(() => setFilesState({ status: "error", message: "Error de red" }));
   }, []);
@@ -361,8 +351,8 @@ function DriveTab({
     }
   }
 
-  async function importFile(file: DriveFile) {
-    setImportState({ status: "importing", fileId: file.id });
+  async function importOneFile(file: DriveFile, localId?: number, puntoDeVentaId?: number) {
+    setFileStatuses((s) => ({ ...s, [file.id]: "importing" }));
     try {
       const res = await fetch("/api/etl/drive-import", {
         method: "POST",
@@ -370,15 +360,27 @@ function DriveTab({
         body: JSON.stringify({
           file_id: file.id,
           file_name: file.name,
-          local_id: localId ? Number(localId) : undefined,
-          punto_de_venta_id: puntoDeVentaId ? Number(puntoDeVentaId) : undefined,
+          local_id: localId,
+          punto_de_venta_id: puntoDeVentaId,
         }),
       });
       const json = await res.json();
-      if (!res.ok) setImportState({ status: "error", fileId: file.id, message: json.error ?? "Error" });
-      else setImportState({ status: "success", fileId: file.id, reports: json as ETLReport[] });
+      if (!res.ok) {
+        setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
+        setFileErrors((s) => ({ ...s, [file.id]: json.error ?? "Error" }));
+      } else {
+        setFileStatuses((s) => ({ ...s, [file.id]: "success" }));
+        setFileReports((s) => ({ ...s, [file.id]: json as ETLReport[] }));
+      }
     } catch {
-      setImportState({ status: "error", fileId: file.id, message: "Error de red" });
+      setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
+      setFileErrors((s) => ({ ...s, [file.id]: "Error de red" }));
+    }
+  }
+
+  async function importAllFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number) {
+    for (const file of files) {
+      await importOneFile(file, localId, puntoDeVentaId);
     }
   }
 
@@ -392,13 +394,10 @@ function DriveTab({
     );
   }
 
+  const ready = filesState.status === "ready" ? filesState.data : null;
+
   return (
     <div className="flex flex-col gap-5">
-      {/* Filtros de local */}
-      <Card>
-        <CardContent className="pt-5">{localSelect}</CardContent>
-      </Card>
-
       {/* Configuración de carpeta */}
       <Card>
         <CardHeader className="pb-3">
@@ -425,7 +424,6 @@ function DriveTab({
           ) : (
             <p className="text-sm text-muted-foreground">Sin carpeta configurada</p>
           )}
-
           {(showSettings || !config?.folder_id) && (
             <form onSubmit={saveConfig} className="flex flex-col gap-2">
               <Input
@@ -434,9 +432,7 @@ function DriveTab({
                 onChange={(e) => setFolderUrl(e.target.value)}
                 className="text-sm"
               />
-              {configError && (
-                <p className="text-xs text-destructive">{configError}</p>
-              )}
+              {configError && <p className="text-xs text-destructive">{configError}</p>}
               <Button type="submit" size="sm" disabled={savingConfig || !folderUrl.trim()}>
                 {savingConfig ? "Guardando…" : "Guardar carpeta"}
               </Button>
@@ -445,102 +441,214 @@ function DriveTab({
         </CardContent>
       </Card>
 
-      {/* Lista de archivos */}
-      {config?.folder_id && (
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">Archivos disponibles</CardTitle>
-              <button
-                onClick={loadFiles}
-                disabled={filesState.status === "loading"}
-                className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
-                title="Actualizar lista"
-              >
-                <RefreshCw className={cn("w-4 h-4", filesState.status === "loading" && "animate-spin")} />
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {filesState.status === "loading" && (
-              <div className="flex items-center justify-center py-8 text-muted-foreground">
-                <RefreshCw className="w-5 h-5 animate-spin" />
-              </div>
-            )}
-
-            {filesState.status === "error" && (
-              <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                {filesState.message}
-              </div>
-            )}
-
-            {filesState.status === "ready" && filesState.files.length === 0 && (
-              <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
-                <SearchX className="w-7 h-7 opacity-40" />
-                <p className="text-sm">No hay archivos Excel en esta carpeta.</p>
-              </div>
-            )}
-
-            {filesState.status === "ready" && filesState.files.length > 0 && (
-              <ul className="flex flex-col divide-y">
-                {filesState.files.map((file) => {
-                  const isImporting = importState.status === "importing" && importState.fileId === file.id;
-                  const isDone = importState.status === "success" && importState.fileId === file.id;
-                  const hasFailed = importState.status === "error" && importState.fileId === file.id;
-
-                  return (
-                    <li key={file.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                      <FileSpreadsheet className="w-4 h-4 shrink-0 text-green-500" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{file.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(file.modifiedTime).toLocaleDateString("es-AR")}
-                          {file.size && ` · ${formatBytes(Number(file.size))}`}
-                        </p>
-                      </div>
-                      {isDone ? (
-                        <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
-                      ) : hasFailed ? (
-                        <AlertCircle className="w-5 h-5 text-destructive shrink-0" />
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => importFile(file)}
-                          disabled={isImporting}
-                          className="shrink-0 gap-1.5"
-                        >
-                          {isImporting ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <CloudDownload className="w-3.5 h-3.5" />
-                          )}
-                          {isImporting ? "Importando…" : "Importar"}
-                        </Button>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Resultado de importación */}
-      {importState.status === "success" && (
-        <div className="flex flex-col gap-3">
-          {importState.reports.map((r, i) => <ReportCard key={i} report={r} />)}
+      {/* Estado de carga */}
+      {filesState.status === "loading" && (
+        <div className="flex items-center justify-center py-12 text-muted-foreground">
+          <RefreshCw className="w-5 h-5 animate-spin" />
         </div>
       )}
-      {importState.status === "error" && (
+      {filesState.status === "error" && (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-          {importState.message}
+          {filesState.message}
+        </div>
+      )}
+
+      {/* Botón refrescar cuando hay carpeta */}
+      {config?.folder_id && filesState.status !== "loading" && (
+        <div className="flex justify-end">
+          <button
+            onClick={loadFiles}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Actualizar
+          </button>
+        </div>
+      )}
+
+      {/* Sección Maestros */}
+      {ready && (
+        <DriveFolder
+          title="Maestros"
+          subtitle="Rubros, conceptos, proveedores, artículos"
+          files={ready.maestros}
+          localId={undefined}
+          puntoDeVentaId={undefined}
+          fileStatuses={fileStatuses}
+          fileReports={fileReports}
+          fileErrors={fileErrors}
+          onImportOne={importOneFile}
+          onImportAll={importAllFiles}
+        />
+      )}
+
+      {/* Carpetas PDV */}
+      {ready?.folders.map((folder) => {
+        const resolved = folder.localId
+          ? [folder.localNombre, folder.pdvNombre].filter(Boolean).join(" · ")
+          : null;
+        return (
+          <DriveFolder
+            key={folder.id}
+            title={folder.name}
+            subtitle={resolved ?? "Local no reconocido — verificá el nombre de la carpeta"}
+            subtitleVariant={folder.localId ? "normal" : "warning"}
+            files={folder.files}
+            localId={folder.localId ?? undefined}
+            puntoDeVentaId={folder.puntoDeVentaId ?? undefined}
+            fileStatuses={fileStatuses}
+            fileReports={fileReports}
+            fileErrors={fileErrors}
+            onImportOne={importOneFile}
+            onImportAll={importAllFiles}
+          />
+        );
+      })}
+
+      {/* Sin subcarpetas */}
+      {ready && ready.maestros.length === 0 && ready.folders.length === 0 && (
+        <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+          <SearchX className="w-7 h-7 opacity-40" />
+          <p className="text-sm">No se encontraron archivos ni subcarpetas.</p>
+          <p className="text-xs opacity-60">Creá la estructura: Maestros/, San Justo/, Ramos Mejía/…</p>
         </div>
       )}
     </div>
+  );
+}
+
+// ── DriveFolder ───────────────────────────────────────────────────────────────
+
+function DriveFolder({
+  title,
+  subtitle,
+  subtitleVariant = "normal",
+  files,
+  localId,
+  puntoDeVentaId,
+  fileStatuses,
+  fileReports,
+  fileErrors,
+  onImportOne,
+  onImportAll,
+}: {
+  title: string;
+  subtitle?: string;
+  subtitleVariant?: "normal" | "warning";
+  files: DriveFile[];
+  localId: number | undefined;
+  puntoDeVentaId: number | undefined;
+  fileStatuses: FileStates;
+  fileReports: FileReports;
+  fileErrors: FileErrors;
+  onImportOne: (file: DriveFile, localId?: number, puntoDeVentaId?: number) => Promise<void>;
+  onImportAll: (files: DriveFile[], localId?: number, puntoDeVentaId?: number) => Promise<void>;
+}) {
+  const [batchRunning, setBatchRunning] = useState(false);
+
+  const pendingFiles = files.filter((f) => !fileStatuses[f.id] || fileStatuses[f.id] === "idle");
+  const allDone = files.length > 0 && files.every((f) => fileStatuses[f.id] === "success");
+
+  async function handleImportAll() {
+    setBatchRunning(true);
+    await onImportAll(files, localId, puntoDeVentaId);
+    setBatchRunning(false);
+  }
+
+  const allReports = files.flatMap((f) => fileReports[f.id] ?? []);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />
+              {title}
+              {allDone && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+            </CardTitle>
+            {subtitle && (
+              <p className={cn(
+                "text-xs mt-0.5",
+                subtitleVariant === "warning" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+              )}>
+                {subtitle}
+              </p>
+            )}
+          </div>
+          {files.length > 1 && !allDone && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleImportAll}
+              disabled={batchRunning || pendingFiles.length === 0}
+              className="shrink-0 gap-1.5"
+            >
+              {batchRunning ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <CloudDownload className="w-3.5 h-3.5" />
+              )}
+              {batchRunning ? "Importando…" : `Importar ${pendingFiles.length > 0 ? pendingFiles.length : "todos"}`}
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 flex flex-col gap-3">
+        {files.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">Sin archivos Excel.</p>
+        ) : (
+          <ul className="flex flex-col divide-y">
+            {files.map((file) => {
+              const status = fileStatuses[file.id] ?? "idle";
+              return (
+                <li key={file.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                  <FileSpreadsheet className="w-4 h-4 shrink-0 text-green-500" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(file.modifiedTime).toLocaleDateString("es-AR")}
+                      {file.size && ` · ${formatBytes(Number(file.size))}`}
+                    </p>
+                    {status === "error" && fileErrors[file.id] && (
+                      <p className="text-xs text-destructive mt-0.5">{fileErrors[file.id]}</p>
+                    )}
+                  </div>
+                  {status === "success" ? (
+                    <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
+                  ) : status === "error" ? (
+                    <AlertCircle className="w-5 h-5 text-destructive shrink-0" />
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onImportOne(file, localId, puntoDeVentaId)}
+                      disabled={status === "importing" || batchRunning}
+                      className="shrink-0 gap-1.5"
+                    >
+                      {status === "importing" ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <CloudDownload className="w-3.5 h-3.5" />
+                      )}
+                      {status === "importing" ? "Importando…" : "Importar"}
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {/* Reportes post-importación */}
+        {allReports.length > 0 && (
+          <div className="flex flex-col gap-2 pt-1">
+            {allReports.map((r, i) => <ReportCard key={i} report={r} />)}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

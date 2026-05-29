@@ -58,8 +58,23 @@ export async function POST(req: NextRequest) {
       puntoDeVentaId: body.punto_de_venta_id,
     };
 
+    // Archivar en Supabase Storage para versionado
+    const now = new Date();
+    const date = now.toISOString().slice(0, 10);
+    const time = now.toTimeString().slice(0, 8).replace(/:/g, "-");
+    const storagePath = `drive/${user.id}/${date}/${time}_${safeName}`;
+    try {
+      await admin.storage
+        .from("uploads")
+        .upload(storagePath, buffer, {
+          contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          upsert: false,
+        });
+    } catch {
+      // Storage es best-effort — no bloquea el ETL
+    }
+
     const db = getEtlClient();
-    const storagePath = `drive/${user.id}/${safeName}`;
     const report = await runETL(buffer, storagePath, ctx, db);
 
     return NextResponse.json([report]);
