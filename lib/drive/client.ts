@@ -26,7 +26,7 @@ export async function refreshGoogleAccessToken(refreshToken: string): Promise<st
   if (!res.ok) {
     const body = await res.text();
     console.error("[drive/client] Error renovando token de Google:", body);
-    throw new Error(`Token de Drive inválido o revocado — Google: ${body}`);
+    throw new Error("Token de Drive inválido o revocado");
   }
 
   const json = await res.json() as { access_token?: string };

@@ -17,9 +17,6 @@ export async function GET(request: NextRequest) {
     if (!error && data.session) {
       const { session } = data;
 
-      console.log("[auth/callback] provider_refresh_token present:", !!session.provider_refresh_token);
-      console.log("[auth/callback] provider_token present:", !!session.provider_token);
-
       // Persistir refresh token de Google para poder renovar el access token de Drive
       // provider_refresh_token solo viene en el primer consentimiento — guardarlo siempre que esté presente
       if (session.provider_refresh_token && session.user) {
@@ -33,11 +30,7 @@ export async function GET(request: NextRequest) {
         );
         if (upsertError) {
           console.error("[auth/callback] Error guardando refresh_token:", upsertError);
-        } else {
-          console.log("[auth/callback] refresh_token guardado OK para user:", session.user.id);
         }
-      } else {
-        console.warn("[auth/callback] Sin provider_refresh_token — token NO actualizado en DB");
       }
 
       return NextResponse.redirect(`${origin}${safeNext}`);
