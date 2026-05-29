@@ -14,12 +14,12 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertCircle, X,
-  FolderOpen, RefreshCw, CloudDownload, Settings, SearchX,
+  FolderOpen, Folder, RefreshCw, CloudDownload, Settings, SearchX, ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ETLReport } from "@/lib/etl/types";
 import type { Local } from "@/lib/types/domain";
-import type { DriveFile, DriveConfig, DriveFilesResponse, DriveFolderWithFiles } from "@/lib/drive/types";
+import type { DriveFile, DriveConfig, DriveFilesResponse } from "@/lib/drive/types";
 
 // ── tipos ────────────────────────────────────────────────────────────────────
 
@@ -180,7 +180,7 @@ function SubirTab({
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
     if (selectedFiles.length === 0) return;
     setState({ status: "uploading" });
@@ -329,7 +329,18 @@ function DriveTab() {
     if (!configLoading && config?.folder_id) loadFiles();
   }, [configLoading, config?.folder_id, loadFiles]);
 
-  async function saveConfig(e: React.FormEvent) {
+  const isImporting = Object.values(fileStatuses).some((s) => s === "importing");
+
+  useEffect(() => {
+    if (!isImporting) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isImporting]);
+
+  async function saveConfig(e: React.SyntheticEvent) {
     e.preventDefault();
     setConfigError("");
     setSavingConfig(true);
@@ -379,8 +390,62 @@ function DriveTab() {
   }
 
   async function importAllFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number) {
-    for (const file of files) {
-      await importOneFile(file, localId, puntoDeVentaId);
+    // Marcar todos como "importing" antes de empezar
+    setFileStatuses((s) => {
+      const next = { ...s };
+      for (const f of files) next[f.id] = "importing";
+      return next;
+    });
+    try {
+      const res = await fetch("/api/etl/drive-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          files: files.map((f) => ({ file_id: f.id, file_name: f.name })),
+          local_id: localId,
+          punto_de_venta_id: puntoDeVentaId,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setFileStatuses((s) => {
+          const next = { ...s };
+          for (const f of files) next[f.id] = "error";
+          return next;
+        });
+        setFileErrors((s) => {
+          const next = { ...s };
+          for (const f of files) next[f.id] = json.error ?? "Error";
+          return next;
+        });
+      } else {
+        const reports = json as ETLReport[];
+        setFileStatuses((s) => {
+          const next = { ...s };
+          for (const f of files) next[f.id] = "success";
+          return next;
+        });
+        // Asociar reportes a archivos por nombre (storagePath contiene el file_name)
+        setFileReports((s) => {
+          const next = { ...s };
+          files.forEach((f) => {
+            const match = reports.find((r) => r.storagePath?.includes(f.name));
+            if (match) next[f.id] = [match];
+          });
+          return next;
+        });
+      }
+    } catch {
+      setFileStatuses((s) => {
+        const next = { ...s };
+        for (const f of files) next[f.id] = "error";
+        return next;
+      });
+      setFileErrors((s) => {
+        const next = { ...s };
+        for (const f of files) next[f.id] = "Error de red";
+        return next;
+      });
     }
   }
 
@@ -403,7 +468,9 @@ function DriveTab() {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm flex items-center gap-2">
-              <FolderOpen className="w-4 h-4 text-muted-foreground" />
+              {showSettings || !config?.folder_id
+                ? <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                : <Folder className="w-4 h-4 text-muted-foreground" />}
               Carpeta de Drive
             </CardTitle>
             <button
@@ -459,7 +526,8 @@ function DriveTab() {
         <div className="flex justify-end">
           <button
             onClick={loadFiles}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            disabled={isImporting}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Actualizar
@@ -546,9 +614,11 @@ function DriveFolder({
   onImportAll: (files: DriveFile[], localId?: number, puntoDeVentaId?: number) => Promise<void>;
 }) {
   const [batchRunning, setBatchRunning] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   const pendingFiles = files.filter((f) => !fileStatuses[f.id] || fileStatuses[f.id] === "idle");
   const allDone = files.length > 0 && files.every((f) => fileStatuses[f.id] === "success");
+  const folderImporting = files.some((f) => fileStatuses[f.id] === "importing");
 
   async function handleImportAll() {
     setBatchRunning(true);
@@ -560,11 +630,16 @@ function DriveFolder({
 
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader
+        className="pb-3 cursor-pointer select-none"
+        onClick={() => setCollapsed((v) => !v)}
+      >
         <div className="flex items-center justify-between gap-2">
           <div className="flex-1 min-w-0">
             <CardTitle className="text-sm flex items-center gap-2">
-              <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />
+              {collapsed
+                ? <Folder className="w-4 h-4 shrink-0 text-muted-foreground" />
+                : <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />}
               {title}
               {allDone && <CheckCircle2 className="w-4 h-4 text-green-500" />}
             </CardTitle>
@@ -577,25 +652,34 @@ function DriveFolder({
               </p>
             )}
           </div>
-          {files.length > 1 && !allDone && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleImportAll}
-              disabled={batchRunning || pendingFiles.length === 0}
-              className="shrink-0 gap-1.5"
-            >
-              {batchRunning ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <CloudDownload className="w-3.5 h-3.5" />
-              )}
-              {batchRunning ? "Importando…" : `Importar ${pendingFiles.length > 0 ? pendingFiles.length : "todos"}`}
-            </Button>
-          )}
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            {files.length > 1 && !allDone && !collapsed && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleImportAll}
+                disabled={batchRunning || pendingFiles.length === 0}
+                className="shrink-0 gap-1.5"
+              >
+                {batchRunning ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CloudDownload className="w-3.5 h-3.5" />
+                )}
+                {batchRunning ? "Importando…" : `Importar ${pendingFiles.length > 0 ? pendingFiles.length : "todos"}`}
+              </Button>
+            )}
+            <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", collapsed && "-rotate-90")} />
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="pt-0 flex flex-col gap-3">
+      {!collapsed && <CardContent className="pt-0 flex flex-col gap-3">
+        {folderImporting && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+            <RefreshCw className="w-3.5 h-3.5 shrink-0 animate-spin" />
+            Importación en curso — no navegues ni recargues la página hasta que termine.
+          </div>
+        )}
         {files.length === 0 ? (
           <p className="text-sm text-muted-foreground py-2">Sin archivos Excel.</p>
         ) : (
@@ -647,7 +731,7 @@ function DriveFolder({
             {allReports.map((r, i) => <ReportCard key={i} report={r} />)}
           </div>
         )}
-      </CardContent>
+      </CardContent>}
     </Card>
   );
 }
