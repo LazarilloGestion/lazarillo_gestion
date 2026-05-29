@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { ExpandableButton } from "@/components/ui/expandable-button";
+import { ChevronsDownUp } from "lucide-react";
 import { cn, fmtARS } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { buildVentasPivotUrl } from "@/lib/dashboard/params";
@@ -56,34 +57,27 @@ export function VentasPivotTable() {
   if (error) return <PivotError />;
   if (!data || data.rows.length === 0) return <PivotEmpty />;
 
-  const allIds = new Set<string>(data.rows.map((r) => r.id));
-  const allExpanded = allIds.size > 0 && [...allIds].every((id) => expanded.has(id));
-  const allCollapsed = expanded.size === 0;
+  const anyExpanded = expanded.size > 0;
 
   return (
     <>
-      <div className="flex justify-end gap-3 mb-1">
-        <button
-          onClick={() => setExpanded(new Set())}
-          disabled={allCollapsed}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
-        >
-          Colapsar todo
-        </button>
-        <button
-          onClick={() => setExpanded(new Set(allIds))}
-          disabled={allExpanded}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
-        >
-          Expandir todo
-        </button>
-      </div>
       <div className="overflow-auto flex-1 min-h-0">
         <table className="w-full text-sm border-separate border-spacing-0">
           <thead>
             <tr className="bg-muted border-b">
               <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
-                Tipo / Forma de cobro
+                <div className="flex items-center justify-between gap-3">
+                  <span>Tipo / Forma de cobro</span>
+                  {anyExpanded && (
+                    <button
+                      onClick={() => setExpanded(new Set())}
+                      className="flex items-center gap-1 text-xs font-normal text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                    >
+                      <ChevronsDownUp className="w-3 h-3" />
+                      Colapsar
+                    </button>
+                  )}
+                </div>
               </th>
               {months.map((idx) => (
                 <th

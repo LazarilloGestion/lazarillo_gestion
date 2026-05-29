@@ -4,7 +4,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { ExpandableButton } from "@/components/ui/expandable-button";
-import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronsUpDown, ChevronsDownUp } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { buildDashboardUrl, buildVentasPivotUrl } from "@/lib/dashboard/params";
@@ -133,12 +133,6 @@ export function PivotTable() {
   if (error) return <PivotError />;
   if (!data || data.rows.length === 0) return <PivotEmpty />;
 
-  const allIds = new Set<string>();
-  for (const rubro of data.rows) {
-    allIds.add(rubro.id);
-    for (const concepto of rubro.children) allIds.add(concepto.id);
-  }
-  const allExpanded = allIds.size > 0 && [...allIds].every((id) => expanded.has(id));
   const allCollapsed = expanded.size === 0;
 
   const ingresosPorMes = ventasData?.columnTotals ?? {};
@@ -154,22 +148,6 @@ export function PivotTable() {
 
   return (
     <>
-      <div className="flex justify-end gap-3 mb-1">
-        <button
-          onClick={() => setExpanded(new Set())}
-          disabled={allCollapsed}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
-        >
-          Colapsar todo
-        </button>
-        <button
-          onClick={() => setExpanded(new Set(allIds))}
-          disabled={allExpanded}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
-        >
-          Expandir todo
-        </button>
-      </div>
       <div className="overflow-auto flex-1 min-h-0">
         <table className="w-full text-sm border-separate border-spacing-0">
           <thead>
@@ -239,7 +217,18 @@ export function PivotTable() {
             </tr>
             <tr className="bg-muted border-b">
               <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
-                Concepto / Proveedor
+                <div className="flex items-center justify-between gap-3">
+                  <span>Concepto / Proveedor</span>
+                  {!allCollapsed && (
+                    <button
+                      onClick={() => setExpanded(new Set())}
+                      className="flex items-center gap-1 text-xs font-normal text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                    >
+                      <ChevronsDownUp className="w-3 h-3" />
+                      Colapsar
+                    </button>
+                  )}
+                </div>
               </th>
               {months.map((idx) => (
                 <th
