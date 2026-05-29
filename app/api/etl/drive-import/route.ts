@@ -102,15 +102,23 @@ export async function POST(req: NextRequest) {
     const date = now.toISOString().slice(0, 10);
     const reports: ETLReport[] = [];
 
-    const localSlug = localId != null
-      ? (await prisma.local.findUnique({ where: { id: localId }, select: { nombre: true } }))
-          ?.nombre?.toLowerCase().replace(/\s+/g, "-") ?? String(localId)
-      : null;
+    function toSlug(s: string): string {
+      return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, "-");
+    }
+
+    const [localRecord, pdvRecord] = await Promise.all([
+      localId != null ? prisma.local.findUnique({ where: { id: localId }, select: { nombre: true } }) : null,
+      puntoDeVentaId != null ? prisma.puntoDeVenta.findUnique({ where: { id: puntoDeVentaId }, select: { nombre: true } }) : null,
+    ]);
+    const localSlug = localId != null ? (localRecord ? toSlug(localRecord.nombre) : String(localId)) : null;
+    const pdvSlug = pdvRecord ? toSlug(pdvRecord.nombre) : null;
 
     for (const { file_name, buffer } of sorted) {
       // Archivar en Storage (best-effort)
       const time = new Date().toTimeString().slice(0, 8).replace(/:/g, "-");
-      const category = localSlug != null ? `transaccionales/${localSlug}` : "maestros";
+      const category = localSlug != null
+        ? `transaccionales/${localSlug}${pdvSlug ? `/${pdvSlug}` : ""}`
+        : "maestros";
       const storagePath = `drive/${user.id}/${date}/${category}/${time}_${file_name}`;
       try {
         await admin.storage.from("uploads").upload(storagePath, buffer, {
