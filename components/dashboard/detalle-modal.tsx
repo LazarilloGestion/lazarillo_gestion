@@ -2,7 +2,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
-import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp } from "lucide-react";
+import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,6 +22,7 @@ export interface ColDef {
   color: string;
   bg: string;
   right: boolean;
+  sortKey?: string;
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -48,12 +49,12 @@ function toDateInputValue(iso: string | null | undefined): string {
 // ─── Column definitions ───────────────────────────────────────────────────────
 
 const COMPRAS_COLS: ColDef[] = [
-  { label: "Fecha",     icon: CalendarDays, color: "text-muted-foreground", bg: "bg-muted",          right: false },
-  { label: "Local",     icon: Building2,    color: "text-muted-foreground", bg: "bg-muted",          right: false },
-  { label: "Proveedor", icon: Truck,        color: "text-emerald-500",      bg: "bg-emerald-500/10", right: false },
-  { label: "Concepto",  icon: Tag,          color: "text-violet-500",       bg: "bg-violet-500/10",  right: false },
-  { label: "Rubro",     icon: Layers,       color: "text-blue-500",         bg: "bg-blue-500/10",    right: false },
-  { label: "Importe",   icon: ArrowDownUp,  color: "text-muted-foreground", bg: "bg-muted",          right: true  },
+  { label: "Fecha",     icon: CalendarDays, color: "text-muted-foreground", bg: "bg-muted",          right: false, sortKey: "fecha"     },
+  { label: "Local",     icon: Building2,    color: "text-muted-foreground", bg: "bg-muted",          right: false                        },
+  { label: "Proveedor", icon: Truck,        color: "text-emerald-500",      bg: "bg-emerald-500/10", right: false, sortKey: "proveedor"  },
+  { label: "Concepto",  icon: Tag,          color: "text-violet-500",       bg: "bg-violet-500/10",  right: false, sortKey: "concepto"   },
+  { label: "Rubro",     icon: Layers,       color: "text-blue-500",         bg: "bg-blue-500/10",    right: false                        },
+  { label: "Importe",   icon: ArrowDownUp,  color: "text-muted-foreground", bg: "bg-muted",          right: true,  sortKey: "importe"    },
 ];
 
 // ─── Row component ────────────────────────────────────────────────────────────
@@ -189,6 +190,15 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
   const [editing, setEditing] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
+
+  function handleSortClick(key: string) {
+    setSort((prev) => {
+      if (!prev || prev.key !== key) return { key, dir: "asc" };
+      if (prev.dir === "asc") return { key, dir: "desc" };
+      return null;
+    });
+  }
 
   const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string }>>({
     queryKey: ["suggestions"],
@@ -231,9 +241,34 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
     }
   }, [queryClient, queryKey]);
 
-  const data = response?.data;
+  const rawData = response?.data;
   const hasMore = response?.hasMore ?? false;
-  const count = data?.length ?? 0;
+  const count = rawData?.length ?? 0;
+
+  const data = useMemo(() => {
+    if (!rawData || !sort) return rawData ?? [];
+    return [...rawData].sort((a, b) => {
+      let va: string | number = "";
+      let vb: string | number = "";
+      if (sort.key === "importe") {
+        va = Number(a.importeManual ?? a.importe ?? 0);
+        vb = Number(b.importeManual ?? b.importe ?? 0);
+        return sort.dir === "asc" ? (va - vb) : (vb - va);
+      }
+      if (sort.key === "fecha") {
+        va = String(a.fechaManual ?? a.fecha ?? "");
+        vb = String(b.fechaManual ?? b.fecha ?? "");
+      } else if (sort.key === "proveedor") {
+        va = String(a.proveedor ?? a.proveedorRef?.nombre ?? a.proveedorRef?.razon ?? "");
+        vb = String(b.proveedor ?? b.proveedorRef?.nombre ?? b.proveedorRef?.razon ?? "");
+      } else if (sort.key === "concepto") {
+        va = String((a.conceptoCajaManual ?? a.conceptoCaja)?.nombre ?? "");
+        vb = String((b.conceptoCajaManual ?? b.conceptoCaja)?.nombre ?? "");
+      }
+      const cmp = va.localeCompare(vb, "es", { numeric: true });
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+  }, [rawData, sort]);
 
   return (
     <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) { setEditing(null); onClose(); } }}>
@@ -261,13 +296,20 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
                   </th>
                 </tr>
                 <tr className="border-b border-border/60">
-                  {COMPRAS_COLS.map(({ label, icon: Icon, color, bg, right }) => (
-                    <th key={label} className={`px-4 py-3 ${right ? "text-right" : "text-left"}`}>
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {COMPRAS_COLS.map(({ label, icon: Icon, color, bg, right, sortKey }) => (
+                    <th
+                      key={label}
+                      className={`px-4 py-3 ${right ? "text-right" : "text-left"} ${sortKey ? "cursor-pointer select-none" : ""}`}
+                      onClick={sortKey ? () => handleSortClick(sortKey) : undefined}
+                    >
+                      <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider ${sort?.key === sortKey ? "text-foreground" : "text-muted-foreground"}`}>
                         <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${bg}`}>
                           <Icon className={`h-3 w-3 ${color}`} />
                         </span>
                         {label}
+                        {sortKey && (sort?.key === sortKey
+                          ? sort.dir === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
+                          : <ChevronsUpDown className="h-3 w-3 opacity-40" />)}
                       </span>
                     </th>
                   ))}

@@ -48,6 +48,7 @@ export function PivotTable() {
   const { expanded, setExpanded, toggle: toggleRow } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
   const [ventasDetalleFilter, setVentasDetalleFilter] = useState<VentasDetalleFilter | null>(null);
+  const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
   const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number }>({});
 
   const url = useMemo(
@@ -135,6 +136,14 @@ export function PivotTable() {
 
   const allCollapsed = expanded.size === 0;
 
+  const pctDenominator = pctMode === "ingresos"
+    ? (ventasData?.grandTotal ?? 0)
+    : data.grandTotal;
+
+  function fmtPct(rowTotal: number): string {
+    return pctDenominator > 0 ? `${((rowTotal / pctDenominator) * 100).toFixed(1)}%` : "—";
+  }
+
   const ingresosPorMes = ventasData?.columnTotals ?? {};
   const egresosPorMes = data.columnTotals;
   const maxIngresos = Math.max(...months.map((m) => ingresosPorMes[m] ?? 0), 1);
@@ -215,6 +224,42 @@ export function PivotTable() {
                 );
               })()}
             </tr>
+            <tr className="border-b bg-background">
+              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+                Gastos / Ventas
+              </td>
+              {months.map((mes) => {
+                const ing = ingresosPorMes[mes] ?? 0;
+                const egr = egresosPorMes[mes] ?? 0;
+                const ratio = ing > 0 ? (egr / ing) * 100 : null;
+                return (
+                  <td key={mes} className={cn(
+                    "text-right px-3 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap",
+                    ratio === null ? "text-muted-foreground/40"
+                      : ratio > 90 ? "text-destructive"
+                      : ratio > 60 ? "text-amber-600 dark:text-amber-400"
+                      : "text-muted-foreground"
+                  )}>
+                    {ratio !== null ? `${ratio.toFixed(1)}%` : "—"}
+                  </td>
+                );
+              })}
+              {(() => {
+                const ventasTotal = ventasData?.grandTotal ?? 0;
+                const ratio = ventasTotal > 0 ? (data.grandTotal / ventasTotal) * 100 : null;
+                return (
+                  <td className={cn(
+                    "text-right px-4 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap",
+                    ratio === null ? "text-muted-foreground/40"
+                      : ratio > 90 ? "text-destructive"
+                      : ratio > 60 ? "text-amber-600 dark:text-amber-400"
+                      : "text-muted-foreground"
+                  )}>
+                    {ratio !== null ? `${ratio.toFixed(1)}%` : "—"}
+                  </td>
+                );
+              })()}
+            </tr>
             <tr className="bg-muted border-b">
               <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 <div className="flex items-center justify-between gap-3">
@@ -267,6 +312,13 @@ export function PivotTable() {
                   )}
                 </button>
               </th>
+              <th
+                className="sticky top-0 z-20 bg-muted text-right px-3 py-3 font-medium text-muted-foreground min-w-[64px] whitespace-nowrap cursor-pointer select-none hover:text-foreground transition-colors"
+                onClick={() => setPctMode((m) => m === "ingresos" ? "egresos" : "ingresos")}
+                title={pctMode === "ingresos" ? "% sobre ingresos — click para cambiar a % sobre egresos" : "% sobre egresos — click para cambiar a % sobre ingresos"}
+              >
+                % {pctMode === "ingresos" ? "ing" : "egr"}
+              </th>
             </tr>
           </thead>
 
@@ -310,6 +362,9 @@ export function PivotTable() {
                     >
                       {fmtARS(rubro.rowTotal)}
                     </td>
+                    <td className="text-right px-3 py-2.5 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap">
+                      {fmtPct(rubro.rowTotal)}
+                    </td>
                   </tr>
                 );
               }
@@ -351,6 +406,9 @@ export function PivotTable() {
                       }}
                     >
                       {fmtARS(concepto.rowTotal)}
+                    </td>
+                    <td className="text-right px-3 py-2 tabular-nums text-xs text-muted-foreground/50 whitespace-nowrap">
+                      {fmtPct(concepto.rowTotal)}
                     </td>
                   </tr>
                 );
@@ -395,6 +453,9 @@ export function PivotTable() {
                   >
                     {fmtARS(prov.rowTotal)}
                   </td>
+                  <td className="text-right px-3 py-1.5 tabular-nums text-xs text-muted-foreground/40 whitespace-nowrap">
+                    {fmtPct(prov.rowTotal)}
+                  </td>
                 </tr>
               );
             })}
@@ -412,6 +473,9 @@ export function PivotTable() {
               ))}
               <td className="text-right px-4 py-3 tabular-nums text-primary font-bold">
                 {fmtARS(data.grandTotal)}
+              </td>
+              <td className="text-right px-3 py-3 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap font-semibold">
+                {fmtPct(data.grandTotal)}
               </td>
             </tr>
           </tfoot>
