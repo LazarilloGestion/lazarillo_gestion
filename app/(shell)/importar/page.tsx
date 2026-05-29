@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -51,6 +52,33 @@ const FILE_TYPE_LABELS: Record<string, string> = {
   detalleCompras:     "Detalle Compras",
   ventas:             "Ventas",
 };
+
+// ── Reconectar Drive ──────────────────────────────────────────────────────────
+
+function ReconectarDriveButton() {
+  const [loading, setLoading] = useState(false);
+  async function handleReconectar() {
+    setLoading(true);
+    const supabase = createClient();
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=/importar`,
+        scopes: "openid email profile https://www.googleapis.com/auth/drive.readonly",
+        queryParams: { prompt: "consent", access_type: "offline" },
+      },
+    });
+  }
+  return (
+    <button
+      onClick={handleReconectar}
+      disabled={loading}
+      className="self-start text-xs underline underline-offset-2 text-destructive/80 hover:text-destructive transition-colors disabled:opacity-50"
+    >
+      {loading ? "Redirigiendo…" : "Reconectar con Google Drive"}
+    </button>
+  );
+}
 
 // ── componente principal ──────────────────────────────────────────────────────
 
@@ -515,9 +543,14 @@ function DriveTab() {
         </div>
       )}
       {filesState.status === "error" && (
-        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-          {filesState.message}
+        <div className="flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            {filesState.message}
+          </div>
+          {(filesState.message.toLowerCase().includes("token") || filesState.message.toLowerCase().includes("revoc") || filesState.message.toLowerCase().includes("sesión")) && (
+            <ReconectarDriveButton />
+          )}
         </div>
       )}
 
