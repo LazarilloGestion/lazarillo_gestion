@@ -1,5 +1,11 @@
 import { Prisma } from "@prisma/client";
 
+export function buildDateRange(year: number, mes?: number): { fechaStart: Date; fechaEnd: Date } {
+  const fechaStart = mes ? new Date(Date.UTC(year, mes - 1, 1)) : new Date(Date.UTC(year, 0, 1));
+  const fechaEnd   = mes ? new Date(Date.UTC(year, mes, 1))     : new Date(Date.UTC(year + 1, 0, 1));
+  return { fechaStart, fechaEnd };
+}
+
 interface PivotConditionParams {
   year: number;
   tableAlias: string;

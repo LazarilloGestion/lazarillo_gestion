@@ -5,6 +5,7 @@ import { parseVentasParams } from "@/lib/dashboard/params";
 import { SIN_TIPO_CODE, SIN_COBRO_CODE } from "@/lib/dashboard/constants";
 import { z } from "zod";
 import { mesSchema, yearSchema, codigoSchema } from "@/lib/dashboard/schemas";
+import { buildDateRange } from "@/lib/dashboard/query-builders";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +30,7 @@ export async function GET(request: NextRequest) {
     ? codigoSchema.safeParse(cobroCodigoRaw).data
     : undefined;
 
-  const fechaStart = mes ? new Date(Date.UTC(year, mes - 1, 1)) : new Date(Date.UTC(year, 0, 1));
-  const fechaEnd = mes ? new Date(Date.UTC(year, mes, 1)) : new Date(Date.UTC(year + 1, 0, 1));
+  const { fechaStart, fechaEnd } = buildDateRange(year, mes);
 
   const ventas = await prisma.venta.findMany({
     where: {

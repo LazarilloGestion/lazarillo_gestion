@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { mesSchema, yearSchema, idSchema, codigoSchema } from "@/lib/dashboard/schemas";
+import { buildDateRange } from "@/lib/dashboard/query-builders";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +30,7 @@ export async function GET(request: NextRequest) {
     ? codigoSchema.safeParse(rubroCodigoRaw).data
     : undefined;
 
-  const fechaStart = mes ? new Date(Date.UTC(year, mes - 1, 1)) : new Date(Date.UTC(year, 0, 1));
-  const fechaEnd = mes ? new Date(Date.UTC(year, mes, 1)) : new Date(Date.UTC(year + 1, 0, 1));
+  const { fechaStart, fechaEnd } = buildDateRange(year, mes);
 
   const where: Prisma.CompraWhereInput = {
     fecha: { gte: fechaStart, lt: fechaEnd },
