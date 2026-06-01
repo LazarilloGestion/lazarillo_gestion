@@ -26,3 +26,7 @@ export function normalize(s: string | null | undefined): string {
     ? s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
     : s;
 }
+
+export function slugify(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").replace(/\s+/g, "-");
+}

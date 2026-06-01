@@ -7,6 +7,8 @@ import { getEtlClient } from "@/lib/etl/etl-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getFileOrder } from "@/lib/etl/file-processor";
 import { prisma } from "@/lib/prisma";
+import { slugify } from "@/lib/utils";
+import { rateLimit } from "@/lib/rate-limit";
 import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
 
 export const runtime = "nodejs";
@@ -23,6 +25,10 @@ export async function POST(req: NextRequest) {
   const auth = await requireAuthUser();
   if (auth.response) return auth.response;
   const { user } = auth;
+
+  if (!rateLimit(user.id, 20, 60_000)) {
+    return NextResponse.json({ error: "Demasiadas solicitudes. Esperá un momento." }, { status: 429 });
+  }
 
   let rawBody: Record<string, unknown>;
   try {
@@ -102,16 +108,12 @@ export async function POST(req: NextRequest) {
     const date = now.toISOString().slice(0, 10);
     const reports: ETLReport[] = [];
 
-    function toSlug(s: string): string {
-      return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, "-");
-    }
-
     const [localRecord, pdvRecord] = await Promise.all([
       localId != null ? prisma.local.findUnique({ where: { id: localId }, select: { nombre: true } }) : null,
       puntoDeVentaId != null ? prisma.puntoDeVenta.findUnique({ where: { id: puntoDeVentaId }, select: { nombre: true } }) : null,
     ]);
-    const localSlug = localId != null ? (localRecord ? toSlug(localRecord.nombre) : String(localId)) : null;
-    const pdvSlug = puntoDeVentaId != null ? (pdvRecord ? toSlug(pdvRecord.nombre) : String(puntoDeVentaId)) : null;
+    const localSlug = localId != null ? (localRecord ? slugify(localRecord.nombre) : String(localId)) : null;
+    const pdvSlug = puntoDeVentaId != null ? (pdvRecord ? slugify(pdvRecord.nombre) : String(puntoDeVentaId)) : null;
 
     for (const { file_name, buffer } of sorted) {
       // Archivar en Storage (best-effort)
