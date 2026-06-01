@@ -75,7 +75,7 @@ export function PivotTable() {
     [year, localId, pdvId, activeMonths]
   );
 
-  const { data: ventasData } = useFetchQuery<PivotData>(
+  const { data: ventasData, isLoading: ventasLoading } = useFetchQuery<PivotData>(
     ["pivot-ventas", year, localId, pdvId, months],
     ventasUrl
   );
@@ -141,6 +141,7 @@ export function PivotTable() {
     : data.grandTotal;
 
   function fmtPct(rowTotal: number): string {
+    if (pctMode === "ingresos" && ventasLoading) return "…";
     return pctDenominator > 0 ? `${((rowTotal / pctDenominator) * 100).toFixed(1)}%` : "—";
   }
 
@@ -181,6 +182,7 @@ export function PivotTable() {
               >
                 {fmtARS(ventasData?.grandTotal)}
               </td>
+              <td />
             </tr>
             <tr className="border-b bg-background">
               <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -194,6 +196,7 @@ export function PivotTable() {
               <td className="text-right px-4 py-1.5 text-xs tabular-nums text-muted-foreground whitespace-nowrap">
                 {fmtARS(data.grandTotal)}
               </td>
+              <td />
             </tr>
             <tr className="border-b">
               <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-xs font-semibold whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -223,6 +226,7 @@ export function PivotTable() {
                   </td>
                 );
               })()}
+              <td />
             </tr>
             <tr className="border-b bg-background">
               <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -259,6 +263,7 @@ export function PivotTable() {
                   </td>
                 );
               })()}
+              <td />
             </tr>
             <tr className="bg-muted border-b">
               <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -475,7 +480,7 @@ export function PivotTable() {
                 {fmtARS(data.grandTotal)}
               </td>
               <td className="text-right px-3 py-3 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap font-semibold">
-                {fmtPct(data.grandTotal)}
+                {pctMode === "egresos" ? "—" : fmtPct(data.grandTotal)}
               </td>
             </tr>
           </tfoot>

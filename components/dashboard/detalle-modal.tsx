@@ -256,11 +256,11 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
         return sort.dir === "asc" ? (va - vb) : (vb - va);
       }
       if (sort.key === "fecha") {
-        va = String(a.fechaManual ?? a.fecha ?? "");
-        vb = String(b.fechaManual ?? b.fecha ?? "");
+        va = String(a.fechaManual ?? a.fecha ?? "").slice(0, 10);
+        vb = String(b.fechaManual ?? b.fecha ?? "").slice(0, 10);
       } else if (sort.key === "proveedor") {
-        va = String(a.proveedor ?? a.proveedorRef?.nombre ?? a.proveedorRef?.razon ?? "");
-        vb = String(b.proveedor ?? b.proveedorRef?.nombre ?? b.proveedorRef?.razon ?? "");
+        va = String(a.proveedor || a.proveedorRef?.nombre || a.proveedorRef?.razon || "");
+        vb = String(b.proveedor || b.proveedorRef?.nombre || b.proveedorRef?.razon || "");
       } else if (sort.key === "concepto") {
         va = String((a.conceptoCajaManual ?? a.conceptoCaja)?.nombre ?? "");
         vb = String((b.conceptoCajaManual ?? b.conceptoCaja)?.nombre ?? "");

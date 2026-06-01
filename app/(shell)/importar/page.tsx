@@ -59,15 +59,20 @@ function ReconectarDriveButton() {
   const [loading, setLoading] = useState(false);
   async function handleReconectar() {
     setLoading(true);
-    const supabase = createClient();
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=/importar`,
-        scopes: "openid email profile https://www.googleapis.com/auth/drive.readonly",
-        queryParams: { prompt: "consent", access_type: "offline" },
-      },
-    });
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?next=/importar`,
+          scopes: "openid email profile https://www.googleapis.com/auth/drive.readonly",
+          queryParams: { prompt: "consent", access_type: "offline" },
+        },
+      });
+      if (error) setLoading(false);
+    } catch {
+      setLoading(false);
+    }
   }
   return (
     <button

@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
       puntoDeVentaId != null ? prisma.puntoDeVenta.findUnique({ where: { id: puntoDeVentaId }, select: { nombre: true } }) : null,
     ]);
     const localSlug = localId != null ? (localRecord ? toSlug(localRecord.nombre) : String(localId)) : null;
-    const pdvSlug = pdvRecord ? toSlug(pdvRecord.nombre) : null;
+    const pdvSlug = puntoDeVentaId != null ? (pdvRecord ? toSlug(pdvRecord.nombre) : String(puntoDeVentaId)) : null;
 
     for (const { file_name, buffer } of sorted) {
       // Archivar en Storage (best-effort)
