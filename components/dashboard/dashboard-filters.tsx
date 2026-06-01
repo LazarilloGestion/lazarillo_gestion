@@ -194,18 +194,16 @@ export function DashboardFilters() {
 
         {/* Botón ⌘K — solo en tab compras */}
         {!isVentas && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 w-8 p-0 sm:w-auto sm:px-3 sm:gap-1.5 text-muted-foreground ml-auto shrink-0"
+          <button
             onClick={() => setPaletteOpen(true)}
+            className="h-8 w-8 sm:w-auto sm:px-3 flex items-center justify-center sm:gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all ml-auto shrink-0"
           >
             <Search className="w-3.5 h-3.5" />
             <span className="hidden sm:inline text-sm font-normal">Buscar</span>
-            <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
+            <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 px-1.5 font-mono text-[10px] font-medium text-zinc-400">
               <span className="text-xs">⌘</span>K
             </kbd>
-          </Button>
+          </button>
         )}
       </div>
 
@@ -221,10 +219,10 @@ export function DashboardFilters() {
               onClick={() => toggleMonth(idx)}
               aria-pressed={active}
               className={cn(
-                "h-6 px-2 rounded text-xs font-medium transition-colors border",
+                "h-6 px-2 rounded-md text-xs font-medium transition-all duration-100 border",
                 active
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+                  ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white"
+                  : "bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200"
               )}
             >
               {label}

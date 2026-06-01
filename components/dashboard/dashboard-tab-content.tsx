@@ -58,26 +58,28 @@ export function DashboardTabContent() {
       <div
         role="tablist"
         aria-label="Vista del dashboard"
-        className="flex items-center gap-1 px-4 pt-3 pb-0 border-b shrink-0"
+        className="flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50 shrink-0"
       >
-        {(["compras", "ventas"] as const).map((tab) => (
-          <button
-            key={tab}
-            id={tabId(tab)}
-            role="tab"
-            aria-selected={activeTab === tab}
-            aria-controls={panelId(tab)}
-            onClick={() => switchTab(tab)}
-            className={cn(
-              "px-3 py-2 text-sm font-medium rounded-t border-b-2 transition-colors capitalize",
-              activeTab === tab
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {tab === "compras" ? "Compras" : "Ventas"}
-          </button>
-        ))}
+        <div className="flex gap-0 border border-zinc-200 dark:border-zinc-700 rounded-lg p-1 bg-zinc-50 dark:bg-zinc-800/50">
+          {(["compras", "ventas"] as const).map((tab) => (
+            <button
+              key={tab}
+              id={tabId(tab)}
+              role="tab"
+              aria-selected={activeTab === tab}
+              aria-controls={panelId(tab)}
+              onClick={() => switchTab(tab)}
+              className={cn(
+                "px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-150 capitalize",
+                activeTab === tab
+                  ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm"
+                  : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+              )}
+            >
+              {tab === "compras" ? "Compras" : "Ventas"}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Panels */}
