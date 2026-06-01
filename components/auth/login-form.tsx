@@ -2,19 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
 
 function GoogleIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="size-4" aria-hidden="true">
+    <svg viewBox="0 0 24 24" className="size-4 flex-shrink-0" aria-hidden="true">
       <path
         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
         fill="#4285F4"
@@ -69,35 +61,28 @@ export function LoginForm({ next, hasError }: LoginFormProps) {
   }
 
   return (
-    <Card>
-      <CardHeader className="text-center pb-2">
-        <CardTitle className="text-base">Iniciar sesión</CardTitle>
-        <CardDescription>
-          Accedé con tu cuenta corporativa de Google
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="pt-4 space-y-3">
-        {hasError && (
-          <p className="text-sm text-destructive text-center">
+    <div className="space-y-4">
+      {hasError && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-3">
+          <AlertCircle className="size-4 text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-red-700 dark:text-red-400 leading-snug">
             Error al autenticar con Google. Intentá nuevamente.
           </p>
-        )}
+        </div>
+      )}
 
-        <Button
-          onClick={handleGoogleLogin}
-          disabled={loading}
-          variant="outline"
-          className="w-full gap-2"
-          size="lg"
-        >
-          {loading ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <GoogleIcon />
-          )}
-          {loading ? "Redirigiendo..." : "Continuar con Google"}
-        </Button>
-      </CardContent>
-    </Card>
+      <button
+        onClick={handleGoogleLogin}
+        disabled={loading}
+        className="w-full flex items-center justify-center gap-3 h-11 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-sm font-medium shadow-sm transition-all duration-150 hover:bg-zinc-50 dark:hover:bg-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 dark:focus-visible:ring-zinc-100 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-50 dark:focus-visible:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {loading ? (
+          <Loader2 className="size-4 animate-spin text-zinc-400" />
+        ) : (
+          <GoogleIcon />
+        )}
+        <span>{loading ? "Redirigiendo..." : "Continuar con Google"}</span>
+      </button>
+    </div>
   );
 }
