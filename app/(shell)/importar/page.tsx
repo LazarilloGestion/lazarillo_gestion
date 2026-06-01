@@ -2,8 +2,6 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -16,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import {
   Upload, FileSpreadsheet, CheckCircle2, AlertCircle, X,
   FolderOpen, Folder, RefreshCw, CloudDownload, Settings, SearchX, ChevronDown,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ETLReport } from "@/lib/etl/types";
@@ -78,7 +77,7 @@ function ReconectarDriveButton() {
     <button
       onClick={handleReconectar}
       disabled={loading}
-      className="self-start text-xs underline underline-offset-2 text-destructive/80 hover:text-destructive transition-colors disabled:opacity-50"
+      className="self-start text-xs underline underline-offset-2 text-red-500/80 hover:text-red-500 transition-colors disabled:opacity-50"
     >
       {loading ? "Redirigiendo…" : "Reconectar con Google Drive"}
     </button>
@@ -92,7 +91,6 @@ type Tab = "subir" | "drive";
 export default function ImportarPage() {
   const [tab, setTab] = useState<Tab>("drive");
 
-  // filtros compartidos entre tabs
   const [locales, setLocales] = useState<Local[]>([]);
   const [localesLoading, setLocalesLoading] = useState(true);
   const [localId, setLocalId] = useState("");
@@ -112,9 +110,11 @@ export default function ImportarPage() {
 
   const localSelect = (
     <div className="flex flex-col gap-1.5">
-      <label className="text-sm font-medium">
+      <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
         Local{" "}
-        <span className="text-muted-foreground font-normal">(archivos transaccionales)</span>
+        <span className="normal-case tracking-normal font-normal text-zinc-400 dark:text-zinc-500">
+          (archivos transaccionales)
+        </span>
       </label>
       <div className="flex gap-2">
         <Select
@@ -122,7 +122,7 @@ export default function ImportarPage() {
           onValueChange={(v) => { setLocalId(v); setPuntoDeVentaId(""); }}
           disabled={localesLoading}
         >
-          <SelectTrigger className="flex-1">
+          <SelectTrigger className="flex-1 border-zinc-200 dark:border-zinc-700">
             <SelectValue placeholder={localesLoading ? "Cargando…" : "Sin local"} />
           </SelectTrigger>
           <SelectContent>
@@ -134,7 +134,7 @@ export default function ImportarPage() {
 
         {puntosDeVenta.length > 0 && (
           <Select value={puntoDeVentaId} onValueChange={setPuntoDeVentaId}>
-            <SelectTrigger className="flex-1">
+            <SelectTrigger className="flex-1 border-zinc-200 dark:border-zinc-700">
               <SelectValue placeholder="Sin punto de venta" />
             </SelectTrigger>
             <SelectContent>
@@ -149,25 +149,28 @@ export default function ImportarPage() {
   );
 
   return (
-    <div className="max-w-2xl mx-auto py-10 px-6 flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Importar datos</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
+    <div className="max-w-2xl mx-auto py-10 px-6 flex flex-col gap-8">
+      {/* Header */}
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white">
+          Importar datos
+        </h1>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
           Importá archivos Excel del ERP — desde Google Drive o desde tu computadora.
         </p>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex border-b gap-1">
+      {/* Tabs */}
+      <div className="flex gap-0 border border-zinc-200 dark:border-zinc-700 rounded-lg p-1 w-fit bg-zinc-50 dark:bg-zinc-800/50">
         {(["drive", "subir"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+              "px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-150",
               tab === t
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
+                ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm"
+                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
             )}
           >
             {t === "subir" ? "Subir archivo" : "Desde Drive"}
@@ -175,15 +178,17 @@ export default function ImportarPage() {
         ))}
       </div>
 
-      {tab === "subir" && (
+      <div className={tab !== "subir" ? "hidden" : undefined}>
         <SubirTab
           localSelect={localSelect}
           localId={localId}
           puntoDeVentaId={puntoDeVentaId}
         />
-      )}
+      </div>
 
-      {tab === "drive" && <DriveTab />}
+      <div className={tab !== "drive" ? "hidden" : undefined}>
+        <DriveTab />
+      </div>
     </div>
   );
 }
@@ -232,68 +237,107 @@ function SubirTab({
   }
 
   return (
-    <>
-      <Card>
-        <CardContent className="pt-5 flex flex-col gap-5">
-          {localSelect}
+    <div className="flex flex-col gap-5">
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 p-5 flex flex-col gap-5">
+        {localSelect}
 
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <div
-              className={cn(
-                "relative flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors cursor-pointer",
-                dragOver ? "border-primary bg-primary/5"
-                  : selectedFiles.length > 0 ? "border-green-400 bg-green-50 dark:bg-green-950/20"
-                  : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30"
-              )}
-              onClick={() => inputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) pickFiles(e.dataTransfer.files); }}
-            >
-              <input ref={inputRef} type="file" accept=".xlsx,.xls" multiple className="sr-only"
-                onChange={(e) => { if (e.target.files?.length) pickFiles(e.target.files); }} />
-              {selectedFiles.length > 0 ? (
-                <>
-                  <FileSpreadsheet className="w-8 h-8 text-green-500" />
-                  <div>
-                    <p className="text-sm font-medium">
-                      {selectedFiles.length === 1 ? selectedFiles[0].name : `${selectedFiles.length} archivos seleccionados`}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Click para cambiar</p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Upload className="w-8 h-8 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">Arrastrá o hacé click para seleccionar</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">.xlsx o .xls · podés subir varios a la vez</p>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {selectedFiles.length > 1 && (
-              <ul className="flex flex-col gap-1">
-                {selectedFiles.map((f, i) => (
-                  <li key={f.name + f.lastModified} className="flex items-center justify-between rounded-md border px-3 py-1.5 text-xs">
-                    <span className="truncate text-muted-foreground">{f.name}</span>
-                    <button type="button" onClick={() => removeFile(i)} className="ml-2 shrink-0 text-muted-foreground hover:text-foreground">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {/* Drop zone */}
+          <div
+            className={cn(
+              "relative flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-12 text-center transition-all duration-150 cursor-pointer",
+              dragOver
+                ? "border-zinc-400 bg-zinc-50 dark:border-zinc-500 dark:bg-zinc-800"
+                : selectedFiles.length > 0
+                ? "border-emerald-400 bg-emerald-50/50 dark:border-emerald-600 dark:bg-emerald-950/20"
+                : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
             )}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) pickFiles(e.dataTransfer.files); }}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              multiple
+              className="sr-only"
+              onChange={(e) => { if (e.target.files?.length) pickFiles(e.target.files); }}
+            />
+            {selectedFiles.length > 0 ? (
+              <>
+                <div className="w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-zinc-900 dark:text-white">
+                    {selectedFiles.length === 1 ? selectedFiles[0].name : `${selectedFiles.length} archivos seleccionados`}
+                  </p>
+                  <p className="text-xs text-zinc-400 mt-0.5">Click para cambiar</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-10 h-10 rounded-lg bg-zinc-100 dark:bg-zinc-700 flex items-center justify-center">
+                  <Upload className="w-5 h-5 text-zinc-400 dark:text-zinc-500" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-zinc-900 dark:text-white">
+                    Arrastrá o hacé click para seleccionar
+                  </p>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    .xlsx o .xls · podés subir varios a la vez
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
 
-            <Button type="submit" disabled={selectedFiles.length === 0 || state.status === "uploading"} className="w-full">
-              {state.status === "uploading" ? "Procesando..."
-                : selectedFiles.length > 1 ? `Importar ${selectedFiles.length} archivos`
-                : "Importar archivo"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+          {/* Lista de archivos múltiples */}
+          {selectedFiles.length > 1 && (
+            <ul className="flex flex-col gap-1">
+              {selectedFiles.map((f, i) => (
+                <li
+                  key={f.name + f.lastModified}
+                  className="flex items-center justify-between rounded-md border border-zinc-100 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileSpreadsheet className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
+                    <span className="text-xs text-zinc-600 dark:text-zinc-300 truncate font-mono">
+                      {f.name}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(i)}
+                    className="ml-2 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <button
+            type="submit"
+            disabled={selectedFiles.length === 0 || state.status === "uploading"}
+            className="w-full h-10 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-medium transition-all duration-150 hover:bg-zinc-700 dark:hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 dark:focus-visible:ring-white focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {state.status === "uploading" ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Procesando...
+              </>
+            ) : selectedFiles.length > 1 ? (
+              `Importar ${selectedFiles.length} archivos`
+            ) : (
+              "Importar archivo"
+            )}
+          </button>
+        </form>
+      </div>
 
       {state.status === "success" && (
         <div className="flex flex-col gap-3">
@@ -302,19 +346,19 @@ function SubirTab({
       )}
       {state.status === "error" && (
         <>
-          <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-            {state.message}
+          <div className="flex items-start gap-3 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-4 py-3">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
+            <p className="text-sm text-red-700 dark:text-red-400">{state.message}</p>
           </div>
           {state.reports && state.reports.length > 0 && (
             <div className="flex flex-col gap-3">
-              <p className="text-xs text-muted-foreground">Archivos procesados antes del error:</p>
+              <p className="text-xs text-zinc-400">Archivos procesados antes del error:</p>
               {state.reports.map((r, i) => <ReportCard key={i} report={r} />)}
             </div>
           )}
         </>
       )}
-    </>
+    </div>
   );
 }
 
@@ -330,12 +374,10 @@ function DriveTab() {
 
   const [filesState, setFilesState] = useState<DriveFilesState>({ status: "idle" });
 
-  // Estado por archivo: status, reportes, errores
   const [fileStatuses, setFileStatuses] = useState<FileStates>({});
   const [fileReports, setFileReports] = useState<FileReports>({});
   const [fileErrors, setFileErrors] = useState<FileErrors>({});
 
-  // Cargar config al montar
   useEffect(() => {
     fetch("/api/drive/config")
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
@@ -366,9 +408,7 @@ function DriveTab() {
 
   useEffect(() => {
     if (!isImporting) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [isImporting]);
@@ -423,7 +463,6 @@ function DriveTab() {
   }
 
   async function importAllFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number) {
-    // Marcar todos como "importing" antes de empezar
     setFileStatuses((s) => {
       const next = { ...s };
       for (const f of files) next[f.id] = "importing";
@@ -458,7 +497,6 @@ function DriveTab() {
           for (const f of files) next[f.id] = "success";
           return next;
         });
-        // Asociar reportes a archivos por nombre (storagePath contiene el file_name)
         setFileReports((s) => {
           const next = { ...s };
           files.forEach((f) => {
@@ -482,12 +520,10 @@ function DriveTab() {
     }
   }
 
-  // ── render ──
-
   if (configLoading) {
     return (
-      <div className="flex items-center justify-center py-16 text-muted-foreground">
-        <RefreshCw className="w-5 h-5 animate-spin" />
+      <div className="flex items-center justify-center py-16 text-zinc-400">
+        <Loader2 className="w-5 h-5 animate-spin" />
       </div>
     );
   }
@@ -495,34 +531,37 @@ function DriveTab() {
   const ready = filesState.status === "ready" ? filesState.data : null;
 
   return (
-    <div className="flex flex-col gap-5">
-      {/* Configuración de carpeta */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm flex items-center gap-2">
-              {showSettings || !config?.folder_id
-                ? <FolderOpen className="w-4 h-4 text-muted-foreground" />
-                : <Folder className="w-4 h-4 text-muted-foreground" />}
+    <div className="flex flex-col gap-4">
+      {/* Config de carpeta */}
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50">
+          <div className="flex items-center gap-2">
+            {showSettings || !config?.folder_id
+              ? <FolderOpen className="w-4 h-4 text-zinc-400" />
+              : <Folder className="w-4 h-4 text-zinc-400" />}
+            <span className="text-sm font-medium text-zinc-900 dark:text-white">
               Carpeta de Drive
-            </CardTitle>
-            <button
-              onClick={() => { setShowSettings((v) => !v); setConfigError(""); }}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title="Configurar carpeta"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
+            </span>
           </div>
-        </CardHeader>
-        <CardContent className="pt-0 flex flex-col gap-3">
+          <button
+            onClick={() => { setShowSettings((v) => !v); setConfigError(""); }}
+            className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+            title="Configurar carpeta"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-4 py-3 flex flex-col gap-3">
           {config?.folder_id ? (
-            <p className="text-sm">
-              <span className="font-medium">{config.folder_name ?? config.folder_id}</span>
-              <span className="ml-2 font-mono text-xs text-muted-foreground">{config.folder_id}</span>
-            </p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-sm font-medium text-zinc-900 dark:text-white">
+                {config.folder_name ?? config.folder_id}
+              </span>
+              <span className="text-xs font-mono text-zinc-400">{config.folder_id}</span>
+            </div>
           ) : (
-            <p className="text-sm text-muted-foreground">Sin carpeta configurada</p>
+            <p className="text-sm text-zinc-400">Sin carpeta configurada</p>
           )}
           {(showSettings || !config?.folder_id) && (
             <form onSubmit={saveConfig} className="flex flex-col gap-2">
@@ -530,42 +569,50 @@ function DriveTab() {
                 placeholder="https://drive.google.com/drive/folders/..."
                 value={folderUrl}
                 onChange={(e) => setFolderUrl(e.target.value)}
-                className="text-sm"
+                className="text-sm border-zinc-200 dark:border-zinc-700 font-mono"
               />
-              {configError && <p className="text-xs text-destructive">{configError}</p>}
-              <Button type="submit" size="sm" disabled={savingConfig || !folderUrl.trim()}>
+              {configError && (
+                <p className="text-xs text-red-500">{configError}</p>
+              )}
+              <button
+                type="submit"
+                disabled={savingConfig || !folderUrl.trim()}
+                className="h-8 px-3 rounded-md bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-xs font-medium self-start transition-all hover:bg-zinc-700 dark:hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
                 {savingConfig ? "Guardando…" : "Guardar carpeta"}
-              </Button>
+              </button>
             </form>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      {/* Estado de carga */}
+      {/* Estados de carga */}
       {filesState.status === "loading" && (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
-          <RefreshCw className="w-5 h-5 animate-spin" />
+        <div className="flex items-center justify-center py-12 text-zinc-400">
+          <Loader2 className="w-5 h-5 animate-spin" />
         </div>
       )}
       {filesState.status === "error" && (
-        <div className="flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-            {filesState.message}
+        <div className="flex flex-col gap-2 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-4 py-3">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
+            <p className="text-sm text-red-700 dark:text-red-400">{filesState.message}</p>
           </div>
-          {(filesState.message.toLowerCase().includes("token") || filesState.message.toLowerCase().includes("revoc") || filesState.message.toLowerCase().includes("sesión")) && (
+          {(filesState.message.toLowerCase().includes("token") ||
+            filesState.message.toLowerCase().includes("revoc") ||
+            filesState.message.toLowerCase().includes("sesión")) && (
             <ReconectarDriveButton />
           )}
         </div>
       )}
 
-      {/* Botón refrescar cuando hay carpeta */}
+      {/* Botón refrescar */}
       {config?.folder_id && filesState.status !== "loading" && (
         <div className="flex justify-end">
           <button
             onClick={loadFiles}
             disabled={isImporting}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none"
+            className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors disabled:opacity-40 disabled:pointer-events-none"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             Actualizar
@@ -573,23 +620,33 @@ function DriveTab() {
         </div>
       )}
 
-      {/* Sección Maestros */}
+      {/* Maestros */}
       {ready && (
-        <DriveFolder
-          title="Maestros"
-          subtitle="Rubros, conceptos, proveedores, artículos"
-          files={ready.maestros}
-          localId={undefined}
-          puntoDeVentaId={undefined}
-          fileStatuses={fileStatuses}
-          fileReports={fileReports}
-          fileErrors={fileErrors}
-          onImportOne={importOneFile}
-          onImportAll={importAllFiles}
-        />
+        <div className="flex flex-col gap-3">
+          <span className="text-xs font-medium uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+            Maestros
+          </span>
+          <DriveFolder
+            title="Maestros"
+            subtitle="Rubros, conceptos, proveedores, artículos"
+            files={ready.maestros}
+            localId={undefined}
+            puntoDeVentaId={undefined}
+            fileStatuses={fileStatuses}
+            fileReports={fileReports}
+            fileErrors={fileErrors}
+            onImportOne={importOneFile}
+            onImportAll={importAllFiles}
+          />
+        </div>
       )}
 
       {/* Carpetas PDV */}
+      {ready && ready.folders.length > 0 && (
+        <span className="text-xs font-medium uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+          Transaccionales
+        </span>
+      )}
       {ready?.folders.map((folder) => {
         const resolved = folder.localId
           ? [folder.localNombre, folder.pdvNombre].filter(Boolean).join(" · ")
@@ -612,12 +669,16 @@ function DriveTab() {
         );
       })}
 
-      {/* Sin subcarpetas */}
+      {/* Sin archivos */}
       {ready && ready.maestros.length === 0 && ready.folders.length === 0 && (
-        <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+        <div className="flex flex-col items-center gap-3 py-14 text-zinc-400">
           <SearchX className="w-7 h-7 opacity-40" />
-          <p className="text-sm">No se encontraron archivos ni subcarpetas.</p>
-          <p className="text-xs opacity-60">Creá la estructura: Maestros/, San Justo/, Ramos Mejía/…</p>
+          <div className="text-center">
+            <p className="text-sm">No se encontraron archivos ni subcarpetas.</p>
+            <p className="text-xs opacity-60 mt-0.5 font-mono">
+              Maestros/ · San Justo/ · Ramos Mejía/…
+            </p>
+          </div>
         </div>
       )}
     </div>
@@ -667,161 +728,168 @@ function DriveFolder({
   const allReports = files.flatMap((f) => fileReports[f.id] ?? []);
 
   return (
-    <Card>
-      <CardHeader
-        className="pb-3 cursor-pointer select-none"
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 overflow-hidden">
+      {/* Header de carpeta */}
+      <div
+        className="flex items-center justify-between gap-2 px-4 py-3 cursor-pointer select-none hover:bg-zinc-50 dark:hover:bg-zinc-700/30 transition-colors"
         onClick={() => setCollapsed((v) => !v)}
       >
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-sm flex items-center gap-2">
-              {collapsed
-                ? <Folder className="w-4 h-4 shrink-0 text-muted-foreground" />
-                : <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />}
-              {title}
-              {allDone && <CheckCircle2 className="w-4 h-4 text-green-500" />}
-            </CardTitle>
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          {collapsed
+            ? <Folder className="w-4 h-4 shrink-0 text-zinc-400" />
+            : <FolderOpen className="w-4 h-4 shrink-0 text-zinc-400" />}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-zinc-900 dark:text-white">{title}</span>
+              {allDone && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
+            </div>
             {subtitle && (
               <p className={cn(
-                "text-xs mt-0.5",
-                subtitleVariant === "warning" ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"
+                "text-xs mt-0.5 truncate",
+                subtitleVariant === "warning"
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-zinc-400"
               )}>
                 {subtitle}
               </p>
             )}
           </div>
-          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-            {files.length > 1 && !allDone && !collapsed && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleImportAll}
-                disabled={batchRunning || pendingFiles.length === 0}
-                className="shrink-0 gap-1.5"
-              >
-                {batchRunning ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <CloudDownload className="w-3.5 h-3.5" />
-                )}
-                {batchRunning ? "Importando…" : `Importar ${pendingFiles.length > 0 ? pendingFiles.length : "todos"}`}
-              </Button>
-            )}
-            <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", collapsed && "-rotate-90")} />
-          </div>
         </div>
-      </CardHeader>
-      {!collapsed && <CardContent className="pt-0 flex flex-col gap-3">
-        {folderImporting && (
-          <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-            <RefreshCw className="w-3.5 h-3.5 shrink-0 animate-spin" />
-            Importación en curso — no navegues ni recargues la página hasta que termine.
-          </div>
-        )}
-        {files.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-2">Sin archivos Excel.</p>
-        ) : (
-          <ul className="flex flex-col divide-y">
-            {files.map((file) => {
-              const status = fileStatuses[file.id] ?? "idle";
-              return (
-                <li key={file.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                  <FileSpreadsheet className="w-4 h-4 shrink-0 text-green-500" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{file.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(file.modifiedTime).toLocaleDateString("es-AR")}
-                      {file.size && ` · ${formatBytes(Number(file.size))}`}
-                    </p>
-                    {status === "error" && fileErrors[file.id] && (
-                      <p className="text-xs text-destructive mt-0.5">{fileErrors[file.id]}</p>
-                    )}
-                  </div>
-                  {status === "success" ? (
-                    <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
-                  ) : status === "error" ? (
-                    <AlertCircle className="w-5 h-5 text-destructive shrink-0" />
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => onImportOne(file, localId, puntoDeVentaId)}
-                      disabled={status === "importing" || batchRunning}
-                      className="shrink-0 gap-1.5"
-                    >
-                      {status === "importing" ? (
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <CloudDownload className="w-3.5 h-3.5" />
-                      )}
-                      {status === "importing" ? "Importando…" : "Importar"}
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
 
-        {/* Reportes post-importación */}
-        {allReports.length > 0 && (
-          <div className="flex flex-col gap-2 pt-1">
-            {allReports.map((r, i) => <ReportCard key={i} report={r} />)}
-          </div>
-        )}
-      </CardContent>}
-    </Card>
+        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          {files.length > 1 && !allDone && !collapsed && (
+            <button
+              onClick={handleImportAll}
+              disabled={batchRunning || pendingFiles.length === 0}
+              className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {batchRunning ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <CloudDownload className="w-3 h-3" />
+              )}
+              {batchRunning
+                ? "Importando…"
+                : `Importar ${pendingFiles.length > 0 ? pendingFiles.length : "todos"}`}
+            </button>
+          )}
+          <ChevronDown className={cn(
+            "w-4 h-4 text-zinc-400 transition-transform duration-150",
+            collapsed && "-rotate-90"
+          )} />
+        </div>
+      </div>
+
+      {!collapsed && (
+        <div className="border-t border-zinc-100 dark:border-zinc-700/50">
+          {folderImporting && (
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-900/30 text-xs text-amber-700 dark:text-amber-400">
+              <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
+              Importación en curso — no navegues ni recargues la página hasta que termine.
+            </div>
+          )}
+
+          {files.length === 0 ? (
+            <p className="text-sm text-zinc-400 px-4 py-4">Sin archivos Excel.</p>
+          ) : (
+            <ul className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+              {files.map((file) => {
+                const status = fileStatuses[file.id] ?? "idle";
+                return (
+                  <li key={file.id} className="flex items-center gap-3 px-4 py-3">
+                    <FileSpreadsheet className="w-4 h-4 shrink-0 text-emerald-500" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-mono text-zinc-900 dark:text-white truncate">
+                        {file.name}
+                      </p>
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        {new Date(file.modifiedTime).toLocaleDateString("es-AR")}
+                        {file.size && ` · ${formatBytes(Number(file.size))}`}
+                      </p>
+                      {status === "error" && fileErrors[file.id] && (
+                        <p className="text-xs text-red-500 mt-0.5">{fileErrors[file.id]}</p>
+                      )}
+                    </div>
+                    {status === "success" ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    ) : status === "error" ? (
+                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                    ) : (
+                      <button
+                        onClick={() => onImportOne(file, localId, puntoDeVentaId)}
+                        disabled={status === "importing" || batchRunning}
+                        className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                      >
+                        {status === "importing" ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <CloudDownload className="w-3 h-3" />
+                        )}
+                        {status === "importing" ? "Importando…" : "Importar"}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {allReports.length > 0 && (
+            <div className="flex flex-col gap-2 px-4 pb-4 pt-2">
+              {allReports.map((r, i) => <ReportCard key={i} report={r} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
-// ── componentes compartidos ───────────────────────────────────────────────────
+// ── ReportCard ────────────────────────────────────────────────────────────────
 
 function ReportCard({ report }: { report: ETLReport }) {
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-green-500" />
+    <div className="rounded-lg border border-zinc-100 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+        <span className="text-sm font-medium text-zinc-900 dark:text-white">
           {FILE_TYPE_LABELS[report.fileType] ?? report.fileType}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-          <span>{report.totalRows} filas</span>
-          <span>·</span>
-          <span>{report.durationMs}ms</span>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900 dark:text-green-300">
-            {report.created} creados
-          </Badge>
-          <Badge variant="secondary">{report.updated} actualizados</Badge>
-          <Badge variant="outline">{report.skipped} omitidos</Badge>
-          {report.errors.length > 0 && (
-            <Badge variant="destructive">{report.errors.length} errores</Badge>
-          )}
-        </div>
-        {report.storagePath && (
-          <p className="text-xs text-muted-foreground">
-            Guardado en: <code className="font-mono">{report.storagePath}</code>
-          </p>
-        )}
+        </span>
+        <span className="text-xs text-zinc-400 font-mono ml-auto">
+          {report.totalRows} filas · {report.durationMs}ms
+        </span>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-400 border-0 text-xs">
+          {report.created} creados
+        </Badge>
+        <Badge variant="secondary" className="text-xs">{report.updated} actualizados</Badge>
+        <Badge variant="outline" className="text-xs">{report.skipped} omitidos</Badge>
         {report.errors.length > 0 && (
-          <details className="text-xs">
-            <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">
-              Ver {report.errors.length} errores
-            </summary>
-            <ul className="mt-2 space-y-1 max-h-48 overflow-y-auto text-muted-foreground">
-              {report.errors.map((e, i) => (
-                <li key={i} className="font-mono">
-                  Fila {e.rowIndex + 1} · {String(e.rawCodigo ?? "?")} · {e.message}
-                </li>
-              ))}
-            </ul>
-          </details>
+          <Badge variant="destructive" className="text-xs">{report.errors.length} errores</Badge>
         )}
-      </CardContent>
-    </Card>
+      </div>
+
+      {report.storagePath && (
+        <p className="text-xs text-zinc-400 font-mono truncate">{report.storagePath}</p>
+      )}
+
+      {report.errors.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-medium transition-colors">
+            Ver {report.errors.length} errores
+          </summary>
+          <ul className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+            {report.errors.map((e, i) => (
+              <li key={i} className="font-mono text-zinc-500 dark:text-zinc-400">
+                Fila {e.rowIndex + 1} · {String(e.rawCodigo ?? "?")} · {e.message}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
   );
 }
 
