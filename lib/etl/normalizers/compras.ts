@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
 import { trim, toDecimalStr, safeDate } from "../helpers";
-import { linkDetalleComprasByComprobante } from "../normalizer-utils";
+
 import type { ETLRow, ETLRowError, ETLContext } from "../types";
 
 // Filas por chunk de INSERT ... ON CONFLICT. Con ~18 columnas: ~9k params/chunk < 65535.
@@ -154,8 +154,6 @@ export async function normalizeCompras(
       });
     }
   }
-
-  await linkDetalleComprasByComprobante(prisma);
 
   return { created, updated, skipped, errors };
 }
