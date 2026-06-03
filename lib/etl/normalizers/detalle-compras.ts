@@ -13,7 +13,9 @@ function makeComprobante(r: ETLRow): string | null {
 }
 
 function makeRowId(r: ETLRow): string {
-  const key = [r["COD_CPB"], r["NUMERO1"], r["NUMERO2"], r["CODIGO"]]
+  // El ERP no exporta número de línea — CANTIDAD+NETO son los únicos
+  // diferenciadores cuando el mismo artículo aparece dos veces en la misma factura.
+  const key = [r["COD_CPB"], r["NUMERO1"], r["NUMERO2"], r["CODIGO"], r["CANTIDAD"], r["NETO"]]
     .map((v) => String(v ?? ""))
     .join("|");
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
