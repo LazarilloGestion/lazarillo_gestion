@@ -40,7 +40,11 @@ export async function normalizeCompras(
   prisma: DbClient,
   ctx?: ETLContext
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
-  const filtered = rows.filter((r) => r["COD_CGA"] != null && r["FECHA"] != null);
+  const valid = rows.filter((r) => r["COD_CGA"] != null && r["FECHA"] != null);
+  // Deduplicar por rowId — last wins (el ERP puede repetir filas; el upsert anterior también lo resolvía así)
+  const filtered = Array.from(
+    valid.reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>()).values()
+  );
   const skipped = rows.length - filtered.length;
 
   // Lookup tables — una sola query cada una para todo el archivo
