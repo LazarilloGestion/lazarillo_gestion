@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
         const date = now.toISOString().slice(0, 10);
         const time = now.toTimeString().slice(0, 8).replace(/:/g, "-");
         const safeName = path.basename(file.name);
-        storagePath = `uploads/${date}/${time}_${safeName}`;
+        storagePath = `local/${date}/${time}_${safeName}`;
         const { error } = await supabaseAdmin.storage
           .from("uploads")
           .upload(storagePath, buffer, {
