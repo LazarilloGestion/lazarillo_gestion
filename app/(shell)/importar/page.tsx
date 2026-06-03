@@ -463,60 +463,8 @@ function DriveTab() {
   }
 
   async function importAllFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number) {
-    setFileStatuses((s) => {
-      const next = { ...s };
-      for (const f of files) next[f.id] = "importing";
-      return next;
-    });
-    try {
-      const res = await fetch("/api/etl/drive-import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          files: files.map((f) => ({ file_id: f.id, file_name: f.name })),
-          local_id: localId,
-          punto_de_venta_id: puntoDeVentaId,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setFileStatuses((s) => {
-          const next = { ...s };
-          for (const f of files) next[f.id] = "error";
-          return next;
-        });
-        setFileErrors((s) => {
-          const next = { ...s };
-          for (const f of files) next[f.id] = json.error ?? "Error";
-          return next;
-        });
-      } else {
-        const reports = json as ETLReport[];
-        setFileStatuses((s) => {
-          const next = { ...s };
-          for (const f of files) next[f.id] = "success";
-          return next;
-        });
-        setFileReports((s) => {
-          const next = { ...s };
-          files.forEach((f) => {
-            const match = reports.find((r) => r.storagePath?.includes(f.name));
-            if (match) next[f.id] = [match];
-          });
-          return next;
-        });
-      }
-    } catch {
-      setFileStatuses((s) => {
-        const next = { ...s };
-        for (const f of files) next[f.id] = "error";
-        return next;
-      });
-      setFileErrors((s) => {
-        const next = { ...s };
-        for (const f of files) next[f.id] = "Error de red";
-        return next;
-      });
+    for (const file of files) {
+      await importOneFile(file, localId, puntoDeVentaId);
     }
   }
 
