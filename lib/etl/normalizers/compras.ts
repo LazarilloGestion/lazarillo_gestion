@@ -25,11 +25,10 @@ function parseComprobanteFromDetalle(raw: unknown): string | null {
 }
 
 function makeRowId(r: ETLRow): string {
-  // No incluir IMPORTE: si el ERP corrige el monto, el rowId debe mantenerse
-  // igual para que el upsert actualice el registro existente en lugar de crear uno nuevo.
-  // Incluir DETALLE (número de comprobante) para distinguir múltiples registros del mismo
-  // concepto/fecha/proveedor (ej: dos alquileres en el mismo mes con distinto ticket).
-  const key = [r["COD_CGA"], r["FECHA"], r["CODIGO"], r["CONCEPTO"], r["DETALLE"]]
+  // DETALLE (nro. comprobante) está vacío en ~40% de filas (sueldos, publicidad, alquiler).
+  // OBSERVAC diferencia esos casos (ej: "gonza cumple" vs "luna cumple" el mismo día).
+  // No incluir IMPORTE: correcciones del ERP en filas con igual OBSERVAC deben hacer upsert.
+  const key = [r["COD_CGA"], r["FECHA"], r["CODIGO"], r["CONCEPTO"], r["DETALLE"], r["OBSERVAC"]]
     .map((v) => String(v ?? ""))
     .join("|");
   return createHash("sha256").update(key).digest("hex").substring(0, 24);

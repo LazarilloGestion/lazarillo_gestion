@@ -8,9 +8,10 @@ import type { ETLRow, ETLRowError, ETLContext } from "../types";
 const CHUNK_SIZE = 500;
 
 function makeRowId(r: ETLRow): string {
-  // No incluir IMPORTE: si el ERP corrige el monto, el rowId debe mantenerse
-  // igual para que el upsert actualice el registro existente en lugar de crear uno nuevo.
-  const key = [r["TURNO"], r["COMPROBANT"], r["COD_COBRO"], r["COBRO"]]
+  // El ERP genera una fila por evento de pago: mismo ticket puede tener múltiples
+  // Transferencias MP a distintos importes — son cobros distintos, no correcciones.
+  // CUPON identifica la transferencia MP individual (0 en efectivo/otros).
+  const key = [r["TURNO"], r["COMPROBANT"], r["COD_COBRO"], r["COBRO"], r["IMPORTE"], r["CUPON"]]
     .map((v) => String(v ?? ""))
     .join("|");
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
