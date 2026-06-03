@@ -119,7 +119,7 @@ export async function normalizeVentas(
           cobro             = EXCLUDED.cobro,
           "codCobro"        = EXCLUDED."codCobro",
           importe           = EXCLUDED.importe,
-          "importeTrabajado"= EXCLUDED."importeTrabajado",
+          -- importeTrabajado: NO se sobreescribe (override manual, igual que compras)
           total             = EXCLUDED.total,
           descuento         = EXCLUDED.descuento,
           "cliNombre"       = EXCLUDED."cliNombre",

@@ -1,15 +1,18 @@
 import { createHash } from "crypto";
+import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { normalizeText, trim, toDecimal, toDecimalStr, safeDate } from "../helpers";
-import { processBatch, linkDetalleComprasByComprobante } from "../normalizer-utils";
+import { normalizeText, trim, toDecimalStr, safeDate } from "../helpers";
+import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
+
+const CHUNK_SIZE = 500;
 
 function makeComprobante(r: ETLRow): string | null {
   const cpb  = String(r["COD_CPB"] ?? "").trim();
   const num1 = String(r["NUMERO1"] ?? "").trim().padStart(4, "0");
   const num2 = String(r["NUMERO2"] ?? "").trim().padStart(8, "0");
   if (!cpb) return null;
-  return `${cpb}${num1}${num2}`;
+  return `${cpb}${num1.padStart(4, "0")}${num2.padStart(8, "0")}`;
 }
 
 function makeRowId(r: ETLRow): string {
@@ -25,9 +28,10 @@ export async function normalizeDetalleCompras(
   rows: ETLRow[],
   prisma: DbClient
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
-  let created = 0, updated = 0;
-
-  const filtered = rows.filter((r) => r["COD_CPB"] != null && r["CODIGO"] != null);
+  const valid = rows.filter((r) => r["COD_CPB"] != null && r["CODIGO"] != null);
+  const filtered = Array.from(
+    valid.reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>()).values()
+  );
   const skipped = rows.length - filtered.length;
 
   const codigosArt = [...new Set(filtered.map((r) => trim(r["CODIGO"])).filter(Boolean))] as string[];
@@ -46,50 +50,94 @@ export async function normalizeDetalleCompras(
     })).map((p) => [p.codigo, p.id])
   );
 
-  const allRowIds = filtered.map((r) => makeRowId(r));
-  const existingRowIds = new Set(
-    (await prisma.detalleCompra.findMany({
-      where: { rowId: { in: allRowIds } },
-      select: { rowId: true },
-    })).map((d) => d.rowId)
-  );
+  let created = 0;
+  let updated = 0;
+  const errors: ETLRowError[] = [];
 
-  const errors = await processBatch(
-    filtered,
-    async (r) => {
-      const rowId = makeRowId(r);
-      const data = {
-        codPro:      trim(r["COD_PRO"]),
-        codCpb:      trim(r["COD_CPB"]),
-        numero1:     trim(r["NUMERO1"]),
-        numero2:     trim(r["NUMERO2"]),
-        comprobante: makeComprobante(r),
-        fecha:       safeDate(r["FECHA"]),
-        codigo:      trim(r["CODIGO"]),
-        nombre:      normalizeText(r["NOMBRE"]),
-        medida:      trim(r["MEDIDA"]),
-        cantidad:    toDecimal(r["CANTIDAD"]),   // cantidad de unidades, no monetario
-        neto:        toDecimalStr(r["NETO"]),
-        totalIns:    toDecimalStr(r["TOTALINS"]),
-        ivaTot:      toDecimalStr(r["IVATOT"]),
-        impNtTot:    toDecimalStr(r["IMPINTTOT"]),
-        tasa:        toDecimal(r["TASA"]),        // porcentaje, no monetario
-        iva:         toDecimalStr(r["IVA"]),
-        impInt:      toDecimalStr(r["IMP_INT"]),
-        percep:      toDecimalStr(r["PERCEP"]),
-        observac:    normalizeText(r["OBSERVAC"]),
-        articuloCodigo: artSet.has(trim(r["CODIGO"]) ?? "") ? trim(r["CODIGO"]) : null,
-        proveedorId:    provMapDet.get(trim(r["COD_PRO"]) ?? "") ?? null,
-      };
-      await prisma.detalleCompra.upsert({
-        where:  { rowId },
-        update: data,
-        create: { rowId, ...data },
+  for (let i = 0; i < filtered.length; i += CHUNK_SIZE) {
+    const chunk = filtered.slice(i, i + CHUNK_SIZE);
+    const chunkRowIds = chunk.map(makeRowId);
+
+    const existingSet = new Set(
+      (await prisma.detalleCompra.findMany({
+        where: { rowId: { in: chunkRowIds } },
+        select: { rowId: true },
+      })).map((d) => d.rowId)
+    );
+
+    try {
+      const rowValues = chunk.map((r) => {
+        const rowId = makeRowId(r);
+        const articuloCodigo = artSet.has(trim(r["CODIGO"]) ?? "") ? trim(r["CODIGO"]) : null;
+        const proveedorId = provMapDet.get(trim(r["COD_PRO"]) ?? "") ?? null;
+        return Prisma.sql`(
+          ${rowId},
+          ${trim(r["COD_PRO"])},
+          ${trim(r["COD_CPB"])},
+          ${trim(r["NUMERO1"])},
+          ${trim(r["NUMERO2"])},
+          ${makeComprobante(r)},
+          ${safeDate(r["FECHA"])},
+          ${trim(r["CODIGO"])},
+          ${normalizeText(r["NOMBRE"])},
+          ${trim(r["MEDIDA"])},
+          ${toDecimalStr(r["CANTIDAD"])}::numeric,
+          ${toDecimalStr(r["NETO"])}::numeric,
+          ${toDecimalStr(r["TOTALINS"])}::numeric,
+          ${toDecimalStr(r["IVATOT"])}::numeric,
+          ${toDecimalStr(r["IMPINTTOT"])}::numeric,
+          ${toDecimalStr(r["TASA"])}::numeric,
+          ${toDecimalStr(r["IVA"])}::numeric,
+          ${toDecimalStr(r["IMP_INT"])}::numeric,
+          ${toDecimalStr(r["PERCEP"])}::numeric,
+          ${normalizeText(r["OBSERVAC"])},
+          ${articuloCodigo},
+          ${proveedorId}::integer
+        )`;
       });
-      if (existingRowIds.has(rowId)) updated++; else created++;
-    },
-    (r) => r["CODIGO"]
-  );
+
+      await (prisma as unknown as { $executeRaw: (q: Prisma.Sql) => Promise<number> }).$executeRaw(Prisma.sql`
+        INSERT INTO detalle_compras (
+          "rowId", "codPro", "codCpb", numero1, numero2, comprobante, fecha, codigo,
+          nombre, medida, cantidad, neto, "totalIns", "ivaTot", "impNtTot", tasa, iva,
+          "impInt", percep, observac, "articuloCodigo", "proveedorId"
+        )
+        VALUES ${Prisma.join(rowValues)}
+        ON CONFLICT ("rowId") DO UPDATE SET
+          "codPro"        = EXCLUDED."codPro",
+          "codCpb"        = EXCLUDED."codCpb",
+          numero1         = EXCLUDED.numero1,
+          numero2         = EXCLUDED.numero2,
+          comprobante     = EXCLUDED.comprobante,
+          fecha           = EXCLUDED.fecha,
+          codigo          = EXCLUDED.codigo,
+          nombre          = EXCLUDED.nombre,
+          medida          = EXCLUDED.medida,
+          cantidad        = EXCLUDED.cantidad,
+          neto            = EXCLUDED.neto,
+          "totalIns"      = EXCLUDED."totalIns",
+          "ivaTot"        = EXCLUDED."ivaTot",
+          "impNtTot"      = EXCLUDED."impNtTot",
+          tasa            = EXCLUDED.tasa,
+          iva             = EXCLUDED.iva,
+          "impInt"        = EXCLUDED."impInt",
+          percep          = EXCLUDED.percep,
+          observac        = EXCLUDED.observac,
+          "articuloCodigo"= EXCLUDED."articuloCodigo",
+          "proveedorId"   = EXCLUDED."proveedorId"
+      `);
+
+      for (const rowId of chunkRowIds) {
+        if (existingSet.has(rowId)) updated++; else created++;
+      }
+    } catch (err) {
+      errors.push({
+        rowIndex: i,
+        rawCodigo: chunk[0]?.["CODIGO"],
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   await linkDetalleComprasByComprobante(prisma);
 

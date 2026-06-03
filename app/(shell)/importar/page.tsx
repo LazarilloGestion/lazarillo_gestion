@@ -96,6 +96,14 @@ export default function ImportarPage() {
   const [localId, setLocalId] = useState("");
   const [puntoDeVentaId, setPuntoDeVentaId] = useState("");
 
+  const [maestrosLoaded, setMaestrosLoaded] = useState<boolean>(true);
+  useEffect(() => {
+    fetch("/api/etl/maestros-status")
+      .then((r) => r.json() as Promise<{ loaded: boolean }>)
+      .then((d) => setMaestrosLoaded(d.loaded))
+      .catch(() => setMaestrosLoaded(true));
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/locales", { signal: controller.signal })
@@ -183,11 +191,12 @@ export default function ImportarPage() {
           localSelect={localSelect}
           localId={localId}
           puntoDeVentaId={puntoDeVentaId}
+          maestrosLoaded={maestrosLoaded}
         />
       </div>
 
       <div className={tab !== "drive" ? "hidden" : undefined}>
-        <DriveTab />
+        <DriveTab maestrosLoaded={maestrosLoaded} onMaestrosChange={setMaestrosLoaded} />
       </div>
     </div>
   );
@@ -199,10 +208,12 @@ function SubirTab({
   localSelect,
   localId,
   puntoDeVentaId,
+  maestrosLoaded,
 }: {
   localSelect: React.ReactNode;
   localId: string;
   puntoDeVentaId: string;
+  maestrosLoaded: boolean;
 }) {
   const [state, setState] = useState<UploadState>({ status: "idle" });
   const [dragOver, setDragOver] = useState(false);
@@ -240,6 +251,12 @@ function SubirTab({
     <div className="flex flex-col gap-5">
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 p-5 flex flex-col gap-5">
         {localSelect}
+
+        {!maestrosLoaded && localId && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 dark:border-amber-900/30 bg-amber-50 dark:bg-amber-950/20 px-4 py-2.5 text-xs text-amber-700 dark:text-amber-400">
+            Importar maestros primero antes de importar transaccionales.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {/* Drop zone */}
@@ -364,7 +381,13 @@ function SubirTab({
 
 // ── Tab: Desde Drive ──────────────────────────────────────────────────────────
 
-function DriveTab() {
+function DriveTab({
+  maestrosLoaded,
+  onMaestrosChange,
+}: {
+  maestrosLoaded: boolean;
+  onMaestrosChange: (loaded: boolean) => void;
+}) {
   const [config, setConfig] = useState<DriveConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -373,7 +396,6 @@ function DriveTab() {
   const [configError, setConfigError] = useState("");
 
   const [filesState, setFilesState] = useState<DriveFilesState>({ status: "idle" });
-  const [maestrosLoaded, setMaestrosLoaded] = useState<boolean>(true);
 
   const [fileStatuses, setFileStatuses] = useState<FileStates>({});
   const [fileReports, setFileReports] = useState<FileReports>({});
@@ -404,13 +426,6 @@ function DriveTab() {
   useEffect(() => {
     if (!configLoading && config?.folder_id) loadFiles();
   }, [configLoading, config?.folder_id, loadFiles]);
-
-  useEffect(() => {
-    fetch("/api/etl/maestros-status")
-      .then((r) => r.json() as Promise<{ loaded: boolean }>)
-      .then((d) => setMaestrosLoaded(d.loaded))
-      .catch(() => setMaestrosLoaded(true));
-  }, []);
 
   const isImporting = Object.values(fileStatuses).some((s) => s === "importing");
 
@@ -477,7 +492,7 @@ function DriveTab() {
     // Re-chequear maestros por si se acaban de importar
     fetch("/api/etl/maestros-status")
       .then((r) => r.json() as Promise<{ loaded: boolean }>)
-      .then((d) => setMaestrosLoaded(d.loaded))
+      .then((d) => onMaestrosChange(d.loaded))
       .catch(() => {});
   }
 

@@ -81,6 +81,21 @@ export async function POST(req: NextRequest) {
 
   entries.sort((a, b) => a.order - b.order);
 
+  // Bloquear archivos transaccionales si los maestros no están cargados
+  if (ctx.localId != null) {
+    const [provCount, conceptoCount, artCount] = await Promise.all([
+      getEtlClient().proveedor.count(),
+      getEtlClient().conceptoCaja.count(),
+      getEtlClient().articulo.count(),
+    ]);
+    if (provCount === 0 || conceptoCount === 0 || artCount === 0) {
+      return NextResponse.json(
+        { error: "Importá los maestros antes de importar archivos transaccionales." },
+        { status: 422 }
+      );
+    }
+  }
+
   let supabaseAdmin: ReturnType<typeof getSupabaseAdmin> | null = null;
   try {
     supabaseAdmin = getSupabaseAdmin();
