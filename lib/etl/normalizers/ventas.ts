@@ -42,11 +42,11 @@ export async function normalizeVentas(
   // Filtrar primero: eliminar encabezados de fecha/totales del día (TURNO Y COD_COBRO ambos nulos)
   const validRows = rows.filter((r) => !(r["TURNO"] == null && r["COD_COBRO"] == null));
   const skipped = rows.length - validRows.length;
-  // Luego completar filas parciales (ventas con múltiples formas de pago)
-  const filled = fillPartialRows(validRows);
-  // Deduplicar por rowId — last wins (el ERP puede repetir filas; el upsert anterior también lo resolvía así)
+  // Completar filas parciales, luego deduplicar por rowId — last wins
   const filtered = Array.from(
-    filled.reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>()).values()
+    fillPartialRows(validRows)
+      .reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>())
+      .values()
   );
 
   const localId = ctx?.localId ?? null;
