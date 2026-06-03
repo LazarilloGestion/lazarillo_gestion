@@ -41,13 +41,14 @@ export async function normalizeVentas(
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   // Filtrar primero: eliminar encabezados de fecha/totales del día (TURNO Y COD_COBRO ambos nulos)
   const validRows = rows.filter((r) => !(r["TURNO"] == null && r["COD_COBRO"] == null));
-  const skipped = rows.length - validRows.length;
   // Completar filas parciales, luego deduplicar por rowId — last wins
   const filtered = Array.from(
     fillPartialRows(validRows)
       .reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>())
       .values()
   );
+  // skipped = filas inválidas + duplicados dentro del archivo
+  const skipped = rows.length - filtered.length;
 
   const localId = ctx?.localId ?? null;
   const puntoDeVentaId = ctx?.puntoDeVentaId ?? null;
