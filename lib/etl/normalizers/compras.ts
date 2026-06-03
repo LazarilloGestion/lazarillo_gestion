@@ -1,8 +1,12 @@
 import { createHash } from "crypto";
+import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { trim, toDecimal, toDecimalStr, safeDate } from "../helpers";
-import { processBatch, linkDetalleComprasByComprobante } from "../normalizer-utils";
+import { trim, toDecimalStr, safeDate } from "../helpers";
+import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 import type { ETLRow, ETLRowError, ETLContext } from "../types";
+
+// Filas por chunk de INSERT ... ON CONFLICT. Con ~18 columnas: ~9k params/chunk < 65535.
+const CHUNK_SIZE = 500;
 
 // Códigos del ERP en compras que difieren del COD_CPB en detalle_compras
 const CODE_ALIASES: Record<string, string> = {
@@ -36,11 +40,10 @@ export async function normalizeCompras(
   prisma: DbClient,
   ctx?: ETLContext
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
-  let created = 0, updated = 0;
-
   const filtered = rows.filter((r) => r["COD_CGA"] != null && r["FECHA"] != null);
   const skipped = rows.length - filtered.length;
 
+  // Lookup tables — una sola query cada una para todo el archivo
   const codigosProv = [...new Set(filtered.map((r) => trim(r["CODIGO"])).filter(Boolean))] as string[];
   const provMap = new Map(
     (await prisma.proveedor.findMany({
@@ -57,49 +60,96 @@ export async function normalizeCompras(
     })).map((c) => c.codigo)
   );
 
-  const allRowIds = filtered.map((r) => makeRowId(r));
-  const existingRowIds = new Set(
-    (await prisma.compra.findMany({
-      where: { rowId: { in: allRowIds } },
-      select: { rowId: true },
-    })).map((c) => c.rowId)
-  );
+  const localId = ctx?.localId ?? null;
+  const puntoDeVentaId = ctx?.puntoDeVentaId ?? null;
 
-  const errors = await processBatch(
-    filtered,
-    async (r) => {
-      const rowId = makeRowId(r);
-      const importe = toDecimalStr(r["IMPORTE"]);
-      const data = {
-        codCga:      trim(r["COD_CGA"]),
-        concepto:    trim(r["CONCEPTO"]),
-        comprobante: parseComprobanteFromDetalle(r["DETALLE"]),
-        fecha:       safeDate(r["FECHA"]),
-        codigo:      trim(r["CODIGO"]),
-        proveedor:   trim(r["PROVEEDOR"]),
-        detalle:     trim(r["DETALLE"]),
-        observac:    trim(r["OBSERVAC"]),
-        importe:          importe,
-        importeTrabajado: importe,
-        impInt:    toDecimalStr(r["IMP_INT"]),
-        imputac:   trim(r["IMPUTAC"]),
-        per1:      toDecimalStr(r["PER1"]),
-        per2:      toDecimalStr(r["PER2"]),
-        per3:      toDecimalStr(r["PER3"]),
-        proveedorId:    provMap.get(trim(r["CODIGO"]) ?? "") ?? null,
-        conceptoCodigo: conceptoSet.has(trim(r["COD_CGA"]) ?? "") ? trim(r["COD_CGA"]) : null,
-        localId:        ctx?.localId ?? null,
-        puntoDeVentaId: ctx?.puntoDeVentaId ?? null,
-      };
-      await prisma.compra.upsert({
-        where:  { rowId },
-        update: data,
-        create: { rowId, ...data },
+  let created = 0;
+  let updated = 0;
+  const errors: ETLRowError[] = [];
+
+  for (let i = 0; i < filtered.length; i += CHUNK_SIZE) {
+    const chunk = filtered.slice(i, i + CHUNK_SIZE);
+    const chunkRowIds = chunk.map(makeRowId);
+
+    const existingSet = new Set(
+      (await prisma.compra.findMany({
+        where: { rowId: { in: chunkRowIds } },
+        select: { rowId: true },
+      })).map((c) => c.rowId)
+    );
+
+    try {
+      const rowValues = chunk.map((r) => {
+        const rowId = makeRowId(r);
+        const importe = toDecimalStr(r["IMPORTE"]);
+        const proveedorId = provMap.get(trim(r["CODIGO"]) ?? "") ?? null;
+        const conceptoCodigo = conceptoSet.has(trim(r["COD_CGA"]) ?? "") ? trim(r["COD_CGA"]) : null;
+
+        return Prisma.sql`(
+          ${rowId},
+          ${trim(r["COD_CGA"])},
+          ${trim(r["CONCEPTO"])},
+          ${parseComprobanteFromDetalle(r["DETALLE"])},
+          ${safeDate(r["FECHA"])},
+          ${trim(r["CODIGO"])},
+          ${trim(r["PROVEEDOR"])},
+          ${trim(r["DETALLE"])},
+          ${trim(r["OBSERVAC"])},
+          ${importe}::numeric,
+          ${importe}::numeric,
+          ${toDecimalStr(r["IMP_INT"])}::numeric,
+          ${trim(r["IMPUTAC"])},
+          ${toDecimalStr(r["PER1"])}::numeric,
+          ${toDecimalStr(r["PER2"])}::numeric,
+          ${toDecimalStr(r["PER3"])}::numeric,
+          ${proveedorId}::integer,
+          ${conceptoCodigo},
+          ${localId}::integer,
+          ${puntoDeVentaId}::integer
+        )`;
       });
-      if (existingRowIds.has(rowId)) updated++; else created++;
-    },
-    (r) => r["CODIGO"]
-  );
+
+      await (prisma as unknown as { $executeRaw: (q: Prisma.Sql) => Promise<number> }).$executeRaw(Prisma.sql`
+        INSERT INTO compras (
+          "rowId", "codCga", concepto, comprobante, fecha, codigo, proveedor, detalle, observac,
+          importe, "importeTrabajado", "impInt", imputac, per1, per2, per3,
+          "proveedorId", "conceptoCodigo", "localId", "puntoDeVentaId"
+        )
+        VALUES ${Prisma.join(rowValues)}
+        ON CONFLICT ("rowId") DO UPDATE SET
+          "codCga"           = EXCLUDED."codCga",
+          concepto           = EXCLUDED.concepto,
+          comprobante        = EXCLUDED.comprobante,
+          fecha              = EXCLUDED.fecha,
+          codigo             = EXCLUDED.codigo,
+          proveedor          = EXCLUDED.proveedor,
+          detalle            = EXCLUDED.detalle,
+          observac           = EXCLUDED.observac,
+          importe            = EXCLUDED.importe,
+          "importeTrabajado" = EXCLUDED."importeTrabajado",
+          "impInt"           = EXCLUDED."impInt",
+          imputac            = EXCLUDED.imputac,
+          per1               = EXCLUDED.per1,
+          per2               = EXCLUDED.per2,
+          per3               = EXCLUDED.per3,
+          "proveedorId"      = EXCLUDED."proveedorId",
+          "conceptoCodigo"   = EXCLUDED."conceptoCodigo",
+          "localId"          = EXCLUDED."localId",
+          "puntoDeVentaId"   = EXCLUDED."puntoDeVentaId"
+          -- importeManual, fechaManual, conceptoCodigoManual: NO se sobreescriben (overrides manuales)
+      `);
+
+      for (const rowId of chunkRowIds) {
+        if (existingSet.has(rowId)) updated++; else created++;
+      }
+    } catch (err) {
+      errors.push({
+        rowIndex: i,
+        rawCodigo: chunk[0]?.["CODIGO"],
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   await linkDetalleComprasByComprobante(prisma);
 
