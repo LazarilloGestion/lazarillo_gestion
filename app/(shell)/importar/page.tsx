@@ -373,6 +373,7 @@ function DriveTab() {
   const [configError, setConfigError] = useState("");
 
   const [filesState, setFilesState] = useState<DriveFilesState>({ status: "idle" });
+  const [maestrosLoaded, setMaestrosLoaded] = useState<boolean>(true);
 
   const [fileStatuses, setFileStatuses] = useState<FileStates>({});
   const [fileReports, setFileReports] = useState<FileReports>({});
@@ -403,6 +404,13 @@ function DriveTab() {
   useEffect(() => {
     if (!configLoading && config?.folder_id) loadFiles();
   }, [configLoading, config?.folder_id, loadFiles]);
+
+  useEffect(() => {
+    fetch("/api/etl/maestros-status")
+      .then((r) => r.json() as Promise<{ loaded: boolean }>)
+      .then((d) => setMaestrosLoaded(d.loaded))
+      .catch(() => setMaestrosLoaded(true));
+  }, []);
 
   const isImporting = Object.values(fileStatuses).some((s) => s === "importing");
 
@@ -466,6 +474,11 @@ function DriveTab() {
     for (const file of files) {
       await importOneFile(file, localId, puntoDeVentaId);
     }
+    // Re-chequear maestros por si se acaban de importar
+    fetch("/api/etl/maestros-status")
+      .then((r) => r.json() as Promise<{ loaded: boolean }>)
+      .then((d) => setMaestrosLoaded(d.loaded))
+      .catch(() => {});
   }
 
   if (configLoading) {
@@ -613,6 +626,7 @@ function DriveTab() {
             fileErrors={fileErrors}
             onImportOne={importOneFile}
             onImportAll={importAllFiles}
+            blocked={!maestrosLoaded}
           />
         );
       })}
@@ -646,6 +660,7 @@ function DriveFolder({
   fileReports,
   fileErrors,
   onImportOne,
+  blocked = false,
   onImportAll,
 }: {
   title: string;
@@ -659,6 +674,7 @@ function DriveFolder({
   fileErrors: FileErrors;
   onImportOne: (file: DriveFile, localId?: number, puntoDeVentaId?: number) => Promise<void>;
   onImportAll: (files: DriveFile[], localId?: number, puntoDeVentaId?: number) => Promise<void>;
+  blocked?: boolean;
 }) {
   const [batchRunning, setBatchRunning] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
@@ -708,7 +724,7 @@ function DriveFolder({
           {files.length > 1 && !allDone && !collapsed && (
             <button
               onClick={handleImportAll}
-              disabled={batchRunning || pendingFiles.length === 0}
+              disabled={batchRunning || pendingFiles.length === 0 || blocked}
               className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {batchRunning ? (
@@ -730,6 +746,11 @@ function DriveFolder({
 
       {!collapsed && (
         <div className="border-t border-zinc-100 dark:border-zinc-700/50">
+          {blocked && (
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-900/30 text-xs text-amber-700 dark:text-amber-400">
+              Importar maestros primero antes de importar transaccionales.
+            </div>
+          )}
           {folderImporting && (
             <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-900/30 text-xs text-amber-700 dark:text-amber-400">
               <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
@@ -765,7 +786,7 @@ function DriveFolder({
                     ) : (
                       <button
                         onClick={() => onImportOne(file, localId, puntoDeVentaId)}
-                        disabled={status === "importing" || batchRunning}
+                        disabled={status === "importing" || batchRunning || blocked}
                         className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                       >
                         {status === "importing" ? (
