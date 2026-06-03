@@ -10,9 +10,10 @@
  * Sin --force muestra un resumen y pide confirmación si hay overrides manuales.
  */
 
-import { PrismaClient } from "@prisma/client";
+import { config } from "dotenv";
+config({ path: ".env.local" });
 
-const prisma = new PrismaClient();
+import { prisma } from "../lib/prisma";
 
 async function main() {
   const force = process.argv.includes("--force");
@@ -95,4 +96,4 @@ async function main() {
 
 main()
   .catch((e) => { console.error(e); process.exit(1); })
-  .finally(() => prisma.$disconnect());
+  .finally(() => (prisma as unknown as { $disconnect: () => Promise<void> }).$disconnect());
