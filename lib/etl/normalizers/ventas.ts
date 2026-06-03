@@ -5,7 +5,9 @@ import { processBatch } from "../normalizer-utils";
 import type { ETLRow, ETLRowError, ETLContext } from "../types";
 
 function makeRowId(r: ETLRow): string {
-  const key = [r["TURNO"], r["COMPROBANT"], r["COD_COBRO"], r["COBRO"], r["IMPORTE"]]
+  // No incluir IMPORTE: si el ERP corrige el monto, el rowId debe mantenerse
+  // igual para que el upsert actualice el registro existente en lugar de crear uno nuevo.
+  const key = [r["TURNO"], r["COMPROBANT"], r["COD_COBRO"], r["COBRO"]]
     .map((v) => String(v ?? ""))
     .join("|");
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
