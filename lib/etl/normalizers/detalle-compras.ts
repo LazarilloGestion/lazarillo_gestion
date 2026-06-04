@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
-import type { DbClient } from "../types";
+import type { DbClient, ETLContext } from "../types";
 import { normalizeText, trim, toDecimalStr, safeDate } from "../helpers";
 import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
@@ -26,7 +26,8 @@ function makeRowId(r: ETLRow): string {
 
 export async function normalizeDetalleCompras(
   rows: ETLRow[],
-  prisma: DbClient
+  prisma: DbClient,
+  ctx?: ETLContext
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
   const valid = rows.filter((r) => r["COD_CPB"] != null && r["CODIGO"] != null);
   const filtered = Array.from(
@@ -139,7 +140,9 @@ export async function normalizeDetalleCompras(
     }
   }
 
-  await linkDetalleComprasByComprobante(prisma);
+  if (ctx?.localId != null) {
+    await linkDetalleComprasByComprobante(prisma, ctx.localId);
+  }
 
   return { created, updated, skipped, errors };
 }

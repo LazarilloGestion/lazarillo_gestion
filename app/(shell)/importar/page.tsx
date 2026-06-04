@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ETLReport } from "@/lib/etl/types";
+import { translateError } from "@/lib/etl/error-messages";
 import type { Local } from "@/lib/types/domain";
 import type { DriveFile, DriveConfig, DriveFilesResponse } from "@/lib/drive/types";
 
@@ -96,12 +97,12 @@ export default function ImportarPage() {
   const [localId, setLocalId] = useState("");
   const [puntoDeVentaId, setPuntoDeVentaId] = useState("");
 
-  const [maestrosLoaded, setMaestrosLoaded] = useState<boolean>(true);
+  const [maestrosLoaded, setMaestrosLoaded] = useState<boolean | null>(null);
   useEffect(() => {
     fetch("/api/etl/maestros-status")
       .then((r) => r.json() as Promise<{ loaded: boolean }>)
       .then((d) => setMaestrosLoaded(d.loaded))
-      .catch(() => setMaestrosLoaded(true));
+      .catch(() => setMaestrosLoaded(false));
   }, []);
 
   useEffect(() => {
@@ -213,7 +214,7 @@ function SubirTab({
   localSelect: React.ReactNode;
   localId: string;
   puntoDeVentaId: string;
-  maestrosLoaded: boolean;
+  maestrosLoaded: boolean | null;
 }) {
   const [state, setState] = useState<UploadState>({ status: "idle" });
   const [dragOver, setDragOver] = useState(false);
@@ -223,6 +224,11 @@ function SubirTab({
   function pickFiles(fileList: FileList) {
     const arr = Array.from(fileList);
     if (arr.length > 0) { setSelectedFiles(arr); setState({ status: "idle" }); }
+  }
+
+  function reset() {
+    setState({ status: "idle" });
+    setSelectedFiles([]);
   }
 
   function removeFile(index: number) {
@@ -339,7 +345,7 @@ function SubirTab({
 
           <button
             type="submit"
-            disabled={selectedFiles.length === 0 || state.status === "uploading"}
+            disabled={selectedFiles.length === 0 || state.status === "uploading" || (maestrosLoaded !== true && !!localId)}
             className="w-full h-10 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-medium transition-all duration-150 hover:bg-zinc-700 dark:hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 dark:focus-visible:ring-white focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {state.status === "uploading" ? (
@@ -365,7 +371,7 @@ function SubirTab({
         <>
           <div className="flex items-start gap-3 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-4 py-3">
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
-            <p className="text-sm text-red-700 dark:text-red-400">{state.message}</p>
+            <p className="text-sm text-red-700 dark:text-red-400">{translateError(state.message)}</p>
           </div>
           {state.reports && state.reports.length > 0 && (
             <div className="flex flex-col gap-3">
@@ -374,6 +380,15 @@ function SubirTab({
             </div>
           )}
         </>
+      )}
+      {(state.status === "success" || state.status === "error") && (
+        <button
+          onClick={reset}
+          className="self-start flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Volver a importar
+        </button>
       )}
     </div>
   );
@@ -385,7 +400,7 @@ function DriveTab({
   maestrosLoaded,
   onMaestrosChange,
 }: {
-  maestrosLoaded: boolean;
+  maestrosLoaded: boolean | null;
   onMaestrosChange: (loaded: boolean) => void;
 }) {
   const [config, setConfig] = useState<DriveConfig | null>(null);
@@ -400,6 +415,7 @@ function DriveTab({
   const [fileStatuses, setFileStatuses] = useState<FileStates>({});
   const [fileReports, setFileReports] = useState<FileReports>({});
   const [fileErrors, setFileErrors] = useState<FileErrors>({});
+  const [globalImporting, setGlobalImporting] = useState(false);
 
   useEffect(() => {
     fetch("/api/drive/config")
@@ -429,12 +445,13 @@ function DriveTab({
 
   const isImporting = Object.values(fileStatuses).some((s) => s === "importing");
 
+  const anyImporting = isImporting || globalImporting;
   useEffect(() => {
-    if (!isImporting) return;
+    if (!anyImporting) return;
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [isImporting]);
+  }, [anyImporting]);
 
   async function saveConfig(e: React.SyntheticEvent) {
     e.preventDefault();
@@ -496,6 +513,36 @@ function DriveTab({
       .catch(() => {});
   }
 
+  async function importarTodo() {
+    if (!ready) return;
+    setGlobalImporting(true);
+    try {
+      if (ready.maestros.length > 0) {
+        await importAllFiles(ready.maestros);
+      }
+      // Siempre re-chequear maestros antes de importar transaccionales,
+      // incluso si no había archivos maestros en Drive (pueden estar ya cargados).
+      if (ready.folders.length > 0) {
+        const { loaded } = await fetch("/api/etl/maestros-status").then((r) => r.json() as Promise<{ loaded: boolean }>);
+        onMaestrosChange(loaded);
+        if (!loaded) return;
+        for (const folder of ready.folders) {
+          await importAllFiles(folder.files, folder.localId ?? undefined, folder.puntoDeVentaId ?? undefined);
+        }
+      }
+    } finally {
+      setGlobalImporting(false);
+    }
+  }
+
+  function resetFile(fileId: string) {
+    setFileStatuses((s) => { const n = { ...s }; delete n[fileId]; return n; });
+    setFileReports((r) => { const n = { ...r }; delete n[fileId]; return n; });
+    setFileErrors((e) => { const n = { ...e }; delete n[fileId]; return n; });
+  }
+
+  const ready = filesState.status === "ready" ? filesState.data : null;
+
   if (configLoading) {
     return (
       <div className="flex items-center justify-center py-16 text-zinc-400">
@@ -503,8 +550,6 @@ function DriveTab({
       </div>
     );
   }
-
-  const ready = filesState.status === "ready" ? filesState.data : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -582,12 +627,30 @@ function DriveTab({
         </div>
       )}
 
-      {/* Botón refrescar */}
+      {/* Botones de acción global */}
       {config?.folder_id && filesState.status !== "loading" && (
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-3">
+          {ready && (() => {
+            const allFiles = [...ready.maestros, ...ready.folders.flatMap((f) => f.files)];
+            const hayPendientes = allFiles.some((f) => !fileStatuses[f.id] || fileStatuses[f.id] === "idle" || fileStatuses[f.id] === "error");
+            return hayPendientes ? (
+              <button
+                onClick={importarTodo}
+                disabled={globalImporting || isImporting}
+                className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {globalImporting ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <CloudDownload className="w-3.5 h-3.5" />
+                )}
+                {globalImporting ? "Importando todo…" : "Importar todo"}
+              </button>
+            ) : null;
+          })()}
           <button
             onClick={loadFiles}
-            disabled={isImporting}
+            disabled={isImporting || globalImporting}
             className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors disabled:opacity-40 disabled:pointer-events-none"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -613,6 +676,8 @@ function DriveTab({
             fileErrors={fileErrors}
             onImportOne={importOneFile}
             onImportAll={importAllFiles}
+            globalImporting={globalImporting}
+            onResetFile={resetFile}
           />
         </div>
       )}
@@ -641,7 +706,9 @@ function DriveTab({
             fileErrors={fileErrors}
             onImportOne={importOneFile}
             onImportAll={importAllFiles}
-            blocked={!maestrosLoaded}
+            blocked={maestrosLoaded !== true}
+            globalImporting={globalImporting}
+            onResetFile={resetFile}
           />
         );
       })}
@@ -676,7 +743,9 @@ function DriveFolder({
   fileErrors,
   onImportOne,
   blocked = false,
+  globalImporting = false,
   onImportAll,
+  onResetFile,
 }: {
   title: string;
   subtitle?: string;
@@ -690,21 +759,24 @@ function DriveFolder({
   onImportOne: (file: DriveFile, localId?: number, puntoDeVentaId?: number) => Promise<void>;
   onImportAll: (files: DriveFile[], localId?: number, puntoDeVentaId?: number) => Promise<void>;
   blocked?: boolean;
+  globalImporting?: boolean;
+  onResetFile: (fileId: string) => void;
 }) {
   const [batchRunning, setBatchRunning] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
 
-  const pendingFiles = files.filter((f) => !fileStatuses[f.id] || fileStatuses[f.id] === "idle");
+  const pendingFiles = files.filter((f) => !fileStatuses[f.id] || fileStatuses[f.id] === "idle" || fileStatuses[f.id] === "error");
   const allDone = files.length > 0 && files.every((f) => fileStatuses[f.id] === "success");
   const folderImporting = files.some((f) => fileStatuses[f.id] === "importing");
 
   async function handleImportAll() {
     setBatchRunning(true);
-    await onImportAll(files, localId, puntoDeVentaId);
-    setBatchRunning(false);
+    try {
+      await onImportAll(pendingFiles, localId, puntoDeVentaId);
+    } finally {
+      setBatchRunning(false);
+    }
   }
-
-  const allReports = files.flatMap((f) => fileReports[f.id] ?? []);
 
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 overflow-hidden">
@@ -736,10 +808,28 @@ function DriveFolder({
         </div>
 
         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+          {allDone && (
+            <button
+              onClick={async () => {
+                files.forEach((f) => onResetFile(f.id));
+                setBatchRunning(true);
+                try {
+                  await onImportAll(files, localId, puntoDeVentaId);
+                } finally {
+                  setBatchRunning(false);
+                }
+              }}
+              disabled={batchRunning || globalImporting || blocked}
+              className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Reimportar
+            </button>
+          )}
           {files.length > 1 && !allDone && !collapsed && (
             <button
               onClick={handleImportAll}
-              disabled={batchRunning || pendingFiles.length === 0 || blocked}
+              disabled={batchRunning || pendingFiles.length === 0 || blocked || globalImporting}
               className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {batchRunning ? (
@@ -776,51 +866,67 @@ function DriveFolder({
           {files.length === 0 ? (
             <p className="text-sm text-zinc-400 px-4 py-4">Sin archivos Excel.</p>
           ) : (
-            <ul className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-700/50">
               {files.map((file) => {
                 const status = fileStatuses[file.id] ?? "idle";
+                const reports = fileReports[file.id] ?? [];
                 return (
-                  <li key={file.id} className="flex items-center gap-3 px-4 py-3">
-                    <FileSpreadsheet className="w-4 h-4 shrink-0 text-emerald-500" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-mono text-zinc-900 dark:text-white truncate">
-                        {file.name}
-                      </p>
-                      <p className="text-xs text-zinc-400 mt-0.5">
-                        {new Date(file.modifiedTime).toLocaleDateString("es-AR")}
-                        {file.size && ` · ${formatBytes(Number(file.size))}`}
-                      </p>
-                      {status === "error" && fileErrors[file.id] && (
-                        <p className="text-xs text-red-500 mt-0.5">{fileErrors[file.id]}</p>
+                  <div key={file.id}>
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      <FileSpreadsheet className="w-4 h-4 shrink-0 text-emerald-500" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-mono text-zinc-900 dark:text-white truncate">
+                          {file.name}
+                        </p>
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                          {new Date(file.modifiedTime).toLocaleDateString("es-AR")}
+                          {file.size && ` · ${formatBytes(Number(file.size))}`}
+                        </p>
+                        {status === "error" && fileErrors[file.id] && (
+                          <p className="text-xs text-red-500 mt-0.5">{translateError(fileErrors[file.id])}</p>
+                        )}
+                      </div>
+                      {status === "success" ? (
+                        <button
+                          onClick={async () => { onResetFile(file.id); await onImportOne(file, localId, puntoDeVentaId); }}
+                          disabled={batchRunning || globalImporting}
+                          title="Reimportar archivo"
+                          className="group shrink-0 disabled:pointer-events-none"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 group-hover:hidden" />
+                          <RefreshCw className="w-4 h-4 text-zinc-400 hidden group-hover:block" />
+                        </button>
+                      ) : status === "error" ? (
+                        <button
+                          onClick={async () => { onResetFile(file.id); await onImportOne(file, localId, puntoDeVentaId); }}
+                          disabled={batchRunning || globalImporting}
+                          title="Reimportar archivo"
+                          className="group shrink-0 disabled:pointer-events-none"
+                        >
+                          <AlertCircle className="w-4 h-4 text-red-500 group-hover:hidden" />
+                          <RefreshCw className="w-4 h-4 text-zinc-400 hidden group-hover:block" />
+                        </button>
+                      ) : status === "importing" ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-zinc-400 shrink-0" />
+                      ) : (
+                        <button
+                          onClick={() => onImportOne(file, localId, puntoDeVentaId)}
+                          disabled={batchRunning || blocked || globalImporting}
+                          className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                        >
+                          <CloudDownload className="w-3 h-3" />
+                          Importar
+                        </button>
                       )}
                     </div>
-                    {status === "success" ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    ) : status === "error" ? (
-                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-                    ) : (
-                      <button
-                        onClick={() => onImportOne(file, localId, puntoDeVentaId)}
-                        disabled={status === "importing" || batchRunning || blocked}
-                        className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-                      >
-                        {status === "importing" ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <CloudDownload className="w-3 h-3" />
-                        )}
-                        {status === "importing" ? "Importando…" : "Importar"}
-                      </button>
+                    {reports.length > 0 && (
+                      <div className="flex flex-col gap-2 px-4 pb-3">
+                        {reports.map((r, i) => <ReportCard key={i} report={r} />)}
+                      </div>
                     )}
-                  </li>
+                  </div>
                 );
               })}
-            </ul>
-          )}
-
-          {allReports.length > 0 && (
-            <div className="flex flex-col gap-2 px-4 pb-4 pt-2">
-              {allReports.map((r, i) => <ReportCard key={i} report={r} />)}
             </div>
           )}
         </div>
@@ -855,10 +961,6 @@ function ReportCard({ report }: { report: ETLReport }) {
         )}
       </div>
 
-      {report.storagePath && (
-        <p className="text-xs text-zinc-400 font-mono truncate">{report.storagePath}</p>
-      )}
-
       {report.errors.length > 0 && (
         <details className="text-xs">
           <summary className="cursor-pointer text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-medium transition-colors">
@@ -867,7 +969,7 @@ function ReportCard({ report }: { report: ETLReport }) {
           <ul className="mt-2 space-y-1 max-h-48 overflow-y-auto">
             {report.errors.map((e, i) => (
               <li key={i} className="font-mono text-zinc-500 dark:text-zinc-400">
-                Fila {e.rowIndex + 1} · {String(e.rawCodigo ?? "?")} · {e.message}
+                Fila {e.rowIndex + 1} · {String(e.rawCodigo ?? "?")} · {translateError(e.message)}
               </li>
             ))}
           </ul>

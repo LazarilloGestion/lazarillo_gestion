@@ -15,13 +15,15 @@ export async function preloadExistingCodes(
 // Vincula detalle_compras.compraId por coincidencia de comprobante.
 // Se llama al final de normalizeCompras y normalizeDetalleCompras para
 // que el orden de importación no afecte el vínculo.
-export async function linkDetalleComprasByComprobante(prisma: DbClient): Promise<void> {
+// localId es obligatorio para evitar links cruzados entre locales.
+export async function linkDetalleComprasByComprobante(prisma: DbClient, localId: number): Promise<void> {
   await prisma.$executeRaw`
     UPDATE detalle_compras dc
     SET "compraId" = c."rowId"
     FROM compras c
     WHERE dc.comprobante = c.comprobante
       AND dc."compraId" IS NULL
+      AND c."localId" = ${localId}
   `;
 }
 

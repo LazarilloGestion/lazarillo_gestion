@@ -6,13 +6,25 @@ import { runETL } from "@/lib/etl/run-etl";
 import { getEtlClient } from "@/lib/etl/etl-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getFileOrder } from "@/lib/etl/file-processor";
+import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/utils";
 import { rateLimit } from "@/lib/rate-limit";
 import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
+
+const MAX_SIZE = 10 * 1024 * 1024; // 10 MB por archivo
+
+const XLSX_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+const XLS_MAGIC  = Buffer.from([0xd0, 0xcf, 0x11, 0xe0]);
+
+function isValidExcel(buf: Buffer): boolean {
+  if (buf.length < 4) return false;
+  const h = buf.subarray(0, 4);
+  return h.equals(XLSX_MAGIC) || h.equals(XLS_MAGIC);
+}
 
 type FileInput = { file_id: string; file_name: string };
 
@@ -87,6 +99,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Bloquear archivos transaccionales si los maestros no están cargados
+  if (localId != null) {
+    const [provCount, conceptoCount, artCount] = await Promise.all([
+      getEtlClient().proveedor.count(),
+      getEtlClient().conceptoCaja.count(),
+      getEtlClient().articulo.count(),
+    ]);
+    if (provCount === 0 || conceptoCount === 0 || artCount === 0) {
+      return NextResponse.json(
+        { error: "Importá los maestros antes de importar archivos transaccionales." },
+        { status: 422 }
+      );
+    }
+  }
+
   try {
     const accessToken = await refreshGoogleAccessToken(config.refresh_token);
 
@@ -103,6 +130,14 @@ export async function POST(req: NextRequest) {
       (a, b) => getFileOrder(a.buffer) - getFileOrder(b.buffer)
     );
 
+    // Validar todos los archivos antes de procesar (evita commits parciales)
+    for (const { file_name: fn, buffer } of sorted) {
+      if (buffer.byteLength > MAX_SIZE)
+        return NextResponse.json({ error: `El archivo "${fn}" supera el límite de 10 MB` }, { status: 413 });
+      if (!isValidExcel(buffer))
+        return NextResponse.json({ error: `El archivo "${fn}" no es un Excel válido (.xlsx o .xls)` }, { status: 400 });
+    }
+
     const ctx: ETLContext = { localId, puntoDeVentaId };
     const now = new Date();
     const date = now.toISOString().slice(0, 10);
@@ -116,36 +151,40 @@ export async function POST(req: NextRequest) {
     const pdvSlug = puntoDeVentaId != null ? (pdvRecord ? slugify(pdvRecord.nombre) : String(puntoDeVentaId)) : null;
 
     for (const { file_name, buffer } of sorted) {
+
       // Archivar en Storage (best-effort)
       const time = new Date().toTimeString().slice(0, 8).replace(/:/g, "-");
       const category = localSlug != null
         ? `transaccionales/${localSlug}${pdvSlug ? `/${pdvSlug}` : ""}`
         : "maestros";
-      const storagePath = `drive/${user.id}/${date}/${category}/${time}_${file_name}`;
+      let storagePath: string | undefined = `drive/${user.id}/${date}/${category}/${time}_${file_name}`;
       try {
         await admin.storage.from("uploads").upload(storagePath, buffer, {
           contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           upsert: false,
         });
       } catch {
-        // Storage es best-effort
+        storagePath = undefined;
       }
 
-      const report = await runETL(buffer, storagePath, ctx, getEtlClient() as unknown as DbClient);
+      let report: ETLReport;
+      try {
+        report = await getEtlClient().$transaction(
+          async (tx) => runETL(buffer, storagePath, ctx, tx as unknown as DbClient),
+          { timeout: 300_000 }
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Error desconocido";
+        return NextResponse.json(
+          { error: `Error procesando el archivo: ${message}`, reports },
+          { status: 422 }
+        );
+      }
       reports.push(report);
     }
 
     // Link detalle_compras → compras post-batch
-    if (localId != null) {
-      await getEtlClient().$executeRaw`
-        UPDATE detalle_compras dc
-        SET "compraId" = c."rowId"
-        FROM compras c
-        WHERE dc.comprobante = c.comprobante
-          AND dc."compraId" IS NULL
-          AND c."localId" = ${localId}
-      `;
-    }
+    await linkDetalleCompras(getEtlClient() as unknown as DbClient, localId);
 
     return NextResponse.json(reports);
   } catch (err) {

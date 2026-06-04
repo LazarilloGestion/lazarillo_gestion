@@ -7,9 +7,10 @@ import { getEtlClient } from "@/lib/etl/etl-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { rateLimit } from "@/lib/rate-limit";
 import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
+import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB por archivo
 
@@ -55,6 +56,11 @@ export async function POST(req: NextRequest) {
     localId:        formData.get("localId") ? Number(formData.get("localId")) : undefined,
     puntoDeVentaId: formData.get("puntoDeVentaId") ? Number(formData.get("puntoDeVentaId")) : undefined,
   };
+
+  if (ctx.localId !== undefined && Number.isNaN(ctx.localId))
+    return NextResponse.json({ error: "local_id debe ser un número" }, { status: 400 });
+  if (ctx.puntoDeVentaId !== undefined && Number.isNaN(ctx.puntoDeVentaId))
+    return NextResponse.json({ error: "punto_de_venta_id debe ser un número" }, { status: 400 });
 
   type FileEntry = { file: File; buffer: Buffer; order: number };
   const entries: FileEntry[] = [];
@@ -141,16 +147,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  if (ctx.localId != null) {
-    await getEtlClient().$executeRaw`
-      UPDATE detalle_compras dc
-      SET "compraId" = c."rowId"
-      FROM compras c
-      WHERE dc.comprobante = c.comprobante
-        AND dc."compraId" IS NULL
-        AND c."localId" = ${ctx.localId}
-    `;
-  }
+  await linkDetalleCompras(getEtlClient() as unknown as DbClient, ctx.localId);
 
   return NextResponse.json(reports);
 }

@@ -49,6 +49,8 @@ export async function runETL(
 
   const rows = readExcelBuffer(buffer);
   const normalizer = NORMALIZERS[fileType];
+  if (!normalizer)
+    throw new Error(`No hay normalizer registrado para el tipo de archivo: ${fileType}`);
   const client = db ?? (prisma as unknown as DbClient);
   const { created, updated, skipped, errors } = await normalizer(rows, client, ctx);
 
