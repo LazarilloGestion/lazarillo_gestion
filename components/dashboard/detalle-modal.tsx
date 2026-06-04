@@ -2,7 +2,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
-import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp } from "lucide-react";
+import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare } from "lucide-react";
 import { useSortState } from "@/hooks/use-sort-state";
 import { SortableTableHead } from "./sortable-table-head";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -17,6 +17,7 @@ import type { DetalleFilter, DetalleResponse, CompraDetalle } from "@/lib/dashbo
 import {
   EditActionButtons, EditTriggerButton, EditedDot, toEditString,
 } from "./edit-row-controls";
+import { CompraLineasModal } from "./compra-lineas-modal";
 
 export interface ColDef {
   label: string;
@@ -51,12 +52,14 @@ function toDateInputValue(iso: string | null | undefined): string {
 // ─── Column definitions ───────────────────────────────────────────────────────
 
 const COMPRAS_COLS: ColDef[] = [
-  { label: "Fecha",     icon: CalendarDays, color: "text-muted-foreground", bg: "bg-muted",          right: false, sortKey: "fecha"     },
-  { label: "Local",     icon: Building2,    color: "text-muted-foreground", bg: "bg-muted",          right: false                        },
-  { label: "Proveedor", icon: Truck,        color: "text-emerald-500",      bg: "bg-emerald-500/10", right: false, sortKey: "proveedor"  },
-  { label: "Concepto",  icon: Tag,          color: "text-violet-500",       bg: "bg-violet-500/10",  right: false, sortKey: "concepto"   },
-  { label: "Rubro",     icon: Layers,       color: "text-blue-500",         bg: "bg-blue-500/10",    right: false                        },
-  { label: "Importe",   icon: ArrowDownUp,  color: "text-muted-foreground", bg: "bg-muted",          right: true,  sortKey: "importe"    },
+  { label: "Fecha",       icon: CalendarDays,   color: "text-muted-foreground", bg: "bg-muted",          right: false, sortKey: "fecha"     },
+  { label: "Local",       icon: Building2,      color: "text-muted-foreground", bg: "bg-muted",          right: false                        },
+  { label: "Proveedor",   icon: Truck,          color: "text-emerald-500",      bg: "bg-emerald-500/10", right: false, sortKey: "proveedor"  },
+  { label: "Detalle",     icon: FileText,       color: "text-orange-500",       bg: "bg-orange-500/10",  right: false                        },
+  { label: "Observación", icon: MessageSquare,  color: "text-muted-foreground", bg: "bg-muted",          right: false                        },
+  { label: "Concepto",    icon: Tag,            color: "text-violet-500",       bg: "bg-violet-500/10",  right: false, sortKey: "concepto"   },
+  { label: "Rubro",       icon: Layers,         color: "text-blue-500",         bg: "bg-blue-500/10",    right: false                        },
+  { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground", bg: "bg-muted",          right: true,  sortKey: "importe"    },
 ];
 
 // ─── Row component ────────────────────────────────────────────────────────────
@@ -69,6 +72,7 @@ function ComprasRow({
   onSave,
   onCancel,
   saving,
+  onOpenLineas,
 }: {
   item: CompraDetalle;
   editing: EditState | null;
@@ -77,6 +81,7 @@ function ComprasRow({
   onSave: (state: EditState) => void;
   onCancel: () => void;
   saving: boolean;
+  onOpenLineas: (rowId: string, detalle: string | null) => void;
 }) {
   const isEditing = editing?.rowId === item.rowId;
   const effectiveFecha = item.fechaManual ?? item.fecha;
@@ -100,6 +105,12 @@ function ComprasRow({
         </td>
         <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
           {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
+        </td>
+        <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
+          {normalize(item.detalle)}
+        </td>
+        <td className="px-4 py-1.5 text-sm truncate text-muted-foreground max-w-[160px]">
+          {normalize(item.observac)}
         </td>
         <td className="px-2 py-1.5">
           <Select
@@ -148,6 +159,19 @@ function ComprasRow({
       <td className="px-4 py-2.5 truncate">
         {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
       </td>
+      <td className="px-4 py-2.5">
+        {item.detalle ? (
+          <button
+            onClick={() => onOpenLineas(item.rowId, item.detalle)}
+            className="text-orange-500 hover:underline font-mono text-xs whitespace-nowrap"
+          >
+            {item.detalle}
+          </button>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="px-4 py-2.5 truncate text-muted-foreground max-w-[160px]">{normalize(item.observac)}</td>
       <td className="px-4 py-2.5 truncate">{normalize(effectiveConcepto?.nombre)}</td>
       <td className="px-4 py-2.5 truncate">{normalize(effectiveConcepto?.rubro?.nombre)}</td>
       <td className="px-4 py-2.5 text-right tabular-nums font-medium whitespace-nowrap">
@@ -192,6 +216,7 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
   const [editing, setEditing] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [selectedLineas, setSelectedLineas] = useState<{ rowId: string; detalle: string | null } | null>(null);
   const { sort, handleSortClick } = useSortState();
 
   const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string }>>({
@@ -265,8 +290,9 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
   }, [rawData, sort]);
 
   return (
-    <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) { setEditing(null); onClose(); } }}>
-      <DialogContent className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
+    <>
+    <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) { setEditing(null); setSelectedLineas(null); onClose(); } }}>
+      <DialogContent showCloseButton={false} className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
 
         {(!isLoading && !error && count > 0) ? null : (
           <div className="px-6 pt-4 pb-3 shrink-0">
@@ -305,6 +331,7 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
                     onSave={handleSave}
                     onCancel={() => setEditing(null)}
                     saving={saving}
+                    onOpenLineas={(rowId, detalle) => setSelectedLineas({ rowId, detalle })}
                   />
                 ))}
               </tbody>
@@ -324,5 +351,12 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
         )}
       </DialogContent>
     </Dialog>
+
+    <CompraLineasModal
+      compraId={selectedLineas?.rowId ?? null}
+      comprobante={selectedLineas?.detalle ?? null}
+      onClose={() => setSelectedLineas(null)}
+    />
+  </>
   );
 }

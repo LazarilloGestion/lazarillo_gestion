@@ -118,6 +118,8 @@ export type CompraDetalle = {
   fechaManual: string | null;
   conceptoCodigoManual: string | null;
   concepto: string | null;
+  detalle: string | null;
+  observac: string | null;
   proveedor: string | null;
   proveedorRef: { id: number; nombre: string | null; razon: string | null } | null;
   local: { nombre: string } | null;
@@ -132,4 +134,16 @@ export type CompraDetalle = {
     nombre: string;
     rubro: { nombre: string } | null;
   } | null;
+};
+
+// --- Línea de detalle_compras devuelta por /api/dashboard/compra-lineas/[compraId] ---
+export type DetalleCompraLinea = {
+  rowId: string;
+  codigo: string | null;
+  nombre: string | null;
+  cantidad: string | number | null;
+  medida: string | null;
+  neto: string | number | null;
+  totalIns: string | number | null;
+  observac: string | null;
 };
