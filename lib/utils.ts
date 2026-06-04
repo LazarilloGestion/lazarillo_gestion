@@ -12,7 +12,7 @@ export const ARS = new Intl.NumberFormat("es-AR", {
 });
 
 export function fmtARS(value: number | undefined | null): string {
-  return value != null && value !== 0 ? ARS.format(value) : "—";
+  return value != null ? ARS.format(value) : "—";
 }
 
 export function fmtDate(date: string | Date | null | undefined): string {
