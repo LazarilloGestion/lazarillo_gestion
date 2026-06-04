@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useDashboard } from "@/hooks/use-dashboard-store";
 import { CalendarDays, Building2, Store, Search, X, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -11,9 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CommandPalette } from "@/components/dashboard/command-palette";
+import { RubrosConfigModal } from "@/components/dashboard/rubros-config-modal";
 import type { Local } from "@/lib/types/domain";
 
 const PALETTE_PARAM_LABELS: Record<string, string> = {
@@ -21,60 +21,36 @@ const PALETTE_PARAM_LABELS: Record<string, string> = {
   conceptoCodigo: "Concepto",
   proveedorId: "Proveedor",
 };
-const PALETTE_PARAMS = Object.keys(PALETTE_PARAM_LABELS);
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: CURRENT_YEAR - 2019 }, (_, i) => CURRENT_YEAR - i);
-
 const MONTH_LABELS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
 export function DashboardFilters() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
+  const {
+    tab, year, localId, pdvId,
+    setYear, setLocalId, setPdvId,
+    selectedMonths, toggleMonth, clearMonths,
+    rubroCodigo, conceptoCodigo, proveedorId, searchLabel,
+    clearSearch,
+  } = useDashboard();
+
+  const isVentas = tab === "ventas";
+
   const [locales, setLocales] = useState<Local[]>([]);
   const [localesLoading, setLocalesLoading] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
-
-  const activeTab = searchParams.get("tab") ?? "compras";
-  const isVentas = activeTab === "ventas";
-
-  const year = searchParams.get("year") ?? String(CURRENT_YEAR);
-  const localId = searchParams.get("localId") ?? "";
-  const pdvId = searchParams.get("pdvId") ?? "";
-
-  const selectedMonths = useMemo(() => {
-    const raw = searchParams.get("months");
-    if (!raw) return new Set<number>();
-    const parsed = raw.split(",").map(Number).filter((n) => n >= 1 && n <= 12);
-    return new Set(parsed);
-  }, [searchParams]);
-
-  // Chip activo del palette (solo hay uno a la vez; no aplica en tab ventas)
-  const activeSearchParam = !isVentas ? PALETTE_PARAMS.find((p) => searchParams.get(p)) : undefined;
-  const activeSearchLabel = searchParams.get("_searchLabel");
-  const activeChips = activeSearchParam
-    ? [
-        {
-          param: activeSearchParam,
-          value: activeSearchLabel ?? searchParams.get(activeSearchParam) ?? "",
-          label: PALETTE_PARAM_LABELS[activeSearchParam],
-        },
-      ]
-    : [];
 
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/locales", { signal: controller.signal })
       .then((r) => r.json())
       .then((data: Local[]) => setLocales(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        if (err.name !== "AbortError") console.error("Error cargando locales:", err);
-      })
+      .catch((err) => { if (err.name !== "AbortError") console.error("Error cargando locales:", err); })
       .finally(() => setLocalesLoading(false));
     return () => controller.abort();
   }, []);
 
-  // ⌘K / Ctrl+K global — solo en tab compras
   useEffect(() => {
     if (isVentas) return;
     function handleKeyDown(e: KeyboardEvent) {
@@ -88,62 +64,32 @@ export function DashboardFilters() {
   }, [isVentas]);
 
   const puntosDeVenta =
-    locales.find((l) => String(l.id) === localId)?.puntosDeVenta ?? [];
+    locales.find((l) => l.id === localId)?.puntosDeVenta ?? [];
 
-  function updateFilter(key: string, value: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (value && value !== "__all") params.set(key, value);
-    else params.delete(key);
-    if (key === "localId") params.delete("pdvId");
-    router.replace(`/dashboard?${params.toString()}`);
-  }
+  const activeSearchParam = !isVentas
+    ? (rubroCodigo ? "rubroCodigo" : conceptoCodigo ? "conceptoCodigo" : proveedorId ? "proveedorId" : undefined)
+    : undefined;
 
-  function toggleMonth(idx: number) {
-    const params = new URLSearchParams(searchParams.toString());
-    const next = new Set(selectedMonths);
-    if (next.has(idx)) {
-      next.delete(idx);
-    } else {
-      next.add(idx);
-    }
-    if (next.size === 0 || next.size === 12) {
-      params.delete("months");
-    } else {
-      params.set("months", Array.from(next).sort((a, b) => a - b).join(","));
-    }
-    router.replace(`/dashboard?${params.toString()}`);
-  }
-
-  function clearMonths() {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("months");
-    router.replace(`/dashboard?${params.toString()}`);
-  }
-
-  const removeChip = useCallback(
-    (param: string) => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete(param);
-      params.delete("_searchLabel");
-      router.replace(`/dashboard?${params.toString()}`);
-    },
-    [router, searchParams]
-  );
+  const activeChips = activeSearchParam
+    ? [{
+        param: activeSearchParam,
+        value: searchLabel ?? "",
+        label: PALETTE_PARAM_LABELS[activeSearchParam],
+      }]
+    : [];
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-2 items-center">
         <div className="flex items-center gap-1.5 text-muted-foreground">
           <CalendarDays className="w-4 h-4 shrink-0" />
-          <Select value={year} onValueChange={(v) => updateFilter("year", v)}>
+          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
             <SelectTrigger className="w-24 h-8 text-sm">
               <SelectValue placeholder="Año" />
             </SelectTrigger>
             <SelectContent>
               {YEARS.map((y) => (
-                <SelectItem key={y} value={String(y)}>
-                  {y}
-                </SelectItem>
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -152,8 +98,8 @@ export function DashboardFilters() {
         <div className="flex items-center gap-1.5 text-muted-foreground min-w-0 flex-1 sm:flex-none">
           <Building2 className="w-4 h-4 shrink-0" />
           <Select
-            value={localId || "__all"}
-            onValueChange={(v) => updateFilter("localId", v)}
+            value={localId ? String(localId) : "__all"}
+            onValueChange={(v) => setLocalId(v === "__all" ? undefined : Number(v))}
             disabled={localesLoading}
           >
             <SelectTrigger className="w-full sm:w-44 h-8 text-sm">
@@ -162,9 +108,7 @@ export function DashboardFilters() {
             <SelectContent>
               <SelectItem value="__all">Todos los locales</SelectItem>
               {locales.map((l) => (
-                <SelectItem key={l.id} value={String(l.id)}>
-                  {l.nombre}
-                </SelectItem>
+                <SelectItem key={l.id} value={String(l.id)}>{l.nombre}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -174,8 +118,8 @@ export function DashboardFilters() {
           <div className="flex items-center gap-1.5 text-muted-foreground min-w-0 flex-1 sm:flex-none">
             <Store className="w-4 h-4 shrink-0" />
             <Select
-              value={pdvId || "__all"}
-              onValueChange={(v) => updateFilter("pdvId", v)}
+              value={pdvId ? String(pdvId) : "__all"}
+              onValueChange={(v) => setPdvId(v === "__all" ? undefined : Number(v))}
             >
               <SelectTrigger className="w-full sm:w-48 h-8 text-sm">
                 <SelectValue placeholder="Todos los PDV" />
@@ -183,31 +127,30 @@ export function DashboardFilters() {
               <SelectContent>
                 <SelectItem value="__all">Todos los PDV</SelectItem>
                 {puntosDeVenta.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>
-                    {p.nombre}
-                  </SelectItem>
+                  <SelectItem key={p.id} value={String(p.id)}>{p.nombre}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
         )}
 
-        {/* Botón ⌘K — solo en tab compras */}
         {!isVentas && (
-          <button
-            onClick={() => setPaletteOpen(true)}
-            className="h-8 w-8 sm:w-auto sm:px-3 flex items-center justify-center sm:gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all ml-auto shrink-0"
-          >
-            <Search className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline text-sm font-normal">Buscar</span>
-            <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 px-1.5 font-mono text-[10px] font-medium text-zinc-400">
-              <span className="text-xs">⌘</span>K
-            </kbd>
-          </button>
+          <div className="flex items-center gap-2 ml-auto shrink-0">
+            <button
+              onClick={() => setPaletteOpen(true)}
+              className="h-8 w-8 sm:w-auto sm:px-3 flex items-center justify-center sm:gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-sm font-normal">Buscar</span>
+              <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 px-1.5 font-mono text-[10px] font-medium text-zinc-400">
+                <span className="text-xs">⌘</span>K
+              </kbd>
+            </button>
+            <RubrosConfigModal />
+          </div>
         )}
       </div>
 
-      {/* Filtro de meses */}
       <div className="flex items-center gap-1.5 flex-wrap">
         <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
         {MONTH_LABELS.map((label, i) => {
@@ -240,19 +183,14 @@ export function DashboardFilters() {
         )}
       </div>
 
-      {/* Chips de filtros activos del palette */}
       {activeChips.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {activeChips.map((chip) => (
-            <Badge
-              key={chip.param}
-              variant="secondary"
-              className="flex items-center gap-1 pr-1 text-xs"
-            >
+            <Badge key={chip.param} variant="secondary" className="flex items-center gap-1 pr-1 text-xs">
               <span className="text-muted-foreground">{chip.label}:</span>
               <span className="max-w-[180px] truncate">{chip.value}</span>
               <button
-                onClick={() => removeChip(chip.param)}
+                onClick={clearSearch}
                 className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
                 aria-label={`Quitar filtro ${chip.label}`}
               >

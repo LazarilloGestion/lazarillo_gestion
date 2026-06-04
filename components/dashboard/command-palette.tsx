@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo, type ElementType } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useDashboard } from "@/hooks/use-dashboard-store";
 import { Layers, Tag, Truck, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -34,8 +34,7 @@ interface Props {
 }
 
 export function CommandPalette({ open, onOpenChange }: Props) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const { setSearch } = useDashboard();
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -67,17 +66,10 @@ export function CommandPalette({ open, onOpenChange }: Props) {
 
   const handleSelect = useCallback(
     (suggestion: Suggestion) => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete("rubroCodigo");
-      params.delete("conceptoCodigo");
-      params.delete("proveedorId");
-      params.delete("_searchLabel");
-      params.set(suggestion.param, suggestion.value);
-      params.set("_searchLabel", suggestion.label);
-      router.replace(`/dashboard?${params.toString()}`);
+      setSearch(suggestion.param, suggestion.value, suggestion.label);
       handleClose(false);
     },
-    [router, searchParams, handleClose]
+    [setSearch, handleClose]
   );
 
   const counts = useMemo(

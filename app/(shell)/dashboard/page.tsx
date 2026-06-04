@@ -1,50 +1,33 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { DashboardFilters } from "@/components/dashboard/dashboard-filters";
 import { DashboardTabContent } from "@/components/dashboard/dashboard-tab-content";
+import { DashboardSubtitle } from "@/components/dashboard/dashboard-subtitle";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata: Metadata = {
   title: "Dashboard | Lazarillo Gestión",
 };
 
-const SUBTITLES: Record<string, string> = {
-  compras: "Vista anual por rubro / tipo de cobro",
-  ventas: "Vista anual por punto de venta / tipo de cobro",
-};
-
-export default async function DashboardPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
-}) {
-  const params = await searchParams;
-  const tab = typeof params.tab === "string" ? params.tab : "compras";
-  const subtitle = SUBTITLES[tab] ?? SUBTITLES.compras;
-
+export default function DashboardPage() {
   return (
     <div className="flex flex-col h-full p-6 gap-5">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white">
           Dashboard
         </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">{subtitle}</p>
+        <DashboardSubtitle />
       </div>
 
-      <Suspense fallback={<FiltersSkeleton />}>
-        <DashboardFilters />
-      </Suspense>
+      <DashboardFilters />
 
       <div className="flex-1 min-h-0 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden flex flex-col">
-        <Suspense fallback={<TableSkeleton />}>
-          <DashboardTabContent />
-        </Suspense>
+        <DashboardTabContent />
       </div>
     </div>
   );
 }
 
-function FiltersSkeleton() {
+export function FiltersSkeleton() {
   return (
     <div className="flex gap-3">
       <Skeleton className="h-8 w-24" />
@@ -53,7 +36,7 @@ function FiltersSkeleton() {
   );
 }
 
-function TableSkeleton() {
+export function TableSkeleton() {
   return (
     <div>
       <div className="bg-zinc-50 dark:bg-zinc-800 h-10 border-b border-zinc-100 dark:border-zinc-700" />

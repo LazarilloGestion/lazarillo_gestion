@@ -1,17 +1,15 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { ExpandableButton } from "@/components/ui/expandable-button";
-import { ChevronDown, ChevronUp, ChevronsUpDown, ChevronsDownUp } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronsDownUp } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { buildDashboardUrl, buildVentasPivotUrl } from "@/lib/dashboard/params";
 import { flattenRows, sortPivotRows, hasValue } from "@/lib/dashboard/pivot-utils";
-import { usePivotMonths } from "@/hooks/use-pivot-months";
+import { useDashboard } from "@/hooks/use-dashboard-store";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
-import type { SortCol, SortDir } from "@/lib/dashboard/pivot-utils";
 import type {
   PivotData,
   PivotRubroRow,
@@ -23,27 +21,11 @@ import { DetalleModal } from "./detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 
 export function PivotTable() {
-  const searchParams = useSearchParams();
-  const year = Number(searchParams.get("year")) || new Date().getFullYear();
-  const localId = searchParams.get("localId")
-    ? Number(searchParams.get("localId"))
-    : undefined;
-  const pdvId = searchParams.get("pdvId")
-    ? Number(searchParams.get("pdvId"))
-    : undefined;
-  const rubroCodigo = searchParams.get("rubroCodigo") ?? undefined;
-  const conceptoCodigo = searchParams.get("conceptoCodigo") ?? undefined;
-  const proveedorId = searchParams.get("proveedorId")
-    ? Number(searchParams.get("proveedorId"))
-    : undefined;
-
-  const { months, activeMonths } = usePivotMonths();
-
-  const router = useRouter();
-
-  const sortColRaw = searchParams.get("sortCol");
-  const sortCol: SortCol | null = sortColRaw === "total" ? "total" : sortColRaw ? Number(sortColRaw) : null;
-  const sortDir: SortDir = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
+  const {
+    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId,
+    months, activeMonths, sortCol, sortDir, handleSortClick,
+    rubroConfigVersion,
+  } = useDashboard();
 
   const { expanded, setExpanded, toggle: toggleRow } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
@@ -51,22 +33,15 @@ export function PivotTable() {
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
   const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number }>({});
 
-  const url = useMemo(
-    () =>
-      buildDashboardUrl("/api/dashboard/pivot", {
-        year,
-        localId,
-        pdvId,
-        rubroCodigo,
-        conceptoCodigo,
-        proveedorId,
-        months: activeMonths,
-      }),
-    [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, activeMonths]
-  );
+  const url = useMemo(() => {
+    const base = buildDashboardUrl("/api/dashboard/pivot", {
+      year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months: activeMonths,
+    });
+    return rubroConfigVersion > 0 ? `${base}&_rcv=${rubroConfigVersion}` : base;
+  }, [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, activeMonths, rubroConfigVersion]);
 
   const { data, isLoading, error } = useFetchQuery<PivotData>(
-    ["pivot", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months],
+    ["pivot", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months, rubroConfigVersion],
     url
   );
 
@@ -105,23 +80,8 @@ export function PivotTable() {
     setDetalleFilter({ year, localId, pdvId, ...extra });
   }
 
-  function handleSortClick(col: SortCol) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (col === sortCol && sortDir === "asc") {
-      params.delete("sortCol");
-      params.delete("sortDir");
-    } else if (col === sortCol) {
-      params.set("sortDir", "asc");
-    } else {
-      params.set("sortCol", String(col));
-      params.set("sortDir", "desc");
-    }
-    router.replace(`/dashboard?${params.toString()}`);
-  }
-
-
   const sortedRows = useMemo(
-    () => (data ? (sortCol ? sortPivotRows(data.rows, sortCol, sortDir) : data.rows) : []),
+    () => (data ? sortPivotRows(data.rows, sortCol, sortDir) : []),
     [data, sortCol, sortDir]
   );
 
@@ -296,7 +256,7 @@ export function PivotTable() {
                     {sortCol === idx ? (
                       sortDir === "desc" ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />
                     ) : (
-                      <ChevronsUpDown className="w-3 h-3 opacity-40" />
+                      sortDir === "desc" ? <ChevronDown className="w-3 h-3 opacity-40" /> : <ChevronUp className="w-3 h-3 opacity-40" />
                     )}
                   </button>
                 </th>
@@ -313,7 +273,7 @@ export function PivotTable() {
                   {sortCol === "total" ? (
                     sortDir === "desc" ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />
                   ) : (
-                    <ChevronsUpDown className="w-3 h-3 opacity-40" />
+                    sortDir === "desc" ? <ChevronDown className="w-3 h-3 opacity-40" /> : <ChevronUp className="w-3 h-3 opacity-40" />
                   )}
                 </button>
               </th>

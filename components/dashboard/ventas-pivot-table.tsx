@@ -1,15 +1,14 @@
 "use client";
 import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { ExpandableButton } from "@/components/ui/expandable-button";
-import { ChevronsDownUp } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronsDownUp } from "lucide-react";
 import { cn, fmtARS } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { buildVentasPivotUrl } from "@/lib/dashboard/params";
-import { flattenRows, hasValue } from "@/lib/dashboard/pivot-utils";
-import { usePivotMonths } from "@/hooks/use-pivot-months";
+import { flattenRows, sortPivotRows, hasValue } from "@/lib/dashboard/pivot-utils";
+import { useDashboard } from "@/hooks/use-dashboard-store";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import type {
   PivotData,
@@ -20,19 +19,10 @@ import type {
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 
 export function VentasPivotTable() {
-  const searchParams = useSearchParams();
-  const year = Number(searchParams.get("year")) || new Date().getFullYear();
-  const localId = searchParams.get("localId")
-    ? Number(searchParams.get("localId"))
-    : undefined;
-  const pdvId = searchParams.get("pdvId")
-    ? Number(searchParams.get("pdvId"))
-    : undefined;
+  const { year, localId, pdvId, months, activeMonths, sortCol, sortDir, handleSortClick } = useDashboard();
 
   const { expanded, setExpanded, toggle: toggleRow } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<VentasDetalleFilter | null>(null);
-
-  const { months, activeMonths } = usePivotMonths();
 
   const url = useMemo(
     () => buildVentasPivotUrl("/api/dashboard/pivot-ventas", { year, localId, pdvId, months: activeMonths }),
@@ -48,9 +38,14 @@ export function VentasPivotTable() {
     setDetalleFilter({ year, localId, pdvId, ...extra });
   }
 
+  const sortedRows = useMemo(
+    () => (data ? sortPivotRows(data.rows, sortCol, sortDir) : []),
+    [data, sortCol, sortDir]
+  );
+
   const flatRows = useMemo(
-    () => (data ? flattenRows(data, expanded, 2) : []),
-    [data, expanded]
+    () => (data ? flattenRows({ rows: sortedRows, columnTotals: data.columnTotals, grandTotal: data.grandTotal }, expanded, 2) : []),
+    [sortedRows, expanded]
   );
 
   if (isLoading) return <PivotLoading />;
@@ -82,13 +77,35 @@ export function VentasPivotTable() {
               {months.map((idx) => (
                 <th
                   key={idx}
-                  className="sticky top-0 z-20 bg-muted text-right px-3 py-3 font-medium text-muted-foreground min-w-[90px] whitespace-nowrap"
+                  className="sticky top-0 z-20 bg-muted text-right px-3 py-3 font-medium min-w-[90px] whitespace-nowrap"
                 >
-                  {MONTHS[idx - 1]}
+                  <button
+                    onClick={() => handleSortClick(idx)}
+                    className={cn(
+                      "inline-flex items-center gap-1 ml-auto hover:text-foreground transition-colors",
+                      sortCol === idx ? "text-foreground" : "text-muted-foreground"
+                    )}
+                  >
+                    {MONTHS[idx - 1]}
+                    {sortCol === idx
+                      ? sortDir === "desc" ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />
+                      : sortDir === "desc" ? <ChevronDown className="w-3 h-3 opacity-40" /> : <ChevronUp className="w-3 h-3 opacity-40" />}
+                  </button>
                 </th>
               ))}
-              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-medium text-muted-foreground min-w-[110px] whitespace-nowrap">
-                Total
+              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-medium min-w-[110px] whitespace-nowrap">
+                <button
+                  onClick={() => handleSortClick("total")}
+                  className={cn(
+                    "inline-flex items-center gap-1 ml-auto hover:text-foreground transition-colors",
+                    sortCol === "total" ? "text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  Total
+                  {sortCol === "total"
+                    ? sortDir === "desc" ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />
+                    : sortDir === "desc" ? <ChevronDown className="w-3 h-3 opacity-40" /> : <ChevronUp className="w-3 h-3 opacity-40" />}
+                </button>
               </th>
             </tr>
           </thead>
