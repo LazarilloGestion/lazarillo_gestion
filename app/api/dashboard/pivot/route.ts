@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
   const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months } = params;
 
   try {
-  const conditions = buildPivotConditions({ year, tableAlias: "c", localId, pdvId, months, rubroCodigo, conceptoCodigo, proveedorId });
+  const conditions = buildPivotConditions({ year, tableAlias: "c", localId, pdvId, months, rubroCodigo, conceptoCodigo, proveedorId, filterRubrosOcultos: true });
   const where = Prisma.join(conditions, " AND ");
 
   // SUM devuelve numeric (Prisma.Decimal) — no castear a float para evitar drift.

@@ -35,10 +35,11 @@ model PuntoDeVenta {
 // ─── MAESTROS ────────────────────────────────────────────────────────────────
 
 model RubroConceptoCaja {
-  id       Int     @id @default(autoincrement())
-  codigo   String  @unique
-  nombre   String
-  calcRent String?
+  id                 Int     @id @default(autoincrement())
+  codigo             String  @unique
+  nombre             String
+  calcRent           String?
+  visibleEnDashboard Boolean @default(true)
 
   conceptosCaja ConceptoCaja[]
 

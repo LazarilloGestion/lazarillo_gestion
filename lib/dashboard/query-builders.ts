@@ -15,6 +15,7 @@ interface PivotConditionParams {
   rubroCodigo?: string;
   conceptoCodigo?: string;
   proveedorId?: number;
+  filterRubrosOcultos?: boolean;
 }
 
 export function buildPivotConditions({
@@ -26,6 +27,7 @@ export function buildPivotConditions({
   rubroCodigo,
   conceptoCodigo,
   proveedorId,
+  filterRubrosOcultos = false,
 }: PivotConditionParams): Prisma.Sql[] {
   const conditions: Prisma.Sql[] = [
     Prisma.sql`EXTRACT(YEAR FROM ${Prisma.raw(t)}.fecha) = ${year}`,
@@ -39,7 +41,11 @@ export function buildPivotConditions({
       Prisma.sql`EXTRACT(MONTH FROM ${Prisma.raw(t)}.fecha)::int IN (${Prisma.join(months.map((m) => Prisma.sql`${m}`))})`
     );
   }
-  if (rubroCodigo) conditions.push(Prisma.sql`COALESCE(rc.codigo, '__sin_rubro') = ${rubroCodigo}`);
+  if (rubroCodigo) {
+    conditions.push(Prisma.sql`COALESCE(rc.codigo, '__sin_rubro') = ${rubroCodigo}`);
+  } else if (filterRubrosOcultos) {
+    conditions.push(Prisma.sql`(rc."visibleEnDashboard" = true OR rc.codigo IS NULL)`);
+  }
   if (conceptoCodigo) conditions.push(Prisma.sql`COALESCE(cc.codigo, '__sin_concepto') = ${conceptoCodigo}`);
   if (proveedorId) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
   return conditions;

@@ -56,6 +56,18 @@ export async function GET(request: NextRequest) {
       { conceptoCodigoManual: { in: codigos } },
       { conceptoCodigoManual: null, conceptoCodigo: { in: codigos } },
     ];
+  } else if (!rubroCodigo && !conceptoCodigo) {
+    // Cuando no hay filtro de rubro/concepto activo, excluir rubros ocultos
+    // para que el detalle coincida con los totales del pivot.
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : []),
+      {
+        OR: [
+          { conceptoCaja: { rubro: { visibleEnDashboard: true } } },
+          { conceptoCodigo: null },
+        ],
+      },
+    ];
   }
 
   const compras = await prisma.compra.findMany({
@@ -68,6 +80,8 @@ export async function GET(request: NextRequest) {
       fechaManual: true,
       conceptoCodigoManual: true,
       concepto: true,
+      detalle: true,
+      observac: true,
       proveedor: true,
       proveedorRef: {
         select: { id: true, nombre: true, razon: true },
