@@ -17,7 +17,7 @@ export function fmtARS(value: number | undefined | null): string {
 
 export function fmtDate(date: string | Date | null | undefined): string {
   if (!date) return "—";
-  return new Date(date).toLocaleDateString("es-AR");
+  return new Date(date).toLocaleDateString("es-AR", { timeZone: "UTC" });
 }
 
 export function normalize(s: string | null | undefined): string {

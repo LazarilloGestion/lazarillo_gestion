@@ -1,60 +1,95 @@
+import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
 import { normalizeText, trim, toBool, normalizePhone, normalizeCuit } from "../helpers";
-import { processBatch, preloadExistingCodes } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
+
+const CHUNK_SIZE = 500;
 
 export async function normalizeProveedores(
   rows: ETLRow[],
   prisma: DbClient
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
-  let created = 0, updated = 0;
-
-  const filtered = rows.filter((r) => {
-    const c = trim(r["CODIGO"]);
-    return c != null && c !== "";
-  });
+  const filtered = rows.filter((r) => trim(r["CODIGO"]) != null);
   const skipped = rows.length - filtered.length;
 
-  const allCodigos = filtered.map((r) => String(r["CODIGO"]).trim());
-  const existingCodigos = await preloadExistingCodes(allCodigos, (codes) =>
-    prisma.proveedor.findMany({ where: { codigo: { in: codes } }, select: { codigo: true } })
+  const deduped = Array.from(
+    filtered.reduce((m, r) => m.set(String(r["CODIGO"]).trim(), r), new Map<string, ETLRow>()).values()
   );
 
-  const errors = await processBatch(
-    filtered,
-    async (r) => {
-      const codigo = String(r["CODIGO"]).trim();
-      const ivaVal = toBool(r["IVA"]);
-      const ivaDifVal = toBool(r["IVA_DIF"]);
-      const data = {
-        nombre: normalizeText(r["NOMBRE"]),
-        razon: normalizeText(r["RAZON"]),
-        direccion: normalizeText(r["DIRECCION"]),
-        localidad: normalizeText(r["LOCALIDAD"]),
-        contacto: normalizeText(r["CONTACTO"]),
-        telefono: normalizePhone(r["TELEFONO"]),
-        fax: normalizePhone(r["FAX"]),
-        celular: normalizePhone(r["CELULAR"]),
-        tipoIva: r["TIPO_IVA"] != null ? String(r["TIPO_IVA"]) : null,
-        cuit: normalizeCuit(r["CUIT"]),
-        cbu: trim(r["CBU"]),
-        aliasCbu: trim(r["ALIASCBU"]),
-        diasVenc: r["DIAS_VENC"] != null ? Number(r["DIAS_VENC"]) : null,
-        iva: ivaVal != null ? (ivaVal ? 1 : 0) : null,
-        ivaDif: ivaDifVal != null ? (ivaDifVal ? 1 : 0) : null,
-        email: trim(r["E_MAIL"]),
-        observac: normalizeText(r["OBSERVAC"]),
-        detPerc: trim(r["DETPERC"]),
-      };
-      await prisma.proveedor.upsert({
-        where: { codigo },
-        update: data,
-        create: { codigo, ...data },
-      });
-      if (existingCodigos.has(codigo)) updated++; else created++;
-    },
-    (r) => r["CODIGO"]
+  const allCodigos = deduped.map((r) => String(r["CODIGO"]).trim());
+  const existingSet = new Set(
+    (await prisma.proveedor.findMany({ where: { codigo: { in: allCodigos } }, select: { codigo: true } }))
+      .map((x) => x.codigo)
   );
+
+  let created = 0, updated = 0;
+  const errors: ETLRowError[] = [];
+
+  for (let i = 0; i < deduped.length; i += CHUNK_SIZE) {
+    const chunk = deduped.slice(i, i + CHUNK_SIZE);
+    try {
+      const values = chunk.map((r) => {
+        const codigo = String(r["CODIGO"]).trim();
+        const ivaVal = toBool(r["IVA"]);
+        const ivaDifVal = toBool(r["IVA_DIF"]);
+        return Prisma.sql`(
+          ${codigo},
+          ${normalizeText(r["NOMBRE"])},
+          ${normalizeText(r["RAZON"])},
+          ${normalizeText(r["DIRECCION"])},
+          ${normalizeText(r["LOCALIDAD"])},
+          ${normalizeText(r["CONTACTO"])},
+          ${normalizePhone(r["TELEFONO"])},
+          ${normalizePhone(r["FAX"])},
+          ${normalizePhone(r["CELULAR"])},
+          ${r["TIPO_IVA"] != null ? String(r["TIPO_IVA"]) : null},
+          ${normalizeCuit(r["CUIT"])},
+          ${trim(r["CBU"])},
+          ${trim(r["ALIASCBU"])},
+          ${r["DIAS_VENC"] != null ? Number(r["DIAS_VENC"]) : null},
+          ${ivaVal != null ? (ivaVal ? 1 : 0) : null},
+          ${ivaDifVal != null ? (ivaDifVal ? 1 : 0) : null},
+          ${trim(r["E_MAIL"])},
+          ${normalizeText(r["OBSERVAC"])},
+          ${trim(r["DETPERC"])}
+        )`;
+      });
+
+      await (prisma as unknown as { $executeRaw: (q: Prisma.Sql) => Promise<number> }).$executeRaw(Prisma.sql`
+        INSERT INTO proveedores (
+          codigo, nombre, razon, direccion, localidad, contacto,
+          telefono, fax, celular, "tipoIva", cuit, cbu, "aliasCbu",
+          "diasVenc", iva, "ivaDif", email, observac, "detPerc"
+        )
+        VALUES ${Prisma.join(values)}
+        ON CONFLICT (codigo) DO UPDATE SET
+          nombre     = EXCLUDED.nombre,
+          razon      = EXCLUDED.razon,
+          direccion  = EXCLUDED.direccion,
+          localidad  = EXCLUDED.localidad,
+          contacto   = EXCLUDED.contacto,
+          telefono   = EXCLUDED.telefono,
+          fax        = EXCLUDED.fax,
+          celular    = EXCLUDED.celular,
+          "tipoIva"  = EXCLUDED."tipoIva",
+          cuit       = EXCLUDED.cuit,
+          cbu        = EXCLUDED.cbu,
+          "aliasCbu" = EXCLUDED."aliasCbu",
+          "diasVenc" = EXCLUDED."diasVenc",
+          iva        = EXCLUDED.iva,
+          "ivaDif"   = EXCLUDED."ivaDif",
+          email      = EXCLUDED.email,
+          observac   = EXCLUDED.observac,
+          "detPerc"  = EXCLUDED."detPerc"
+      `);
+
+      for (const r of chunk) {
+        if (existingSet.has(String(r["CODIGO"]).trim())) updated++; else created++;
+      }
+    } catch (err) {
+      errors.push({ rowIndex: i, rawCodigo: chunk[0]?.["CODIGO"], message: err instanceof Error ? err.message : String(err) });
+    }
+  }
 
   return { created, updated, skipped, errors };
 }

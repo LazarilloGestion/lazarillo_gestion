@@ -1,47 +1,62 @@
+import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
 import { normalizeText, trim } from "../helpers";
-import { processBatch, preloadExistingCodes } from "../normalizer-utils";
 import type { ETLRow, ETLRowError } from "../types";
+
+const CHUNK_SIZE = 500;
 
 export async function normalizeConceptosCaja(
   rows: ETLRow[],
   prisma: DbClient
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
-  let created = 0, updated = 0;
-
-  const filtered = rows.filter((r) => {
-    const c = trim(r["CODIGO"]);
-    return c != null && c !== "";
-  });
+  const filtered = rows.filter((r) => trim(r["CODIGO"]) != null);
   const skipped = rows.length - filtered.length;
 
-  const allCodigos = filtered.map((r) => String(r["CODIGO"]).trim());
-  const existingCodigos = await preloadExistingCodes(allCodigos, (codes) =>
-    prisma.conceptoCaja.findMany({ where: { codigo: { in: codes } }, select: { codigo: true } })
+  const deduped = Array.from(
+    filtered.reduce((m, r) => m.set(String(r["CODIGO"]).trim(), r), new Map<string, ETLRow>()).values()
   );
 
-  const errors = await processBatch(
-    filtered,
-    async (r) => {
-      const codigo = String(r["CODIGO"]).trim();
-      const data = {
-        nombre: normalizeText(r["NOMBRE"]) ?? "(sin nombre)",
-        tipo: trim(r["TIPO"]),
-        codImp: trim(r["COD_IMP"]),
-        codRga:
-          r["COD_RGA"] != null && Number(r["COD_RGA"]) > 0
-            ? String(r["COD_RGA"])
-            : null,
-      };
-      await prisma.conceptoCaja.upsert({
-        where: { codigo },
-        update: data,
-        create: { codigo, ...data },
-      });
-      if (existingCodigos.has(codigo)) updated++; else created++;
-    },
-    (r) => r["CODIGO"]
+  const allCodigos = deduped.map((r) => String(r["CODIGO"]).trim());
+  const existingSet = new Set(
+    (await prisma.conceptoCaja.findMany({ where: { codigo: { in: allCodigos } }, select: { codigo: true } }))
+      .map((x) => x.codigo)
   );
+
+  let created = 0, updated = 0;
+  const errors: ETLRowError[] = [];
+
+  for (let i = 0; i < deduped.length; i += CHUNK_SIZE) {
+    const chunk = deduped.slice(i, i + CHUNK_SIZE);
+    try {
+      const values = chunk.map((r) => {
+        const codigo = String(r["CODIGO"]).trim();
+        const codRga = r["COD_RGA"] != null && Number(r["COD_RGA"]) > 0 ? String(r["COD_RGA"]) : null;
+        return Prisma.sql`(
+          ${codigo},
+          ${normalizeText(r["NOMBRE"]) ?? "(sin nombre)"},
+          ${trim(r["TIPO"])},
+          ${trim(r["COD_IMP"])},
+          ${codRga}
+        )`;
+      });
+
+      await (prisma as unknown as { $executeRaw: (q: Prisma.Sql) => Promise<number> }).$executeRaw(Prisma.sql`
+        INSERT INTO conceptos_caja (codigo, nombre, tipo, "codImp", "codRga")
+        VALUES ${Prisma.join(values)}
+        ON CONFLICT (codigo) DO UPDATE SET
+          nombre    = EXCLUDED.nombre,
+          tipo      = EXCLUDED.tipo,
+          "codImp"  = EXCLUDED."codImp",
+          "codRga"  = EXCLUDED."codRga"
+      `);
+
+      for (const r of chunk) {
+        if (existingSet.has(String(r["CODIGO"]).trim())) updated++; else created++;
+      }
+    } catch (err) {
+      errors.push({ rowIndex: i, rawCodigo: chunk[0]?.["CODIGO"], message: err instanceof Error ? err.message : String(err) });
+    }
+  }
 
   return { created, updated, skipped, errors };
 }

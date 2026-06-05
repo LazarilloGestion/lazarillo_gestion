@@ -8,10 +8,11 @@ import type { ETLRow, ETLRowError, ETLContext } from "../types";
 const CHUNK_SIZE = 500;
 
 function makeRowId(r: ETLRow): string {
-  // El ERP genera una fila por evento de pago: mismo ticket puede tener múltiples
-  // Transferencias MP a distintos importes — son cobros distintos, no correcciones.
-  // CUPON identifica la transferencia MP individual (0 en efectivo/otros).
-  const key = [r["TURNO"], r["COMPROBANT"], r["COD_COBRO"], r["COBRO"], r["IMPORTE"], r["CUPON"]]
+  // FECHA incluida para evitar colisiones entre transacciones sin TURNO/COMPROBANT
+  // (ventas de cancha sin turno asignado): distintos días con mismo COBRO/IMPORTE
+  // colisionaban y se perdían. Secondary rows (FECHA=null) pueden colidir entre sí,
+  // pero el dashboard los excluye con WHERE fecha IS NOT NULL.
+  const key = [r["TURNO"], r["COMPROBANT"], r["COD_COBRO"], r["COBRO"], r["IMPORTE"], r["CUPON"], r["FECHA"]]
     .map((v) => String(v ?? ""))
     .join("|");
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
@@ -20,7 +21,7 @@ function makeRowId(r: ETLRow): string {
 // Completa TURNO→MOZO cuando una venta tiene múltiples formas de pago.
 // El ERP deja esos campos vacíos en las filas secundarias; se heredan de la fila anterior.
 function fillPartialRows(rows: ETLRow[]): ETLRow[] {
-  const CARRY_FIELDS = ["TURNO", "COMPROBANT", "HORA", "TIPO", "MESA", "MOZO"];
+  const CARRY_FIELDS = ["TURNO", "COMPROBANT", "HORA", "TIPO", "MESA", "MOZO", "COD_SUC", "NOMBRESUC"];
   let last: Partial<ETLRow> = {};
   return rows.map((r) => {
     const filled = { ...r };

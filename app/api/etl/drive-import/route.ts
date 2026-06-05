@@ -169,10 +169,10 @@ export async function POST(req: NextRequest) {
 
       let report: ETLReport;
       try {
-        report = await getEtlClient().$transaction(
-          async (tx) => runETL(buffer, storagePath, ctx, tx as unknown as DbClient),
-          { timeout: 55_000 }
-        );
+        // Sin transacción global: cada chunk del normalizer hace su propio commit.
+        // ON CONFLICT DO UPDATE garantiza idempotencia → reimports seguros.
+        // Una transacción única de 55 s causaba timeout y rollback total en archivos grandes.
+        report = await runETL(buffer, storagePath, ctx, getEtlClient() as unknown as DbClient);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Error desconocido";
         return NextResponse.json(

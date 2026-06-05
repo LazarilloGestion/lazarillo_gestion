@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
-import { Settings2 } from "lucide-react";
+import { Settings2, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -113,7 +113,8 @@ export function RubrosConfigModal() {
               Error: {error}
             </div>
           ) : rubros.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
+            <div className="py-8 flex flex-col items-center gap-2 text-sm text-muted-foreground">
+              <Inbox className="w-8 h-8 opacity-40" />
               No hay rubros cargados.
             </div>
           ) : (

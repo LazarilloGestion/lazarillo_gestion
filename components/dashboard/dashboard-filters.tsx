@@ -14,6 +14,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { CommandPalette } from "@/components/dashboard/command-palette";
 import { RubrosConfigModal } from "@/components/dashboard/rubros-config-modal";
+import { MonthFilterDrawer } from "@/components/dashboard/month-filter-drawer";
+import { FiltersDrawer } from "@/components/dashboard/filters-drawer";
 import type { Local } from "@/lib/types/domain";
 
 const PALETTE_PARAM_LABELS: Record<string, string> = {
@@ -80,7 +82,25 @@ export function DashboardFilters() {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex gap-2 items-center">
+      {/* ── Mobile ── */}
+      <div className="flex md:hidden gap-2 items-center">
+        <FiltersDrawer locales={locales} localesLoading={localesLoading} />
+        <MonthFilterDrawer />
+        {!isVentas && (
+          <>
+            <button
+              onClick={() => setPaletteOpen(true)}
+              className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shrink-0"
+            >
+              <Search className="w-3.5 h-3.5" />
+            </button>
+            <RubrosConfigModal />
+          </>
+        )}
+      </div>
+
+      {/* ── Desktop ── */}
+      <div className="hidden md:flex gap-2 items-center">
         <div className="flex items-center gap-1.5 text-muted-foreground">
           <CalendarDays className="w-4 h-4 shrink-0" />
           <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
@@ -95,14 +115,14 @@ export function DashboardFilters() {
           </Select>
         </div>
 
-        <div className="flex items-center gap-1.5 text-muted-foreground min-w-0 flex-1 sm:flex-none">
+        <div className="flex items-center gap-1.5 text-muted-foreground">
           <Building2 className="w-4 h-4 shrink-0" />
           <Select
             value={localId ? String(localId) : "__all"}
             onValueChange={(v) => setLocalId(v === "__all" ? undefined : Number(v))}
             disabled={localesLoading}
           >
-            <SelectTrigger className="w-full sm:w-44 h-8 text-sm">
+            <SelectTrigger className="w-44 h-8 text-sm">
               <SelectValue placeholder="Todos los locales" />
             </SelectTrigger>
             <SelectContent>
@@ -115,13 +135,13 @@ export function DashboardFilters() {
         </div>
 
         {!localesLoading && localId && puntosDeVenta.length > 0 && (
-          <div className="flex items-center gap-1.5 text-muted-foreground min-w-0 flex-1 sm:flex-none">
+          <div className="flex items-center gap-1.5 text-muted-foreground">
             <Store className="w-4 h-4 shrink-0" />
             <Select
               value={pdvId ? String(pdvId) : "__all"}
               onValueChange={(v) => setPdvId(v === "__all" ? undefined : Number(v))}
             >
-              <SelectTrigger className="w-full sm:w-48 h-8 text-sm">
+              <SelectTrigger className="w-48 h-8 text-sm">
                 <SelectValue placeholder="Todos los PDV" />
               </SelectTrigger>
               <SelectContent>
@@ -136,22 +156,23 @@ export function DashboardFilters() {
 
         {!isVentas && (
           <div className="flex items-center gap-2 ml-auto shrink-0">
+            <RubrosConfigModal />
             <button
               onClick={() => setPaletteOpen(true)}
-              className="h-8 w-8 sm:w-auto sm:px-3 flex items-center justify-center sm:gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all"
+              className="h-8 w-auto px-3 flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all"
             >
               <Search className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-sm font-normal">Buscar</span>
-              <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 px-1.5 font-mono text-[10px] font-medium text-zinc-400">
+              <span className="text-sm font-normal">Buscar</span>
+              <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-zinc-200 dark:border-zinc-600 bg-zinc-50 dark:bg-zinc-700 px-1.5 font-mono text-[10px] font-medium text-zinc-400">
                 <span className="text-xs">⌘</span>K
               </kbd>
             </button>
-            <RubrosConfigModal />
           </div>
         )}
       </div>
 
-      <div className="flex items-center gap-1.5 flex-wrap">
+      {/* Chips de meses — solo desktop */}
+      <div className="hidden md:flex items-center gap-1.5 flex-wrap">
         <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
         {MONTH_LABELS.map((label, i) => {
           const idx = i + 1;
