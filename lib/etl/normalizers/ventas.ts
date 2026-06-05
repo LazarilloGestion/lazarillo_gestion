@@ -21,7 +21,7 @@ function makeRowId(r: ETLRow): string {
 // Completa TURNO→MOZO cuando una venta tiene múltiples formas de pago.
 // El ERP deja esos campos vacíos en las filas secundarias; se heredan de la fila anterior.
 function fillPartialRows(rows: ETLRow[]): ETLRow[] {
-  const CARRY_FIELDS = ["TURNO", "COMPROBANT", "HORA", "TIPO", "MESA", "MOZO", "COD_SUC", "NOMBRESUC"];
+  const CARRY_FIELDS = ["TURNO", "COMPROBANT", "HORA", "TIPO", "MESA", "MOZO"];
   let last: Partial<ETLRow> = {};
   return rows.map((r) => {
     const filled = { ...r };
@@ -140,7 +140,7 @@ export async function normalizeVentas(
     } catch (err) {
       errors.push({
         rowIndex: i,
-        rawCodigo: chunk[0]?.["COMPROBANT"],
+        rawCodigo: `chunk[${i}..${i + chunk.length - 1}] — primero: ${chunk[0]?.["COMPROBANT"]}`,
         message: err instanceof Error ? err.message : String(err),
       });
     }
