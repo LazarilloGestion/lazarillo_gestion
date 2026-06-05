@@ -61,7 +61,7 @@ export async function normalizeArticulos(
         if (existingSet.has(String(r["CODIGO"]).trim())) updated++; else created++;
       }
     } catch (err) {
-      errors.push({ rowIndex: i, rawCodigo: chunk[0]?.["CODIGO"], message: err instanceof Error ? err.message : String(err) });
+      errors.push({ rowIndex: i, rawCodigo: `chunk[${i}..${i + chunk.length - 1}] — primero: ${chunk[0]?.["CODIGO"]}`, message: err instanceof Error ? err.message : String(err) });
     }
   }
 

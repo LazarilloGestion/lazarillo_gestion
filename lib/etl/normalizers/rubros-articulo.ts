@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { normalizeText, trim, toBool, toDecimal, excelDateToISO } from "../helpers";
+import { normalizeText, trim, toBool, toDecimal, toDecimalStr, excelDateToISO } from "../helpers";
 import type { ETLRow, ETLRowError } from "../types";
 
 const CHUNK_SIZE = 500;
@@ -45,7 +45,7 @@ export async function normalizeRubrosArticulo(
           ${trim(r["EVE_FOR"])},
           ${trim(r["EVE_FORM"])},
           ${trim(r["EVE_FORMH"])},
-          ${toDecimal(r["DISCONT"])},
+          ${toDecimalStr(r["DISCONT"])}::numeric,
           ${fechaUpda},
           ${trim(r["MODO_VISTA"])}
         )`;
@@ -79,7 +79,7 @@ export async function normalizeRubrosArticulo(
         if (existingSet.has(String(r["CODIGO"]).trim())) updated++; else created++;
       }
     } catch (err) {
-      errors.push({ rowIndex: i, rawCodigo: chunk[0]?.["CODIGO"], message: err instanceof Error ? err.message : String(err) });
+      errors.push({ rowIndex: i, rawCodigo: `chunk[${i}..${i + chunk.length - 1}] — primero: ${chunk[0]?.["CODIGO"]}`, message: err instanceof Error ? err.message : String(err) });
     }
   }
 
