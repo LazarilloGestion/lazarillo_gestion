@@ -855,12 +855,12 @@ function DriveFolder({
               disabled={batchRunning || pendingFiles.length === 0 || blocked || globalImporting}
               className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {(batchRunning || globalImporting) ? (
+              {batchRunning ? (
                 <Loader2 className="w-3 h-3 animate-spin" />
               ) : (
                 <CloudDownload className="w-3 h-3" />
               )}
-              {(batchRunning || globalImporting)
+              {batchRunning
                 ? "Importando…"
                 : `Importar ${pendingFiles.length > 0 ? pendingFiles.length : "todos"}`}
             </button>

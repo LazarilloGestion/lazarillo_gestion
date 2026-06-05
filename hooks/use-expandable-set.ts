@@ -14,6 +14,7 @@ export function useExpandableSet() {
   }, []);
 
   const collapseAll = useCallback((e: React.MouseEvent) => {
+    if (navigator.maxTouchPoints > 0) return; // touch device: let native long-press menu open
     e.preventDefault();
     setExpanded(new Set());
   }, []);
