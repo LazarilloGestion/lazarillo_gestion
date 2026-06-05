@@ -45,6 +45,10 @@ export function RubrosConfigModal() {
   }, [setRubroOcultoCount]);
 
   useEffect(() => {
+    fetchRubros();
+  }, [fetchRubros]);
+
+  useEffect(() => {
     if (open) fetchRubros();
   }, [open, fetchRubros]);
 
@@ -76,13 +80,13 @@ export function RubrosConfigModal() {
           className={cn(
             "relative h-8 w-8 flex items-center justify-center rounded-lg border transition-all shrink-0",
             rubroOcultoCount > 0
-              ? "border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-500 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
+              ? "border-zinc-400 dark:border-zinc-500 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
               : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600"
           )}
         >
           <Settings2 className="w-3.5 h-3.5" />
           {rubroOcultoCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500 text-[9px] font-bold text-white">
+            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 dark:bg-zinc-100 text-[9px] font-bold text-white dark:text-zinc-900">
               {rubroOcultoCount}
             </span>
           )}
@@ -98,7 +102,7 @@ export function RubrosConfigModal() {
         </DialogHeader>
 
         <p className="text-xs text-muted-foreground -mt-1">
-          Los rubros desactivados no aparecen en el dashboard principal de gastos.
+          Los rubros desactivados no aparecen en el dashboard ni se contabilizan en los totales.
         </p>
 
         <div className="mt-1 flex flex-col gap-1 max-h-80 overflow-y-auto pr-1">
