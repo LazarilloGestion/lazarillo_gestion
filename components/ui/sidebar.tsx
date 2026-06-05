@@ -89,6 +89,9 @@ function SidebarProvider({
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
+    // Blur focused element before toggling so aria-hidden on the sheet wrapper
+    // doesn't block a focused descendant (Radix UI Sheet a11y constraint).
+    (document.activeElement as HTMLElement | null)?.blur();
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
   }, [isMobile, setOpen, setOpenMobile])
 
