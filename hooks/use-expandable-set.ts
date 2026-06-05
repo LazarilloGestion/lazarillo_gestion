@@ -13,5 +13,10 @@ export function useExpandableSet() {
     });
   }, []);
 
-  return { expanded, setExpanded, toggle };
+  const collapseAll = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setExpanded(new Set());
+  }, []);
+
+  return { expanded, setExpanded, toggle, collapseAll };
 }

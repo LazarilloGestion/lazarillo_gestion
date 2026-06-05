@@ -4,7 +4,7 @@ import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { ExpandableButton } from "@/components/ui/expandable-button";
 import { ChevronDown, ChevronUp, ChevronsDownUp } from "lucide-react";
-import { cn, fmtARS } from "@/lib/utils";
+import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { buildVentasPivotUrl } from "@/lib/dashboard/params";
 import { flattenRows, sortPivotRows, hasValue } from "@/lib/dashboard/pivot-utils";
@@ -21,7 +21,7 @@ import { VentasDetalleModal } from "./ventas-detalle-modal";
 export function VentasPivotTable() {
   const { year, localId, pdvId, months, activeMonths, sortCol, sortDir, handleSortClick } = useDashboard();
 
-  const { expanded, setExpanded, toggle: toggleRow } = useExpandableSet();
+  const { expanded, setExpanded, toggle: toggleRow, collapseAll } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<VentasDetalleFilter | null>(null);
 
   const url = useMemo(
@@ -119,10 +119,11 @@ export function VentasPivotTable() {
                   <tr
                     key={tipo.id}
                     className="border-b bg-muted/25 font-semibold hover:bg-muted/50 transition-colors"
+                    onContextMenu={collapseAll}
                   >
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
                       <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(tipo.id)}>
-                        {tipo.nombre}
+                        {normalize(tipo.nombre)}
                       </ExpandableButton>
                     </td>
                     {months.map((mes) => (
@@ -159,9 +160,10 @@ export function VentasPivotTable() {
                 <tr
                   key={cobro.id}
                   className="border-b hover:bg-accent/40 transition-colors"
+                  onContextMenu={collapseAll}
                 >
                   <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
-                    <span className="pl-7 block text-left">{cobro.nombre}</span>
+                    <span className="pl-7 block text-left">{normalize(cobro.nombre)}</span>
                   </td>
                   {months.map((mes) => (
                     <td

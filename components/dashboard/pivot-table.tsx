@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { ExpandableButton } from "@/components/ui/expandable-button";
-import { ChevronDown, ChevronUp, ChevronsDownUp } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { buildDashboardUrl, buildVentasPivotUrl } from "@/lib/dashboard/params";
@@ -20,6 +20,7 @@ import type {
 import { DetalleModal } from "./detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 
+
 export function PivotTable() {
   const {
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId,
@@ -27,11 +28,12 @@ export function PivotTable() {
     rubroConfigVersion,
   } = useDashboard();
 
-  const { expanded, setExpanded, toggle: toggleRow } = useExpandableSet();
+  const { expanded, setExpanded, toggle: toggleRow, collapseAll } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
   const [ventasDetalleFilter, setVentasDetalleFilter] = useState<VentasDetalleFilter | null>(null);
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
   const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number }>({});
+
 
   const url = useMemo(() => {
     const base = buildDashboardUrl("/api/dashboard/pivot", {
@@ -93,8 +95,6 @@ export function PivotTable() {
   if (isLoading) return <PivotLoading />;
   if (error) return <PivotError />;
   if (!data || data.rows.length === 0) return <PivotEmpty />;
-
-  const allCollapsed = expanded.size === 0;
 
   const pctDenominator = pctMode === "ingresos"
     ? (ventasData?.grandTotal ?? 0)
@@ -227,18 +227,7 @@ export function PivotTable() {
             </tr>
             <tr className="bg-muted border-b">
               <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
-                <div className="flex items-center justify-between gap-3">
-                  <span>Concepto / Proveedor</span>
-                  {!allCollapsed && (
-                    <button
-                      onClick={() => setExpanded(new Set())}
-                      className="flex items-center gap-1 text-xs font-normal text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-                    >
-                      <ChevronsDownUp className="w-3 h-3" />
-                      Colapsar
-                    </button>
-                  )}
-                </div>
+                Concepto / Proveedor
               </th>
               {months.map((idx) => (
                 <th
@@ -296,6 +285,7 @@ export function PivotTable() {
                   <tr
                     key={rubro.id}
                     className="border-b bg-muted/25 font-semibold hover:bg-muted/50 transition-colors"
+                    onContextMenu={collapseAll}
                   >
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
                       <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(rubro.id)}>
@@ -341,6 +331,7 @@ export function PivotTable() {
                   <tr
                     key={concepto.id}
                     className="border-b hover:bg-accent/40 transition-colors"
+                    onContextMenu={collapseAll}
                   >
                     <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
                       <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(concepto.id)} indent="pl-5" iconSize="w-3.5 h-3.5">
@@ -455,6 +446,7 @@ export function PivotTable() {
         filter={ventasDetalleFilter}
         onClose={() => setVentasDetalleFilter(null)}
       />
+
     </>
   );
 }
