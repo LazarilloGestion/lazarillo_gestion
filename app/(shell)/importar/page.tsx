@@ -810,7 +810,12 @@ function DriveFolder({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-zinc-900 dark:text-white">{title}</span>
-              {allDone && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
+              {(folderImporting || batchRunning) && (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+              )}
+              {allDone && !folderImporting && !batchRunning && (
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+              )}
             </div>
             {subtitle && (
               <p className={cn(
