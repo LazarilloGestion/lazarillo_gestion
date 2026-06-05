@@ -16,6 +16,7 @@ import { CommandPalette } from "@/components/dashboard/command-palette";
 import { RubrosConfigModal } from "@/components/dashboard/rubros-config-modal";
 import { MonthFilterDrawer } from "@/components/dashboard/month-filter-drawer";
 import { FiltersDrawer } from "@/components/dashboard/filters-drawer";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { Local } from "@/lib/types/domain";
 
 const PALETTE_PARAM_LABELS: Record<string, string> = {
@@ -38,6 +39,7 @@ export function DashboardFilters() {
   } = useDashboard();
 
   const isVentas = tab === "ventas";
+  const isMobile = useIsMobile();
 
   const [locales, setLocales] = useState<Local[]>([]);
   const [localesLoading, setLocalesLoading] = useState(true);
@@ -94,7 +96,7 @@ export function DashboardFilters() {
             >
               <Search className="w-3.5 h-3.5" />
             </button>
-            <RubrosConfigModal />
+            {isMobile && <RubrosConfigModal />}
           </>
         )}
       </div>
@@ -156,7 +158,7 @@ export function DashboardFilters() {
 
         {!isVentas && (
           <div className="flex items-center gap-2 ml-auto shrink-0">
-            <RubrosConfigModal />
+            {!isMobile && <RubrosConfigModal />}
             <button
               onClick={() => setPaletteOpen(true)}
               className="h-8 w-auto px-3 flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all"

@@ -45,10 +45,6 @@ export function RubrosConfigModal() {
   }, [setRubroOcultoCount]);
 
   useEffect(() => {
-    fetchRubros();
-  }, [fetchRubros]);
-
-  useEffect(() => {
     if (open) fetchRubros();
   }, [open, fetchRubros]);
 
