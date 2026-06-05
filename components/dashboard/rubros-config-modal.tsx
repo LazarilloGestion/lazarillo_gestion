@@ -27,10 +27,10 @@ export function RubrosConfigModal() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
 
-  const fetchRubros = useCallback(() => {
+  const fetchRubros = useCallback((signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
-    fetch("/api/config/rubros-dashboard")
+    fetch("/api/config/rubros-dashboard", { signal })
       .then(async (r) => {
         const text = await r.text();
         if (!text) throw new Error(`Respuesta vacía (HTTP ${r.status})`);
@@ -40,12 +40,24 @@ export function RubrosConfigModal() {
         setRubros(list);
         setRubroOcultoCount(list.filter((r) => !r.visibleEnDashboard).length);
       })
-      .catch((e) => { console.error(e); setError(e.message); })
+      .catch((e) => { if (e?.name !== "AbortError") { console.error(e); setError(e.message); } })
       .finally(() => setLoading(false));
   }, [setRubroOcultoCount]);
 
+  // Fetch en mount para poblar el badge count sin necesidad de abrir el modal.
+  // Fetch al abrir para datos frescos. AbortController cancela la petición
+  // anterior si ambas coinciden (ej. primer open inmediatamente tras mount).
   useEffect(() => {
-    if (open) fetchRubros();
+    const controller = new AbortController();
+    fetchRubros(controller.signal);
+    return () => controller.abort();
+  }, [fetchRubros]);
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    fetchRubros(controller.signal);
+    return () => controller.abort();
   }, [open, fetchRubros]);
 
   async function toggleRubro(codigo: string, visible: boolean) {
