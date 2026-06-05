@@ -10,7 +10,7 @@ import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
 import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB por archivo
 
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
     try {
       const report = await getEtlClient().$transaction(
         async (tx) => runETL(buffer, storagePath, ctx, tx as unknown as DbClient),
-        { timeout: 300_000 }
+        { timeout: 55_000 }
       );
       reports.push(report);
     } catch (err) {

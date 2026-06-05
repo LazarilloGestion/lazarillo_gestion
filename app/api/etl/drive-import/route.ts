@@ -13,7 +13,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB por archivo
 
@@ -171,7 +171,7 @@ export async function POST(req: NextRequest) {
       try {
         report = await getEtlClient().$transaction(
           async (tx) => runETL(buffer, storagePath, ctx, tx as unknown as DbClient),
-          { timeout: 300_000 }
+          { timeout: 55_000 }
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : "Error desconocido";
