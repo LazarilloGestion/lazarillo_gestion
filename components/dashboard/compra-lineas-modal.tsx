@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { fmtARS, normalize } from "@/lib/utils";
+import { FileX2 } from "lucide-react";
 import type { DetalleCompraLinea } from "@/lib/dashboard/types";
 
 type Props = {
@@ -46,7 +47,10 @@ export function CompraLineasModal({ compraId, comprobante, onClose }: Props) {
             <div className="px-6 pt-4 pb-3 shrink-0">
               <DialogTitle className="text-base font-semibold">{normalize(comprobante) ?? "Comprobante"}</DialogTitle>
             </div>
-            <div className="py-12 text-center text-sm text-muted-foreground">Sin líneas de detalle para este comprobante.</div>
+            <div className="py-12 flex flex-col items-center gap-2 text-muted-foreground">
+              <FileX2 className="w-8 h-8 opacity-40" />
+              <span className="text-sm">Sin detalle para este comprobante.</span>
+            </div>
           </>
         )}
 
