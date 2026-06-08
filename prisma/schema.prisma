@@ -173,8 +173,9 @@ model Compra {
   per3      Decimal?
 
   // Overrides manuales — sobreviven re-importaciones
-  importeManual Decimal?
-  fechaManual   DateTime?
+  importeManual  Decimal?
+  fechaManual    DateTime?
+  observacManual String?
 
   localId        Int?
   puntoDeVentaId Int?

@@ -117,6 +117,7 @@ export type CompraDetalle = {
   importeManual: string | number | null;
   fechaManual: string | null;
   conceptoCodigoManual: string | null;
+  observacManual: string | null;
   concepto: string | null;
   detalle: string | null;
   observac: string | null;

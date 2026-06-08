@@ -8,6 +8,7 @@ const patchSchema = z.object({
   importeManual:        z.number().nullable().optional(),
   fechaManual:          z.string().datetime({ offset: true }).nullable().optional(),
   conceptoCodigoManual: z.string().max(50).nullable().optional(),
+  observacManual:       z.string().max(500).nullable().optional(),
 });
 
 export async function PATCH(
@@ -26,7 +27,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Datos inválidos", issues: parsed.error.issues }, { status: 422 });
   }
 
-  const { importeManual, fechaManual, conceptoCodigoManual } = parsed.data;
+  const { importeManual, fechaManual, conceptoCodigoManual, observacManual } = parsed.data;
 
   try {
     const updated = await prisma.compra.update({
@@ -35,8 +36,9 @@ export async function PATCH(
         ...(importeManual !== undefined && { importeManual }),
         ...(fechaManual !== undefined && { fechaManual: fechaManual !== null ? new Date(fechaManual) : null }),
         ...(conceptoCodigoManual !== undefined && { conceptoCodigoManual }),
+        ...(observacManual !== undefined && { observacManual }),
       },
-      select: { rowId: true, importeManual: true, fechaManual: true, conceptoCodigoManual: true },
+      select: { rowId: true, importeManual: true, fechaManual: true, conceptoCodigoManual: true, observacManual: true },
     });
     return NextResponse.json(updated);
   } catch (err) {
