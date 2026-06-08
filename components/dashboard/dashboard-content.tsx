@@ -4,25 +4,22 @@ import { motion } from "framer-motion";
 import { SlidersHorizontal } from "lucide-react";
 import { DashboardFilters } from "@/components/dashboard/dashboard-filters";
 import { DashboardTabContent } from "@/components/dashboard/dashboard-tab-content";
-import { DashboardSubtitle } from "@/components/dashboard/dashboard-subtitle";
-
 export function DashboardContent() {
   const [showFilters, setShowFilters] = useState(true);
   const [clipping, setClipping] = useState(false);
 
   return (
-    <div className="flex flex-col h-full p-6 gap-5">
+    <div className="flex flex-col h-full p-3 md:p-6 gap-4 md:gap-5">
       <div className="flex items-start justify-between gap-2">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white">
-            Dashboard
+        <div className="flex flex-col gap-1 min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white truncate">
+            Panel de Gestión
           </h1>
-          <DashboardSubtitle />
         </div>
         <button
           onClick={() => { setClipping(true); setShowFilters(v => !v); }}
           title={showFilters ? "Ocultar filtros" : "Mostrar filtros"}
-          className="mt-1 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          className="mt-1 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
         >
           <SlidersHorizontal className="h-4 w-4" />
         </button>

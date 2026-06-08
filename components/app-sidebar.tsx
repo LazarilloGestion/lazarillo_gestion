@@ -22,7 +22,7 @@ import {
 import { LogoutButton } from "@/components/auth/logout-button";
 
 const NAV = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Panel de Gestión", icon: LayoutDashboard },
   { href: "/importar", label: "Importar datos", icon: Upload },
 ];
 

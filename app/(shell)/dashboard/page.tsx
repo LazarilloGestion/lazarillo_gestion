@@ -3,7 +3,7 @@ import { DashboardContent } from "@/components/dashboard/dashboard-content";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata: Metadata = {
-  title: "Dashboard | Lazarillo Gestión",
+  title: "Panel de Gestión | Lazarillo Gestión",
 };
 
 export default function DashboardPage() {
