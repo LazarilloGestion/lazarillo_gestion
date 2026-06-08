@@ -1,9 +1,9 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { ExpandableButton } from "@/components/ui/expandable-button";
-import { ChevronDown, ChevronUp, ChevronsDownUp } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { buildVentasPivotUrl } from "@/lib/dashboard/params";
@@ -48,11 +48,17 @@ export function VentasPivotTable() {
     [sortedRows, expanded]
   );
 
+  const rubroIds = useMemo(() => new Set(sortedRows.map(r => r.id)), [sortedRows]);
+
+  const collapseConceptos = useCallback((e: React.MouseEvent) => {
+    if (navigator.maxTouchPoints > 0) return;
+    e.preventDefault();
+    setExpanded(prev => new Set([...prev].filter(id => rubroIds.has(id))));
+  }, [rubroIds, setExpanded]);
+
   if (isLoading) return <PivotLoading />;
   if (error) return <PivotError />;
   if (!data || data.rows.length === 0) return <PivotEmpty />;
-
-  const anyExpanded = expanded.size > 0;
 
   return (
     <>
@@ -61,18 +67,7 @@ export function VentasPivotTable() {
           <thead>
             <tr className="bg-muted border-b">
               <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
-                <div className="flex items-center justify-between gap-3">
-                  <span>Tipo / Forma de cobro</span>
-                  {anyExpanded && (
-                    <button
-                      onClick={() => setExpanded(new Set())}
-                      className="flex items-center gap-1 text-xs font-normal text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-                    >
-                      <ChevronsDownUp className="w-3 h-3" />
-                      Colapsar
-                    </button>
-                  )}
-                </div>
+                <span>Tipo / Forma de cobro</span>
               </th>
               {months.map((idx) => (
                 <th
@@ -160,7 +155,7 @@ export function VentasPivotTable() {
                 <tr
                   key={cobro.id}
                   className="border-b hover:bg-accent/40 transition-colors"
-                  onContextMenu={collapseAll}
+                  onContextMenu={collapseConceptos}
                 >
                   <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
                     <span className="pl-7 block text-left">{normalize(cobro.nombre)}</span>

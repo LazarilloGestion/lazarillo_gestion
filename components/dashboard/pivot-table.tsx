@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { ExpandableButton } from "@/components/ui/expandable-button";
@@ -91,6 +91,14 @@ export function PivotTable() {
     () => flattenRows({ rows: sortedRows, columnTotals: data?.columnTotals ?? {}, grandTotal: data?.grandTotal ?? 0 }, expanded, 3),
     [sortedRows, expanded, data]
   );
+
+  const rubroIds = useMemo(() => new Set(sortedRows.map(r => r.id)), [sortedRows]);
+
+  const collapseConceptos = useCallback((e: React.MouseEvent) => {
+    if (navigator.maxTouchPoints > 0) return;
+    e.preventDefault();
+    setExpanded(prev => new Set([...prev].filter(id => rubroIds.has(id))));
+  }, [rubroIds, setExpanded]);
 
   if (isLoading) return <PivotLoading />;
   if (error) return <PivotError />;
@@ -331,7 +339,7 @@ export function PivotTable() {
                   <tr
                     key={concepto.id}
                     className="border-b hover:bg-accent/40 transition-colors"
-                    onContextMenu={collapseAll}
+                    onContextMenu={collapseConceptos}
                   >
                     <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
                       <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(concepto.id)} indent="pl-5" iconSize="w-3.5 h-3.5">

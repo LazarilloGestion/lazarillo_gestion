@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { DashboardFilters } from "@/components/dashboard/dashboard-filters";
-import { DashboardTabContent } from "@/components/dashboard/dashboard-tab-content";
-import { DashboardSubtitle } from "@/components/dashboard/dashboard-subtitle";
+import { DashboardContent } from "@/components/dashboard/dashboard-content";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata: Metadata = {
@@ -9,22 +7,7 @@ export const metadata: Metadata = {
 };
 
 export default function DashboardPage() {
-  return (
-    <div className="flex flex-col h-full p-6 gap-5">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white">
-          Dashboard
-        </h1>
-        <DashboardSubtitle />
-      </div>
-
-      <DashboardFilters />
-
-      <div className="flex-1 min-h-0 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden flex flex-col">
-        <DashboardTabContent />
-      </div>
-    </div>
-  );
+  return <DashboardContent />;
 }
 
 export function FiltersSkeleton() {
