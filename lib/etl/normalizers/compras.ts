@@ -1,7 +1,8 @@
 import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { trim, toDecimalStr, safeDate } from "../helpers";
+import { trim, toDecimalStr, safeDate, normalizeText } from "../helpers";
+import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 
 import type { ETLRow, ETLRowError, ETLContext } from "../types";
 
@@ -98,7 +99,7 @@ export async function normalizeCompras(
           ${trim(r["CODIGO"])},
           ${trim(r["PROVEEDOR"])},
           ${trim(r["DETALLE"])},
-          ${trim(r["OBSERVAC"])},
+          ${normalizeText(r["OBSERVAC"])},
           ${importe}::numeric,
           ${importe}::numeric,
           ${toDecimalStr(r["IMP_INT"])}::numeric,
@@ -153,6 +154,10 @@ export async function normalizeCompras(
         message: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  if (ctx?.localId != null) {
+    await linkDetalleComprasByComprobante(prisma, ctx.localId);
   }
 
   return { created, updated, skipped, errors };

@@ -13,8 +13,19 @@ export async function GET(
 
   const { compraId } = await params;
 
+  // Buscar también por comprobante: el link ETL puede estar pendiente si
+  // compras se importó antes que detalle_compras en una sesión anterior.
+  const compra = await prisma.compra.findUnique({
+    where: { rowId: compraId },
+    select: { comprobante: true },
+  });
+
+  const where = compra?.comprobante
+    ? { OR: [{ compraId }, { comprobante: compra.comprobante }] }
+    : { compraId };
+
   const lineas = await prisma.detalleCompra.findMany({
-    where: { compraId },
+    where,
     select: {
       rowId: true,
       codigo: true,
