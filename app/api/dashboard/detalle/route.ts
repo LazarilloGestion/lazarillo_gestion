@@ -112,6 +112,7 @@ export async function GET(request: NextRequest) {
       },
     },
     orderBy: { fecha: "asc" },
+    take: 2000,
   });
 
   return NextResponse.json({ data: compras });

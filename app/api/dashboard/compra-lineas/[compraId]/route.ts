@@ -20,8 +20,11 @@ export async function GET(
     select: { comprobante: true },
   });
 
+  // Incluir filas aún no vinculadas (compraId: null) que compartan el comprobante.
+  // Restringir a compraId: null evita traer filas de otros locales que tengan el mismo
+  // string de comprobante pero ya estén correctamente vinculadas a su propia compra.
   const where = compra?.comprobante
-    ? { OR: [{ compraId }, { comprobante: compra.comprobante }] }
+    ? { OR: [{ compraId }, { comprobante: compra.comprobante, compraId: null }] }
     : { compraId };
 
   const lineas = await prisma.detalleCompra.findMany({

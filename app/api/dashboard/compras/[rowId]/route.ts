@@ -8,7 +8,7 @@ const patchSchema = z.object({
   importeManual:        z.number().nullable().optional(),
   fechaManual:          z.string().datetime({ offset: true }).nullable().optional(),
   conceptoCodigoManual: z.string().max(50).nullable().optional(),
-  observacManual:       z.string().max(500).nullable().optional(),
+  observacManual:       z.string().max(500).nullable().optional().transform((v) => (v === "" ? null : v)),
 });
 
 export async function PATCH(

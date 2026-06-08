@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
       puntoDeVenta: { select: { nombre: true } },
     },
     orderBy: { fecha: "asc" },
+    take: 2000,
   });
 
   return NextResponse.json({ data: ventas });

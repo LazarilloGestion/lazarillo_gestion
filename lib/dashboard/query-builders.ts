@@ -35,9 +35,13 @@ export function buildPivotConditions({
     ? Prisma.sql`COALESCE(${Prisma.raw(t)}."fechaManual", ${Prisma.raw(t)}.fecha)`
     : Prisma.sql`${Prisma.raw(t)}.fecha`;
 
+  const dateGuard = hasFechaManual
+    ? Prisma.sql`(${Prisma.raw(t)}.fecha IS NOT NULL OR ${Prisma.raw(t)}."fechaManual" IS NOT NULL)`
+    : Prisma.sql`${Prisma.raw(t)}.fecha IS NOT NULL`;
+
   const conditions: Prisma.Sql[] = [
     Prisma.sql`EXTRACT(YEAR FROM ${fechaExpr}) = ${year}`,
-    Prisma.sql`${Prisma.raw(t)}.fecha IS NOT NULL`,
+    dateGuard,
     Prisma.sql`${Prisma.raw(t)}.importe IS NOT NULL`,
   ];
   if (localId) conditions.push(Prisma.sql`${Prisma.raw(t)}."localId" = ${localId}`);
