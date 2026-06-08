@@ -60,7 +60,7 @@ export function normalizeText(val: unknown): string | null {
   s = s.replace(/--+/g, "-");
   s = s
     .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+    .replace(/(^|\s)\S/g, (c) => c.toUpperCase());
   s = s.trim();
   return s === "" ? null : s;
 }
