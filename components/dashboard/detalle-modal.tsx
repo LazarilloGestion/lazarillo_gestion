@@ -1,18 +1,22 @@
 "use client";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
-import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare } from "lucide-react";
+import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare, Search } from "lucide-react";
 import { useSortState } from "@/hooks/use-sort-state";
 import { SortableTableHead } from "./sortable-table-head";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import { fmtARS, fmtDate, normalize } from "@/lib/utils";
+  Command, CommandEmpty, CommandInput, CommandItem, CommandList,
+} from "@/components/ui/command";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn, fmtARS, fmtDate, normalize } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import { buildComprasDetalleUrl } from "@/lib/dashboard/params";
+import { useTableSearch } from "@/hooks/use-table-search";
+import { SearchInput } from "@/components/ui/search-input";
 import type { DetalleFilter, DetalleResponse, CompraDetalle } from "@/lib/dashboard/types";
 import {
   EditActionButtons, EditTriggerButton, EditedDot, toEditString,
@@ -37,16 +41,64 @@ type EditState = {
   importeManual: string;
   fechaManual: string;
   conceptoCodigoManual: string;
+  observacManual: string;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function isEdited(c: CompraDetalle) {
-  return c.importeManual != null || c.fechaManual != null || c.conceptoCodigoManual != null;
+  return c.importeManual != null || c.fechaManual != null || c.conceptoCodigoManual != null || c.observacManual != null;
 }
 
 function toDateInputValue(iso: string | null | undefined): string {
   return iso?.slice(0, 10) ?? "";
+}
+
+// ─── ConceptoCombobox ─────────────────────────────────────────────────────────
+
+function ConceptoCombobox({
+  value,
+  onValueChange,
+  options,
+}: {
+  value: string;
+  onValueChange: (v: string) => void;
+  options: ConceptoOption[];
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((o) => o.codigo === value);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex h-7 w-44 items-center justify-between rounded-md border border-input bg-background px-2 text-xs hover:bg-accent focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          <span className="truncate">{selected?.nombre ?? <span className="text-muted-foreground">Sin cambio</span>}</span>
+          <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-0">
+        <Command>
+          <CommandInput placeholder="Buscar concepto..." className="h-8 text-xs" />
+          <CommandList className="max-h-52">
+            <CommandEmpty className="py-2 text-center text-xs text-muted-foreground">Sin resultados.</CommandEmpty>
+            {options.map((opt) => (
+              <CommandItem
+                key={opt.codigo}
+                value={opt.nombre}
+                onSelect={() => { onValueChange(opt.codigo); setOpen(false); }}
+                className="text-xs"
+              >
+                <Check className={cn("mr-1 h-3 w-3", value === opt.codigo ? "opacity-100" : "opacity-0")} />
+                {opt.nombre}
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 // ─── Column definitions ───────────────────────────────────────────────────────
@@ -109,23 +161,21 @@ function ComprasRow({
         <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
           {normalize(item.detalle)}
         </td>
-        <td className="px-4 py-1.5 text-sm truncate text-muted-foreground max-w-[160px]">
-          {normalize(item.observac)}
+        <td className="px-2 py-1.5">
+          <Input
+            type="text"
+            className="h-7 text-xs w-36"
+            placeholder={normalize(item.observac) ?? ""}
+            value={editing!.observacManual}
+            onChange={e => onEdit({ ...editing!, observacManual: e.target.value })}
+          />
         </td>
         <td className="px-2 py-1.5">
-          <Select
+          <ConceptoCombobox
             value={editing!.conceptoCodigoManual}
             onValueChange={v => onEdit({ ...editing!, conceptoCodigoManual: v })}
-          >
-            <SelectTrigger className="h-7 text-xs w-44">
-              <SelectValue placeholder="Sin cambio" />
-            </SelectTrigger>
-            <SelectContent>
-              {conceptoOptions.map(opt => (
-                <SelectItem key={opt.codigo} value={opt.codigo}>{opt.nombre}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={conceptoOptions}
+          />
         </td>
         {/* Rubro auto-populated from selected concept */}
         <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
@@ -171,7 +221,7 @@ function ComprasRow({
           <span className="text-muted-foreground">—</span>
         )}
       </td>
-      <td className="px-4 py-2.5 truncate text-muted-foreground max-w-[160px]">{normalize(item.observac)}</td>
+      <td className="px-4 py-2.5 truncate text-muted-foreground">{normalize(item.observacManual ?? item.observac)}</td>
       <td className="px-4 py-2.5 truncate">{normalize(effectiveConcepto?.nombre)}</td>
       <td className="px-4 py-2.5 truncate">{normalize(effectiveConcepto?.rubro?.nombre)}</td>
       <td className="px-4 py-2.5 text-right tabular-nums font-medium whitespace-nowrap">
@@ -185,6 +235,7 @@ function ComprasRow({
               importeManual: toEditString(item.importeManual ?? item.importe),
               fechaManual: toDateInputValue(item.fechaManual ?? item.fecha),
               conceptoCodigoManual: item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "",
+              observacManual: item.observacManual ?? "",
             })
           }
         />
@@ -197,6 +248,12 @@ function ComprasRow({
 
 export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const [editing, setEditing] = useState<EditState | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [selectedLineas, setSelectedLineas] = useState<{ rowId: string; detalle: string | null } | null>(null);
+  const { sort, handleSortClick } = useSortState();
+
   const queryKey = useMemo(() => ["detalle", filter], [filter]);
 
   const { data: response, isLoading, error } = useQuery<DetalleResponse<CompraDetalle>>({
@@ -212,12 +269,6 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
     retry: 2,
     retryDelay: (i) => Math.min(1000 * 2 ** i, 30_000),
   });
-
-  const [editing, setEditing] = useState<EditState | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [selectedLineas, setSelectedLineas] = useState<{ rowId: string; detalle: string | null } | null>(null);
-  const { sort, handleSortClick } = useSortState();
 
   const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string }>>({
     queryKey: ["suggestions"],
@@ -241,6 +292,7 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
         importeManual:        state.importeManual !== "" ? parseFloat(state.importeManual) : null,
         fechaManual:          state.fechaManual !== "" ? new Date(state.fechaManual + "T00:00:00Z").toISOString() : null,
         conceptoCodigoManual: state.conceptoCodigoManual !== "" ? state.conceptoCodigoManual : null,
+        observacManual:       state.observacManual !== "" ? state.observacManual : null,
       };
       const res = await fetch(`/api/dashboard/compras/${state.rowId}`, {
         method: "PATCH",
@@ -261,7 +313,6 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
   }, [queryClient, queryKey]);
 
   const rawData = response?.data;
-  const hasMore = response?.hasMore ?? false;
   const count = rawData?.length ?? 0;
 
   const data = useMemo(() => {
@@ -289,6 +340,20 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
     });
   }, [rawData, sort]);
 
+  const { query, setQuery, filtered } = useTableSearch(data, (item) => [
+    item.proveedor,
+    item.proveedorRef?.nombre,
+    item.proveedorRef?.razon,
+    item.observac,
+    item.detalle,
+    item.concepto,
+    (item.conceptoCajaManual ?? item.conceptoCaja)?.nombre,
+    (item.conceptoCajaManual ?? item.conceptoCaja)?.rubro?.nombre,
+    item.local?.nombre,
+  ]);
+
+  useEffect(() => { setQuery(""); }, [filter, setQuery]);
+
   return (
     <>
     <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) { setEditing(null); setSelectedLineas(null); onClose(); } }}>
@@ -312,7 +377,10 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
               <thead className="sticky top-0 z-10 bg-popover">
                 <tr>
                   <th colSpan={COMPRAS_COLS.length + 1} className="px-6 pt-4 pb-3 text-left">
-                    <DialogTitle className="text-base font-semibold">Detalle de compras</DialogTitle>
+                    <div className="flex items-center justify-between gap-4">
+                      <DialogTitle className="text-base font-semibold">Detalle de compras</DialogTitle>
+                      <SearchInput value={query} onChange={setQuery} className="w-44" />
+                    </div>
                   </th>
                 </tr>
                 <tr className="border-b border-border/60">
@@ -321,7 +389,7 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
                 </tr>
               </thead>
               <tbody>
-                {data?.map((item) => (
+                {filtered.map((item) => (
                   <ComprasRow
                     key={item.rowId}
                     item={item}
@@ -342,10 +410,10 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
         {saveError && (
           <div className="border-t border-destructive/30 px-6 py-2 text-xs text-destructive">{saveError}</div>
         )}
-        {(count > 0 || hasMore) && (
+        {count > 0 && (
           <div className="border-t border-border/60 px-6 py-2.5 shrink-0 text-[11px] text-muted-foreground/60">
-            {hasMore
-              ? "Hay más de 500 registros — refiná los filtros para ver todos"
+            {query
+              ? `${filtered.length} de ${count} registro${count !== 1 ? "s" : ""}`
               : `${count} registro${count !== 1 ? "s" : ""}`}
           </div>
         )}

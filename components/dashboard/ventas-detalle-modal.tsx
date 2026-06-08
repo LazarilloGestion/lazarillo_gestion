@@ -1,9 +1,11 @@
 "use client";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarDays, Building2, Tag, Layers, ArrowDownUp, Users,
 } from "lucide-react";
+import { useTableSearch } from "@/hooks/use-table-search";
+import { SearchInput } from "@/components/ui/search-input";
 import { useSortState } from "@/hooks/use-sort-state";
 import { SortableTableHead } from "./sortable-table-head";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -111,6 +113,11 @@ function VentasRow({
 
 export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleFilter | null; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const [editing, setEditing] = useState<EditState | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const { sort, handleSortClick } = useSortState();
+
   const queryKey = useMemo(() => ["detalle-ventas", filter], [filter]);
 
   const { data: response, isLoading, error } = useQuery<DetalleResponse<VentaDetalle>>({
@@ -126,11 +133,6 @@ export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleF
     retry: 2,
     retryDelay: (i) => Math.min(1000 * 2 ** i, 30_000),
   });
-
-  const [editing, setEditing] = useState<EditState | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const { sort, handleSortClick } = useSortState();
 
   const handleSave = useCallback(async (state: EditState) => {
     setSaving(true);
@@ -157,7 +159,6 @@ export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleF
   }, [queryClient, queryKey]);
 
   const rawData = response?.data;
-  const hasMore = response?.hasMore ?? false;
   const count = rawData?.length ?? 0;
 
   const data = useMemo(() => {
@@ -174,6 +175,18 @@ export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleF
       return sort.dir === "asc" ? cmp : -cmp;
     });
   }, [rawData, sort]);
+
+  const { query, setQuery, filtered } = useTableSearch(data, (item) => [
+    item.tipo,
+    item.cobro,
+    item.turno,
+    item.comprobant,
+    item.mesa,
+    item.mozo,
+    item.local?.nombre,
+  ]);
+
+  useEffect(() => { setQuery(""); }, [filter, setQuery]);
 
   return (
     <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) { setEditing(null); onClose(); } }}>
@@ -197,7 +210,10 @@ export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleF
               <thead className="sticky top-0 z-10 bg-popover">
                 <tr>
                   <th colSpan={VENTAS_COLS.length + 1} className="px-6 pt-4 pb-3 text-left">
-                    <DialogTitle className="text-base font-semibold">Detalle de ventas</DialogTitle>
+                    <div className="flex items-center justify-between gap-4">
+                      <DialogTitle className="text-base font-semibold">Detalle de ventas</DialogTitle>
+                      <SearchInput value={query} onChange={setQuery} className="w-44" />
+                    </div>
                   </th>
                 </tr>
                 <tr className="border-b border-border/60">
@@ -206,7 +222,7 @@ export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleF
                 </tr>
               </thead>
               <tbody>
-                {data?.map((item) => (
+                {filtered.map((item) => (
                   <VentasRow
                     key={item.rowId}
                     item={item}
@@ -225,10 +241,10 @@ export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleF
         {saveError && (
           <div className="border-t border-destructive/30 px-6 py-2 text-xs text-destructive">{saveError}</div>
         )}
-        {(count > 0 || hasMore) && (
+        {count > 0 && (
           <div className="border-t border-border/60 px-6 py-2.5 shrink-0 text-[11px] text-muted-foreground/60">
-            {hasMore
-              ? "Hay más de 500 registros — refiná los filtros para ver todos"
+            {query
+              ? `${filtered.length} de ${count} registro${count !== 1 ? "s" : ""}`
               : `${count} registro${count !== 1 ? "s" : ""}`}
           </div>
         )}
