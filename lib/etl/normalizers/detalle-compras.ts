@@ -67,6 +67,8 @@ export async function normalizeDetalleCompras(
     );
 
     try {
+      const localId = ctx?.localId ?? null;
+
       const rowValues = chunk.map((r) => {
         const rowId = makeRowId(r);
         const articuloCodigo = artSet.has(trim(r["CODIGO"]) ?? "") ? trim(r["CODIGO"]) : null;
@@ -93,7 +95,8 @@ export async function normalizeDetalleCompras(
           ${toDecimalStr(r["PERCEP"])}::numeric,
           ${normalizeText(r["OBSERVAC"])},
           ${articuloCodigo},
-          ${proveedorId}::integer
+          ${proveedorId}::integer,
+          ${localId}::integer
         )`;
       });
 
@@ -101,7 +104,7 @@ export async function normalizeDetalleCompras(
         INSERT INTO detalle_compras (
           "rowId", "codPro", "codCpb", numero1, numero2, comprobante, fecha, codigo,
           nombre, medida, cantidad, neto, "totalIns", "ivaTot", "impNtTot", tasa, iva,
-          "impInt", percep, observac, "articuloCodigo", "proveedorId"
+          "impInt", percep, observac, "articuloCodigo", "proveedorId", "localId"
         )
         VALUES ${Prisma.join(rowValues)}
         ON CONFLICT ("rowId") DO UPDATE SET
@@ -125,7 +128,8 @@ export async function normalizeDetalleCompras(
           percep          = EXCLUDED.percep,
           observac        = EXCLUDED.observac,
           "articuloCodigo"= EXCLUDED."articuloCodigo",
-          "proveedorId"   = EXCLUDED."proveedorId"
+          "proveedorId"   = EXCLUDED."proveedorId",
+          "localId"       = EXCLUDED."localId"
       `);
 
       for (const rowId of chunkRowIds) {
@@ -140,7 +144,7 @@ export async function normalizeDetalleCompras(
     }
   }
 
-  if (ctx?.localId != null) {
+  if (ctx?.localId != null && (created > 0 || updated > 0)) {
     await linkDetalleComprasByComprobante(prisma, ctx.localId);
   }
 

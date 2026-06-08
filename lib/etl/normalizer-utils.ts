@@ -23,6 +23,7 @@ export async function linkDetalleComprasByComprobante(prisma: DbClient, localId:
     FROM compras c
     WHERE dc.comprobante = c.comprobante
       AND dc."compraId" IS NULL
+      AND dc."localId" = ${localId}
       AND c."localId" = ${localId}
   `;
 }

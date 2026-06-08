@@ -29,7 +29,9 @@ function makeRowId(r: ETLRow): string {
   // DETALLE (nro. comprobante) está vacío en ~40% de filas (sueldos, publicidad, alquiler).
   // OBSERVAC diferencia esos casos (ej: "gonza cumple" vs "luna cumple" el mismo día).
   // No incluir IMPORTE: correcciones del ERP en filas con igual OBSERVAC deben hacer upsert.
-  const key = [r["COD_CGA"], r["FECHA"], r["CODIGO"], r["CONCEPTO"], r["DETALLE"], r["OBSERVAC"]]
+  // Usar normalizeText en OBSERVAC para que variaciones de casing/espacios no generen rowIds distintos
+  // al mismo valor normalizado que se almacena en la DB.
+  const key = [r["COD_CGA"], r["FECHA"], r["CODIGO"], r["CONCEPTO"], r["DETALLE"], normalizeText(r["OBSERVAC"])]
     .map((v) => String(v ?? ""))
     .join("|");
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
@@ -156,7 +158,7 @@ export async function normalizeCompras(
     }
   }
 
-  if (ctx?.localId != null) {
+  if (ctx?.localId != null && (created > 0 || updated > 0)) {
     await linkDetalleComprasByComprobante(prisma, ctx.localId);
   }
 

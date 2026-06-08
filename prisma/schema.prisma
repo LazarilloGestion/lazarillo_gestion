@@ -12,9 +12,10 @@ model Local {
   id     Int    @id @default(autoincrement())
   nombre String @unique
 
-  puntosDeVenta PuntoDeVenta[]
-  compras       Compra[]
-  ventas        Venta[]
+  puntosDeVenta  PuntoDeVenta[]
+  compras        Compra[]
+  ventas         Venta[]
+  detallesCompra DetalleCompra[]
 
   @@map("locales")
 }
@@ -232,8 +233,12 @@ model DetalleCompra {
   proveedorId Int?
   proveedor   Proveedor? @relation(fields: [proveedorId], references: [id])
 
+  localId Int?
+  local   Local? @relation(fields: [localId], references: [id])
+
   @@index([comprobante])
   @@index([compraId])
+  @@index([localId])
   @@map("detalle_compras")
 }
 
