@@ -33,7 +33,14 @@ export async function GET(request: NextRequest) {
   const { fechaStart, fechaEnd } = buildDateRange(year, mes);
 
   const where: Prisma.CompraWhereInput = {
-    fecha: { gte: fechaStart, lt: fechaEnd },
+    AND: [
+      {
+        OR: [
+          { fechaManual: { gte: fechaStart, lt: fechaEnd } },
+          { fechaManual: null, fecha: { gte: fechaStart, lt: fechaEnd } },
+        ],
+      },
+    ],
     ...(localId !== undefined && { localId }),
     ...(pdvId !== undefined && { puntoDeVentaId: pdvId }),
     ...(proveedorId !== undefined && { proveedorId }),
@@ -82,6 +89,7 @@ export async function GET(request: NextRequest) {
       concepto: true,
       detalle: true,
       observac: true,
+      observacManual: true,
       proveedor: true,
       proveedorRef: {
         select: { id: true, nombre: true, razon: true },
@@ -104,11 +112,7 @@ export async function GET(request: NextRequest) {
       },
     },
     orderBy: { fecha: "asc" },
-    take: 501,
   });
 
-  const hasMore = compras.length > 500;
-  const data = hasMore ? compras.slice(0, 500) : compras;
-
-  return NextResponse.json({ data, hasMore });
+  return NextResponse.json({ data: compras });
 }

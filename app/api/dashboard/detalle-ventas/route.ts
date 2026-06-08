@@ -59,11 +59,7 @@ export async function GET(request: NextRequest) {
       puntoDeVenta: { select: { nombre: true } },
     },
     orderBy: { fecha: "asc" },
-    take: 501,
   });
 
-  const hasMore = ventas.length > 500;
-  const data = hasMore ? ventas.slice(0, 500) : ventas;
-
-  return NextResponse.json({ data, hasMore });
+  return NextResponse.json({ data: ventas });
 }

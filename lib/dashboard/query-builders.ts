@@ -9,6 +9,7 @@ export function buildDateRange(year: number, mes?: number): { fechaStart: Date; 
 interface PivotConditionParams {
   year: number;
   tableAlias: string;
+  hasFechaManual?: boolean;
   localId?: number;
   pdvId?: number;
   months?: number[];
@@ -21,6 +22,7 @@ interface PivotConditionParams {
 export function buildPivotConditions({
   year,
   tableAlias: t,
+  hasFechaManual = true,
   localId,
   pdvId,
   months,
@@ -29,8 +31,12 @@ export function buildPivotConditions({
   proveedorId,
   filterRubrosOcultos = false,
 }: PivotConditionParams): Prisma.Sql[] {
+  const fechaExpr = hasFechaManual
+    ? Prisma.sql`COALESCE(${Prisma.raw(t)}."fechaManual", ${Prisma.raw(t)}.fecha)`
+    : Prisma.sql`${Prisma.raw(t)}.fecha`;
+
   const conditions: Prisma.Sql[] = [
-    Prisma.sql`EXTRACT(YEAR FROM ${Prisma.raw(t)}.fecha) = ${year}`,
+    Prisma.sql`EXTRACT(YEAR FROM ${fechaExpr}) = ${year}`,
     Prisma.sql`${Prisma.raw(t)}.fecha IS NOT NULL`,
     Prisma.sql`${Prisma.raw(t)}.importe IS NOT NULL`,
   ];
@@ -38,7 +44,7 @@ export function buildPivotConditions({
   if (pdvId) conditions.push(Prisma.sql`${Prisma.raw(t)}."puntoDeVentaId" = ${pdvId}`);
   if (months?.length) {
     conditions.push(
-      Prisma.sql`EXTRACT(MONTH FROM ${Prisma.raw(t)}.fecha)::int IN (${Prisma.join(months.map((m) => Prisma.sql`${m}`))})`
+      Prisma.sql`EXTRACT(MONTH FROM ${fechaExpr})::int IN (${Prisma.join(months.map((m) => Prisma.sql`${m}`))})`
     );
   }
   if (rubroCodigo) {

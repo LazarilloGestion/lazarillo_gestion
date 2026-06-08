@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
       COALESCE(cc.nombre, 'Sin Concepto')                        AS concepto_nombre,
       p.id                                                        AS proveedor_id,
       COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor') AS proveedor_nombre,
-      EXTRACT(MONTH FROM c.fecha)::int                           AS mes,
+      EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int AS mes,
       SUM(COALESCE(c."importeManual", c.importe))                AS total
     FROM compras c
     LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo

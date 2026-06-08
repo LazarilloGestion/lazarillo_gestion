@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   const { year, localId, pdvId, months } = params;
 
   try {
-    const conditions = buildPivotConditions({ year, tableAlias: "v", localId, pdvId, months });
+    const conditions = buildPivotConditions({ year, tableAlias: "v", hasFechaManual: false, localId, pdvId, months });
     const where = Prisma.join(conditions, " AND ");
 
     const rows = await prisma.$queryRaw<VentasSqlRow[]>(Prisma.sql`
