@@ -18,16 +18,19 @@ function makeRowId(r: ETLRow): string {
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
 }
 
-// Completa TURNO→MOZO cuando una venta tiene múltiples formas de pago.
+// Completa TURNO→NOMBRESUC cuando una venta tiene múltiples formas de pago (pago partido).
 // El ERP deja esos campos vacíos en las filas secundarias; se heredan de la fila anterior.
+// Soporta N formas de cobro consecutivas (el cliente puede pagar con 4, 5 o 6 métodos).
 function fillPartialRows(rows: ETLRow[]): ETLRow[] {
-  const CARRY_FIELDS = ["TURNO", "COMPROBANT", "HORA", "TIPO", "MESA", "MOZO"];
+  const CARRY_FIELDS = ["TURNO", "COMPROBANT", "HORA", "TIPO", "MESA", "MOZO", "COD_SUC", "NOMBRESUC"];
   let last: Partial<ETLRow> = {};
   return rows.map((r) => {
     const filled = { ...r };
     for (const f of CARRY_FIELDS) {
-      if (filled[f] != null && filled[f] !== "") {
-        last[f] = filled[f];
+      const v = filled[f];
+      const empty = v == null || String(v).trim() === "";
+      if (!empty) {
+        last[f] = v;
       } else if (last[f] != null) {
         filled[f] = last[f];
       }
