@@ -86,7 +86,7 @@ function ConceptoCombobox({
             {options.map((opt) => (
               <CommandItem
                 key={opt.codigo}
-                value={opt.nombre}
+                value={`${opt.codigo} ${opt.nombre}`}
                 onSelect={() => { onValueChange(opt.codigo); setOpen(false); }}
                 className="text-xs"
               >
@@ -344,6 +344,7 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
     item.proveedor,
     item.proveedorRef?.nombre,
     item.proveedorRef?.razon,
+    item.observacManual,
     item.observac,
     item.detalle,
     item.concepto,
