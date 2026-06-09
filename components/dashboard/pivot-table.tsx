@@ -379,13 +379,19 @@ export function PivotTable() {
               }
 
               const prov = item.data;
+              const labelParts = [
+                prov.fecha ? `${prov.fecha.slice(8, 10)}/${prov.fecha.slice(5, 7)}` : null,
+                normalize(prov.nombre),
+                prov.observac || null,
+                fmtARS(prov.importe),
+              ].filter(Boolean);
               return (
                 <tr
                   key={prov.id}
                   className="border-b hover:bg-accent/20 transition-colors"
                 >
                   <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-muted-foreground pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]">
-                    {normalize(prov.nombre)}
+                    {labelParts.join(' · ')}
                   </td>
                   {months.map((mes) => (
                     <td

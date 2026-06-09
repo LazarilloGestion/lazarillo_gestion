@@ -35,24 +35,25 @@ export async function GET(request: NextRequest) {
   const conditions = buildPivotConditions({ year, tableAlias: "c", localId, pdvId, months, rubroCodigo, conceptoCodigo, proveedorId, filterRubrosOcultos: true });
   const where = Prisma.join(conditions, " AND ");
 
-  // SUM devuelve numeric (Prisma.Decimal) — no castear a float para evitar drift.
   const rows = await prisma.$queryRaw<SqlRow[]>(Prisma.sql`
     SELECT
-      COALESCE(rc.codigo, '__sin_rubro')                          AS rubro_codigo,
-      COALESCE(rc.nombre, 'Sin Rubro')                           AS rubro_nombre,
-      COALESCE(cc.codigo, '__sin_concepto')                      AS concepto_codigo,
-      COALESCE(cc.nombre, 'Sin Concepto')                        AS concepto_nombre,
-      p.id                                                        AS proveedor_id,
-      COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor') AS proveedor_nombre,
-      EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int AS mes,
-      SUM(COALESCE(c."importeManual", c.importe))                AS total
+      COALESCE(rc.codigo, '__sin_rubro')                                  AS rubro_codigo,
+      COALESCE(rc.nombre, 'Sin Rubro')                                   AS rubro_nombre,
+      COALESCE(cc.codigo, '__sin_concepto')                              AS concepto_codigo,
+      COALESCE(cc.nombre, 'Sin Concepto')                                AS concepto_nombre,
+      p.id                                                                AS proveedor_id,
+      COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor')         AS proveedor_nombre,
+      EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int        AS mes,
+      COALESCE(c."importeManual", c.importe)                             AS total,
+      c."rowId"                                                           AS row_id,
+      TO_CHAR(COALESCE(c."fechaManual", c.fecha), 'YYYY-MM-DD')         AS fecha,
+      COALESCE(c."observacManual", c.observac)                           AS observac
     FROM compras c
     LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
     LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
     LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
     WHERE ${where}
-    GROUP BY rc.codigo, rc.nombre, cc.codigo, cc.nombre, p.id, p.nombre, p.razon, c.proveedor, mes
-    ORDER BY rubro_nombre NULLS LAST, concepto_nombre NULLS LAST, proveedor_nombre NULLS LAST, mes
+    ORDER BY rubro_nombre NULLS LAST, concepto_nombre NULLS LAST, COALESCE(c."fechaManual", c.fecha) NULLS LAST, proveedor_nombre NULLS LAST
   `);
 
   return NextResponse.json(buildPivotData(rows));
@@ -65,8 +66,6 @@ export async function GET(request: NextRequest) {
 function buildPivotData(sqlRows: SqlRow[]): PivotData {
   const rubroMap = new Map<string, PivotRubroRow>();
   const conceptoMap = new Map<string, PivotConceptoRow>();
-  // Map por proveedor dentro de cada concepto para O(1) lookup
-  const provRowMap = new Map<string, PivotProveedorRow>();
 
   for (const row of sqlRows) {
     const {
@@ -78,16 +77,16 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
       proveedor_nombre,
       mes,
       total,
+      row_id,
+      fecha,
+      observac,
     } = row;
 
-    // Convertir Decimal/string a number preservando precisión
     const t = typeof total === "object" && total !== null
       ? Number(total.toString())
       : Number(total);
 
-    const provKey = proveedor_id != null ? String(proveedor_id) : "__sin_prov";
     const concKey = `${rubro_codigo}|${concepto_codigo}`;
-    const provRowId = `${concKey}|${provKey}`;
 
     if (!rubroMap.has(rubro_codigo)) {
       rubroMap.set(rubro_codigo, {
@@ -100,8 +99,7 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
         children: [],
       });
     }
-    const rubro = rubroMap.get(rubro_codigo);
-    if (!rubro) throw new Error(`Rubro ${rubro_codigo} not found in map`);
+    const rubro = rubroMap.get(rubro_codigo)!;
 
     if (!conceptoMap.has(concKey)) {
       const concepto: PivotConceptoRow = {
@@ -117,28 +115,22 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
       conceptoMap.set(concKey, concepto);
       rubro.children.push(concepto);
     }
-    const concepto = conceptoMap.get(concKey);
-    if (!concepto) throw new Error(`Concepto ${concKey} not found in map`);
+    const concepto = conceptoMap.get(concKey)!;
 
-    if (!provRowMap.has(provRowId)) {
-      const provRow: PivotProveedorRow = {
-        level: 2,
-        id: provRowId,
-        nombre: proveedor_nombre,
-        proveedorId: proveedor_id,
-        conceptoCodigo: concepto_codigo,
-        rubroCodigo: rubro_codigo,
-        values: {},
-        rowTotal: 0,
-      };
-      provRowMap.set(provRowId, provRow);
-      concepto.children.push(provRow);
-    }
-    const provRow = provRowMap.get(provRowId);
-    if (!provRow) throw new Error(`ProvRow ${provRowId} not found in map`);
-
-    provRow.values[mes] = (provRow.values[mes] ?? 0) + t;
-    provRow.rowTotal += t;
+    const provRow: PivotProveedorRow = {
+      level: 2,
+      id: `${concKey}|${row_id}`,
+      nombre: proveedor_nombre,
+      fecha: fecha ?? null,
+      observac: observac ?? null,
+      importe: t,
+      proveedorId: proveedor_id,
+      conceptoCodigo: concepto_codigo,
+      rubroCodigo: rubro_codigo,
+      values: { [mes]: t },
+      rowTotal: t,
+    };
+    concepto.children.push(provRow);
   }
 
   // Roll up values bottom-up: proveedor → concepto → rubro

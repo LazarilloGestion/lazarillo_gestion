@@ -7,6 +7,9 @@ export type PivotProveedorRow = {
   readonly level: 2;
   readonly id: string;
   readonly nombre: string;
+  readonly fecha: string | null;
+  readonly observac: string | null;
+  readonly importe: number;
   readonly proveedorId: number | null;
   readonly conceptoCodigo: string;
   readonly rubroCodigo: string;
@@ -77,6 +80,9 @@ export type SqlRow = {
   proveedor_nombre: string;
   mes: number;
   total: DecimalLike;
+  row_id: string;
+  fecha: string | null;
+  observac: string | null;
 };
 
 // --- Ventas ---
