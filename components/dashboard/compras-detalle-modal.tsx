@@ -1,27 +1,23 @@
 "use client";
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
-import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare, Search } from "lucide-react";
-import { useSortState } from "@/hooks/use-sort-state";
-import { SortableTableHead } from "./sortable-table-head";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command, CommandEmpty, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn, fmtARS, fmtDate, normalize } from "@/lib/utils";
-import { Spinner } from "@/components/ui/spinner";
+import { Input } from "@/components/ui/input";
 import { buildComprasDetalleUrl } from "@/lib/dashboard/params";
-import { useTableSearch } from "@/hooks/use-table-search";
-import { SearchInput } from "@/components/ui/search-input";
 import type { DetalleFilter, DetalleResponse, CompraDetalle } from "@/lib/dashboard/types";
+import type { SortState } from "@/hooks/use-sort-state";
 import {
   EditActionButtons, EditTriggerButton, EditedDot, toEditString,
 } from "./edit-row-controls";
 import { CompraLineasModal } from "./compra-lineas-modal";
+import { DetalleModalShell } from "./detalle-modal-shell";
 
 export interface ColDef {
   label: string;
@@ -66,38 +62,41 @@ function ConceptoCombobox({
   options: ConceptoOption[];
 }) {
   const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const selected = options.find((o) => o.codigo === value);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex h-7 w-44 items-center justify-between rounded-md border border-input bg-background px-2 text-xs hover:bg-accent focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          <span className="truncate">{selected?.nombre ?? <span className="text-muted-foreground">Sin cambio</span>}</span>
-          <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-64 p-0">
-        <Command>
-          <CommandInput placeholder="Buscar concepto..." className="h-8 text-xs" />
-          <CommandList className="max-h-52">
-            <CommandEmpty className="py-2 text-center text-xs text-muted-foreground">Sin resultados.</CommandEmpty>
-            {options.map((opt) => (
-              <CommandItem
-                key={opt.codigo}
-                value={`${opt.codigo} ${opt.nombre}`}
-                onSelect={() => { onValueChange(opt.codigo); setOpen(false); }}
-                className="text-xs"
-              >
-                <Check className={cn("mr-1 h-3 w-3", value === opt.codigo ? "opacity-100" : "opacity-0")} />
-                {opt.nombre}
-              </CommandItem>
-            ))}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+    <div ref={containerRef} className="contents">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex h-7 w-44 items-center justify-between rounded-md border border-input bg-background px-2 text-xs hover:bg-accent focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <span className="truncate">{selected?.nombre ?? <span className="text-muted-foreground">Sin cambio</span>}</span>
+            <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 p-0" container={containerRef.current}>
+          <Command>
+            <CommandInput placeholder="Buscar concepto..." className="h-8 text-xs" />
+            <CommandList className="max-h-52">
+              <CommandEmpty className="py-2 text-center text-xs text-muted-foreground">Sin resultados.</CommandEmpty>
+              {options.map((opt) => (
+                <CommandItem
+                  key={opt.codigo}
+                  value={`${opt.codigo} ${opt.nombre}`}
+                  onSelect={() => { onValueChange(opt.codigo); setOpen(false); }}
+                  className="text-xs"
+                >
+                  <Check className={cn("mr-1 h-3 w-3", value === opt.codigo ? "opacity-100" : "opacity-0")} />
+                  {opt.nombre}
+                </CommandItem>
+              ))}
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -113,6 +112,30 @@ const COMPRAS_COLS: ColDef[] = [
   { label: "Rubro",       icon: Layers,         color: "text-blue-500",         bg: "bg-blue-500/10",    right: false                        },
   { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground", bg: "bg-muted",          right: true,  sortKey: "importe"    },
 ];
+
+// ─── Sort ─────────────────────────────────────────────────────────────────────
+
+function sortCompras(a: CompraDetalle, b: CompraDetalle, sort: SortState): number {
+  if (!sort) return 0;
+  if (sort.key === "importe") {
+    const va = Number(a.importeManual ?? a.importe ?? 0);
+    const vb = Number(b.importeManual ?? b.importe ?? 0);
+    return sort.dir === "asc" ? va - vb : vb - va;
+  }
+  let va = "", vb = "";
+  if (sort.key === "fecha") {
+    va = String(a.fechaManual ?? a.fecha ?? "").slice(0, 10);
+    vb = String(b.fechaManual ?? b.fecha ?? "").slice(0, 10);
+  } else if (sort.key === "proveedor") {
+    va = String(a.proveedor || a.proveedorRef?.nombre || a.proveedorRef?.razon || "");
+    vb = String(b.proveedor || b.proveedorRef?.nombre || b.proveedorRef?.razon || "");
+  } else if (sort.key === "concepto") {
+    va = String((a.conceptoCajaManual ?? a.conceptoCaja)?.nombre ?? "");
+    vb = String((b.conceptoCajaManual ?? b.conceptoCaja)?.nombre ?? "");
+  }
+  const cmp = va.localeCompare(vb, "es", { numeric: true });
+  return sort.dir === "asc" ? cmp : -cmp;
+}
 
 // ─── Row component ────────────────────────────────────────────────────────────
 
@@ -152,13 +175,13 @@ function ComprasRow({
             onChange={e => onEdit({ ...editing!, fechaManual: e.target.value })}
           />
         </td>
-        <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
+        <td className="px-3 py-1.5 truncate text-muted-foreground">
           {normalize(item.local?.nombre)}
         </td>
-        <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
+        <td className="px-3 py-1.5 truncate text-muted-foreground">
           {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
         </td>
-        <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
+        <td className="px-3 py-1.5 truncate text-muted-foreground">
           {normalize(item.detalle)}
         </td>
         <td className="px-2 py-1.5">
@@ -177,8 +200,7 @@ function ComprasRow({
             options={conceptoOptions}
           />
         </td>
-        {/* Rubro auto-populated from selected concept */}
-        <td className="px-4 py-1.5 text-sm truncate text-muted-foreground">
+        <td className="px-3 py-1.5 truncate text-muted-foreground">
           {selectedConcepto?.rubroNombre ?? normalize(effectiveConcepto?.rubro?.nombre)}
         </td>
         <td className="px-2 py-1.5 text-right">
@@ -199,17 +221,17 @@ function ComprasRow({
 
   return (
     <tr className="group border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
-      <td className="px-4 py-2.5 truncate">
+      <td className="px-3 py-1.5 truncate">
         <span className="flex items-center gap-1.5">
           {isEdited(item) && <EditedDot />}
           {fmtDate(effectiveFecha)}
         </span>
       </td>
-      <td className="px-4 py-2.5 truncate">{normalize(item.local?.nombre)}</td>
-      <td className="px-4 py-2.5 truncate">
+      <td className="px-3 py-1.5 truncate">{normalize(item.local?.nombre)}</td>
+      <td className="px-3 py-1.5 truncate">
         {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
       </td>
-      <td className="px-4 py-2.5">
+      <td className="px-3 py-1.5">
         {item.detalle ? (
           <button
             onClick={() => onOpenLineas(item.rowId, item.detalle)}
@@ -221,13 +243,13 @@ function ComprasRow({
           <span className="text-muted-foreground">—</span>
         )}
       </td>
-      <td className="px-4 py-2.5 truncate text-muted-foreground">{normalize(item.observacManual ?? item.observac)}</td>
-      <td className="px-4 py-2.5 truncate">{normalize(effectiveConcepto?.nombre)}</td>
-      <td className="px-4 py-2.5 truncate">{normalize(effectiveConcepto?.rubro?.nombre)}</td>
-      <td className="px-4 py-2.5 text-right tabular-nums font-medium whitespace-nowrap">
+      <td className="px-3 py-1.5 max-w-[12rem] whitespace-normal break-words text-muted-foreground">{normalize(item.observacManual ?? item.observac)}</td>
+      <td className="px-3 py-1.5 truncate">{normalize(effectiveConcepto?.nombre)}</td>
+      <td className="px-3 py-1.5 truncate">{normalize(effectiveConcepto?.rubro?.nombre)}</td>
+      <td className="px-3 py-1.5 text-right tabular-nums font-medium whitespace-nowrap">
         {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
       </td>
-      <td className="px-2 py-2.5">
+      <td className="px-2 py-1.5">
         <EditTriggerButton
           onClick={() =>
             onEdit({
@@ -246,29 +268,20 @@ function ComprasRow({
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
-export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null; onClose: () => void }) {
+export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [selectedLineas, setSelectedLineas] = useState<{ rowId: string; detalle: string | null } | null>(null);
-  const { sort, handleSortClick } = useSortState();
 
   const queryKey = useMemo(() => ["detalle", filter], [filter]);
 
-  const { data: response, isLoading, error } = useQuery<DetalleResponse<CompraDetalle>>({
-    queryKey,
-    queryFn: async () => {
-      if (!filter) throw new Error("Filter requerido");
-      const res = await fetch(buildComprasDetalleUrl(filter));
-      if (!res.ok) throw new Error("Error cargando detalle");
-      return res.json() as Promise<DetalleResponse<CompraDetalle>>;
-    },
-    enabled: filter !== null,
-    staleTime: 60_000,
-    retry: 2,
-    retryDelay: (i) => Math.min(1000 * 2 ** i, 30_000),
-  });
+  const queryFn = useCallback(async (): Promise<DetalleResponse<CompraDetalle>> => {
+    const res = await fetch(buildComprasDetalleUrl(filter!));
+    if (!res.ok) throw new Error("Error cargando detalle");
+    return res.json();
+  }, [filter]);
 
   const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string }>>({
     queryKey: ["suggestions"],
@@ -290,7 +303,7 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
     try {
       const body = {
         importeManual:        state.importeManual !== "" ? parseFloat(state.importeManual) : null,
-        fechaManual:          state.fechaManual !== "" ? new Date(state.fechaManual + "T00:00:00Z").toISOString() : null,
+        fechaManual:          state.fechaManual !== "" ? new Date(state.fechaManual + "T12:00:00Z").toISOString() : null,
         conceptoCodigoManual: state.conceptoCodigoManual !== "" ? state.conceptoCodigoManual : null,
         observacManual:       state.observacManual !== "" ? state.observacManual : null,
       };
@@ -301,8 +314,8 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
       });
       if (!res.ok) throw new Error("Error al guardar");
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey }),
-        queryClient.invalidateQueries({ queryKey: ["pivot"] }),
+        queryClient.refetchQueries({ queryKey }),
+        queryClient.refetchQueries({ queryKey: ["pivot"] }),
       ]);
       setEditing(null);
     } catch {
@@ -312,35 +325,7 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
     }
   }, [queryClient, queryKey]);
 
-  const rawData = response?.data;
-  const count = rawData?.length ?? 0;
-
-  const data = useMemo(() => {
-    if (!rawData || !sort) return rawData ?? [];
-    return [...rawData].sort((a, b) => {
-      let va: string | number = "";
-      let vb: string | number = "";
-      if (sort.key === "importe") {
-        va = Number(a.importeManual ?? a.importe ?? 0);
-        vb = Number(b.importeManual ?? b.importe ?? 0);
-        return sort.dir === "asc" ? (va - vb) : (vb - va);
-      }
-      if (sort.key === "fecha") {
-        va = String(a.fechaManual ?? a.fecha ?? "").slice(0, 10);
-        vb = String(b.fechaManual ?? b.fecha ?? "").slice(0, 10);
-      } else if (sort.key === "proveedor") {
-        va = String(a.proveedor || a.proveedorRef?.nombre || a.proveedorRef?.razon || "");
-        vb = String(b.proveedor || b.proveedorRef?.nombre || b.proveedorRef?.razon || "");
-      } else if (sort.key === "concepto") {
-        va = String((a.conceptoCajaManual ?? a.conceptoCaja)?.nombre ?? "");
-        vb = String((b.conceptoCajaManual ?? b.conceptoCaja)?.nombre ?? "");
-      }
-      const cmp = va.localeCompare(vb, "es", { numeric: true });
-      return sort.dir === "asc" ? cmp : -cmp;
-    });
-  }, [rawData, sort]);
-
-  const { query, setQuery, filtered } = useTableSearch(data, (item) => [
+  const searchFields = useCallback((item: CompraDetalle) => [
     item.proveedor,
     item.proveedorRef?.nombre,
     item.proveedorRef?.razon,
@@ -351,81 +336,45 @@ export function DetalleModal({ filter, onClose }: { filter: DetalleFilter | null
     (item.conceptoCajaManual ?? item.conceptoCaja)?.nombre,
     (item.conceptoCajaManual ?? item.conceptoCaja)?.rubro?.nombre,
     item.local?.nombre,
-  ]);
+  ], []);
 
-  useEffect(() => { setQuery(""); }, [filter, setQuery]);
+  const handleClose = useCallback(() => {
+    setEditing(null);
+    setSelectedLineas(null);
+    onClose();
+  }, [onClose]);
 
   return (
     <>
-    <Dialog open={filter !== null} onOpenChange={(open) => { if (!open) { setEditing(null); setSelectedLineas(null); onClose(); } }}>
-      <DialogContent showCloseButton={false} className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
-
-        {(!isLoading && !error && count > 0) ? null : (
-          <div className="px-6 pt-4 pb-3 shrink-0">
-            <DialogTitle className="text-base font-semibold">Detalle de compras</DialogTitle>
-          </div>
+      <DetalleModalShell<CompraDetalle>
+        open={filter !== null}
+        onClose={handleClose}
+        title="Detalle de compras"
+        cols={COMPRAS_COLS}
+        queryKey={queryKey}
+        queryFn={queryFn}
+        searchFields={searchFields}
+        sortFn={sortCompras}
+        saveError={saveError}
+        renderRow={(item) => (
+          <ComprasRow
+            key={item.rowId}
+            item={item}
+            editing={editing}
+            conceptoOptions={conceptoOptions}
+            onEdit={setEditing}
+            onSave={handleSave}
+            onCancel={() => setEditing(null)}
+            saving={saving}
+            onOpenLineas={(rowId, detalle) => setSelectedLineas({ rowId, detalle })}
+          />
         )}
-
-        {isLoading && <div className="flex items-center justify-center py-12"><Spinner /></div>}
-        {error && <div className="py-12 text-center text-sm text-destructive">Error al cargar los datos.</div>}
-        {!isLoading && !error && count === 0 && (
-          <div className="py-12 text-center text-sm text-muted-foreground">Sin registros para la selección.</div>
-        )}
-
-        {!isLoading && !error && count > 0 && (
-          <div className="overflow-auto flex-1 min-h-0">
-            <table className="text-sm min-w-max w-full">
-              <thead className="sticky top-0 z-10 bg-popover">
-                <tr>
-                  <th colSpan={COMPRAS_COLS.length + 1} className="px-6 pt-4 pb-3 text-left">
-                    <div className="flex items-center justify-between gap-4">
-                      <DialogTitle className="text-base font-semibold">Detalle de compras</DialogTitle>
-                      <SearchInput value={query} onChange={setQuery} className="w-44" />
-                    </div>
-                  </th>
-                </tr>
-                <tr className="border-b border-border/60">
-                  <SortableTableHead cols={COMPRAS_COLS} sort={sort} onSort={handleSortClick} />
-                  <th className="w-8" />
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((item) => (
-                  <ComprasRow
-                    key={item.rowId}
-                    item={item}
-                    editing={editing}
-                    conceptoOptions={conceptoOptions}
-                    onEdit={setEditing}
-                    onSave={handleSave}
-                    onCancel={() => setEditing(null)}
-                    saving={saving}
-                    onOpenLineas={(rowId, detalle) => setSelectedLineas({ rowId, detalle })}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {saveError && (
-          <div className="border-t border-destructive/30 px-6 py-2 text-xs text-destructive">{saveError}</div>
-        )}
-        {count > 0 && (
-          <div className="border-t border-border/60 px-6 py-2.5 shrink-0 text-[11px] text-muted-foreground/60">
-            {query
-              ? `${filtered.length} de ${count} registro${count !== 1 ? "s" : ""}`
-              : `${count} registro${count !== 1 ? "s" : ""}`}
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-
-    <CompraLineasModal
-      compraId={selectedLineas?.rowId ?? null}
-      comprobante={selectedLineas?.detalle ?? null}
-      onClose={() => setSelectedLineas(null)}
-    />
-  </>
+      />
+      <CompraLineasModal
+        compraId={selectedLineas?.rowId ?? null}
+        comprobante={selectedLineas?.detalle ?? null}
+        onClose={() => setSelectedLineas(null)}
+      />
+    </>
   );
 }

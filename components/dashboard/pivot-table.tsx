@@ -17,7 +17,7 @@ import type {
   DetalleFilter,
   VentasDetalleFilter,
 } from "@/lib/dashboard/types";
-import { DetalleModal } from "./detalle-modal";
+import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 
 
@@ -446,7 +446,7 @@ export function PivotTable() {
         </table>
       </div>
 
-      <DetalleModal
+      <ComprasDetalleModal
         filter={detalleFilter}
         onClose={() => setDetalleFilter(null)}
       />

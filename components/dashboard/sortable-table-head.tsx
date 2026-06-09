@@ -1,6 +1,6 @@
 "use client";
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
-import type { ColDef } from "./detalle-modal";
+import type { ColDef } from "./compras-detalle-modal";
 import type { SortState } from "@/hooks/use-sort-state";
 
 export function SortableTableHead({
