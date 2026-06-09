@@ -120,6 +120,7 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
     const provRow: PivotProveedorRow = {
       level: 2,
       id: `${concKey}|${row_id}`,
+      rowId: row_id,
       nombre: proveedor_nombre,
       fecha: fecha ?? null,
       observac: observac ?? null,

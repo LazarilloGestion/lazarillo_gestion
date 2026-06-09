@@ -16,6 +16,34 @@ export async function GET(request: NextRequest) {
   const yearParsed = yearSchema.safeParse(searchParams.get("year") ?? new Date().getFullYear());
   const year = yearParsed.success ? yearParsed.data : new Date().getFullYear();
 
+  const rowId = searchParams.get("rowId") ?? undefined;
+
+  // When filtering by a single transaction rowId (PK), skip all other filters.
+  if (rowId) {
+    const compra = await prisma.compra.findUnique({
+      where: { rowId },
+      select: {
+        rowId: true,
+        fecha: true,
+        importe: true,
+        importeManual: true,
+        fechaManual: true,
+        conceptoCodigoManual: true,
+        concepto: true,
+        detalle: true,
+        observac: true,
+        observacManual: true,
+        proveedor: true,
+        proveedorRef: { select: { id: true, nombre: true, razon: true } },
+        local: { select: { nombre: true } },
+        puntoDeVenta: { select: { nombre: true } },
+        conceptoCaja: { select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } } },
+        conceptoCajaManual: { select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } } },
+      },
+    });
+    return NextResponse.json({ data: compra ? [compra] : [] });
+  }
+
   const localId = idSchema.safeParse(searchParams.get("localId")).data;
   const pdvId = idSchema.safeParse(searchParams.get("pdvId")).data;
   const mes = mesSchema.safeParse(searchParams.get("mes")).data;

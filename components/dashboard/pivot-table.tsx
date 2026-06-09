@@ -402,11 +402,7 @@ export function PivotTable() {
                       )}
                       onClick={() => {
                         if (hasValue(prov.values[mes]))
-                          openDetalle({
-                            mes,
-                            conceptoCodigo: prov.conceptoCodigo,
-                            proveedorId: prov.proveedorId ?? undefined,
-                          });
+                          openDetalle({ rowId: prov.rowId });
                       }}
                     >
                       {fmtARS(prov.values[mes])}
@@ -414,12 +410,7 @@ export function PivotTable() {
                   ))}
                   <td
                     className="text-right px-4 py-1.5 tabular-nums text-muted-foreground text-xs cursor-pointer hover:text-foreground"
-                    onClick={() =>
-                      openDetalle({
-                        conceptoCodigo: prov.conceptoCodigo,
-                        proveedorId: prov.proveedorId ?? undefined,
-                      })
-                    }
+                    onClick={() => openDetalle({ rowId: prov.rowId })}
                   >
                     {fmtARS(prov.rowTotal)}
                   </td>

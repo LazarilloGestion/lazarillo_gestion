@@ -494,12 +494,16 @@ function DriveTab({
         setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
         setFileErrors((s) => ({ ...s, [file.id]: json.error ?? "Error" }));
         return { ok: false, records: 0 };
-      } else {
+      } else if (Array.isArray(json)) {
         const reports = json as ETLReport[];
         setFileStatuses((s) => ({ ...s, [file.id]: "success" }));
         setFileReports((s) => ({ ...s, [file.id]: reports }));
         const records = reports.reduce((s, r) => s + r.created + r.updated, 0);
         return { ok: true, records };
+      } else {
+        setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
+        setFileErrors((s) => ({ ...s, [file.id]: "Respuesta inesperada del servidor" }));
+        return { ok: false, records: 0 };
       }
     } catch {
       setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
@@ -530,6 +534,7 @@ function DriveTab({
     let totalFiles = 0;
     let totalErrors = 0;
     let totalRecords = 0;
+    let foldersBlocked = false;
     try {
       if (ready.maestros.length > 0) {
         const r = await importAllFiles(ready.maestros);
@@ -542,7 +547,10 @@ function DriveTab({
       if (ready.folders.length > 0) {
         const { loaded } = await fetch("/api/etl/maestros-status").then((r) => r.json() as Promise<{ loaded: boolean }>);
         onMaestrosChange(loaded);
-        if (!loaded) return;
+        if (!loaded) {
+          foldersBlocked = true;
+          return;
+        }
         for (const folder of ready.folders) {
           const r = await importAllFiles(folder.files, folder.localId ?? undefined, folder.puntoDeVentaId ?? undefined);
           totalFiles += r.total;
@@ -552,7 +560,14 @@ function DriveTab({
       }
     } finally {
       setGlobalImporting(false);
-      if (totalFiles > 0) {
+      if (foldersBlocked) {
+        toast.warning("Maestros no cargados", {
+          description: totalFiles > 0
+            ? `Se procesaron ${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} maestros pero los transaccionales no se importaron`
+            : "Los archivos transaccionales no se importaron — los maestros no están disponibles",
+          duration: Infinity,
+        });
+      } else if (totalFiles > 0) {
         if (totalErrors === 0) {
           toast.success("Importación completada", {
             description: `${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} procesados · ${totalRecords} registros`,

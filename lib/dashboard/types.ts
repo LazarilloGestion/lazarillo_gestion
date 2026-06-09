@@ -6,6 +6,7 @@ export type DecimalLike = { toString(): string } | number | string;
 export type PivotProveedorRow = {
   readonly level: 2;
   readonly id: string;
+  readonly rowId: string;
   readonly nombre: string;
   readonly fecha: string | null;
   readonly observac: string | null;
@@ -57,6 +58,7 @@ export type DetalleFilter = BaseDashboardFilter & {
   rubroCodigo?: string;
   conceptoCodigo?: string;
   proveedorId?: number;
+  rowId?: string;
 };
 
 export type VentasDetalleFilter = BaseDashboardFilter & {
