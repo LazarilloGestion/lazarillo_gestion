@@ -556,10 +556,12 @@ function DriveTab({
         if (totalErrors === 0) {
           toast.success("Importación completada", {
             description: `${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} procesados · ${totalRecords} registros`,
+            duration: Infinity,
           });
         } else {
           toast.error("Importación con errores", {
             description: `${totalErrors} de ${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} fallaron — revisá los detalles`,
+            duration: Infinity,
           });
         }
       }
