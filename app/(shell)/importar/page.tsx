@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -475,7 +476,7 @@ function DriveTab({
     }
   }
 
-  async function importOneFile(file: DriveFile, localId?: number, puntoDeVentaId?: number) {
+  async function importOneFile(file: DriveFile, localId?: number, puntoDeVentaId?: number): Promise<{ ok: boolean; records: number }> {
     setFileStatuses((s) => ({ ...s, [file.id]: "importing" }));
     try {
       const res = await fetch("/api/etl/drive-import", {
@@ -492,33 +493,49 @@ function DriveTab({
       if (!res.ok) {
         setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
         setFileErrors((s) => ({ ...s, [file.id]: json.error ?? "Error" }));
+        return { ok: false, records: 0 };
       } else {
+        const reports = json as ETLReport[];
         setFileStatuses((s) => ({ ...s, [file.id]: "success" }));
-        setFileReports((s) => ({ ...s, [file.id]: json as ETLReport[] }));
+        setFileReports((s) => ({ ...s, [file.id]: reports }));
+        const records = reports.reduce((s, r) => s + r.created + r.updated, 0);
+        return { ok: true, records };
       }
     } catch {
       setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
       setFileErrors((s) => ({ ...s, [file.id]: "Error de red" }));
+      return { ok: false, records: 0 };
     }
   }
 
-  async function importAllFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number) {
+  async function importAllFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number): Promise<{ errors: number; total: number; records: number }> {
+    let errors = 0;
+    let records = 0;
     for (const file of files) {
-      await importOneFile(file, localId, puntoDeVentaId);
+      const result = await importOneFile(file, localId, puntoDeVentaId);
+      if (!result.ok) errors++;
+      records += result.records;
     }
     // Re-chequear maestros por si se acaban de importar
     fetch("/api/etl/maestros-status")
       .then((r) => r.json() as Promise<{ loaded: boolean }>)
       .then((d) => onMaestrosChange(d.loaded))
       .catch(() => {});
+    return { errors, total: files.length, records };
   }
 
   async function importarTodo() {
     if (!ready) return;
     setGlobalImporting(true);
+    let totalFiles = 0;
+    let totalErrors = 0;
+    let totalRecords = 0;
     try {
       if (ready.maestros.length > 0) {
-        await importAllFiles(ready.maestros);
+        const r = await importAllFiles(ready.maestros);
+        totalFiles += r.total;
+        totalErrors += r.errors;
+        totalRecords += r.records;
       }
       // Siempre re-chequear maestros antes de importar transaccionales,
       // incluso si no había archivos maestros en Drive (pueden estar ya cargados).
@@ -527,11 +544,25 @@ function DriveTab({
         onMaestrosChange(loaded);
         if (!loaded) return;
         for (const folder of ready.folders) {
-          await importAllFiles(folder.files, folder.localId ?? undefined, folder.puntoDeVentaId ?? undefined);
+          const r = await importAllFiles(folder.files, folder.localId ?? undefined, folder.puntoDeVentaId ?? undefined);
+          totalFiles += r.total;
+          totalErrors += r.errors;
+          totalRecords += r.records;
         }
       }
     } finally {
       setGlobalImporting(false);
+      if (totalFiles > 0) {
+        if (totalErrors === 0) {
+          toast.success("Importación completada", {
+            description: `${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} procesados · ${totalRecords} registros`,
+          });
+        } else {
+          toast.error("Importación con errores", {
+            description: `${totalErrors} de ${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} fallaron — revisá los detalles`,
+          });
+        }
+      }
     }
   }
 
@@ -774,8 +805,8 @@ function DriveFolder({
   fileStatuses: FileStates;
   fileReports: FileReports;
   fileErrors: FileErrors;
-  onImportOne: (file: DriveFile, localId?: number, puntoDeVentaId?: number) => Promise<void>;
-  onImportAll: (files: DriveFile[], localId?: number, puntoDeVentaId?: number) => Promise<void>;
+  onImportOne: (file: DriveFile, localId?: number, puntoDeVentaId?: number) => Promise<unknown>;
+  onImportAll: (files: DriveFile[], localId?: number, puntoDeVentaId?: number) => Promise<unknown>;
   blocked?: boolean;
   globalImporting?: boolean;
   onResetFile: (fileId: string) => void;
