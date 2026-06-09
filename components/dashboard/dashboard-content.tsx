@@ -9,7 +9,7 @@ export function DashboardContent() {
   const [clipping, setClipping] = useState(false);
 
   return (
-    <div className="flex flex-col h-full p-3 md:p-6 gap-4 md:gap-5">
+    <div className="flex flex-col h-full p-3 pt-2 pb-2 md:p-6 md:pt-3 md:pb-3 gap-4 md:gap-5">
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-1 min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white truncate">
