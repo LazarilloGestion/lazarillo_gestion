@@ -20,7 +20,7 @@ import {
 import type { Local } from "@/lib/types/domain";
 
 const CURRENT_YEAR = new Date().getFullYear();
-const YEARS = Array.from({ length: CURRENT_YEAR - 2019 }, (_, i) => CURRENT_YEAR - i);
+const YEARS = Array.from({ length: CURRENT_YEAR - 2024 }, (_, i) => CURRENT_YEAR - i);
 
 type Props = {
   locales: Local[];
