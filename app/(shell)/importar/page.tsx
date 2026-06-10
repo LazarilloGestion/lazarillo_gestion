@@ -159,13 +159,13 @@ export default function ImportarPage() {
   );
 
   return (
-    <div className="max-w-2xl mx-auto py-10 px-6 flex flex-col gap-8">
+    <div className="p-4 md:p-6 flex flex-col gap-6">
       {/* Header */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white">
           Importar datos
         </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="text-sm text-muted-foreground">
           Importá archivos Excel del ERP — desde Google Drive o desde tu computadora.
         </p>
       </div>
