@@ -1,21 +1,43 @@
 "use client";
+import { useEffect } from "react";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { PivotTable } from "./pivot-table";
 import { VentasPivotTable } from "./ventas-pivot-table";
+import { Maximize2, Minimize2 } from "lucide-react";
 
-export function DashboardTabContent() {
+interface DashboardTabContentProps {
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
+}
+
+export function DashboardTabContent({ isFullscreen, onToggleFullscreen }: DashboardTabContentProps) {
   const { tab, switchTab } = useDashboard();
-
   const tabId = (t: string) => `tab-btn-${t}`;
   const panelId = (t: string) => `tab-panel-${t}`;
 
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onToggleFullscreen(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isFullscreen, onToggleFullscreen]);
+
   return (
-    <>
+    <motion.div
+      initial={false}
+      animate={isFullscreen ? { opacity: [0.85, 1], scale: [0.98, 1] } : { opacity: 1, scale: 1 }}
+      transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+      className={cn(
+        "flex flex-col bg-white dark:bg-zinc-900",
+        isFullscreen ? "fixed inset-0 z-50" : "h-full"
+      )}
+    >
       <div
         role="tablist"
         aria-label="Vista del dashboard"
-        className="flex items-center gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50 shrink-0"
+        className="flex items-center justify-between gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50 shrink-0"
       >
         <div className="flex gap-0 border border-zinc-200 dark:border-zinc-700 rounded-lg p-1 bg-zinc-50 dark:bg-zinc-800/50">
           {(["compras", "ventas"] as const).map((t) => (
@@ -30,13 +52,21 @@ export function DashboardTabContent() {
                 "px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-150 capitalize",
                 tab === t
                   ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm"
-                  : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                  : "text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-200"
               )}
             >
               {t === "compras" ? "Compras" : "Ventas"}
             </button>
           ))}
         </div>
+
+        <button
+          onClick={onToggleFullscreen}
+          title={isFullscreen ? "Salir de pantalla completa (Esc)" : "Pantalla completa"}
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
+        >
+          {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        </button>
       </div>
 
       <div
@@ -58,6 +88,6 @@ export function DashboardTabContent() {
       >
         {tab === "ventas" && <VentasPivotTable />}
       </div>
-    </>
+    </motion.div>
   );
 }

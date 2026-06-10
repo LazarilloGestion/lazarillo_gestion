@@ -7,14 +7,18 @@ import { DashboardTabContent } from "@/components/dashboard/dashboard-tab-conten
 export function DashboardContent() {
   const [showFilters, setShowFilters] = useState(true);
   const [clipping, setClipping] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   return (
-    <div className="flex flex-col h-full p-3 pt-2 pb-2 md:p-6 md:pt-3 md:pb-3 gap-4 md:gap-5">
+    <div className="flex flex-col h-full p-4 md:p-6 gap-6">
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-1 min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white truncate">
             Panel de Gestión
           </h1>
+          <p className="text-sm text-muted-foreground truncate">
+            Resumen general de operaciones
+          </p>
         </div>
         <button
           onClick={() => { setClipping(true); setShowFilters(v => !v); }}
@@ -36,7 +40,7 @@ export function DashboardContent() {
       </motion.div>
 
       <div className="flex-1 min-h-0 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden flex flex-col">
-        <DashboardTabContent />
+        <DashboardTabContent isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen(v => !v)} />
       </div>
     </div>
   );
