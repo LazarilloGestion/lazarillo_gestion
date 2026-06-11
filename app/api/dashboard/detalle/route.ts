@@ -69,12 +69,10 @@ export async function GET(request: NextRequest) {
         ],
       },
       {
-        NOT: {
-          OR: [
-            { importeManual: 0 },
-            { importeManual: null, importe: 0 },
-          ],
-        },
+        OR: [
+          { importeManual: { not: null }, NOT: { importeManual: 0 } },
+          { importeManual: null, importe: { not: null }, NOT: { importe: 0 } },
+        ],
       },
     ],
     ...(localId !== undefined && { localId }),

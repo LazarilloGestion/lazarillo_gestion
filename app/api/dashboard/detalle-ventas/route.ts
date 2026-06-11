@@ -39,12 +39,10 @@ export async function GET(request: NextRequest) {
       ...(params.pdvId !== undefined && { puntoDeVentaId: params.pdvId }),
       ...(tipoCodigo && { tipo: tipoCodigo === SIN_TIPO_CODE ? null : tipoCodigo }),
       ...(cobroCodigo && { codCobro: cobroCodigo === SIN_COBRO_CODE ? null : cobroCodigo }),
-      NOT: {
-        OR: [
-          { importeManual: 0 },
-          { importeManual: null, importe: 0 },
-        ],
-      },
+      OR: [
+        { importeManual: { not: null }, NOT: { importeManual: 0 } },
+        { importeManual: null, importe: { not: null }, NOT: { importe: 0 } },
+      ],
     },
     select: {
       rowId: true,
