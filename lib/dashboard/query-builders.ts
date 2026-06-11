@@ -10,6 +10,7 @@ interface PivotConditionParams {
   year: number;
   tableAlias: string;
   hasFechaManual?: boolean;
+  hasImporteManual?: boolean;
   localId?: number;
   pdvId?: number;
   months?: number[];
@@ -23,6 +24,7 @@ export function buildPivotConditions({
   year,
   tableAlias: t,
   hasFechaManual = true,
+  hasImporteManual = true,
   localId,
   pdvId,
   months,
@@ -39,10 +41,15 @@ export function buildPivotConditions({
     ? Prisma.sql`(${Prisma.raw(t)}.fecha IS NOT NULL OR ${Prisma.raw(t)}."fechaManual" IS NOT NULL)`
     : Prisma.sql`${Prisma.raw(t)}.fecha IS NOT NULL`;
 
+  const importeExpr = hasImporteManual
+    ? Prisma.sql`COALESCE(${Prisma.raw(t)}."importeManual", ${Prisma.raw(t)}.importe)`
+    : Prisma.sql`${Prisma.raw(t)}.importe`;
+
   const conditions: Prisma.Sql[] = [
     Prisma.sql`EXTRACT(YEAR FROM ${fechaExpr}) = ${year}`,
     dateGuard,
     Prisma.sql`${Prisma.raw(t)}.importe IS NOT NULL`,
+    Prisma.sql`${importeExpr} != 0`,
   ];
   if (localId) conditions.push(Prisma.sql`${Prisma.raw(t)}."localId" = ${localId}`);
   if (pdvId) conditions.push(Prisma.sql`${Prisma.raw(t)}."puntoDeVentaId" = ${pdvId}`);

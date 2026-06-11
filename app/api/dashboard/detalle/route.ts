@@ -68,6 +68,14 @@ export async function GET(request: NextRequest) {
           { fechaManual: null, fecha: { gte: fechaStart, lt: fechaEnd } },
         ],
       },
+      {
+        NOT: {
+          OR: [
+            { importeManual: 0 },
+            { importeManual: null, importe: 0 },
+          ],
+        },
+      },
     ],
     ...(localId !== undefined && { localId }),
     ...(pdvId !== undefined && { puntoDeVentaId: pdvId }),
