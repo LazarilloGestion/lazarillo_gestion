@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { toast } from "sonner";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { Settings2, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -51,6 +52,7 @@ export function RubrosConfigModal() {
   useEffect(() => { if (open) fetchRubros(); }, [open, fetchRubros]);
 
   async function toggleRubro(codigo: string, visible: boolean) {
+    const nombre = rubros.find((r) => r.codigo === codigo)?.nombre ?? codigo;
     setSaving(codigo);
     try {
       const res = await fetch("/api/config/rubros-dashboard", {
@@ -63,8 +65,10 @@ export function RubrosConfigModal() {
       setRubros(next);
       setRubroOcultoCount(next.filter((r) => !r.visibleEnDashboard).length);
       bumpRubroConfig();
+      toast.success(visible ? `${nombre} visible en dashboard` : `${nombre} ocultado del dashboard`);
     } catch (e) {
       console.error(e);
+      toast.error(`No se pudo actualizar ${nombre}. Intentá de nuevo.`);
     } finally {
       setSaving(null);
     }
@@ -95,12 +99,12 @@ export function RubrosConfigModal() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Settings2 className="w-4 h-4" />
-            Rubros visibles en dashboard
+            Rubros visibles en panel
           </DialogTitle>
         </DialogHeader>
 
         <p className="text-xs text-muted-foreground -mt-1">
-          Los rubros desactivados no aparecen en el dashboard ni se contabilizan en los totales.
+          Los rubros desactivados no aparecen en el panel ni se contabilizan en los totales.
         </p>
 
         <div className="mt-1 flex flex-col gap-1 max-h-80 overflow-y-auto pr-1">

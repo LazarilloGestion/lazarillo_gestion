@@ -1,5 +1,6 @@
 "use client";
 import { useState, useMemo, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare } from "lucide-react";
@@ -318,8 +319,10 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         queryClient.refetchQueries({ queryKey: ["pivot"] }),
       ]);
       setEditing(null);
+      toast.success("Registro actualizado");
     } catch {
       setSaveError("No se pudo guardar. Intentá de nuevo.");
+      toast.error("No se pudo guardar. Intentá de nuevo.");
     } finally {
       setSaving(false);
     }
