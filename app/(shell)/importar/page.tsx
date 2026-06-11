@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { toast } from "sonner";
+import { notify } from "@/lib/toast";
 import { createClient } from "@/lib/supabase/client";
 import {
   FileSpreadsheet, CheckCircle2, AlertCircle, X,
@@ -261,23 +261,12 @@ function DriveTab({
     } finally {
       setGlobalImporting(false);
       if (foldersBlocked) {
-        toast.warning("Maestros no cargados", {
-          description: totalFiles > 0
-            ? `Se procesaron ${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} maestros pero los transaccionales no se importaron`
-            : "Los archivos transaccionales no se importaron — los maestros no están disponibles",
-          duration: Infinity,
-        });
+        notify.maestrosNoCargados(totalFiles);
       } else if (totalFiles > 0) {
         if (totalErrors === 0) {
-          toast.success("Importación completada", {
-            description: `${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} procesados · ${totalRecords} registros`,
-            duration: Infinity,
-          });
+          notify.importacionCompletada(totalFiles, totalRecords);
         } else {
-          toast.error("Importación con errores", {
-            description: `${totalErrors} de ${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} fallaron — revisá los detalles`,
-            duration: Infinity,
-          });
+          notify.importacionConErrores(totalErrors, totalFiles);
         }
       }
     }

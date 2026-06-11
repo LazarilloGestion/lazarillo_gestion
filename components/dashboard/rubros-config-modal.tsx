@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { toast } from "sonner";
+import { notify } from "@/lib/toast";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { Settings2, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -65,10 +65,10 @@ export function RubrosConfigModal() {
       setRubros(next);
       setRubroOcultoCount(next.filter((r) => !r.visibleEnDashboard).length);
       bumpRubroConfig();
-      toast.success(visible ? `${nombre} visible en panel` : `${nombre} ocultado del panel`);
+      notify.rubroVisibilidad(nombre, visible);
     } catch (e) {
       console.error(e);
-      toast.error(`No se pudo actualizar ${nombre}. Intentá de nuevo.`);
+      notify.errorActualizar(nombre);
     } finally {
       setSaving(null);
     }
