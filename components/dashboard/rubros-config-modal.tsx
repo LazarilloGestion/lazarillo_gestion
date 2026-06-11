@@ -65,7 +65,7 @@ export function RubrosConfigModal() {
       setRubros(next);
       setRubroOcultoCount(next.filter((r) => !r.visibleEnDashboard).length);
       bumpRubroConfig();
-      toast.success(visible ? `${nombre} visible en dashboard` : `${nombre} ocultado del dashboard`);
+      toast.success(visible ? `${nombre} visible en panel` : `${nombre} ocultado del panel`);
     } catch (e) {
       console.error(e);
       toast.error(`No se pudo actualizar ${nombre}. Intentá de nuevo.`);

@@ -36,7 +36,7 @@ export function DashboardTabContent({ isFullscreen, onToggleFullscreen }: Dashbo
     >
       <div
         role="tablist"
-        aria-label="Vista del dashboard"
+        aria-label="Vista del panel de gestión"
         className="flex items-center justify-between gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50 shrink-0"
       >
         <div className="flex gap-0 border border-zinc-200 dark:border-zinc-700 rounded-lg p-1 bg-zinc-50 dark:bg-zinc-800/50">

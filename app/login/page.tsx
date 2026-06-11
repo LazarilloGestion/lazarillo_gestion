@@ -62,7 +62,7 @@ export default async function LoginPage({ searchParams }: Props) {
             </h2>
           </div>
           <p className="text-zinc-400 text-sm leading-relaxed max-w-xs">
-            Dashboards, importación de datos y reportes en un solo lugar.
+            Gestión e importación de datos, todo en un solo lugar.
           </p>
         </div>
 
