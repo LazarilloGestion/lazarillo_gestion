@@ -1,35 +1,20 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import { Badge } from "@/components/ui/badge";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import {
-  Upload, FileSpreadsheet, CheckCircle2, AlertCircle, X,
+  FileSpreadsheet, CheckCircle2, AlertCircle, X,
   FolderOpen, Folder, RefreshCw, CloudDownload, Settings, SearchX, ChevronDown,
   Loader2,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { ETLReport } from "@/lib/etl/types";
 import { translateError } from "@/lib/etl/error-messages";
-import type { Local } from "@/lib/types/domain";
 import type { DriveFile, DriveConfig, DriveFilesResponse } from "@/lib/drive/types";
 
 // ── tipos ────────────────────────────────────────────────────────────────────
-
-type UploadState =
-  | { status: "idle" }
-  | { status: "uploading" }
-  | { status: "success"; reports: ETLReport[] }
-  | { status: "error"; message: string; reports?: ETLReport[] };
 
 type DriveFilesState =
   | { status: "idle" }
@@ -88,16 +73,7 @@ function ReconectarDriveButton() {
 
 // ── componente principal ──────────────────────────────────────────────────────
 
-type Tab = "subir" | "drive";
-
 export default function ImportarPage() {
-  const [tab, setTab] = useState<Tab>("drive");
-
-  const [locales, setLocales] = useState<Local[]>([]);
-  const [localesLoading, setLocalesLoading] = useState(true);
-  const [localId, setLocalId] = useState("");
-  const [puntoDeVentaId, setPuntoDeVentaId] = useState("");
-
   const [maestrosLoaded, setMaestrosLoaded] = useState<boolean | null>(null);
   useEffect(() => {
     fetch("/api/etl/maestros-status")
@@ -106,291 +82,18 @@ export default function ImportarPage() {
       .catch(() => setMaestrosLoaded(false));
   }, []);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/locales", { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data: Local[]) => setLocales(Array.isArray(data) ? data : []))
-      .catch((err) => { if (err.name !== "AbortError") console.error(err); })
-      .finally(() => setLocalesLoading(false));
-    return () => controller.abort();
-  }, []);
-
-  const puntosDeVenta = locales.find((l) => String(l.id) === localId)?.puntosDeVenta ?? [];
-
-  const localSelect = (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wide">
-        Local{" "}
-        <span className="normal-case tracking-normal font-normal text-zinc-400 dark:text-zinc-500">
-          (archivos transaccionales)
-        </span>
-      </label>
-      <div className="flex gap-2">
-        <Select
-          value={localId}
-          onValueChange={(v) => { setLocalId(v); setPuntoDeVentaId(""); }}
-          disabled={localesLoading}
-        >
-          <SelectTrigger className="flex-1 border-zinc-200 dark:border-zinc-700">
-            <SelectValue placeholder={localesLoading ? "Cargando…" : "Sin local"} />
-          </SelectTrigger>
-          <SelectContent>
-            {locales.map((l) => (
-              <SelectItem key={l.id} value={String(l.id)}>{l.nombre}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {puntosDeVenta.length > 0 && (
-          <Select value={puntoDeVentaId} onValueChange={setPuntoDeVentaId}>
-            <SelectTrigger className="flex-1 border-zinc-200 dark:border-zinc-700">
-              <SelectValue placeholder="Sin punto de venta" />
-            </SelectTrigger>
-            <SelectContent>
-              {puntosDeVenta.map((p) => (
-                <SelectItem key={p.id} value={String(p.id)}>{p.nombre}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-    </div>
-  );
-
   return (
     <div className="p-4 md:p-6 flex flex-col gap-6">
-      {/* Header */}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white">
           Importar datos
         </h1>
         <p className="text-sm text-muted-foreground">
-          Importá archivos Excel del ERP — desde Google Drive o desde tu computadora.
+          Importá archivos Excel del ERP desde Google Drive.
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-0 border border-zinc-200 dark:border-zinc-700 rounded-lg p-1 w-fit bg-zinc-50 dark:bg-zinc-800/50">
-        {(["drive", "subir"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={cn(
-              "px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-150",
-              tab === t
-                ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm"
-                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
-            )}
-          >
-            {t === "subir" ? "Subir archivo" : "Desde Drive"}
-          </button>
-        ))}
-      </div>
-
-      <div className={tab !== "subir" ? "hidden" : undefined}>
-        <SubirTab
-          localSelect={localSelect}
-          localId={localId}
-          puntoDeVentaId={puntoDeVentaId}
-          maestrosLoaded={maestrosLoaded}
-        />
-      </div>
-
-      <div className={tab !== "drive" ? "hidden" : undefined}>
-        <DriveTab maestrosLoaded={maestrosLoaded} onMaestrosChange={setMaestrosLoaded} />
-      </div>
-    </div>
-  );
-}
-
-// ── Tab: Subir archivo ────────────────────────────────────────────────────────
-
-function SubirTab({
-  localSelect,
-  localId,
-  puntoDeVentaId,
-  maestrosLoaded,
-}: {
-  localSelect: React.ReactNode;
-  localId: string;
-  puntoDeVentaId: string;
-  maestrosLoaded: boolean | null;
-}) {
-  const [state, setState] = useState<UploadState>({ status: "idle" });
-  const [dragOver, setDragOver] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  function pickFiles(fileList: FileList) {
-    const arr = Array.from(fileList);
-    if (arr.length > 0) { setSelectedFiles(arr); setState({ status: "idle" }); }
-  }
-
-  function reset() {
-    setState({ status: "idle" });
-    setSelectedFiles([]);
-  }
-
-  function removeFile(index: number) {
-    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  async function handleSubmit(e: React.SyntheticEvent) {
-    e.preventDefault();
-    if (selectedFiles.length === 0) return;
-    setState({ status: "uploading" });
-    const body = new FormData();
-    for (const f of selectedFiles) body.append("files", f);
-    if (localId) body.append("localId", localId);
-    if (puntoDeVentaId) body.append("puntoDeVentaId", puntoDeVentaId);
-    try {
-      const res = await fetch("/api/etl/upload", { method: "POST", body });
-      const json = await res.json();
-      if (!res.ok) setState({ status: "error", message: json.error ?? "Error desconocido", reports: json.reports });
-      else setState({ status: "success", reports: json as ETLReport[] });
-    } catch {
-      setState({ status: "error", message: "Error de red al subir los archivos" });
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 p-5 flex flex-col gap-5">
-        {localSelect}
-
-        {!maestrosLoaded && localId && (
-          <div className="flex items-center gap-2 rounded-lg border border-amber-200 dark:border-amber-900/30 bg-amber-50 dark:bg-amber-950/20 px-4 py-2.5 text-xs text-amber-700 dark:text-amber-400">
-            Importar maestros primero antes de importar transaccionales.
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {/* Drop zone */}
-          <div
-            className={cn(
-              "relative flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed px-6 py-12 text-center transition-all duration-150 cursor-pointer",
-              dragOver
-                ? "border-zinc-400 bg-zinc-50 dark:border-zinc-500 dark:bg-zinc-800"
-                : selectedFiles.length > 0
-                ? "border-emerald-400 bg-emerald-50/50 dark:border-emerald-600 dark:bg-emerald-950/20"
-                : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-            )}
-            onClick={() => inputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) pickFiles(e.dataTransfer.files); }}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              multiple
-              className="sr-only"
-              onChange={(e) => { if (e.target.files?.length) pickFiles(e.target.files); }}
-            />
-            {selectedFiles.length > 0 ? (
-              <>
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
-                  <FileSpreadsheet className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-zinc-900 dark:text-white">
-                    {selectedFiles.length === 1 ? selectedFiles[0].name : `${selectedFiles.length} archivos seleccionados`}
-                  </p>
-                  <p className="text-xs text-zinc-400 mt-0.5">Click para cambiar</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="w-10 h-10 rounded-lg bg-zinc-100 dark:bg-zinc-700 flex items-center justify-center">
-                  <Upload className="w-5 h-5 text-zinc-400 dark:text-zinc-500" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-zinc-900 dark:text-white">
-                    Arrastrá o hacé click para seleccionar
-                  </p>
-                  <p className="text-xs text-zinc-400 mt-0.5">
-                    .xlsx o .xls · podés subir varios a la vez
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Lista de archivos múltiples */}
-          {selectedFiles.length > 1 && (
-            <ul className="flex flex-col gap-1">
-              {selectedFiles.map((f, i) => (
-                <li
-                  key={f.name + f.lastModified}
-                  className="flex items-center justify-between rounded-md border border-zinc-100 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileSpreadsheet className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
-                    <span className="text-xs text-zinc-600 dark:text-zinc-300 truncate font-mono">
-                      {f.name}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeFile(i)}
-                    className="ml-2 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <button
-            type="submit"
-            disabled={selectedFiles.length === 0 || state.status === "uploading" || (maestrosLoaded !== true && !!localId)}
-            className="w-full h-10 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-sm font-medium transition-all duration-150 hover:bg-zinc-700 dark:hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 dark:focus-visible:ring-white focus-visible:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {state.status === "uploading" ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Procesando...
-              </>
-            ) : selectedFiles.length > 1 ? (
-              `Importar ${selectedFiles.length} archivos`
-            ) : (
-              "Importar archivo"
-            )}
-          </button>
-        </form>
-      </div>
-
-      {state.status === "success" && (
-        <div className="flex flex-col gap-3">
-          {state.reports.map((r, i) => <ReportCard key={i} report={r} />)}
-        </div>
-      )}
-      {state.status === "error" && (
-        <>
-          <div className="flex items-start gap-3 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-4 py-3">
-            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
-            <p className="text-sm text-red-700 dark:text-red-400">{translateError(state.message)}</p>
-          </div>
-          {state.reports && state.reports.length > 0 && (
-            <div className="flex flex-col gap-3">
-              <p className="text-xs text-zinc-400">Archivos procesados antes del error:</p>
-              {state.reports.map((r, i) => <ReportCard key={i} report={r} />)}
-            </div>
-          )}
-        </>
-      )}
-      {(state.status === "success" || state.status === "error") && (
-        <button
-          onClick={reset}
-          className="self-start flex items-center gap-1.5 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Volver a importar
-        </button>
-      )}
+      <DriveTab maestrosLoaded={maestrosLoaded} onMaestrosChange={setMaestrosLoaded} />
     </div>
   );
 }
@@ -520,7 +223,6 @@ function DriveTab({
       if (!result.ok) errors++;
       records += result.records;
     }
-    // Re-chequear maestros por si se acaban de importar
     fetch("/api/etl/maestros-status")
       .then((r) => r.json() as Promise<{ loaded: boolean }>)
       .then((d) => onMaestrosChange(d.loaded))
@@ -542,8 +244,6 @@ function DriveTab({
         totalErrors += r.errors;
         totalRecords += r.records;
       }
-      // Siempre re-chequear maestros antes de importar transaccionales,
-      // incluso si no había archivos maestros en Drive (pueden estar ya cargados).
       if (ready.folders.length > 0) {
         const { loaded } = await fetch("/api/etl/maestros-status").then((r) => r.json() as Promise<{ loaded: boolean }>);
         onMaestrosChange(loaded);
@@ -846,7 +546,6 @@ function DriveFolder({
 
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 overflow-hidden">
-      {/* Header de carpeta */}
       <div
         className="flex items-center justify-between gap-2 px-4 py-3 cursor-pointer select-none hover:bg-zinc-50 dark:hover:bg-zinc-700/30 transition-colors"
         onClick={() => setCollapsed((v) => !v)}
@@ -1007,6 +706,8 @@ function DriveFolder({
 }
 
 // ── ReportCard ────────────────────────────────────────────────────────────────
+
+import { Badge } from "@/components/ui/badge";
 
 function ReportCard({ report }: { report: ETLReport }) {
   return (
