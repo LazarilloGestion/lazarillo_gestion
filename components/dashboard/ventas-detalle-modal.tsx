@@ -14,15 +14,15 @@ import { EditActionButtons, EditTriggerButton, EditedDot, toEditString } from ".
 import { DetalleModalShell } from "./detalle-modal-shell";
 
 const VENTAS_COLS: ColDef[] = [
-  { label: "Fecha",       icon: CalendarDays, color: "text-muted-foreground", bg: "bg-muted",          right: false, sortKey: "fecha"   },
-  { label: "Local",       icon: Building2,    color: "text-muted-foreground", bg: "bg-muted",          right: false                      },
-  { label: "Tipo",        icon: Layers,       color: "text-blue-500",         bg: "bg-blue-500/10",    right: false, sortKey: "tipo"    },
-  { label: "Cobro",       icon: Tag,          color: "text-violet-500",       bg: "bg-violet-500/10",  right: false, sortKey: "cobro"   },
-  { label: "Turno",       icon: Users,        color: "text-muted-foreground", bg: "bg-muted",          right: false, sortKey: "turno"   },
-  { label: "Comprobante", icon: Tag,          color: "text-muted-foreground", bg: "bg-muted",          right: false                      },
-  { label: "Mesa",        icon: Tag,          color: "text-muted-foreground", bg: "bg-muted",          right: false                      },
-  { label: "Mozo",        icon: Users,        color: "text-muted-foreground", bg: "bg-muted",          right: false                      },
-  { label: "Importe",     icon: ArrowDownUp,  color: "text-muted-foreground", bg: "bg-muted",          right: true,  sortKey: "importe" },
+  { label: "Fecha",       icon: CalendarDays, color: "text-muted-foreground",  bg: "bg-muted",             right: false, sortKey: "fecha"   },
+  { label: "Local",       icon: Building2,    color: "text-muted-foreground",  bg: "bg-muted",             right: false                      },
+  { label: "Tipo",        icon: Layers,       color: "text-cat-rubro",         bg: "bg-cat-rubro/12",      right: false, sortKey: "tipo"    },
+  { label: "Cobro",       icon: Tag,          color: "text-cat-concepto",      bg: "bg-cat-concepto/12",   right: false, sortKey: "cobro"   },
+  { label: "Turno",       icon: Users,        color: "text-muted-foreground",  bg: "bg-muted",             right: false, sortKey: "turno"   },
+  { label: "Comprobante", icon: Tag,          color: "text-muted-foreground",  bg: "bg-muted",             right: false                      },
+  { label: "Mesa",        icon: Tag,          color: "text-muted-foreground",  bg: "bg-muted",             right: false                      },
+  { label: "Mozo",        icon: Users,        color: "text-muted-foreground",  bg: "bg-muted",             right: false                      },
+  { label: "Importe",     icon: ArrowDownUp,  color: "text-muted-foreground",  bg: "bg-muted",             right: true,  sortKey: "importe" },
 ];
 
 type EditState = { rowId: string; importeManual: string };

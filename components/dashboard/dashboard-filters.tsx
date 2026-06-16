@@ -20,9 +20,15 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import type { Local } from "@/lib/types/domain";
 
 const PALETTE_PARAM_LABELS: Record<string, string> = {
-  rubroCodigo: "Rubro",
+  rubroCodigo:    "Rubro",
   conceptoCodigo: "Concepto",
-  proveedorId: "Proveedor",
+  proveedorId:    "Proveedor",
+};
+
+const PALETTE_PARAM_COLORS: Record<string, { label: string; bg: string; border: string }> = {
+  rubroCodigo:    { label: "text-cat-rubro",      bg: "bg-cat-rubro/8",      border: "border-cat-rubro/25" },
+  conceptoCodigo: { label: "text-cat-concepto",   bg: "bg-cat-concepto/8",   border: "border-cat-concepto/25" },
+  proveedorId:    { label: "text-cat-proveedor",  bg: "bg-cat-proveedor/8",  border: "border-cat-proveedor/25" },
 };
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -208,19 +214,28 @@ export function DashboardFilters() {
 
       {activeChips.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {activeChips.map((chip) => (
-            <Badge key={chip.param} variant="secondary" className="flex items-center gap-1 pr-1 text-xs">
-              <span className="text-muted-foreground">{chip.label}:</span>
-              <span className="max-w-[180px] truncate">{chip.value}</span>
-              <button
-                onClick={clearSearch}
-                className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
-                aria-label={`Quitar filtro ${chip.label}`}
+          {activeChips.map((chip) => {
+            const colors = PALETTE_PARAM_COLORS[chip.param];
+            return (
+              <span
+                key={chip.param}
+                className={cn(
+                  "inline-flex items-center gap-1 pr-1.5 pl-2 py-0.5 rounded-full text-xs border",
+                  colors.bg, colors.border
+                )}
               >
-                <X className="w-2.5 h-2.5" />
-              </button>
-            </Badge>
-          ))}
+                <span className={cn("font-medium", colors.label)}>{chip.label}:</span>
+                <span className="text-foreground/80 max-w-[180px] truncate">{chip.value}</span>
+                <button
+                  onClick={clearSearch}
+                  className={cn("ml-0.5 rounded-full p-0.5 hover:bg-foreground/10 transition-colors", colors.label)}
+                  aria-label={`Quitar filtro ${chip.label}`}
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </span>
+            );
+          })}
         </div>
       )}
 

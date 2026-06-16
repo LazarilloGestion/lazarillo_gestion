@@ -15,7 +15,7 @@ export function EditActionButtons({
       <button
         onClick={onSave}
         disabled={saving}
-        className="flex h-6 w-6 items-center justify-center rounded text-emerald-600 hover:bg-emerald-500/10 disabled:opacity-40"
+        className="flex h-6 w-6 items-center justify-center rounded text-success hover:bg-success/10 disabled:opacity-40"
       >
         <Check className="h-3.5 w-3.5" />
       </button>
@@ -44,7 +44,7 @@ export function EditTriggerButton({ onClick }: { onClick: () => void }) {
 export function EditedDot() {
   return (
     <span
-      className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-orange-400"
+      className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-attention"
       title="Editado manualmente"
     />
   );

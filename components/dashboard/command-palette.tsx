@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef, type ElementType } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
-import { Layers, Tag, Truck, MessageSquare, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown } from "lucide-react";
+import { Layers, Tag, Truck, MessageSquare, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown, X } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Command,
@@ -22,10 +22,10 @@ const TYPE_CONFIG: Record<
   SuggestionType,
   { label: string; plural: string; icon: ElementType; color: string; bg: string }
 > = {
-  rubro:       { label: "Rubro",       plural: "Rubros",        icon: Layers,       color: "text-blue-400",   bg: "bg-blue-500/15" },
-  concepto:    { label: "Concepto",    plural: "Conceptos",     icon: Tag,          color: "text-violet-400", bg: "bg-violet-500/15" },
-  proveedor:   { label: "Proveedor",   plural: "Proveedores",   icon: Truck,        color: "text-emerald-400",bg: "bg-emerald-500/15" },
-  observacion: { label: "Observación", plural: "Observaciones", icon: MessageSquare,color: "text-orange-400", bg: "bg-orange-500/15" },
+  rubro:       { label: "Rubro",       plural: "Rubros",        icon: Layers,       color: "text-cat-rubro",       bg: "bg-cat-rubro/12" },
+  concepto:    { label: "Concepto",    plural: "Conceptos",     icon: Tag,          color: "text-cat-concepto",    bg: "bg-cat-concepto/12" },
+  proveedor:   { label: "Proveedor",   plural: "Proveedores",   icon: Truck,        color: "text-cat-proveedor",   bg: "bg-cat-proveedor/12" },
+  observacion: { label: "Observación", plural: "Observaciones", icon: MessageSquare,color: "text-cat-observacion", bg: "bg-cat-observacion/12" },
 };
 
 const TYPE_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor"];
@@ -37,7 +37,7 @@ interface Props {
 }
 
 export function CommandPalette({ open, onOpenChange }: Props) {
-  const { setSearch, setPendingDetalleRowId } = useDashboard();
+  const { setSearch, setHighlightTarget, highlightedRowId, highlightLabel, clearHighlight } = useDashboard();
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -103,10 +103,10 @@ export function CommandPalette({ open, onOpenChange }: Props) {
 
   const handleSelectObservacion = useCallback(
     (result: ObservacionResult) => {
-      setPendingDetalleRowId(result.rowId);
+      setHighlightTarget({ rowId: result.rowId, rubroCodigo: result.rubroCodigo, conceptoCodigo: result.conceptoCodigo, label: result.label });
       handleClose(false);
     },
-    [setPendingDetalleRowId, handleClose]
+    [setHighlightTarget, handleClose]
   );
 
   const counts = useMemo(
@@ -144,6 +144,25 @@ export function CommandPalette({ open, onOpenChange }: Props) {
             onValueChange={(v) => { setQuery(v); if (v) setTypeFilter(null); }}
             className="h-14 text-base border-0 bg-transparent placeholder:text-muted-foreground/50 focus-visible:ring-0"
           />
+
+          {/* Active observacion highlight banner */}
+          {highlightedRowId && highlightLabel && (
+            <>
+              <div className="flex items-center gap-2 px-4 py-2 bg-cat-observacion/8 border-b border-cat-observacion/20">
+                <MessageSquare className="h-3.5 w-3.5 text-cat-observacion shrink-0" />
+                <span className="flex-1 text-xs text-cat-observacion/80 truncate">
+                  Resaltando en tabla: <span className="font-medium text-cat-observacion">{highlightLabel}</span>
+                </span>
+                <button
+                  onClick={() => clearHighlight()}
+                  className="h-5 w-5 flex items-center justify-center rounded hover:bg-cat-observacion/15 transition-colors"
+                  aria-label="Limpiar búsqueda activa"
+                >
+                  <X className="h-3 w-3 text-cat-observacion/70" />
+                </button>
+              </div>
+            </>
+          )}
 
           {/* Divider */}
           <div className="h-px bg-border/40 mx-0" />

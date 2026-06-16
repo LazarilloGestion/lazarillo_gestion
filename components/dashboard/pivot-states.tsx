@@ -11,7 +11,7 @@ export function PivotLoading() {
 
 export function PivotError() {
   return (
-    <div className="text-sm text-red-500 py-16 text-center">
+    <div className="text-sm text-destructive py-16 text-center">
       Error al cargar los datos.
     </div>
   );

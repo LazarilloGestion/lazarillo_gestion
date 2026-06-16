@@ -64,7 +64,7 @@ function ReconectarDriveButton() {
     <button
       onClick={handleReconectar}
       disabled={loading}
-      className="self-start text-xs underline underline-offset-2 text-red-500/80 hover:text-red-500 transition-colors disabled:opacity-50"
+      className="self-start text-xs underline underline-offset-2 text-destructive/80 hover:text-destructive transition-colors disabled:opacity-50"
     >
       {loading ? "Redirigiendo…" : "Reconectar con Google Drive"}
     </button>
@@ -330,7 +330,7 @@ function DriveTab({
                 className="text-sm border-zinc-200 dark:border-zinc-700 font-mono"
               />
               {configError && (
-                <p className="text-xs text-red-500">{configError}</p>
+                <p className="text-xs text-destructive">{configError}</p>
               )}
               <button
                 type="submit"
@@ -351,10 +351,10 @@ function DriveTab({
         </div>
       )}
       {filesState.status === "error" && (
-        <div className="flex flex-col gap-2 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-4 py-3">
+        <div className="flex flex-col gap-2 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
-            <p className="text-sm text-red-700 dark:text-red-400">{filesState.message}</p>
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-destructive" />
+            <p className="text-sm text-destructive">{filesState.message}</p>
           </div>
           {(filesState.message.toLowerCase().includes("token") ||
             filesState.message.toLowerCase().includes("revoc") ||
@@ -550,14 +550,14 @@ function DriveFolder({
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
               )}
               {allDone && !folderImporting && !batchRunning && (
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                <CheckCircle2 className="w-3.5 h-3.5 text-success" />
               )}
             </div>
             {subtitle && (
               <p className={cn(
                 "text-xs mt-0.5 truncate",
                 subtitleVariant === "warning"
-                  ? "text-amber-600 dark:text-amber-400"
+                  ? "text-warning"
                   : "text-zinc-400"
               )}>
                 {subtitle}
@@ -611,12 +611,12 @@ function DriveFolder({
       {!collapsed && (
         <div className="border-t border-zinc-100 dark:border-zinc-700/50">
           {blocked && (
-            <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-900/30 text-xs text-amber-700 dark:text-amber-400">
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-warning/10 border-b border-warning/15 text-xs text-warning">
               Importar maestros primero antes de importar transaccionales.
             </div>
           )}
           {folderImporting && (
-            <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-900/30 text-xs text-amber-700 dark:text-amber-400">
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-warning/10 border-b border-warning/15 text-xs text-warning">
               <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
               Importación en curso — no navegues ni recargues la página hasta que termine.
             </div>
@@ -632,7 +632,7 @@ function DriveFolder({
                 return (
                   <div key={file.id}>
                     <div className="flex items-center gap-3 px-4 py-3">
-                      <FileSpreadsheet className="w-4 h-4 shrink-0 text-emerald-500" />
+                      <FileSpreadsheet className="w-4 h-4 shrink-0 text-success" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-mono text-zinc-900 dark:text-white truncate">
                           {file.name}
@@ -642,7 +642,7 @@ function DriveFolder({
                           {file.size && ` · ${formatBytes(Number(file.size))}`}
                         </p>
                         {status === "error" && fileErrors[file.id] && (
-                          <p className="text-xs text-red-500 mt-0.5">{translateError(fileErrors[file.id])}</p>
+                          <p className="text-xs text-destructive mt-0.5">{translateError(fileErrors[file.id])}</p>
                         )}
                       </div>
                       {status === "success" ? (
@@ -652,7 +652,7 @@ function DriveFolder({
                           title="Reimportar archivo"
                           className="group shrink-0 disabled:pointer-events-none"
                         >
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500 group-hover:hidden" />
+                          <CheckCircle2 className="w-4 h-4 text-success group-hover:hidden" />
                           <RefreshCw className="w-4 h-4 text-zinc-400 hidden group-hover:block" />
                         </button>
                       ) : status === "error" ? (
@@ -662,7 +662,7 @@ function DriveFolder({
                           title="Reimportar archivo"
                           className="group shrink-0 disabled:pointer-events-none"
                         >
-                          <AlertCircle className="w-4 h-4 text-red-500 group-hover:hidden" />
+                          <AlertCircle className="w-4 h-4 text-destructive group-hover:hidden" />
                           <RefreshCw className="w-4 h-4 text-zinc-400 hidden group-hover:block" />
                         </button>
                       ) : status === "importing" ? (
@@ -702,7 +702,7 @@ function ReportCard({ report }: { report: ETLReport }) {
   return (
     <div className="rounded-lg border border-zinc-100 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 p-4 flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+        <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
         <span className="text-sm font-medium text-zinc-900 dark:text-white">
           {FILE_TYPE_LABELS[report.fileType] ?? report.fileType}
         </span>
@@ -712,7 +712,7 @@ function ReportCard({ report }: { report: ETLReport }) {
       </div>
 
       <div className="flex gap-2 flex-wrap">
-        <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/40 dark:text-emerald-400 border-0 text-xs">
+        <Badge className="bg-success/15 text-success hover:bg-success/15 border-0 text-xs">
           {report.created} creados
         </Badge>
         <Badge variant="secondary" className="text-xs">{report.updated} actualizados</Badge>

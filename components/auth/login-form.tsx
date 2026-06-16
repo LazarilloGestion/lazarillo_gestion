@@ -63,9 +63,9 @@ export function LoginForm({ next, hasError }: LoginFormProps) {
   return (
     <div className="space-y-4">
       {hasError && (
-        <div className="flex items-start gap-3 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 p-3">
-          <AlertCircle className="size-4 text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-red-700 dark:text-red-400 leading-snug">
+        <div className="flex items-start gap-3 rounded-lg border border-destructive/25 bg-destructive/10 p-3">
+          <AlertCircle className="size-4 text-destructive flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-destructive leading-snug">
             Error al autenticar con Google. Intentá nuevamente.
           </p>
         </div>

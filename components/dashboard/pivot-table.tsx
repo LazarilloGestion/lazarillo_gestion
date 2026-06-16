@@ -26,7 +26,8 @@ export function PivotTable() {
   const {
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId,
     months, activeMonths, sortCol, sortDir, handleSortClick,
-    rubroConfigVersion, pendingDetalleRowId, setPendingDetalleRowId,
+    rubroConfigVersion, highlightTarget, setHighlightTarget,
+    highlightedRowId, setHighlightedRowId, clearHighlight,
   } = useDashboard();
 
   const { expanded, setExpanded, toggle: toggleRow, collapseAll } = useExpandableSet();
@@ -84,10 +85,28 @@ export function PivotTable() {
   }
 
   useEffect(() => {
-    if (!pendingDetalleRowId) return;
-    openDetalle({ rowId: pendingDetalleRowId });
-    setPendingDetalleRowId(null);
-  }, [pendingDetalleRowId]);
+    if (!highlightTarget || !data) return;
+    const { rowId, rubroCodigo: rc, conceptoCodigo: cc } = highlightTarget;
+
+    // Expandir el rubro y concepto que contienen la fila
+    if (rc || cc) {
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        if (rc) next.add(rc);
+        if (rc && cc) next.add(`${rc}|${cc}`);
+        return next;
+      });
+    }
+
+    setHighlightTarget(null);
+
+    // Esperar un frame para que React renderice las filas expandidas
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`pivot-row-${rowId}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedRowId(rowId);
+    });
+  }, [highlightTarget, data]);
 
   const sortedRows = useMemo(
     () => (data ? sortPivotRows(data.rows, sortCol, sortDir) : []),
@@ -152,7 +171,7 @@ export function PivotTable() {
                 </td>
               ))}
               <td
-                className={cn("text-right px-4 py-1.5 text-xs font-medium tabular-nums text-emerald-700 dark:text-emerald-400 whitespace-nowrap", ventasData?.grandTotal && "cursor-pointer hover:opacity-75")}
+                className={cn("text-right px-4 py-1.5 text-xs font-medium tabular-nums text-success whitespace-nowrap", ventasData?.grandTotal && "cursor-pointer hover:opacity-75")}
                 onClick={() => { if (ventasData?.grandTotal) setVentasDetalleFilter({ year, localId, pdvId }); }}
               >
                 {fmtARS(ventasData?.grandTotal)}
@@ -216,7 +235,7 @@ export function PivotTable() {
                     "text-right px-3 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap",
                     ratio === null ? "text-muted-foreground/40"
                       : ratio > 90 ? "text-destructive"
-                      : ratio > 60 ? "text-amber-600 dark:text-amber-400"
+                      : ratio > 60 ? "text-warning"
                       : "text-muted-foreground"
                   )}>
                     {ratio !== null ? `${ratio.toFixed(1)}%` : "—"}
@@ -231,7 +250,7 @@ export function PivotTable() {
                     "text-right px-4 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap",
                     ratio === null ? "text-muted-foreground/40"
                       : ratio > 90 ? "text-destructive"
-                      : ratio > 60 ? "text-amber-600 dark:text-amber-400"
+                      : ratio > 60 ? "text-warning"
                       : "text-muted-foreground"
                   )}>
                     {ratio !== null ? `${ratio.toFixed(1)}%` : "—"}
@@ -392,12 +411,22 @@ export function PivotTable() {
                 prov.observac || null,
                 fmtARS(prov.importe),
               ].filter(Boolean);
+              const isHighlighted = highlightedRowId === prov.rowId;
               return (
                 <tr
                   key={prov.id}
-                  className={cn("border-b hover:bg-accent/20 transition-colors", prov.hasManualOverride && "bg-orange-500/5")}
+                  id={`pivot-row-${prov.rowId}`}
+                  onClick={isHighlighted ? () => clearHighlight() : undefined}
+                  className={cn(
+                    "border-b transition-colors",
+                    isHighlighted
+                      ? "animate-pulse bg-cat-observacion/15 outline outline-2 outline-cat-observacion/60"
+                      : prov.hasManualOverride
+                      ? "bg-attention/5 hover:bg-attention/10"
+                      : "hover:bg-accent/20"
+                  )}
                 >
-                  <td className={cn("sticky left-0 z-10 px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", prov.hasManualOverride ? "text-orange-500 bg-orange-500/5" : "text-muted-foreground bg-background")}>
+                  <td className={cn("sticky left-0 z-10 px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", isHighlighted ? "text-cat-observacion bg-cat-observacion/15" : prov.hasManualOverride ? "text-attention bg-attention/5" : "text-muted-foreground bg-background")}>
                     <span className="flex items-center gap-1.5">
                       {prov.hasManualOverride && <EditedDot />}
                       {labelParts.join(' · ')}

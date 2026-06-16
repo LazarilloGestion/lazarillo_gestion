@@ -51,9 +51,13 @@ type DashboardStore = {
   rubroOcultoCount: number;
   setRubroOcultoCount: (n: number) => void;
 
-  // observacion deep-link
-  pendingDetalleRowId: string | null;
-  setPendingDetalleRowId: (id: string | null) => void;
+  // observacion deep-link — navegar a fila en pivot
+  highlightTarget: { rowId: string; rubroCodigo: string | null; conceptoCodigo: string | null; label: string } | null;
+  setHighlightTarget: (target: { rowId: string; rubroCodigo: string | null; conceptoCodigo: string | null; label: string } | null) => void;
+  highlightedRowId: string | null;
+  highlightLabel: string | null;
+  setHighlightedRowId: (id: string | null) => void;
+  clearHighlight: () => void;
 };
 
 const EMPTY_FILTERS: SearchFilters = {
@@ -133,8 +137,15 @@ const useDashboardStore = create<DashboardStore>()(
       setRubroOcultoCount: (n) => set({ rubroOcultoCount: n }),
 
       // observacion deep-link
-      pendingDetalleRowId: null,
-      setPendingDetalleRowId: (id) => set({ pendingDetalleRowId: id }),
+      highlightTarget: null,
+      setHighlightTarget: (target) => set({
+        highlightTarget: target,
+        ...(target ? { highlightLabel: target.label } : {}),
+      }),
+      highlightedRowId: null,
+      highlightLabel: null,
+      setHighlightedRowId: (id) => set({ highlightedRowId: id }),
+      clearHighlight: () => set({ highlightedRowId: null, highlightLabel: null }),
     }),
     {
       name: "dashboard:state",
@@ -194,6 +205,8 @@ export function useDashboard() {
     rubroConfigVersion: s.rubroConfigVersion, bumpRubroConfig: s.bumpRubroConfig,
     rubroOcultoCount: s.rubroOcultoCount, setRubroOcultoCount: s.setRubroOcultoCount,
     // observacion deep-link
-    pendingDetalleRowId: s.pendingDetalleRowId, setPendingDetalleRowId: s.setPendingDetalleRowId,
+    highlightTarget: s.highlightTarget, setHighlightTarget: s.setHighlightTarget,
+    highlightedRowId: s.highlightedRowId, highlightLabel: s.highlightLabel,
+    setHighlightedRowId: s.setHighlightedRowId, clearHighlight: s.clearHighlight,
   };
 }
