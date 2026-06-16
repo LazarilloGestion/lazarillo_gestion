@@ -42,7 +42,7 @@ export function LogoutButton() {
               Serás redirigido a la pantalla de inicio de sesión.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-1">
             <Button
               variant="outline"
               onClick={() => setOpen(false)}

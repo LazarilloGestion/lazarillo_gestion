@@ -100,11 +100,13 @@ export function PivotTable() {
 
     setHighlightTarget(null);
 
-    // Esperar un frame para que React renderice las filas expandidas
+    // Doble rAF para dar tiempo a React a commitear las filas expandidas antes de scrollear
     requestAnimationFrame(() => {
-      const el = document.getElementById(`pivot-row-${rowId}`);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-      setHighlightedRowId(rowId);
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`pivot-row-${rowId}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlightedRowId(rowId);
+      });
     });
   }, [highlightTarget, data]);
 

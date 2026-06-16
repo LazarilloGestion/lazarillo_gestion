@@ -72,17 +72,19 @@ export function CommandPalette({ open, onOpenChange }: Props) {
       setObservaciones([]);
       return;
     }
+    const controller = new AbortController();
     obsTimerRef.current = setTimeout(() => {
-      const controller = new AbortController();
       setObsLoading(true);
       fetch(`/api/search/observaciones?q=${encodeURIComponent(q)}`, { signal: controller.signal })
         .then((r) => r.json())
         .then((data: ObservacionResult[]) => setObservaciones(Array.isArray(data) ? data : []))
         .catch((err) => { if (err.name !== "AbortError") console.error(err); })
         .finally(() => setObsLoading(false));
-      return () => controller.abort();
     }, 300);
-    return () => { if (obsTimerRef.current) clearTimeout(obsTimerRef.current); };
+    return () => {
+      if (obsTimerRef.current) clearTimeout(obsTimerRef.current);
+      controller.abort();
+    };
   }, [query, typeFilter]);
 
   const handleClose = useCallback(
@@ -110,11 +112,13 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   );
 
   const counts = useMemo(
-    () =>
-      TYPE_ORDER.reduce(
-        (acc, t) => ({ ...acc, [t]: t === "observacion" ? observaciones.length : suggestions.filter((s) => s.type === t).length }),
+    () => ({
+      ...TYPE_ORDER.reduce(
+        (acc, t) => ({ ...acc, [t]: suggestions.filter((s) => s.type === t).length }),
         {} as Record<SuggestionType, number>
       ),
+      observacion: observaciones.length,
+    }),
     [suggestions, observaciones]
   );
 

@@ -282,10 +282,10 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   const queryKey = useMemo(() => ["detalle", stableFilter], [stableFilter]);
 
   const queryFn = useCallback(async (): Promise<DetalleResponse<CompraDetalle>> => {
-    const res = await fetch(buildComprasDetalleUrl(filter!));
+    const res = await fetch(buildComprasDetalleUrl(stableFilter!));
     if (!res.ok) throw new Error("Error cargando detalle");
     return res.json();
-  }, [filter]);
+  }, [stableFilter]);
 
   const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string }>>({
     queryKey: ["suggestions"],

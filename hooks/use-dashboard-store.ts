@@ -96,10 +96,10 @@ const useDashboardStore = create<DashboardStore>()(
       tab: "compras",
       localId: undefined,
       pdvId: undefined,
-      setYear: (year) => set({ year }),
+      setYear: (year) => set({ year, highlightedRowId: null, highlightLabel: null }),
       setTab: (tab) => set({ tab }),
-      setLocalId: (id) => set({ localId: id, pdvId: undefined }),
-      setPdvId: (id) => set({ pdvId: id }),
+      setLocalId: (id) => set({ localId: id, pdvId: undefined, highlightedRowId: null, highlightLabel: null }),
+      setPdvId: (id) => set({ pdvId: id, highlightedRowId: null, highlightLabel: null }),
 
       // search
       rubroCodigo: undefined,
@@ -140,7 +140,7 @@ const useDashboardStore = create<DashboardStore>()(
       highlightTarget: null,
       setHighlightTarget: (target) => set({
         highlightTarget: target,
-        ...(target ? { highlightLabel: target.label } : {}),
+        highlightLabel: target ? target.label : null,
       }),
       highlightedRowId: null,
       highlightLabel: null,

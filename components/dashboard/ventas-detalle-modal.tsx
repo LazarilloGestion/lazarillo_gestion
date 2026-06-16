@@ -133,10 +133,10 @@ export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleF
   const queryKey = useMemo(() => ["detalle-ventas", stableFilter], [stableFilter]);
 
   const queryFn = useCallback(async (): Promise<DetalleResponse<VentaDetalle>> => {
-    const res = await fetch(buildVentasDetalleUrl(filter!));
+    const res = await fetch(buildVentasDetalleUrl(stableFilter!));
     if (!res.ok) throw new Error("Error cargando detalle");
     return res.json();
-  }, [filter]);
+  }, [stableFilter]);
 
   const handleSave = useCallback(async (state: EditState) => {
     setSaving(true);

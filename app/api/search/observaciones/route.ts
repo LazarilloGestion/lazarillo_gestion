@@ -21,13 +21,15 @@ export async function GET(request: NextRequest) {
 
   const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
   if (q.length < 2) return NextResponse.json([]);
+  // Escape ILIKE wildcards so user input is treated as a literal substring
+  const sanitizedQ = q.replace(/[%_\\]/g, "\\$&");
 
   try {
     const rows = await prisma.compra.findMany({
       where: {
         OR: [
-          { observac: { contains: q, mode: "insensitive" } },
-          { observacManual: { contains: q, mode: "insensitive" } },
+          { observac: { contains: sanitizedQ, mode: "insensitive" } },
+          { observacManual: { contains: sanitizedQ, mode: "insensitive" } },
         ],
       },
       select: {
