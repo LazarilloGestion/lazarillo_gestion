@@ -20,15 +20,16 @@ type SuggestionType = Suggestion["type"] | "observacion";
 
 const TYPE_CONFIG: Record<
   SuggestionType,
-  { label: string; plural: string; icon: ElementType; color: string; bg: string; isNew?: boolean }
+  { label: string; plural: string; icon: ElementType; color: string; bg: string }
 > = {
   rubro:       { label: "Rubro",       plural: "Rubros",        icon: Layers,       color: "text-blue-400",   bg: "bg-blue-500/15" },
   concepto:    { label: "Concepto",    plural: "Conceptos",     icon: Tag,          color: "text-violet-400", bg: "bg-violet-500/15" },
   proveedor:   { label: "Proveedor",   plural: "Proveedores",   icon: Truck,        color: "text-emerald-400",bg: "bg-emerald-500/15" },
-  observacion: { label: "Observación", plural: "Observaciones", icon: MessageSquare,color: "text-orange-400", bg: "bg-orange-500/15", isNew: true },
+  observacion: { label: "Observación", plural: "Observaciones", icon: MessageSquare,color: "text-orange-400", bg: "bg-orange-500/15" },
 };
 
-const TYPE_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor", "observacion"];
+const TYPE_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor"];
+const CATEGORY_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor", "observacion"];
 
 interface Props {
   open: boolean;
@@ -159,7 +160,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                     Cargando…
                   </div>
                 )}
-                {!loading && TYPE_ORDER.map((type) => {
+                {!loading && CATEGORY_ORDER.map((type) => {
                   const cfg = TYPE_CONFIG[type];
                   const Icon = cfg.icon;
                   return (
@@ -173,14 +174,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                         <Icon className={`h-3.5 w-3.5 ${cfg.color}`} />
                       </span>
                       <span className="flex-1 text-sm text-foreground/90">{cfg.plural}</span>
-                      {cfg.isNew && (
-                        <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400">
-                          Nuevo
-                        </span>
-                      )}
-                      {!cfg.isNew && (
-                        <span className="text-xs text-muted-foreground/40 tabular-nums">{counts[type]}</span>
-                      )}
+                      <span className="text-xs text-muted-foreground/40 tabular-nums">{counts[type] || ""}</span>
                       <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
                     </CommandItem>
                   );
@@ -191,9 +185,18 @@ export function CommandPalette({ open, onOpenChange }: Props) {
             {/* Resultados */}
             {showResults && (
               <>
-                <CommandEmpty className="py-8 text-center text-sm text-muted-foreground/50">
-                  {obsLoading ? "Buscando observaciones…" : `Sin resultados para "${query}"`}
-                </CommandEmpty>
+                {/* Observaciones sin query — prompt especial */}
+                {typeFilter === "observacion" && !query.trim() && (
+                  <div className="py-10 text-center text-sm text-muted-foreground/50">
+                    Escribí para buscar en observaciones…
+                  </div>
+                )}
+
+                {!(typeFilter === "observacion" && !query.trim()) && (
+                  <CommandEmpty className="py-8 text-center text-sm text-muted-foreground/50">
+                    {obsLoading ? "Buscando…" : `Sin resultados para "${query}"`}
+                  </CommandEmpty>
+                )}
                 {grouped.map(({ type, cfg, items }, idx) => {
                   if (type === "observacion") return null; // rendered separately below
                   if (items.length === 0) return null;
