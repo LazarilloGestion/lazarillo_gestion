@@ -140,7 +140,7 @@ const useDashboardStore = create<DashboardStore>()(
       highlightTarget: null,
       setHighlightTarget: (target) => set({
         highlightTarget: target,
-        highlightLabel: target ? target.label : null,
+        ...(target ? { highlightLabel: target.label } : {}),
       }),
       highlightedRowId: null,
       highlightLabel: null,
