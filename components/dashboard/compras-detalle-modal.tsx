@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { notify } from "@/lib/toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
@@ -63,10 +63,9 @@ function ConceptoCombobox({
   options: ConceptoOption[];
 }) {
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
   const selected = options.find((o) => o.codigo === value);
   return (
-    <div ref={containerRef} className="contents">
+    <div className="contents">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
@@ -77,7 +76,7 @@ function ConceptoCombobox({
             <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-64 p-0" container={containerRef.current}>
+        <PopoverContent className="w-64 p-0">
           <Command>
             <CommandInput placeholder="Buscar concepto..." className="h-8 text-xs" />
             <CommandList className="max-h-52">
@@ -276,7 +275,11 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   const [saveError, setSaveError] = useState<string | null>(null);
   const [selectedLineas, setSelectedLineas] = useState<{ rowId: string; detalle: string | null } | null>(null);
 
-  const queryKey = useMemo(() => ["detalle", filter], [filter]);
+  // Retain last non-null filter so queryKey (and cached data) stay stable during close animation
+  const [stableFilter, setStableFilter] = useState(filter);
+  if (filter !== null && filter !== stableFilter) setStableFilter(filter);
+
+  const queryKey = useMemo(() => ["detalle", stableFilter], [stableFilter]);
 
   const queryFn = useCallback(async (): Promise<DetalleResponse<CompraDetalle>> => {
     const res = await fetch(buildComprasDetalleUrl(filter!));

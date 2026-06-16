@@ -10,6 +10,7 @@ import { buildDashboardUrl, buildVentasPivotUrl } from "@/lib/dashboard/params";
 import { flattenRows, sortPivotRows, hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
+import { EditedDot } from "./edit-row-controls";
 import type {
   PivotData,
   PivotRubroRow,
@@ -25,7 +26,7 @@ export function PivotTable() {
   const {
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId,
     months, activeMonths, sortCol, sortDir, handleSortClick,
-    rubroConfigVersion,
+    rubroConfigVersion, pendingDetalleRowId, setPendingDetalleRowId,
   } = useDashboard();
 
   const { expanded, setExpanded, toggle: toggleRow, collapseAll } = useExpandableSet();
@@ -81,6 +82,12 @@ export function PivotTable() {
   function openDetalle(extra: Omit<DetalleFilter, "year" | "localId" | "pdvId">) {
     setDetalleFilter({ year, localId, pdvId, ...extra });
   }
+
+  useEffect(() => {
+    if (!pendingDetalleRowId) return;
+    openDetalle({ rowId: pendingDetalleRowId });
+    setPendingDetalleRowId(null);
+  }, [pendingDetalleRowId]);
 
   const sortedRows = useMemo(
     () => (data ? sortPivotRows(data.rows, sortCol, sortDir) : []),
@@ -388,10 +395,13 @@ export function PivotTable() {
               return (
                 <tr
                   key={prov.id}
-                  className="border-b hover:bg-accent/20 transition-colors"
+                  className={cn("border-b hover:bg-accent/20 transition-colors", prov.hasManualOverride && "bg-orange-500/5")}
                 >
-                  <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-muted-foreground pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]">
-                    {labelParts.join(' · ')}
+                  <td className={cn("sticky left-0 z-10 px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", prov.hasManualOverride ? "text-orange-500 bg-orange-500/5" : "text-muted-foreground bg-background")}>
+                    <span className="flex items-center gap-1.5">
+                      {prov.hasManualOverride && <EditedDot />}
+                      {labelParts.join(' · ')}
+                    </span>
                   </td>
                   {months.map((mes) => (
                     <td

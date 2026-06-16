@@ -50,6 +50,10 @@ type DashboardStore = {
   bumpRubroConfig: () => void;
   rubroOcultoCount: number;
   setRubroOcultoCount: (n: number) => void;
+
+  // observacion deep-link
+  pendingDetalleRowId: string | null;
+  setPendingDetalleRowId: (id: string | null) => void;
 };
 
 const EMPTY_FILTERS: SearchFilters = {
@@ -127,6 +131,10 @@ const useDashboardStore = create<DashboardStore>()(
       bumpRubroConfig: () => set((s) => ({ rubroConfigVersion: s.rubroConfigVersion + 1 })),
       rubroOcultoCount: 0,
       setRubroOcultoCount: (n) => set({ rubroOcultoCount: n }),
+
+      // observacion deep-link
+      pendingDetalleRowId: null,
+      setPendingDetalleRowId: (id) => set({ pendingDetalleRowId: id }),
     }),
     {
       name: "dashboard:state",
@@ -185,5 +193,7 @@ export function useDashboard() {
     // rubro config
     rubroConfigVersion: s.rubroConfigVersion, bumpRubroConfig: s.bumpRubroConfig,
     rubroOcultoCount: s.rubroOcultoCount, setRubroOcultoCount: s.setRubroOcultoCount,
+    // observacion deep-link
+    pendingDetalleRowId: s.pendingDetalleRowId, setPendingDetalleRowId: s.setPendingDetalleRowId,
   };
 }

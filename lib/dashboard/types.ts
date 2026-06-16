@@ -14,6 +14,7 @@ export type PivotProveedorRow = {
   readonly proveedorId: number | null;
   readonly conceptoCodigo: string;
   readonly rubroCodigo: string;
+  readonly hasManualOverride: boolean;
   values: Record<number, number>;
   rowTotal: number;
 };
@@ -85,6 +86,7 @@ export type SqlRow = {
   row_id: string;
   fecha: string | null;
   observac: string | null;
+  has_manual_override: boolean;
 };
 
 // --- Ventas ---

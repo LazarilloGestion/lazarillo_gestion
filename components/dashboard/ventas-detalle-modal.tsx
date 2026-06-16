@@ -126,7 +126,11 @@ export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleF
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const queryKey = useMemo(() => ["detalle-ventas", filter], [filter]);
+  // Retain last non-null filter so queryKey (and cached data) stay stable during close animation
+  const [stableFilter, setStableFilter] = useState(filter);
+  if (filter !== null && filter !== stableFilter) setStableFilter(filter);
+
+  const queryKey = useMemo(() => ["detalle-ventas", stableFilter], [stableFilter]);
 
   const queryFn = useCallback(async (): Promise<DetalleResponse<VentaDetalle>> => {
     const res = await fetch(buildVentasDetalleUrl(filter!));

@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo, type ElementType } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef, type ElementType } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
-import { Layers, Tag, Truck, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown } from "lucide-react";
+import { Layers, Tag, Truck, MessageSquare, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Command,
@@ -14,19 +14,21 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import type { Suggestion } from "@/app/api/search/suggestions/route";
+import type { ObservacionResult } from "@/app/api/search/observaciones/route";
 
-type SuggestionType = Suggestion["type"];
+type SuggestionType = Suggestion["type"] | "observacion";
 
 const TYPE_CONFIG: Record<
   SuggestionType,
-  { label: string; plural: string; icon: ElementType; color: string; bg: string }
+  { label: string; plural: string; icon: ElementType; color: string; bg: string; isNew?: boolean }
 > = {
-  rubro:     { label: "Rubro",     plural: "Rubros",      icon: Layers, color: "text-blue-400",    bg: "bg-blue-500/15" },
-  concepto:  { label: "Concepto",  plural: "Conceptos",   icon: Tag,    color: "text-violet-400",  bg: "bg-violet-500/15" },
-  proveedor: { label: "Proveedor", plural: "Proveedores", icon: Truck,  color: "text-emerald-400", bg: "bg-emerald-500/15" },
+  rubro:       { label: "Rubro",       plural: "Rubros",        icon: Layers,       color: "text-blue-400",   bg: "bg-blue-500/15" },
+  concepto:    { label: "Concepto",    plural: "Conceptos",     icon: Tag,          color: "text-violet-400", bg: "bg-violet-500/15" },
+  proveedor:   { label: "Proveedor",   plural: "Proveedores",   icon: Truck,        color: "text-emerald-400",bg: "bg-emerald-500/15" },
+  observacion: { label: "Observación", plural: "Observaciones", icon: MessageSquare,color: "text-orange-400", bg: "bg-orange-500/15", isNew: true },
 };
 
-const TYPE_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor"];
+const TYPE_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor", "observacion"];
 
 interface Props {
   open: boolean;
@@ -34,12 +36,17 @@ interface Props {
 }
 
 export function CommandPalette({ open, onOpenChange }: Props) {
-  const { setSearch } = useDashboard();
+  const { setSearch, setPendingDetalleRowId } = useDashboard();
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<SuggestionType | null>(null);
+
+  // Observaciones — fetched on demand
+  const [observaciones, setObservaciones] = useState<ObservacionResult[]>([]);
+  const [obsLoading, setObsLoading] = useState(false);
+  const obsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!open || loaded) return;
@@ -56,9 +63,30 @@ export function CommandPalette({ open, onOpenChange }: Props) {
     return () => controller.abort();
   }, [open, loaded]);
 
+  // Fetch observaciones with debounce when query changes
+  useEffect(() => {
+    if (obsTimerRef.current) clearTimeout(obsTimerRef.current);
+    const q = query.trim();
+    if (q.length < 2 || (typeFilter !== null && typeFilter !== "observacion")) {
+      setObservaciones([]);
+      return;
+    }
+    obsTimerRef.current = setTimeout(() => {
+      const controller = new AbortController();
+      setObsLoading(true);
+      fetch(`/api/search/observaciones?q=${encodeURIComponent(q)}`, { signal: controller.signal })
+        .then((r) => r.json())
+        .then((data: ObservacionResult[]) => setObservaciones(Array.isArray(data) ? data : []))
+        .catch((err) => { if (err.name !== "AbortError") console.error(err); })
+        .finally(() => setObsLoading(false));
+      return () => controller.abort();
+    }, 300);
+    return () => { if (obsTimerRef.current) clearTimeout(obsTimerRef.current); };
+  }, [query, typeFilter]);
+
   const handleClose = useCallback(
     (v: boolean) => {
-      if (!v) { setQuery(""); setTypeFilter(null); }
+      if (!v) { setQuery(""); setTypeFilter(null); setObservaciones([]); }
       onOpenChange(v);
     },
     [onOpenChange]
@@ -72,13 +100,21 @@ export function CommandPalette({ open, onOpenChange }: Props) {
     [setSearch, handleClose]
   );
 
+  const handleSelectObservacion = useCallback(
+    (result: ObservacionResult) => {
+      setPendingDetalleRowId(result.rowId);
+      handleClose(false);
+    },
+    [setPendingDetalleRowId, handleClose]
+  );
+
   const counts = useMemo(
     () =>
       TYPE_ORDER.reduce(
-        (acc, t) => ({ ...acc, [t]: suggestions.filter((s) => s.type === t).length }),
+        (acc, t) => ({ ...acc, [t]: t === "observacion" ? observaciones.length : suggestions.filter((s) => s.type === t).length }),
         {} as Record<SuggestionType, number>
       ),
-    [suggestions]
+    [suggestions, observaciones]
   );
 
   const visibleTypes = typeFilter ? [typeFilter] : TYPE_ORDER;
@@ -89,7 +125,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
       visibleTypes.map((type) => ({
         type,
         cfg: TYPE_CONFIG[type],
-        items: suggestions.filter((s) => s.type === type),
+        items: type === "observacion" ? [] : suggestions.filter((s) => s.type === type),
       })),
     [suggestions, typeFilter]
   );
@@ -102,7 +138,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
         <Command className="bg-transparent [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4">
           {/* Input */}
           <CommandInput
-            placeholder="Buscar rubro, concepto o proveedor…"
+            placeholder="Buscar rubro, concepto, proveedor u observación…"
             value={query}
             onValueChange={(v) => { setQuery(v); if (v) setTypeFilter(null); }}
             className="h-14 text-base border-0 bg-transparent placeholder:text-muted-foreground/50 focus-visible:ring-0"
@@ -137,7 +173,14 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                         <Icon className={`h-3.5 w-3.5 ${cfg.color}`} />
                       </span>
                       <span className="flex-1 text-sm text-foreground/90">{cfg.plural}</span>
-                      <span className="text-xs text-muted-foreground/40 tabular-nums">{counts[type]}</span>
+                      {cfg.isNew && (
+                        <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-400">
+                          Nuevo
+                        </span>
+                      )}
+                      {!cfg.isNew && (
+                        <span className="text-xs text-muted-foreground/40 tabular-nums">{counts[type]}</span>
+                      )}
                       <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors" />
                     </CommandItem>
                   );
@@ -149,9 +192,10 @@ export function CommandPalette({ open, onOpenChange }: Props) {
             {showResults && (
               <>
                 <CommandEmpty className="py-8 text-center text-sm text-muted-foreground/50">
-                  Sin resultados para &ldquo;{query}&rdquo;
+                  {obsLoading ? "Buscando observaciones…" : `Sin resultados para "${query}"`}
                 </CommandEmpty>
                 {grouped.map(({ type, cfg, items }, idx) => {
+                  if (type === "observacion") return null; // rendered separately below
                   if (items.length === 0) return null;
                   const Icon = cfg.icon;
                   return (
@@ -181,6 +225,45 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                     </React.Fragment>
                   );
                 })}
+
+                {/* Observaciones group */}
+                {(typeFilter === null || typeFilter === "observacion") && observaciones.length > 0 && (
+                  <>
+                    <CommandSeparator className="bg-border/30" />
+                    <CommandGroup
+                      heading="Observaciones"
+                      className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground/40 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2"
+                    >
+                      {observaciones.map((obs) => {
+                        const cfg = TYPE_CONFIG.observacion;
+                        const Icon = cfg.icon;
+                        const dateParts = obs.fecha
+                          ? `${obs.fecha.slice(8, 10)}/${obs.fecha.slice(5, 7)}`
+                          : null;
+                        const meta = [dateParts, obs.proveedorNombre ?? obs.conceptoNombre].filter(Boolean).join(" · ");
+                        return (
+                          <CommandItem
+                            key={obs.id}
+                            value={`observacion ${obs.label} ${meta}`}
+                            onSelect={() => handleSelectObservacion(obs)}
+                            className="mx-1 rounded-lg px-2 py-2 gap-3 cursor-pointer"
+                          >
+                            <span className={`flex h-6 w-6 items-center justify-center rounded-md shrink-0 ${cfg.bg}`}>
+                              <Icon className={`h-3 w-3 ${cfg.color}`} />
+                            </span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-[11px] text-muted-foreground/50 truncate">{meta}</span>
+                              <span className="block text-sm text-foreground/90 truncate">{obs.label}</span>
+                            </span>
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${cfg.bg} ${cfg.color}`}>
+                              {cfg.label}
+                            </span>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </>
+                )}
               </>
             )}
           </CommandList>
