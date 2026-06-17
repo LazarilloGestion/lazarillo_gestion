@@ -418,11 +418,11 @@ export function PivotTable() {
                 <tr
                   key={prov.id}
                   id={`pivot-row-${prov.rowId}`}
-                  onClick={isHighlighted ? () => clearHighlight() : undefined}
+                  onClick={isHighlighted ? () => { openDetalle({ rowId: prov.rowId }); clearHighlight(); } : undefined}
                   className={cn(
                     "border-b transition-colors",
                     isHighlighted
-                      ? "animate-pulse bg-cat-observacion/15 outline outline-2 outline-cat-observacion/60"
+                      ? "cursor-pointer animate-pulse bg-cat-observacion/15 outline outline-2 outline-cat-observacion/60"
                       : prov.hasManualOverride
                       ? "bg-attention/5 hover:bg-attention/10"
                       : "hover:bg-accent/20"

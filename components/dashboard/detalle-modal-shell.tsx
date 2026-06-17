@@ -8,6 +8,7 @@ import { SortableTableHead } from "./sortable-table-head";
 import { useSortState, type SortState } from "@/hooks/use-sort-state";
 import { useTableSearch } from "@/hooks/use-table-search";
 import type { ColDef } from "./compras-detalle-modal";
+import { cn } from "@/lib/utils";
 import type { DetalleResponse } from "@/lib/dashboard/types";
 
 interface DetalleModalShellProps<T> {
@@ -75,14 +76,14 @@ export function DetalleModalShell<T>({
         )}
 
         {!isLoading && !error && count > 0 && (
-          <div className="overflow-auto flex-1 min-h-0 pb-3">
+          <div className={cn("overflow-auto flex-1 min-h-0", filtered.length > 1 && "pb-2")}>
             <table className="text-xs min-w-max w-full">
               <thead className="sticky top-0 z-10 bg-popover">
                 <tr>
                   <th colSpan={cols.length + 1} className="px-6 pt-4 pb-3 text-left">
                     <div className="flex items-center justify-between gap-4">
                       <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
-                      <SearchInput value={query} onChange={setQuery} className="w-44" />
+                      {count > 1 && <SearchInput value={query} onChange={setQuery} className="w-44" />}
                     </div>
                   </th>
                 </tr>

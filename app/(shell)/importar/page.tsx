@@ -4,11 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import { notify } from "@/lib/toast";
 import { createClient } from "@/lib/supabase/client";
 import {
-  FileSpreadsheet, CheckCircle2, AlertCircle, X,
+  FileSpreadsheet, CheckCircle2, AlertCircle,
   FolderOpen, Folder, RefreshCw, CloudDownload, Settings, SearchX, ChevronDown,
   Loader2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { ETLReport } from "@/lib/etl/types";
 import { translateError } from "@/lib/etl/error-messages";
@@ -281,9 +282,24 @@ function DriveTab({
   const ready = filesState.status === "ready" ? filesState.data : null;
 
   if (configLoading) {
+    // Skeleton del box "Carpeta de Drive" mientras carga la config.
     return (
-      <div className="flex items-center justify-center py-16 text-zinc-400">
-        <Loader2 className="w-5 h-5 animate-spin" />
+      <div className="flex flex-col gap-4">
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50">
+            <div className="flex items-center gap-2">
+              <Skeleton className="w-4 h-4" />
+              <Skeleton className="h-4 w-28" />
+            </div>
+            <Skeleton className="w-4 h-4" />
+          </div>
+          <div className="px-4 py-3">
+            <div className="flex items-baseline gap-2">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-3 w-48" />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

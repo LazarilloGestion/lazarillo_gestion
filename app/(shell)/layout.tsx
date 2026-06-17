@@ -1,6 +1,7 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { DashboardFiltersToggle } from "@/components/dashboard/dashboard-filters-toggle";
 import { getAuthUser } from "@/lib/auth/get-user";
 
 export default async function ShellLayout({ children }: { children: React.ReactNode }) {
@@ -16,6 +17,7 @@ export default async function ShellLayout({ children }: { children: React.ReactN
             Lazarillo <span className="text-muted-foreground font-normal">Gestión</span>
           </span>
           <div className="ml-auto flex items-center gap-1">
+            <DashboardFiltersToggle />
             <ThemeToggle />
           </div>
         </header>

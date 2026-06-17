@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { MONTH_IDXS } from "@/lib/dashboard/constants";
+import { writeFiltersCookie } from "@/lib/dashboard/filters-cookie";
 import type { SortCol, SortDir } from "@/lib/dashboard/pivot-utils";
 
 type Tab = "compras" | "ventas";
@@ -50,6 +51,11 @@ type DashboardStore = {
   bumpRubroConfig: () => void;
   rubroOcultoCount: number;
   setRubroOcultoCount: (n: number) => void;
+
+  // panel colapsable (persistido vía cookie, leída en SSR — ver filters-cookie.ts)
+  showFilters: boolean;
+  toggleFilters: () => void;
+  setShowFilters: (open: boolean) => void;
 
   // observacion deep-link — navegar a fila en pivot
   highlightTarget: { rowId: string; rubroCodigo: string | null; conceptoCodigo: string | null; label: string } | null;
@@ -136,6 +142,15 @@ const useDashboardStore = create<DashboardStore>()(
       rubroOcultoCount: 0,
       setRubroOcultoCount: (n) => set({ rubroOcultoCount: n }),
 
+      // panel colapsable
+      showFilters: true,
+      toggleFilters: () => set((s) => {
+        const next = !s.showFilters;
+        writeFiltersCookie(next);
+        return { showFilters: next };
+      }),
+      setShowFilters: (open) => set({ showFilters: open }),
+
       // observacion deep-link
       highlightTarget: null,
       setHighlightTarget: (target) => set({
@@ -162,6 +177,14 @@ const useDashboardStore = create<DashboardStore>()(
     }
   )
 );
+
+// Selector liviano para el botón del header (suscribe solo a showFilters).
+export function useFiltersPanel() {
+  const showFilters = useDashboardStore((s) => s.showFilters);
+  const toggleFilters = useDashboardStore((s) => s.toggleFilters);
+  const setShowFilters = useDashboardStore((s) => s.setShowFilters);
+  return { showFilters, toggleFilters, setShowFilters };
+}
 
 let rehydrated = false;
 
