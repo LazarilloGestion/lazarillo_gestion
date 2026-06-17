@@ -4,8 +4,9 @@
 export const FILTERS_COOKIE = "dash_filters";
 
 // Client-only: persiste la preferencia para el próximo render del server.
+// Secure solo en HTTPS (en http://localhost el browser rechazaría la cookie con Secure).
 export function writeFiltersCookie(open: boolean) {
-  if (typeof document !== "undefined") {
-    document.cookie = `${FILTERS_COOKIE}=${open ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
-  }
+  if (typeof document === "undefined") return;
+  const secure = location.protocol === "https:" ? "; secure" : "";
+  document.cookie = `${FILTERS_COOKIE}=${open ? "1" : "0"}; path=/; max-age=31536000; samesite=lax${secure}`;
 }

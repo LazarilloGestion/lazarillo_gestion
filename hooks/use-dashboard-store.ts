@@ -144,11 +144,11 @@ const useDashboardStore = create<DashboardStore>()(
 
       // panel colapsable
       showFilters: true,
-      toggleFilters: () => set((s) => {
-        const next = !s.showFilters;
+      toggleFilters: () => {
+        const next = !get().showFilters;
         writeFiltersCookie(next);
-        return { showFilters: next };
-      }),
+        set({ showFilters: next });
+      },
       setShowFilters: (open) => set({ showFilters: open }),
 
       // observacion deep-link
