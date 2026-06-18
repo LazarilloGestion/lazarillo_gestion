@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { notify } from "@/lib/toast";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { Settings2, Inbox } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -88,7 +89,7 @@ export function RubrosConfigModal() {
         >
           <Settings2 className="w-3.5 h-3.5" />
           {rubroOcultoCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 dark:bg-zinc-100 text-[9px] font-bold text-white dark:text-zinc-900">
+            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 dark:bg-zinc-100 text-[9px] font-bold leading-none text-white dark:text-zinc-900">
               {rubroOcultoCount}
             </span>
           )}
@@ -109,7 +110,7 @@ export function RubrosConfigModal() {
 
         <div className="mt-1 flex flex-col gap-1 max-h-80 overflow-y-auto pr-1">
           {loading ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">Cargando...</div>
+            <div className="py-8 flex justify-center"><Spinner /></div>
           ) : error ? (
             <div className="py-8 text-center text-sm text-destructive">
               Error: {error}

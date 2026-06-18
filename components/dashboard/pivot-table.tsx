@@ -1,6 +1,5 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { ExpandableButton } from "@/components/ui/expandable-button";
@@ -85,30 +84,33 @@ export function PivotTable() {
     setDetalleFilter({ year, localId, pdvId, ...extra });
   }
 
+  const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
+
+  // Fase 1: expandir filas y registrar el scroll pendiente
   useEffect(() => {
     if (!highlightTarget || !data) return;
     const { rowId, rubroCodigo: rc, conceptoCodigo: cc } = highlightTarget;
 
-    // flushSync garantiza que React commitea la expansión al DOM antes de scrollear
-    // (el doble rAF solo no alcanza en production con React 18 automatic batching)
-    flushSync(() => {
-      if (rc || cc) {
-        setExpanded((prev) => {
-          const next = new Set(prev);
-          if (rc) next.add(rc);
-          if (rc && cc) next.add(`${rc}|${cc}`);
-          return next;
-        });
-      }
-      setHighlightTarget(null);
-    });
-
-    requestAnimationFrame(() => {
-      const el = document.getElementById(`pivot-row-${rowId}`);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-      setHighlightedRowId(rowId);
-    });
+    if (rc || cc) {
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        if (rc) next.add(rc);
+        if (rc && cc) next.add(`${rc}|${cc}`);
+        return next;
+      });
+    }
+    setHighlightTarget(null);
+    setPendingScrollId(rowId);
   }, [highlightTarget, data]);
+
+  // Fase 2: scrollear después de que React commitea las filas expandidas al DOM
+  useEffect(() => {
+    if (!pendingScrollId) return;
+    const el = document.getElementById(`pivot-row-${pendingScrollId}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedRowId(pendingScrollId);
+    setPendingScrollId(null);
+  }, [pendingScrollId]);
 
   const sortedRows = useMemo(
     () => (data ? sortPivotRows(data.rows, sortCol, sortDir) : []),
