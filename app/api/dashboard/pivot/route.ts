@@ -24,15 +24,16 @@ export async function GET(request: NextRequest) {
   if (
     (params.localId !== undefined && isNaN(params.localId)) ||
     (params.pdvId !== undefined && isNaN(params.pdvId)) ||
-    (params.proveedorId !== undefined && isNaN(params.proveedorId))
+    (params.proveedorId !== undefined && isNaN(params.proveedorId)) ||
+    (params.observacionQuery !== undefined && params.observacionQuery.length > 256)
   ) {
     return NextResponse.json({ error: "Invalid numeric parameter" }, { status: 400 });
   }
 
-  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months } = params;
+  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months } = params;
 
   try {
-  const conditions = buildPivotConditions({ year, tableAlias: "c", localId, pdvId, months, rubroCodigo, conceptoCodigo, proveedorId, filterRubrosOcultos: true });
+  const conditions = buildPivotConditions({ year, tableAlias: "c", localId, pdvId, months, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, filterRubrosOcultos: true });
   const where = Prisma.join(conditions, " AND ");
 
   const rows = await prisma.$queryRaw<SqlRow[]>(Prisma.sql`

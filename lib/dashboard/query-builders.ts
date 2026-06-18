@@ -17,6 +17,7 @@ interface PivotConditionParams {
   rubroCodigo?: string;
   conceptoCodigo?: string;
   proveedorId?: number;
+  observacionQuery?: string;
   filterRubrosOcultos?: boolean;
 }
 
@@ -31,6 +32,7 @@ export function buildPivotConditions({
   rubroCodigo,
   conceptoCodigo,
   proveedorId,
+  observacionQuery,
   filterRubrosOcultos = false,
 }: PivotConditionParams): Prisma.Sql[] {
   const fechaExpr = hasFechaManual
@@ -65,5 +67,9 @@ export function buildPivotConditions({
   }
   if (conceptoCodigo) conditions.push(Prisma.sql`COALESCE(cc.codigo, '__sin_concepto') = ${conceptoCodigo}`);
   if (proveedorId) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
+  if (observacionQuery) {
+    const q = `%${observacionQuery.replace(/[%_\\]/g, "\\$&")}%`;
+    conditions.push(Prisma.sql`COALESCE(${Prisma.raw(t)}."observacManual", ${Prisma.raw(t)}.observac) ILIKE ${q}`);
+  }
   return conditions;
 }

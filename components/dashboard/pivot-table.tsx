@@ -24,28 +24,27 @@ import { VentasDetalleModal } from "./ventas-detalle-modal";
 
 export function PivotTable() {
   const {
-    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId,
+    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
     months, activeMonths, sortCol, sortDir, handleSortClick,
-    rubroConfigVersion, highlightTarget, setHighlightTarget,
-    highlightedRowId, setHighlightedRowId, clearHighlight,
+    rubroConfigVersion,
   } = useDashboard();
 
   const { expanded, setExpanded, toggle: toggleRow, collapseAll } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
   const [ventasDetalleFilter, setVentasDetalleFilter] = useState<VentasDetalleFilter | null>(null);
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
-  const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number }>({});
+  const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number; observacionQuery?: string }>({});
 
 
   const url = useMemo(() => {
     const base = buildDashboardUrl("/api/dashboard/pivot", {
-      year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months: activeMonths,
+      year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months: activeMonths,
     });
     return rubroConfigVersion > 0 ? `${base}&_rcv=${rubroConfigVersion}` : base;
-  }, [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, activeMonths, rubroConfigVersion]);
+  }, [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, activeMonths, rubroConfigVersion]);
 
   const { data, isLoading, error } = useFetchQuery<PivotData>(
-    ["pivot", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, months, rubroConfigVersion],
+    ["pivot", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months, rubroConfigVersion],
     url
   );
 
@@ -59,16 +58,16 @@ export function PivotTable() {
     ventasUrl
   );
 
-  // Auto-expandir cuando hay filtro de concepto o proveedor; colapsar al quitar filtro.
+  // Auto-expandir cuando hay filtro de concepto, proveedor u observacion; colapsar al quitar filtro.
   useEffect(() => {
     if (!data) return;
     const prev = prevFilterRef.current;
     const filterChanged =
-      prev.conceptoCodigo !== conceptoCodigo || prev.proveedorId !== proveedorId;
-    prevFilterRef.current = { conceptoCodigo, proveedorId };
+      prev.conceptoCodigo !== conceptoCodigo || prev.proveedorId !== proveedorId || prev.observacionQuery !== observacionQuery;
+    prevFilterRef.current = { conceptoCodigo, proveedorId, observacionQuery };
     if (!filterChanged) return;
 
-    if (conceptoCodigo || proveedorId) {
+    if (conceptoCodigo || proveedorId || observacionQuery) {
       const ids = new Set<string>();
       for (const rubro of data.rows) {
         ids.add(rubro.id);
@@ -78,39 +77,11 @@ export function PivotTable() {
     } else {
       setExpanded(new Set());
     }
-  }, [data, conceptoCodigo, proveedorId]);
+  }, [data, conceptoCodigo, proveedorId, observacionQuery]);
 
   function openDetalle(extra: Omit<DetalleFilter, "year" | "localId" | "pdvId">) {
     setDetalleFilter({ year, localId, pdvId, ...extra });
   }
-
-  const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
-
-  // Fase 1: expandir filas y registrar el scroll pendiente
-  useEffect(() => {
-    if (!highlightTarget || !data) return;
-    const { rowId, rubroCodigo: rc, conceptoCodigo: cc } = highlightTarget;
-
-    if (rc || cc) {
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        if (rc) next.add(rc);
-        if (rc && cc) next.add(`${rc}|${cc}`);
-        return next;
-      });
-    }
-    setHighlightTarget(null);
-    setPendingScrollId(rowId);
-  }, [highlightTarget, data]);
-
-  // Fase 2: scrollear después de que React commitea las filas expandidas al DOM
-  useEffect(() => {
-    if (!pendingScrollId) return;
-    const el = document.getElementById(`pivot-row-${pendingScrollId}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-    setHighlightedRowId(pendingScrollId);
-    setPendingScrollId(null);
-  }, [pendingScrollId]);
 
   const sortedRows = useMemo(
     () => (data ? sortPivotRows(data.rows, sortCol, sortDir) : []),
@@ -415,22 +386,17 @@ export function PivotTable() {
                 prov.observac || null,
                 fmtARS(prov.importe),
               ].filter(Boolean);
-              const isHighlighted = highlightedRowId === prov.rowId;
               return (
                 <tr
                   key={prov.id}
-                  id={`pivot-row-${prov.rowId}`}
-                  onClick={isHighlighted ? () => { openDetalle({ rowId: prov.rowId }); clearHighlight(); } : undefined}
                   className={cn(
                     "border-b transition-colors",
-                    isHighlighted
-                      ? "cursor-pointer animate-pulse bg-cat-observacion/15 outline outline-2 outline-cat-observacion/60"
-                      : prov.hasManualOverride
+                    prov.hasManualOverride
                       ? "bg-attention/5 hover:bg-attention/10"
                       : "hover:bg-accent/20"
                   )}
                 >
-                  <td className={cn("sticky left-0 z-10 px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", isHighlighted ? "text-cat-observacion bg-cat-observacion/15" : prov.hasManualOverride ? "text-attention bg-attention/5" : "text-muted-foreground bg-background")}>
+                  <td className={cn("sticky left-0 z-10 px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", prov.hasManualOverride ? "text-attention bg-attention/5" : "text-muted-foreground bg-background")}>
                     <span className="flex items-center gap-1.5">
                       {prov.hasManualOverride && <EditedDot />}
                       {labelParts.join(' · ')}

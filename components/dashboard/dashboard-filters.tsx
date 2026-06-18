@@ -20,15 +20,17 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import type { Local } from "@/lib/types/domain";
 
 const PALETTE_PARAM_LABELS: Record<string, string> = {
-  rubroCodigo:    "Rubro",
-  conceptoCodigo: "Concepto",
-  proveedorId:    "Proveedor",
+  rubroCodigo:      "Rubro",
+  conceptoCodigo:   "Concepto",
+  proveedorId:      "Proveedor",
+  observacionQuery: "Observación",
 };
 
 const PALETTE_PARAM_COLORS: Record<string, { label: string; bg: string; border: string }> = {
-  rubroCodigo:    { label: "text-cat-rubro",      bg: "bg-cat-rubro/8",      border: "border-cat-rubro/25" },
-  conceptoCodigo: { label: "text-cat-concepto",   bg: "bg-cat-concepto/8",   border: "border-cat-concepto/25" },
-  proveedorId:    { label: "text-cat-proveedor",  bg: "bg-cat-proveedor/8",  border: "border-cat-proveedor/25" },
+  rubroCodigo:      { label: "text-cat-rubro",        bg: "bg-cat-rubro/8",        border: "border-cat-rubro/25" },
+  conceptoCodigo:   { label: "text-cat-concepto",     bg: "bg-cat-concepto/8",     border: "border-cat-concepto/25" },
+  proveedorId:      { label: "text-cat-proveedor",    bg: "bg-cat-proveedor/8",    border: "border-cat-proveedor/25" },
+  observacionQuery: { label: "text-cat-observacion",  bg: "bg-cat-observacion/8",  border: "border-cat-observacion/25" },
 };
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -40,7 +42,7 @@ export function DashboardFilters() {
     tab, year, localId, pdvId,
     setYear, setLocalId, setPdvId,
     selectedMonths, toggleMonth, clearMonths,
-    rubroCodigo, conceptoCodigo, proveedorId, searchLabel,
+    rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, searchLabel,
     clearSearch,
   } = useDashboard();
 
@@ -77,7 +79,7 @@ export function DashboardFilters() {
     locales.find((l) => l.id === localId)?.puntosDeVenta ?? [];
 
   const activeSearchParam = !isVentas
-    ? (rubroCodigo ? "rubroCodigo" : conceptoCodigo ? "conceptoCodigo" : proveedorId ? "proveedorId" : undefined)
+    ? (rubroCodigo ? "rubroCodigo" : conceptoCodigo ? "conceptoCodigo" : proveedorId ? "proveedorId" : observacionQuery ? "observacionQuery" : undefined)
     : undefined;
 
   const activeChips = activeSearchParam

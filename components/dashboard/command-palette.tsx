@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef, type ElementType } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
-import { Layers, Tag, Truck, MessageSquare, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown, X } from "lucide-react";
+import { Layers, Tag, Truck, MessageSquare, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Command,
@@ -37,7 +37,7 @@ interface Props {
 }
 
 export function CommandPalette({ open, onOpenChange }: Props) {
-  const { setSearch, setHighlightTarget, highlightedRowId, highlightLabel, clearHighlight } = useDashboard();
+  const { setSearch } = useDashboard();
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -105,10 +105,10 @@ export function CommandPalette({ open, onOpenChange }: Props) {
 
   const handleSelectObservacion = useCallback(
     (result: ObservacionResult) => {
-      setHighlightTarget({ rowId: result.rowId, rubroCodigo: result.rubroCodigo, conceptoCodigo: result.conceptoCodigo, label: result.label });
+      setSearch("observacionQuery", result.label, result.label);
       handleClose(false);
     },
-    [setHighlightTarget, handleClose]
+    [setSearch, handleClose]
   );
 
   const counts = useMemo(
@@ -148,25 +148,6 @@ export function CommandPalette({ open, onOpenChange }: Props) {
             onValueChange={(v) => { setQuery(v); if (v) setTypeFilter(null); }}
             className="h-14 text-base border-0 bg-transparent placeholder:text-muted-foreground/50 focus-visible:ring-0"
           />
-
-          {/* Active observacion highlight banner */}
-          {highlightedRowId && highlightLabel && (
-            <>
-              <div className="flex items-center gap-2 px-4 py-2 bg-cat-observacion/8 border-b border-cat-observacion/20">
-                <MessageSquare className="h-3.5 w-3.5 text-cat-observacion shrink-0" />
-                <span className="flex-1 text-xs text-cat-observacion/80 truncate">
-                  Resaltando en tabla: <span className="font-medium text-cat-observacion">{highlightLabel}</span>
-                </span>
-                <button
-                  onClick={() => clearHighlight()}
-                  className="h-5 w-5 flex items-center justify-center rounded hover:bg-cat-observacion/15 transition-colors"
-                  aria-label="Limpiar búsqueda activa"
-                >
-                  <X className="h-3 w-3 text-cat-observacion/70" />
-                </button>
-              </div>
-            </>
-          )}
 
           {/* Divider */}
           <div className="h-px bg-border/40 mx-0" />

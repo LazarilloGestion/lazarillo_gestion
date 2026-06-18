@@ -6,12 +6,9 @@ export const dynamic = "force-dynamic";
 
 export type ObservacionResult = {
   id: string;
-  rowId: string;
   label: string;
   fecha: string | null;
   conceptoNombre: string | null;
-  conceptoCodigo: string | null;
-  rubroCodigo: string | null;
   proveedorNombre: string | null;
 };
 
@@ -38,10 +35,8 @@ export async function GET(request: NextRequest) {
         observac: true,
         observacManual: true,
         proveedorRef: { select: { nombre: true, razon: true } },
-        conceptoCodigoManual: true,
-        conceptoCodigo: true,
-        conceptoCajaManual: { select: { nombre: true, codRga: true, rubro: { select: { codigo: true } } } },
-        conceptoCaja:       { select: { nombre: true, codRga: true, rubro: { select: { codigo: true } } } },
+        conceptoCajaManual: { select: { nombre: true } },
+        conceptoCaja:       { select: { nombre: true } },
       },
       orderBy: { fecha: "desc" },
       take: 12,
@@ -51,12 +46,9 @@ export async function GET(request: NextRequest) {
       const concepto = r.conceptoCajaManual ?? r.conceptoCaja;
       return {
         id: `observacion:${r.rowId}`,
-        rowId: r.rowId,
         label: r.observacManual ?? r.observac ?? "",
         fecha: r.fecha ? r.fecha.toISOString().slice(0, 10) : null,
         conceptoNombre: concepto?.nombre ?? null,
-        conceptoCodigo: r.conceptoCodigoManual ?? r.conceptoCodigo ?? null,
-        rubroCodigo: concepto?.rubro?.codigo ?? null,
         proveedorNombre: r.proveedorRef?.nombre ?? r.proveedorRef?.razon ?? null,
       };
     });

@@ -12,6 +12,7 @@ type SearchFilters = {
   rubroCodigo: string | undefined;
   conceptoCodigo: string | undefined;
   proveedorId: number | undefined;
+  observacionQuery: string | undefined;
   searchLabel: string | undefined;
 };
 
@@ -40,6 +41,7 @@ type DashboardStore = {
   rubroCodigo: string | undefined;
   conceptoCodigo: string | undefined;
   proveedorId: number | undefined;
+  observacionQuery: string | undefined;
   searchLabel: string | undefined;
   savedFilters: Record<Tab, SearchFilters>;
   setSearch: (param: string, value: string, label: string) => void;
@@ -56,20 +58,13 @@ type DashboardStore = {
   showFilters: boolean;
   toggleFilters: () => void;
   setShowFilters: (open: boolean) => void;
-
-  // observacion deep-link — navegar a fila en pivot
-  highlightTarget: { rowId: string; rubroCodigo: string | null; conceptoCodigo: string | null; label: string } | null;
-  setHighlightTarget: (target: { rowId: string; rubroCodigo: string | null; conceptoCodigo: string | null; label: string } | null) => void;
-  highlightedRowId: string | null;
-  highlightLabel: string | null;
-  setHighlightedRowId: (id: string | null) => void;
-  clearHighlight: () => void;
 };
 
 const EMPTY_FILTERS: SearchFilters = {
   rubroCodigo: undefined,
   conceptoCodigo: undefined,
   proveedorId: undefined,
+  observacionQuery: undefined,
   searchLabel: undefined,
 };
 
@@ -102,15 +97,16 @@ const useDashboardStore = create<DashboardStore>()(
       tab: "compras",
       localId: undefined,
       pdvId: undefined,
-      setYear: (year) => set({ year, highlightedRowId: null, highlightLabel: null }),
+      setYear: (year) => set({ year }),
       setTab: (tab) => set({ tab }),
-      setLocalId: (id) => set({ localId: id, pdvId: undefined, highlightedRowId: null, highlightLabel: null }),
-      setPdvId: (id) => set({ pdvId: id, highlightedRowId: null, highlightLabel: null }),
+      setLocalId: (id) => set({ localId: id, pdvId: undefined }),
+      setPdvId: (id) => set({ pdvId: id }),
 
       // search
       rubroCodigo: undefined,
       conceptoCodigo: undefined,
       proveedorId: undefined,
+      observacionQuery: undefined,
       searchLabel: undefined,
       savedFilters: { compras: { ...EMPTY_FILTERS }, ventas: { ...EMPTY_FILTERS } },
       // Solo un filtro de palette activo a la vez (mutuamente excluyentes).
@@ -119,19 +115,21 @@ const useDashboardStore = create<DashboardStore>()(
           rubroCodigo: param === "rubroCodigo" ? value : undefined,
           conceptoCodigo: param === "conceptoCodigo" ? value : undefined,
           proveedorId: param === "proveedorId" ? Number(value) : undefined,
+          observacionQuery: param === "observacionQuery" ? value : undefined,
           searchLabel: label,
         });
       },
       clearSearch: () => set({ ...EMPTY_FILTERS }),
       switchTab: (tab) => {
-        const { tab: current, rubroCodigo, conceptoCodigo, proveedorId, searchLabel, savedFilters } = get();
+        const { tab: current, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, searchLabel, savedFilters } = get();
         const saved = savedFilters[tab] ?? { ...EMPTY_FILTERS };
         set({
           tab,
-          savedFilters: { ...savedFilters, [current]: { rubroCodigo, conceptoCodigo, proveedorId, searchLabel } },
+          savedFilters: { ...savedFilters, [current]: { rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, searchLabel } },
           rubroCodigo: saved.rubroCodigo,
           conceptoCodigo: saved.conceptoCodigo,
           proveedorId: saved.proveedorId,
+          observacionQuery: saved.observacionQuery,
           searchLabel: saved.searchLabel,
         });
       },
@@ -150,17 +148,6 @@ const useDashboardStore = create<DashboardStore>()(
         set({ showFilters: next });
       },
       setShowFilters: (open) => set({ showFilters: open }),
-
-      // observacion deep-link
-      highlightTarget: null,
-      setHighlightTarget: (target) => set({
-        highlightTarget: target,
-        ...(target ? { highlightLabel: target.label } : {}),
-      }),
-      highlightedRowId: null,
-      highlightLabel: null,
-      setHighlightedRowId: (id) => set({ highlightedRowId: id }),
-      clearHighlight: () => set({ highlightedRowId: null, highlightLabel: null }),
     }),
     {
       name: "dashboard:state",
@@ -222,14 +209,10 @@ export function useDashboard() {
     setYear: s.setYear, setTab: s.setTab, setLocalId: s.setLocalId, setPdvId: s.setPdvId,
     // search
     rubroCodigo: s.rubroCodigo, conceptoCodigo: s.conceptoCodigo,
-    proveedorId: s.proveedorId, searchLabel: s.searchLabel,
+    proveedorId: s.proveedorId, observacionQuery: s.observacionQuery, searchLabel: s.searchLabel,
     setSearch: s.setSearch, clearSearch: s.clearSearch, switchTab: s.switchTab,
     // rubro config
     rubroConfigVersion: s.rubroConfigVersion, bumpRubroConfig: s.bumpRubroConfig,
     rubroOcultoCount: s.rubroOcultoCount, setRubroOcultoCount: s.setRubroOcultoCount,
-    // observacion deep-link
-    highlightTarget: s.highlightTarget, setHighlightTarget: s.setHighlightTarget,
-    highlightedRowId: s.highlightedRowId, highlightLabel: s.highlightLabel,
-    setHighlightedRowId: s.setHighlightedRowId, clearHighlight: s.clearHighlight,
   };
 }

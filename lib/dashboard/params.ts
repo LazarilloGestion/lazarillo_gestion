@@ -7,6 +7,7 @@ export interface DashboardParams {
   rubroCodigo?: string;
   conceptoCodigo?: string;
   proveedorId?: number;
+  observacionQuery?: string;
   months?: number[];
 }
 
@@ -39,6 +40,7 @@ export function parseDashboardParams(sp: URLSearchParams): DashboardParams {
     rubroCodigo: sp.get("rubroCodigo")?.slice(0, 64) ?? undefined,
     conceptoCodigo: sp.get("conceptoCodigo")?.slice(0, 64) ?? undefined,
     proveedorId: toInt(sp.get("proveedorId")),
+    observacionQuery: sp.get("observacionQuery")?.slice(0, 256) ?? undefined,
     months: parseMonths(sp.get("months")),
   };
 }
@@ -61,6 +63,7 @@ export function buildDashboardUrl(base: string, params: DashboardParams): string
   if (params.rubroCodigo) sp.set("rubroCodigo", params.rubroCodigo);
   if (params.conceptoCodigo) sp.set("conceptoCodigo", params.conceptoCodigo);
   if (params.proveedorId != null) sp.set("proveedorId", String(params.proveedorId));
+  if (params.observacionQuery) sp.set("observacionQuery", params.observacionQuery);
   if (params.months?.length) sp.set("months", params.months.join(","));
   return `${base}?${sp.toString()}`;
 }
