@@ -4,7 +4,7 @@ import { Spinner } from "@/components/ui/spinner";
 export function PivotLoading() {
   return (
     <div className="flex flex-1 items-center justify-center h-full">
-      <Spinner />
+      <Spinner size="lg" />
     </div>
   );
 }

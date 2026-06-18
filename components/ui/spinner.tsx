@@ -1,5 +1,10 @@
-export function Spinner() {
+import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const sizeMap = { sm: "size-3.5", md: "size-4", lg: "size-6" };
+
+export function Spinner({ size = "md", className }: { size?: "sm" | "md" | "lg"; className?: string }) {
   return (
-    <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-muted-foreground/20 border-t-muted-foreground" />
+    <Loader2 className={cn("animate-spin text-muted-foreground", sizeMap[size], className)} />
   );
 }

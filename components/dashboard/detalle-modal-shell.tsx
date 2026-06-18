@@ -69,7 +69,7 @@ export function DetalleModalShell<T>({
           </div>
         )}
 
-        {isLoading && <div className="flex items-center justify-center py-12"><Spinner /></div>}
+        {isLoading && <div className="flex items-center justify-center py-12"><Spinner size="lg" /></div>}
         {error && <div className="py-12 text-center text-sm text-destructive">Error al cargar los datos.</div>}
         {!isLoading && !error && count === 0 && (
           <div className="py-12 text-center text-sm text-muted-foreground">Sin registros para la selección.</div>

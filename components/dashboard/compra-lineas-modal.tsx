@@ -31,7 +31,7 @@ export function CompraLineasModal({ compraId, comprobante, onClose }: Props) {
             <DialogTitle className="text-base font-semibold">{normalize(comprobante) ?? "Comprobante"}</DialogTitle>
           </div>
         )}
-        {isLoading && <div className="flex items-center justify-center py-12"><Spinner /></div>}
+        {isLoading && <div className="flex items-center justify-center py-12"><Spinner size="lg" /></div>}
 
         {error && (
           <>

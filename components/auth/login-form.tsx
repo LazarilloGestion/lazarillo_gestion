@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Loader2, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 function GoogleIcon() {
   return (
@@ -77,7 +78,7 @@ export function LoginForm({ next, hasError }: LoginFormProps) {
         className="w-full flex items-center justify-center gap-3 h-11 px-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-sm font-medium shadow-sm transition-all duration-150 hover:bg-zinc-50 dark:hover:bg-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 dark:focus-visible:ring-zinc-100 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-50 dark:focus-visible:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {loading ? (
-          <Loader2 className="size-4 animate-spin text-zinc-400" />
+          <Spinner />
         ) : (
           <GoogleIcon />
         )}

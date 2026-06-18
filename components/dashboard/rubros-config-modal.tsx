@@ -110,7 +110,7 @@ export function RubrosConfigModal() {
 
         <div className="mt-1 flex flex-col gap-1 max-h-80 overflow-y-auto pr-1">
           {loading ? (
-            <div className="py-8 flex justify-center"><Spinner /></div>
+            <div className="py-8 flex justify-center"><Spinner size="lg" /></div>
           ) : error ? (
             <div className="py-8 text-center text-sm text-destructive">
               Error: {error}
