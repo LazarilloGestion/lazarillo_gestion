@@ -1,10 +1,10 @@
 import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { trim, toDecimalStr, safeDate, normalizeText } from "../helpers";
+import { trim, toDecimalStr, safeDate, normalizeText, excelDateToISO } from "../helpers";
 import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 
-import type { ETLRow, ETLRowError, ETLContext } from "../types";
+import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 
 // Filas por chunk de INSERT ... ON CONFLICT. Con ~18 columnas: ~9k params/chunk < 65535.
 const CHUNK_SIZE = 500;
@@ -28,27 +28,63 @@ function parseComprobanteFromDetalle(raw: unknown): string | null {
 function makeRowId(r: ETLRow): string {
   // DETALLE (nro. comprobante) está vacío en ~40% de filas (sueldos, publicidad, alquiler).
   // OBSERVAC diferencia esos casos (ej: "gonza cumple" vs "luna cumple" el mismo día).
-  // No incluir IMPORTE: correcciones del ERP en filas con igual OBSERVAC deben hacer upsert.
-  // Usar normalizeText en OBSERVAC para que variaciones de casing/espacios no generen rowIds distintos
-  // al mismo valor normalizado que se almacena en la DB.
-  const key = [r["COD_CGA"], r["FECHA"], r["CODIGO"], r["CONCEPTO"], r["DETALLE"], normalizeText(r["OBSERVAC"])]
+  // IMPORTE incluido para distinguir dos transacciones genuinamente distintas con mismos campos
+  // descriptivos (ej: dos retiros el mismo día con diferente monto). Las correcciones del ERP
+  // generarán una fila nueva en vez de upsert — perder transacciones reales es peor que eso.
+  // Usar normalizeText en OBSERVAC para que variaciones de casing/espacios no generen rowIds distintos.
+  const key = [r["COD_CGA"], r["FECHA"], r["CODIGO"], r["CONCEPTO"], r["DETALLE"], normalizeText(r["OBSERVAC"]), r["IMPORTE"]]
     .map((v) => String(v ?? ""))
     .join("|");
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
+}
+
+function formatFechaDisplay(val: unknown): string | undefined {
+  const iso = excelDateToISO(val);
+  if (!iso) return undefined;
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
 }
 
 export async function normalizeCompras(
   rows: ETLRow[],
   prisma: DbClient,
   ctx?: ETLContext
-): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
+): Promise<{ created: number; updated: number; skipped: number; skippedRows: ETLSkippedRow[]; errors: ETLRowError[] }> {
+  const invalid = rows.filter((r) => r["COD_CGA"] == null || r["FECHA"] == null);
   const valid = rows.filter((r) => r["COD_CGA"] != null && r["FECHA"] != null);
-  // Deduplicar por rowId — last wins (el ERP puede repetir filas; el upsert anterior también lo resolvía así)
-  const filtered = Array.from(
-    valid.reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>()).values()
-  );
-  // skipped = filas inválidas + duplicados dentro del archivo
-  const skipped = rows.length - filtered.length;
+
+  // Deduplicar por rowId — last wins. Rastrear cuáles se descartan para mostrarlos en la UI.
+  const groupMap = new Map<string, ETLRow[]>();
+  for (const r of valid) {
+    const id = makeRowId(r);
+    const group = groupMap.get(id) ?? [];
+    group.push(r);
+    groupMap.set(id, group);
+  }
+  const filtered: ETLRow[] = [];
+  const dupRows: ETLRow[] = [];
+  for (const group of groupMap.values()) {
+    filtered.push(group[group.length - 1]);
+    if (group.length > 1) dupRows.push(...group.slice(0, -1));
+  }
+
+  const skippedRows: ETLSkippedRow[] = [
+    ...invalid.map((r): ETLSkippedRow => ({
+      fecha: formatFechaDisplay(r["FECHA"]),
+      concepto: trim(r["CONCEPTO"]) ?? undefined,
+      importe: toDecimalStr(r["IMPORTE"]) ?? undefined,
+      proveedor: trim(r["PROVEEDOR"]) ?? undefined,
+      motivo: "sin_datos",
+    })),
+    ...dupRows.map((r): ETLSkippedRow => ({
+      fecha: formatFechaDisplay(r["FECHA"]),
+      concepto: trim(r["CONCEPTO"]) ?? undefined,
+      importe: toDecimalStr(r["IMPORTE"]) ?? undefined,
+      proveedor: trim(r["PROVEEDOR"]) ?? undefined,
+      motivo: "duplicado",
+    })),
+  ];
+  const skipped = skippedRows.length;
 
   // Lookup tables — una sola query cada una para todo el archivo
   const codigosProv = [...new Set(filtered.map((r) => trim(r["CODIGO"])).filter(Boolean))] as string[];
@@ -76,7 +112,8 @@ export async function normalizeCompras(
 
   for (let i = 0; i < filtered.length; i += CHUNK_SIZE) {
     const chunk = filtered.slice(i, i + CHUNK_SIZE);
-    const chunkRowIds = chunk.map(makeRowId);
+    const chunkEntries = chunk.map((r) => [makeRowId(r), r] as const);
+    const chunkRowIds = chunkEntries.map(([id]) => id);
 
     const existingSet = new Set(
       (await prisma.compra.findMany({
@@ -86,8 +123,7 @@ export async function normalizeCompras(
     );
 
     try {
-      const rowValues = chunk.map((r) => {
-        const rowId = makeRowId(r);
+      const rowValues = chunkEntries.map(([rowId, r]) => {
         const importe = toDecimalStr(r["IMPORTE"]);
         const proveedorId = provMap.get(trim(r["CODIGO"]) ?? "") ?? null;
         const conceptoCodigo = conceptoSet.has(trim(r["COD_CGA"]) ?? "") ? trim(r["COD_CGA"]) : null;
@@ -162,5 +198,5 @@ export async function normalizeCompras(
     await linkDetalleComprasByComprobante(prisma, ctx.localId);
   }
 
-  return { created, updated, skipped, errors };
+  return { created, updated, skipped, skippedRows, errors };
 }

@@ -30,12 +30,21 @@ export interface ETLRowError {
   message: string;
 }
 
+export interface ETLSkippedRow {
+  fecha?: string;
+  concepto?: string;
+  importe?: string;
+  proveedor?: string;
+  motivo: "sin_datos" | "duplicado";
+}
+
 export interface ETLReport {
   fileType: ETLFileType;
   totalRows: number;
   created: number;
   updated: number;
   skipped: number;
+  skippedRows?: ETLSkippedRow[];
   errors: ETLRowError[];
   durationMs: number;
   storagePath?: string;
