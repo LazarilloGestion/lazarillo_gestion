@@ -238,6 +238,7 @@ function DriveTab({
     let totalErrors = 0;
     let totalRecords = 0;
     let foldersBlocked = false;
+    let skippedFolders = 0;
     try {
       if (ready.maestros.length > 0) {
         const r = await importAllFiles(ready.maestros);
@@ -253,6 +254,7 @@ function DriveTab({
           return;
         }
         for (const folder of ready.folders) {
+          if (!folder.localId) { skippedFolders++; continue; }
           const r = await importAllFiles(folder.files, folder.localId ?? undefined, folder.puntoDeVentaId ?? undefined);
           totalFiles += r.total;
           totalErrors += r.errors;
@@ -263,11 +265,14 @@ function DriveTab({
       setGlobalImporting(false);
       if (foldersBlocked) {
         notify.maestrosNoCargados(totalFiles);
-      } else if (totalFiles > 0) {
-        if (totalErrors === 0) {
-          notify.importacionCompletada(totalFiles, totalRecords);
-        } else {
-          notify.importacionConErrores(totalErrors, totalFiles);
+      } else {
+        if (skippedFolders > 0) notify.localNoReconocido(skippedFolders);
+        if (totalFiles > 0) {
+          if (totalErrors === 0) {
+            notify.importacionCompletada(totalFiles, totalRecords);
+          } else {
+            notify.importacionConErrores(totalErrors, totalFiles);
+          }
         }
       }
     }
@@ -384,7 +389,7 @@ function DriveTab({
       {config?.folder_id && filesState.status !== "loading" && (
         <div className="flex items-center justify-end gap-3">
           {ready && (() => {
-            const allFiles = [...ready.maestros, ...ready.folders.flatMap((f) => f.files)];
+            const allFiles = [...ready.maestros, ...ready.folders.filter((f) => f.localId).flatMap((f) => f.files)];
             const hayPendientes = allFiles.some((f) => !fileStatuses[f.id] || fileStatuses[f.id] === "idle" || fileStatuses[f.id] === "error");
             const todoDone = allFiles.length > 0 && allFiles.every((f) => fileStatuses[f.id] === "success");
 
@@ -477,7 +482,10 @@ function DriveTab({
             fileErrors={fileErrors}
             onImportOne={importOneFile}
             onImportAll={importAllFiles}
-            blocked={maestrosLoaded !== true}
+            blocked={maestrosLoaded !== true || !folder.localId}
+            blockedTitle={!folder.localId
+              ? "Local no reconocido — corregí el nombre de la carpeta en Drive"
+              : "Importá los maestros primero"}
             globalImporting={globalImporting}
             onResetFile={resetFile}
           />
@@ -514,6 +522,7 @@ function DriveFolder({
   fileErrors,
   onImportOne,
   blocked = false,
+  blockedTitle,
   globalImporting = false,
   onImportAll,
   onResetFile,
@@ -530,6 +539,7 @@ function DriveFolder({
   onImportOne: (file: DriveFile, localId?: number, puntoDeVentaId?: number) => Promise<unknown>;
   onImportAll: (files: DriveFile[], localId?: number, puntoDeVentaId?: number) => Promise<unknown>;
   blocked?: boolean;
+  blockedTitle?: string;
   globalImporting?: boolean;
   onResetFile: (fileId: string) => void;
 }) {
@@ -605,6 +615,7 @@ function DriveFolder({
             <button
               onClick={handleImportAll}
               disabled={batchRunning || pendingFiles.length === 0 || blocked || globalImporting}
+              title={blocked ? blockedTitle : undefined}
               className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {batchRunning ? (
@@ -632,8 +643,7 @@ function DriveFolder({
             </div>
           )}
           {folderImporting && (
-            <div className="flex items-center gap-2 px-4 py-2.5 bg-warning/10 border-b border-warning/15 text-xs text-warning">
-              <Spinner size="sm" className="shrink-0" />
+            <div className="px-4 py-2.5 bg-warning/10 border-b border-warning/15 text-xs text-warning">
               Importación en curso — no navegues ni recargues la página hasta que termine.
             </div>
           )}
@@ -664,7 +674,7 @@ function DriveFolder({
                       {status === "success" ? (
                         <button
                           onClick={async () => { onResetFile(file.id); await onImportOne(file, localId, puntoDeVentaId); }}
-                          disabled={batchRunning || globalImporting}
+                          disabled={batchRunning || globalImporting || blocked}
                           title="Reimportar archivo"
                           className="group shrink-0 disabled:pointer-events-none"
                         >
@@ -674,7 +684,7 @@ function DriveFolder({
                       ) : status === "error" ? (
                         <button
                           onClick={async () => { onResetFile(file.id); await onImportOne(file, localId, puntoDeVentaId); }}
-                          disabled={batchRunning || globalImporting}
+                          disabled={batchRunning || globalImporting || blocked}
                           title="Reimportar archivo"
                           className="group shrink-0 disabled:pointer-events-none"
                         >
@@ -687,6 +697,7 @@ function DriveFolder({
                         <button
                           onClick={() => onImportOne(file, localId, puntoDeVentaId)}
                           disabled={batchRunning || blocked || globalImporting}
+                          title={blocked ? blockedTitle : undefined}
                           className="flex items-center gap-1.5 h-7 px-3 rounded-md border border-zinc-200 dark:border-zinc-600 bg-white dark:bg-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                         >
                           <CloudDownload className="w-3 h-3" />
@@ -732,11 +743,43 @@ function ReportCard({ report }: { report: ETLReport }) {
           {report.created} creados
         </Badge>
         <Badge variant="secondary" className="text-xs">{report.updated} actualizados</Badge>
-        <Badge variant="outline" className="text-xs">{report.skipped} omitidos</Badge>
+        {report.skipped > 0 && (
+          <Badge variant="outline" className="text-xs">{report.skipped} omitidos</Badge>
+        )}
         {report.errors.length > 0 && (
           <Badge variant="destructive" className="text-xs">{report.errors.length} errores</Badge>
         )}
       </div>
+
+      {report.skipped > 0 && (
+        report.skippedRows && report.skippedRows.length > 0 ? (
+          <details className="text-xs">
+            <summary className="cursor-pointer text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-medium transition-colors">
+              Ver {report.skippedRows.length} omitidos
+            </summary>
+            <ul className="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
+              {report.skippedRows.map((row, i) => (
+                <li key={i} className="flex flex-col gap-0.5 text-zinc-500 dark:text-zinc-400">
+                  <span className="font-mono">
+                    {row.fecha ?? "—"}
+                    {row.proveedor ? ` · ${row.proveedor}` : row.concepto ? ` · ${row.concepto}` : ""}
+                    {row.importe ? ` · $${Number(row.importe).toLocaleString("es-AR")}` : ""}
+                  </span>
+                  <span className="text-zinc-400 dark:text-zinc-500">
+                    {row.motivo === "sin_datos"
+                      ? "Fila incompleta — falta código de cuenta o fecha"
+                      : "Fila repetida dentro del archivo"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : (
+          <p className="text-xs text-zinc-400">
+            {report.skipped} {report.skipped === 1 ? "fila omitida" : "filas omitidas"} — sin detalle disponible para este tipo de archivo.
+          </p>
+        )
+      )}
 
       {report.errors.length > 0 && (
         <details className="text-xs">

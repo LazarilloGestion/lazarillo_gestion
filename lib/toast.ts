@@ -15,12 +15,14 @@ export const notify = {
     toast.success("Importación completada", {
       description: `${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} procesados · ${totalRecords} registros`,
       duration: Infinity,
+      closeButton: true,
     }),
 
   importacionConErrores: (totalErrors: number, totalFiles: number) =>
     toast.error("Importación con errores", {
       description: `${totalErrors} de ${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} fallaron — revisá los detalles`,
       duration: Infinity,
+      closeButton: true,
     }),
 
   maestrosNoCargados: (totalFiles: number) =>
@@ -30,5 +32,13 @@ export const notify = {
           ? `Se procesaron ${totalFiles} archivo${totalFiles !== 1 ? "s" : ""} maestros pero los transaccionales no se importaron`
           : "Los archivos transaccionales no se importaron — los maestros no están disponibles",
       duration: Infinity,
+      closeButton: true,
+    }),
+
+  localNoReconocido: (count: number) =>
+    toast.warning("Carpetas no importadas", {
+      description: `${count} carpeta${count !== 1 ? "s" : ""} omitida${count !== 1 ? "s" : ""} — el nombre no corresponde a ningún local registrado`,
+      duration: Infinity,
+      closeButton: true,
     }),
 };

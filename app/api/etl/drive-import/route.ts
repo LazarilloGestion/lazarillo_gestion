@@ -7,10 +7,14 @@ import { getEtlClient } from "@/lib/etl/etl-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getFileOrder } from "@/lib/etl/file-processor";
 import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
+import { getExcelHeaders } from "@/lib/etl/helpers";
+import { detectFileType } from "@/lib/etl/detect-file-type";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/utils";
 import { rateLimit } from "@/lib/rate-limit";
 import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
+
+const TRANSACTIONAL_TYPES = new Set(["compras", "detalleCompras", "ventas"]);
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -136,6 +140,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `El archivo "${fn}" supera el límite de 10 MB` }, { status: 413 });
       if (!isValidExcel(buffer))
         return NextResponse.json({ error: `El archivo "${fn}" no es un Excel válido (.xlsx o .xls)` }, { status: 400 });
+      const fileType = detectFileType(getExcelHeaders(buffer));
+      if (fileType && TRANSACTIONAL_TYPES.has(fileType) && localId == null)
+        return NextResponse.json(
+          { error: `El archivo "${fn}" es transaccional y requiere un local reconocido.` },
+          { status: 422 }
+        );
     }
 
     const ctx: ETLContext = { localId, puntoDeVentaId };
