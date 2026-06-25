@@ -8,6 +8,7 @@ export type ObservacionResult = {
   id: string;
   label: string;
   fecha: string | null;
+  importe: string | null;
   conceptoNombre: string | null;
   proveedorNombre: string | null;
 };
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
       select: {
         rowId: true,
         fecha: true,
+        importe: true,
         observac: true,
         observacManual: true,
         proveedorRef: { select: { nombre: true, razon: true } },
@@ -48,6 +50,7 @@ export async function GET(request: NextRequest) {
         id: `observacion:${r.rowId}`,
         label: r.observacManual ?? r.observac ?? "",
         fecha: r.fecha ? r.fecha.toISOString().slice(0, 10) : null,
+        importe: r.importe != null ? r.importe.toString() : null,
         conceptoNombre: concepto?.nombre ?? null,
         proveedorNombre: r.proveedorRef?.nombre ?? r.proveedorRef?.razon ?? null,
       };

@@ -135,7 +135,15 @@ export async function GET() {
       };
     });
 
-    const response: DriveFilesResponse = { maestros: maestrosFiles, folders };
+    // Orden por dependencias: articulos(6) depende de rubros(7) y subrubros(8) → va después.
+    // concepto-caja(17) depende de rubros-concepto(11) → ya correcto por número.
+    const depOrder = (name: string): number => {
+      const n = parseInt(name) || 9999;
+      if (n === 6) return 8.5; // articulos va después de rubros(7) y subrubros(8)
+      return n;
+    };
+    const sortedMaestros = [...maestrosFiles].sort((a, b) => depOrder(a.name) - depOrder(b.name));
+    const response: DriveFilesResponse = { maestros: sortedMaestros, folders };
     return NextResponse.json(response);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error desconocido";

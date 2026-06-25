@@ -22,6 +22,14 @@ export async function normalizeConceptosCaja(
       .map((x) => x.codigo)
   );
 
+  const allCodRga = [...new Set(
+    deduped.map((r) => r["COD_RGA"] != null && Number(r["COD_RGA"]) > 0 ? String(r["COD_RGA"]) : null).filter(Boolean)
+  )] as string[];
+  const validRgaSet = new Set(
+    (await prisma.rubroConceptoCaja.findMany({ where: { codigo: { in: allCodRga } }, select: { codigo: true } }))
+      .map((x) => x.codigo)
+  );
+
   let created = 0, updated = 0;
   const errors: ETLRowError[] = [];
 
@@ -30,7 +38,8 @@ export async function normalizeConceptosCaja(
     try {
       const values = chunk.map((r) => {
         const codigo = String(r["CODIGO"]).trim();
-        const codRga = r["COD_RGA"] != null && Number(r["COD_RGA"]) > 0 ? String(r["COD_RGA"]) : null;
+        const rawRga = r["COD_RGA"] != null && Number(r["COD_RGA"]) > 0 ? String(r["COD_RGA"]) : null;
+        const codRga = rawRga != null && (validRgaSet.size === 0 || validRgaSet.has(rawRga)) ? rawRga : null;
         return Prisma.sql`(
           ${codigo},
           ${normalizeText(r["NOMBRE"]) ?? "(sin nombre)"},

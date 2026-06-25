@@ -1,8 +1,8 @@
 import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { trim, toDecimalStr, safeDate } from "../helpers";
-import type { ETLRow, ETLRowError, ETLContext } from "../types";
+import { trim, toDecimalStr, safeDate, excelDateToISO } from "../helpers";
+import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 
 // Filas por chunk de INSERT ... ON CONFLICT. Con ~23 columnas: ~11.5k params/chunk < 65535.
 const CHUNK_SIZE = 500;
@@ -39,12 +39,20 @@ function fillPartialRows(rows: ETLRow[]): ETLRow[] {
   });
 }
 
+function formatFecha(val: unknown): string | undefined {
+  const iso = excelDateToISO(val);
+  if (!iso) return undefined;
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 export async function normalizeVentas(
   rows: ETLRow[],
   prisma: DbClient,
   ctx?: ETLContext
-): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
+): Promise<{ created: number; updated: number; skipped: number; skippedRows: ETLSkippedRow[]; errors: ETLRowError[] }> {
   // Filtrar primero: eliminar encabezados de fecha/totales del día (TURNO Y COD_COBRO ambos nulos)
+  const invalidRows = rows.filter((r) => r["TURNO"] == null && r["COD_COBRO"] == null);
   const validRows = rows.filter((r) => !(r["TURNO"] == null && r["COD_COBRO"] == null));
   // Completar filas parciales, luego deduplicar por rowId — last wins
   const filtered = Array.from(
@@ -52,8 +60,13 @@ export async function normalizeVentas(
       .reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>())
       .values()
   );
-  // skipped = filas inválidas + duplicados dentro del archivo
-  const skipped = rows.length - filtered.length;
+  const skippedRows: ETLSkippedRow[] = invalidRows.map((r): ETLSkippedRow => ({
+    fecha: formatFecha(r["FECHA"]),
+    concepto: trim(r["COBRO"]) ?? undefined,
+    importe: toDecimalStr(r["IMPORTE"]) ?? toDecimalStr(r["TOTAL"]) ?? undefined,
+    motivo: "sin_datos",
+  }));
+  const skipped = skippedRows.length;
 
   const localId = ctx?.localId ?? null;
   const puntoDeVentaId = ctx?.puntoDeVentaId ?? null;
@@ -132,9 +145,8 @@ export async function normalizeVentas(
           fecha             = EXCLUDED.fecha,
           "codSuc"          = EXCLUDED."codSuc",
           "nombreSuc"       = EXCLUDED."nombreSuc",
-          cupon             = EXCLUDED.cupon,
-          "localId"         = EXCLUDED."localId",
-          "puntoDeVentaId"  = EXCLUDED."puntoDeVentaId"
+          cupon             = EXCLUDED.cupon
+          -- localId, puntoDeVentaId: NO se sobreescriben — el local de origen no cambia al reimportar
       `);
 
       for (const rowId of chunkRowIds) {
@@ -149,5 +161,5 @@ export async function normalizeVentas(
     }
   }
 
-  return { created, updated, skipped, errors };
+  return { created, updated, skipped, skippedRows, errors };
 }

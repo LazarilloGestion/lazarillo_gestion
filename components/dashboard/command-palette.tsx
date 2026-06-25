@@ -247,7 +247,10 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                         const dateParts = obs.fecha
                           ? `${obs.fecha.slice(8, 10)}/${obs.fecha.slice(5, 7)}`
                           : null;
-                        const meta = [dateParts, obs.proveedorNombre ?? obs.conceptoNombre].filter(Boolean).join(" · ");
+                        const importePart = obs.importe != null
+                          ? `$${Number(obs.importe).toLocaleString("es-AR")}`
+                          : null;
+                        const meta = [dateParts, obs.proveedorNombre ?? obs.conceptoNombre, importePart].filter(Boolean).join(" · ");
                         return (
                           <CommandItem
                             key={obs.id}

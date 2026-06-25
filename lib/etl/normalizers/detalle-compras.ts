@@ -1,9 +1,9 @@
 import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient, ETLContext } from "../types";
-import { normalizeText, trim, toDecimalStr, safeDate } from "../helpers";
+import { normalizeText, trim, toDecimalStr, safeDate, excelDateToISO } from "../helpers";
 import { linkDetalleComprasByComprobante } from "../normalizer-utils";
-import type { ETLRow, ETLRowError } from "../types";
+import type { ETLRow, ETLRowError, ETLSkippedRow } from "../types";
 
 const CHUNK_SIZE = 500;
 
@@ -24,16 +24,31 @@ function makeRowId(r: ETLRow): string {
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
 }
 
+function formatFecha(val: unknown): string | undefined {
+  const iso = excelDateToISO(val);
+  if (!iso) return undefined;
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 export async function normalizeDetalleCompras(
   rows: ETLRow[],
   prisma: DbClient,
   ctx?: ETLContext
-): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
+): Promise<{ created: number; updated: number; skipped: number; skippedRows: ETLSkippedRow[]; errors: ETLRowError[] }> {
+  const invalid = rows.filter((r) => r["COD_CPB"] == null || r["CODIGO"] == null);
   const valid = rows.filter((r) => r["COD_CPB"] != null && r["CODIGO"] != null);
   const filtered = Array.from(
     valid.reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>()).values()
   );
-  const skipped = rows.length - filtered.length;
+  const skippedRows: ETLSkippedRow[] = invalid.map((r): ETLSkippedRow => ({
+    fecha: formatFecha(r["FECHA"]),
+    concepto: trim(r["CODIGO"]) ?? trim(r["NOMBRE"]) ?? undefined,
+    importe: toDecimalStr(r["NETO"]) ?? toDecimalStr(r["TOTALINS"]) ?? undefined,
+    proveedor: trim(r["COD_PRO"]) ?? undefined,
+    motivo: "sin_datos",
+  }));
+  const skipped = skippedRows.length;
 
   const codigosArt = [...new Set(filtered.map((r) => trim(r["CODIGO"])).filter(Boolean))] as string[];
   const artSet = new Set(
@@ -148,5 +163,5 @@ export async function normalizeDetalleCompras(
     await linkDetalleComprasByComprobante(prisma, ctx.localId);
   }
 
-  return { created, updated, skipped, errors };
+  return { created, updated, skipped, skippedRows, errors };
 }

@@ -53,38 +53,19 @@ export async function normalizeCompras(
   const invalid = rows.filter((r) => r["COD_CGA"] == null || r["FECHA"] == null);
   const valid = rows.filter((r) => r["COD_CGA"] != null && r["FECHA"] != null);
 
-  // Deduplicar por rowId — last wins. Rastrear cuáles se descartan para mostrarlos en la UI.
-  const groupMap = new Map<string, ETLRow[]>();
-  for (const r of valid) {
-    const id = makeRowId(r);
-    const group = groupMap.get(id) ?? [];
-    group.push(r);
-    groupMap.set(id, group);
-  }
-  const filtered: ETLRow[] = [];
-  const dupRows: ETLRow[] = [];
-  for (const group of groupMap.values()) {
-    filtered.push(group[group.length - 1]);
-    if (group.length > 1) dupRows.push(...group.slice(0, -1));
-  }
-
-  const skippedRows: ETLSkippedRow[] = [
-    ...invalid.map((r): ETLSkippedRow => ({
-      fecha: formatFechaDisplay(r["FECHA"]),
-      concepto: trim(r["CONCEPTO"]) ?? undefined,
-      importe: toDecimalStr(r["IMPORTE"]) ?? undefined,
-      proveedor: trim(r["PROVEEDOR"]) ?? undefined,
-      motivo: "sin_datos",
-    })),
-    ...dupRows.map((r): ETLSkippedRow => ({
-      fecha: formatFechaDisplay(r["FECHA"]),
-      concepto: trim(r["CONCEPTO"]) ?? undefined,
-      importe: toDecimalStr(r["IMPORTE"]) ?? undefined,
-      proveedor: trim(r["PROVEEDOR"]) ?? undefined,
-      motivo: "duplicado",
-    })),
-  ];
+  const skippedRows: ETLSkippedRow[] = invalid.map((r): ETLSkippedRow => ({
+    fecha: formatFechaDisplay(r["FECHA"]),
+    concepto: trim(r["CONCEPTO"]) ?? undefined,
+    importe: toDecimalStr(r["IMPORTE"]) ?? undefined,
+    proveedor: trim(r["PROVEEDOR"]) ?? undefined,
+    motivo: "sin_datos",
+  }));
   const skipped = skippedRows.length;
+  // Dedup global por rowId (last-wins, silencioso). NO se cuenta en skipped.
+  // Garantiza unicidad dentro de cada chunk de INSERT ON CONFLICT.
+  const filtered: ETLRow[] = Array.from(
+    valid.reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>()).values()
+  );
 
   // Lookup tables — una sola query cada una para todo el archivo
   const codigosProv = [...new Set(filtered.map((r) => trim(r["CODIGO"])).filter(Boolean))] as string[];
@@ -176,9 +157,8 @@ export async function normalizeCompras(
           per2               = EXCLUDED.per2,
           per3               = EXCLUDED.per3,
           "proveedorId"      = EXCLUDED."proveedorId",
-          "conceptoCodigo"   = EXCLUDED."conceptoCodigo",
-          "localId"          = EXCLUDED."localId",
-          "puntoDeVentaId"   = EXCLUDED."puntoDeVentaId"
+          "conceptoCodigo"   = EXCLUDED."conceptoCodigo"
+          -- localId, puntoDeVentaId: NO se sobreescriben — el local de origen no cambia al reimportar
           -- importeManual, fechaManual, conceptoCodigoManual: NO se sobreescriben (overrides manuales)
       `);
 
