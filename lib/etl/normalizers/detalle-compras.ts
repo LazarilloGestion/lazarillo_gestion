@@ -144,7 +144,8 @@ export async function normalizeDetalleCompras(
           observac        = EXCLUDED.observac,
           "articuloCodigo"= EXCLUDED."articuloCodigo",
           "proveedorId"   = EXCLUDED."proveedorId",
-          "localId"       = EXCLUDED."localId"
+          -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
+          "localId"       = COALESCE(detalle_compras."localId", EXCLUDED."localId")
       `);
 
       for (const rowId of chunkRowIds) {

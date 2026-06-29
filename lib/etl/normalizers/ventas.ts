@@ -145,8 +145,10 @@ export async function normalizeVentas(
           fecha             = EXCLUDED.fecha,
           "codSuc"          = EXCLUDED."codSuc",
           "nombreSuc"       = EXCLUDED."nombreSuc",
-          cupon             = EXCLUDED.cupon
-          -- localId, puntoDeVentaId: NO se sobreescriben — el local de origen no cambia al reimportar
+          cupon             = EXCLUDED.cupon,
+          -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
+          "localId"         = COALESCE(ventas."localId", EXCLUDED."localId"),
+          "puntoDeVentaId"  = COALESCE(ventas."puntoDeVentaId", EXCLUDED."puntoDeVentaId")
       `);
 
       for (const rowId of chunkRowIds) {

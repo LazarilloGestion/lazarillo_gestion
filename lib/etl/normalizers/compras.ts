@@ -157,8 +157,10 @@ export async function normalizeCompras(
           per2               = EXCLUDED.per2,
           per3               = EXCLUDED.per3,
           "proveedorId"      = EXCLUDED."proveedorId",
-          "conceptoCodigo"   = EXCLUDED."conceptoCodigo"
-          -- localId, puntoDeVentaId: NO se sobreescriben — el local de origen no cambia al reimportar
+          "conceptoCodigo"   = EXCLUDED."conceptoCodigo",
+          -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
+          "localId"          = COALESCE(compras."localId", EXCLUDED."localId"),
+          "puntoDeVentaId"   = COALESCE(compras."puntoDeVentaId", EXCLUDED."puntoDeVentaId")
           -- importeManual, fechaManual, conceptoCodigoManual: NO se sobreescriben (overrides manuales)
       `);
 
