@@ -115,8 +115,6 @@ export function PivotTable() {
   }
 
   const ingresosPorMes = ventasData?.columnTotals ?? {};
-  // Color sólido equivalente a bg-muted/30 sobre bg-background — evita bleeding en sticky.
-  const kpiBg = "color-mix(in srgb, hsl(var(--muted)) 30%, hsl(var(--background)))";
   const egresosPorMes = data.columnTotals;
   const maxIngresos = Math.max(...months.map((m) => ingresosPorMes[m] ?? 0), 1);
 
@@ -133,8 +131,8 @@ export function PivotTable() {
         <table className="w-full text-sm border-separate border-spacing-0">
           <thead>
             {/* KPI rows */}
-            <tr className="border-b bg-muted/30">
-              <td className="sticky left-0 z-10 px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]" style={{ backgroundColor: kpiBg }}>
+            <tr className="border-b">
+              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Ingresos
               </td>
               {months.map((mes) => (
@@ -155,8 +153,8 @@ export function PivotTable() {
               </td>
               <td />
             </tr>
-            <tr className="border-b bg-muted/30">
-              <td className="sticky left-0 z-10 px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]" style={{ backgroundColor: kpiBg }}>
+            <tr className="border-b">
+              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Egresos
               </td>
               {months.map((mes) => (
@@ -169,8 +167,8 @@ export function PivotTable() {
               </td>
               <td />
             </tr>
-            <tr className="border-b bg-muted/30">
-              <td className="sticky left-0 z-10 px-4 py-1.5 text-sm font-bold whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]" style={{ backgroundColor: kpiBg }}>
+            <tr className="border-b">
+              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-bold whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Resultado OP
               </td>
               {months.map((mes) => {
@@ -199,8 +197,8 @@ export function PivotTable() {
               })()}
               <td />
             </tr>
-            <tr className="border-b-2 bg-muted/30">
-              <td className="sticky left-0 z-10 px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]" style={{ backgroundColor: kpiBg }}>
+            <tr className="border-b-2">
+              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Gastos / Ventas
               </td>
               {months.map((mes) => {
