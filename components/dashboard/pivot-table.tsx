@@ -132,7 +132,7 @@ export function PivotTable() {
           <thead>
             {/* KPI rows */}
             <tr className="border-b bg-muted/30">
-              <td className="sticky left-0 z-10 bg-muted/30 px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+              <td className="sticky left-0 z-10 bg-muted px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Ingresos
               </td>
               {months.map((mes) => (
@@ -154,7 +154,7 @@ export function PivotTable() {
               <td />
             </tr>
             <tr className="border-b bg-muted/30">
-              <td className="sticky left-0 z-10 bg-muted/30 px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+              <td className="sticky left-0 z-10 bg-muted px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Egresos
               </td>
               {months.map((mes) => (
@@ -168,7 +168,7 @@ export function PivotTable() {
               <td />
             </tr>
             <tr className="border-b bg-muted/30">
-              <td className="sticky left-0 z-10 bg-muted/30 px-4 py-1.5 text-sm font-bold whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+              <td className="sticky left-0 z-10 bg-muted px-4 py-1.5 text-sm font-bold whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Resultado OP
               </td>
               {months.map((mes) => {
@@ -198,7 +198,7 @@ export function PivotTable() {
               <td />
             </tr>
             <tr className="border-b-2 bg-muted/30">
-              <td className="sticky left-0 z-10 bg-muted/30 px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+              <td className="sticky left-0 z-10 bg-muted px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Gastos / Ventas
               </td>
               {months.map((mes) => {
