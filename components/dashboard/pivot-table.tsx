@@ -131,8 +131,8 @@ export function PivotTable() {
         <table className="w-full text-sm border-separate border-spacing-0">
           <thead>
             {/* KPI rows */}
-            <tr className="border-b bg-background">
-              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+            <tr className="border-b bg-muted/30">
+              <td className="sticky left-0 z-10 bg-muted/30 px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Ingresos
               </td>
               {months.map((mes) => (
@@ -146,15 +146,15 @@ export function PivotTable() {
                 </td>
               ))}
               <td
-                className={cn("text-right px-4 py-1.5 text-xs font-medium tabular-nums text-success whitespace-nowrap", ventasData?.grandTotal && "cursor-pointer hover:opacity-75")}
+                className={cn("text-right px-4 py-1.5 text-sm font-bold tabular-nums text-success whitespace-nowrap", ventasData?.grandTotal && "cursor-pointer hover:opacity-75")}
                 onClick={() => { if (ventasData?.grandTotal) setVentasDetalleFilter({ year, localId, pdvId }); }}
               >
                 {fmtARS(ventasData?.grandTotal)}
               </td>
               <td />
             </tr>
-            <tr className="border-b bg-background">
-              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+            <tr className="border-b bg-muted/30">
+              <td className="sticky left-0 z-10 bg-muted/30 px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Egresos
               </td>
               {months.map((mes) => (
@@ -162,13 +162,13 @@ export function PivotTable() {
                   {fmtARS(egresosPorMes[mes])}
                 </td>
               ))}
-              <td className="text-right px-4 py-1.5 text-xs tabular-nums text-muted-foreground whitespace-nowrap">
+              <td className="text-right px-4 py-1.5 text-sm font-medium tabular-nums text-muted-foreground whitespace-nowrap">
                 {fmtARS(data.grandTotal)}
               </td>
               <td />
             </tr>
-            <tr className="border-b">
-              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-xs font-semibold whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+            <tr className="border-b bg-muted/30">
+              <td className="sticky left-0 z-10 bg-muted/30 px-4 py-1.5 text-sm font-bold whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Resultado OP
               </td>
               {months.map((mes) => {
@@ -190,15 +190,15 @@ export function PivotTable() {
               {(() => {
                 const res = (ventasData?.grandTotal ?? 0) - data.grandTotal;
                 return (
-                  <td className={cn("text-right px-4 py-1.5 text-xs font-semibold tabular-nums whitespace-nowrap", res < 0 ? "text-destructive" : "text-foreground")}>
+                  <td className={cn("text-right px-4 py-1.5 text-sm font-bold tabular-nums whitespace-nowrap", res < 0 ? "text-destructive" : "text-foreground")}>
                     {fmtARS(res || undefined)}
                   </td>
                 );
               })()}
               <td />
             </tr>
-            <tr className="border-b bg-background">
-              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-xs font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+            <tr className="border-b-2 bg-muted/30">
+              <td className="sticky left-0 z-10 bg-muted/30 px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Gastos / Ventas
               </td>
               {months.map((mes) => {
@@ -222,7 +222,7 @@ export function PivotTable() {
                 const ratio = ventasTotal > 0 ? (data.grandTotal / ventasTotal) * 100 : null;
                 return (
                   <td className={cn(
-                    "text-right px-4 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap",
+                    "text-right px-4 py-1.5 text-sm font-semibold tabular-nums whitespace-nowrap",
                     ratio === null ? "text-muted-foreground/40"
                       : ratio > 90 ? "text-destructive"
                       : ratio > 60 ? "text-warning"
@@ -259,7 +259,7 @@ export function PivotTable() {
                   </button>
                 </th>
               ))}
-              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-medium min-w-[110px] whitespace-nowrap">
+              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-bold text-base min-w-[110px] whitespace-nowrap">
                 <button
                   onClick={() => handleSortClick("total")}
                   className={cn(
@@ -318,7 +318,7 @@ export function PivotTable() {
                       </td>
                     ))}
                     <td
-                      className="text-right px-4 py-2.5 tabular-nums cursor-pointer hover:text-primary"
+                      className="text-right px-4 py-2.5 tabular-nums font-bold text-base cursor-pointer hover:text-primary"
                       onClick={(e) => {
                         e.stopPropagation();
                         openDetalle({ rubroCodigo: rubro.rubroCodigo });
@@ -364,7 +364,7 @@ export function PivotTable() {
                       </td>
                     ))}
                     <td
-                      className="text-right px-4 py-2 tabular-nums text-muted-foreground cursor-pointer hover:text-foreground"
+                      className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
                       onClick={(e) => {
                         e.stopPropagation();
                         openDetalle({ conceptoCodigo: concepto.conceptoCodigo });
@@ -432,8 +432,8 @@ export function PivotTable() {
           </tbody>
 
           <tfoot>
-            <tr className="border-t-2 bg-muted font-semibold">
-              <td className="sticky left-0 z-10 bg-muted px-4 py-3 text-sm shadow-[1px_0_0_0_hsl(var(--border))]">
+            <tr className="border-t-2 bg-muted font-bold text-base">
+              <td className="sticky left-0 z-10 bg-muted px-4 py-3 shadow-[1px_0_0_0_hsl(var(--border))]">
                 Total {year}
               </td>
               {months.map((mes) => (
@@ -441,7 +441,7 @@ export function PivotTable() {
                   {fmtARS(data.columnTotals[mes])}
                 </td>
               ))}
-              <td className="text-right px-4 py-3 tabular-nums text-primary font-bold">
+              <td className="text-right px-4 py-3 tabular-nums text-primary">
                 {fmtARS(data.grandTotal)}
               </td>
               <td className="text-right px-3 py-3 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap font-semibold">

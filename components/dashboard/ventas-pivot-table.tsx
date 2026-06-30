@@ -88,7 +88,7 @@ export function VentasPivotTable() {
                   </button>
                 </th>
               ))}
-              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-medium min-w-[110px] whitespace-nowrap">
+              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-bold text-base min-w-[110px] whitespace-nowrap">
                 <button
                   onClick={() => handleSortClick("total")}
                   className={cn(
@@ -138,7 +138,7 @@ export function VentasPivotTable() {
                       </td>
                     ))}
                     <td
-                      className="text-right px-4 py-2.5 tabular-nums cursor-pointer hover:text-primary"
+                      className="text-right px-4 py-2.5 tabular-nums font-bold text-base cursor-pointer hover:text-primary"
                       onClick={(e) => {
                         e.stopPropagation();
                         openDetalle({ tipoCodigo: tipo.rubroCodigo });
@@ -181,7 +181,7 @@ export function VentasPivotTable() {
                     </td>
                   ))}
                   <td
-                    className="text-right px-4 py-2 tabular-nums text-muted-foreground cursor-pointer hover:text-foreground"
+                    className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
                     onClick={(e) => {
                       e.stopPropagation();
                       openDetalle({
@@ -198,8 +198,8 @@ export function VentasPivotTable() {
           </tbody>
 
           <tfoot>
-            <tr className="border-t-2 bg-muted font-semibold">
-              <td className="sticky left-0 z-10 bg-muted px-4 py-3 text-sm shadow-[1px_0_0_0_hsl(var(--border))]">
+            <tr className="border-t-2 bg-muted font-bold text-base">
+              <td className="sticky left-0 z-10 bg-muted px-4 py-3 shadow-[1px_0_0_0_hsl(var(--border))]">
                 Total {year}
               </td>
               {months.map((mes) => (
@@ -207,7 +207,7 @@ export function VentasPivotTable() {
                   {fmtARS(data.columnTotals[mes])}
                 </td>
               ))}
-              <td className="text-right px-4 py-3 tabular-nums text-primary font-bold">
+              <td className="text-right px-4 py-3 tabular-nums text-primary">
                 {fmtARS(data.grandTotal)}
               </td>
             </tr>
