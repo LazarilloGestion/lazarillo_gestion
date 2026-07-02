@@ -8,10 +8,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   Command, CommandEmpty, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn, fmtARS, fmtDate, normalize } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { buildComprasDetalleUrl } from "@/lib/dashboard/params";
+import { SIN_RUBRO_CODE, SIN_RUBRO_NOMBRE } from "@/lib/dashboard/constants";
 import type { DetalleFilter, DetalleResponse, CompraDetalle } from "@/lib/dashboard/types";
 import type { SortState } from "@/hooks/use-sort-state";
 import {
@@ -31,7 +35,9 @@ export interface ColDef {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type ConceptoOption = { codigo: string; nombre: string; rubroNombre: string };
+type ConceptoOption = { codigo: string; nombre: string; rubroNombre: string; rubroCodigo: string | null };
+
+type RubroOption = { codigo: string; nombre: string };
 
 type EditState = {
   rowId: string;
@@ -39,6 +45,7 @@ type EditState = {
   fechaManual: string;
   conceptoCodigoManual: string;
   observacManual: string;
+  rubroFiltro: string; // solo filtra el combo de conceptos, nunca se guarda
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -51,16 +58,48 @@ function toDateInputValue(iso: string | null | undefined): string {
   return iso?.slice(0, 10) ?? "";
 }
 
-// ─── ConceptoCombobox ─────────────────────────────────────────────────────────
+// ─── RubroSelect ──────────────────────────────────────────────────────────────
 
-function ConceptoCombobox({
+function RubroSelect({
   value,
   onValueChange,
   options,
 }: {
   value: string;
   onValueChange: (v: string) => void;
+  options: RubroOption[];
+}) {
+  return (
+    <Select value={value || SIN_RUBRO_CODE} onValueChange={onValueChange}>
+      <SelectTrigger className="h-7 w-36 text-xs" size="sm">
+        <SelectValue placeholder="Rubro" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.codigo} value={o.codigo} className="text-xs">
+            {o.nombre}
+          </SelectItem>
+        ))}
+        <SelectItem value={SIN_RUBRO_CODE} className="text-xs text-muted-foreground">
+          {SIN_RUBRO_NOMBRE}
+        </SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
+// ─── ConceptoCombobox ─────────────────────────────────────────────────────────
+
+function ConceptoCombobox({
+  value,
+  onValueChange,
+  options,
+  portalContainer,
+}: {
+  value: string;
+  onValueChange: (v: string) => void;
   options: ConceptoOption[];
+  portalContainer: HTMLElement | null;
 }) {
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.codigo === value);
@@ -76,7 +115,7 @@ function ConceptoCombobox({
             <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-64 p-0">
+        <PopoverContent className="w-64 p-0" container={portalContainer}>
           <Command>
             <CommandInput placeholder="Buscar concepto..." className="h-8 text-xs" />
             <CommandList className="max-h-52">
@@ -108,8 +147,8 @@ const COMPRAS_COLS: ColDef[] = [
   { label: "Proveedor",   icon: Truck,          color: "text-cat-proveedor",      bg: "bg-cat-proveedor/12",     right: false, sortKey: "proveedor"  },
   { label: "Detalle",     icon: FileText,       color: "text-muted-foreground",   bg: "bg-muted",                right: false                        },
   { label: "Observación", icon: MessageSquare,  color: "text-cat-observacion",    bg: "bg-cat-observacion/12",   right: false                        },
-  { label: "Concepto",    icon: Tag,            color: "text-cat-concepto",       bg: "bg-cat-concepto/12",      right: false, sortKey: "concepto"   },
   { label: "Rubro",       icon: Layers,         color: "text-cat-rubro",          bg: "bg-cat-rubro/12",         right: false                        },
+  { label: "Concepto",    icon: Tag,            color: "text-cat-concepto",       bg: "bg-cat-concepto/12",      right: false, sortKey: "concepto"   },
   { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground",   bg: "bg-muted",                right: true,  sortKey: "importe"    },
 ];
 
@@ -143,6 +182,8 @@ function ComprasRow({
   item,
   editing,
   conceptoOptions,
+  rubroOptions,
+  portalContainer,
   onEdit,
   onSave,
   onCancel,
@@ -152,6 +193,8 @@ function ComprasRow({
   item: CompraDetalle;
   editing: EditState | null;
   conceptoOptions: ConceptoOption[];
+  rubroOptions: RubroOption[];
+  portalContainer: HTMLElement | null;
   onEdit: (state: EditState) => void;
   onSave: (state: EditState) => void;
   onCancel: () => void;
@@ -163,8 +206,15 @@ function ComprasRow({
   const effectiveImporte = item.importeManual ?? item.importe;
   const effectiveConcepto = item.conceptoCajaManual ?? item.conceptoCaja;
 
+  const rubroFiltro = editing?.rubroFiltro;
+  const filteredConceptoOptions = useMemo(() => {
+    if (!isEditing) return conceptoOptions;
+    return rubroFiltro === SIN_RUBRO_CODE
+      ? conceptoOptions.filter(o => !o.rubroCodigo)
+      : conceptoOptions.filter(o => o.rubroCodigo === rubroFiltro);
+  }, [conceptoOptions, isEditing, rubroFiltro]);
+
   if (isEditing) {
-    const selectedConcepto = conceptoOptions.find(c => c.codigo === editing!.conceptoCodigoManual);
     return (
       <tr className="border-b border-border/40 last:border-0 bg-muted/20">
         <td className="px-2 py-1.5">
@@ -193,15 +243,30 @@ function ComprasRow({
             onChange={e => onEdit({ ...editing!, observacManual: e.target.value })}
           />
         </td>
+        <td className="px-3 py-1.5">
+          <RubroSelect
+            value={editing!.rubroFiltro}
+            options={rubroOptions}
+            onValueChange={(newRubro) => {
+              const stillValid = conceptoOptions.some(
+                o => o.codigo === editing!.conceptoCodigoManual &&
+                  (newRubro === SIN_RUBRO_CODE ? !o.rubroCodigo : o.rubroCodigo === newRubro)
+              );
+              onEdit({
+                ...editing!,
+                rubroFiltro: newRubro,
+                conceptoCodigoManual: stillValid ? editing!.conceptoCodigoManual : "",
+              });
+            }}
+          />
+        </td>
         <td className="px-2 py-1.5">
           <ConceptoCombobox
             value={editing!.conceptoCodigoManual}
             onValueChange={v => onEdit({ ...editing!, conceptoCodigoManual: v })}
-            options={conceptoOptions}
+            options={filteredConceptoOptions}
+            portalContainer={portalContainer}
           />
-        </td>
-        <td className="px-3 py-1.5 truncate text-muted-foreground">
-          {selectedConcepto?.rubroNombre ?? normalize(effectiveConcepto?.rubro?.nombre)}
         </td>
         <td className="px-2 py-1.5 text-right">
           <Input
@@ -244,22 +309,25 @@ function ComprasRow({
         )}
       </td>
       <td className="px-3 py-1.5 max-w-[12rem] whitespace-normal break-words text-muted-foreground">{normalize(item.observacManual ?? item.observac)}</td>
-      <td className="px-3 py-1.5 truncate">{normalize(effectiveConcepto?.nombre)}</td>
       <td className="px-3 py-1.5 truncate">{normalize(effectiveConcepto?.rubro?.nombre)}</td>
+      <td className="px-3 py-1.5 truncate">{normalize(effectiveConcepto?.nombre)}</td>
       <td className="px-3 py-1.5 text-right tabular-nums font-medium whitespace-nowrap">
         {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
       </td>
       <td className="px-2 py-1.5">
         <EditTriggerButton
-          onClick={() =>
+          onClick={() => {
+            const initialConcepto = item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "";
+            const initialRubro = conceptoOptions.find(o => o.codigo === initialConcepto)?.rubroCodigo ?? SIN_RUBRO_CODE;
             onEdit({
               rowId: String(item.rowId),
               importeManual: toEditString(item.importeManual ?? item.importe),
               fechaManual: toDateInputValue(item.fechaManual ?? item.fecha),
-              conceptoCodigoManual: item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "",
+              conceptoCodigoManual: initialConcepto,
               observacManual: item.observacManual ?? "",
-            })
-          }
+              rubroFiltro: initialRubro,
+            });
+          }}
         />
       </td>
     </tr>
@@ -287,7 +355,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     return res.json();
   }, [stableFilter]);
 
-  const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string }>>({
+  const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string; rubroCodigo?: string }>>({
     queryKey: ["suggestions"],
     queryFn: () => fetch("/api/search/suggestions").then((r) => r.json()),
     staleTime: 5 * 60_000,
@@ -297,7 +365,14 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   const conceptoOptions = useMemo<ConceptoOption[]>(
     () => (suggestions ?? [])
       .filter((s) => s.type === "concepto")
-      .map((s) => ({ codigo: s.value, nombre: s.label, rubroNombre: s.rubroNombre ?? "" })),
+      .map((s) => ({ codigo: s.value, nombre: s.label, rubroNombre: s.rubroNombre ?? "", rubroCodigo: s.rubroCodigo ?? null })),
+    [suggestions]
+  );
+
+  const rubroOptions = useMemo<RubroOption[]>(
+    () => (suggestions ?? [])
+      .filter((s) => s.type === "rubro")
+      .map((s) => ({ codigo: s.value, nombre: s.label })),
     [suggestions]
   );
 
@@ -362,12 +437,14 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         searchFields={searchFields}
         sortFn={sortCompras}
         saveError={saveError}
-        renderRow={(item) => (
+        renderRow={(item, portalContainer) => (
           <ComprasRow
             key={item.rowId}
             item={item}
             editing={editing}
             conceptoOptions={conceptoOptions}
+            rubroOptions={rubroOptions}
+            portalContainer={portalContainer}
             onEdit={setEditing}
             onSave={handleSave}
             onCancel={() => setEditing(null)}

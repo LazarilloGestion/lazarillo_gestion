@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
@@ -20,7 +20,7 @@ interface DetalleModalShellProps<T> {
   queryFn: () => Promise<DetalleResponse<T>>;
   searchFields: (item: T) => (string | null | undefined)[];
   sortFn?: (a: T, b: T, sort: SortState) => number;
-  renderRow: (item: T) => React.ReactNode;
+  renderRow: (item: T, portalContainer: HTMLElement | null) => React.ReactNode;
   saveError?: string | null;
 }
 
@@ -37,6 +37,9 @@ export function DetalleModalShell<T>({
   saveError,
 }: DetalleModalShellProps<T>) {
   const { sort, handleSortClick } = useSortState();
+  // Portal container para popovers/selects anidados: sin esto, montan en document.body
+  // y quedan fuera del scroll-lock del Dialog (el scroll con la rueda deja de andar).
+  const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
 
   const { data: response, isLoading, error } = useQuery<DetalleResponse<T>>({
     queryKey,
@@ -61,7 +64,11 @@ export function DetalleModalShell<T>({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent showCloseButton={false} className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
+      <DialogContent
+        ref={setContentEl}
+        showCloseButton={false}
+        className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden"
+      >
 
         {(!isLoading && !error && count > 0) ? null : (
           <div className="px-6 pt-4 pb-3 shrink-0">
@@ -93,7 +100,7 @@ export function DetalleModalShell<T>({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((item) => renderRow(item))}
+                {filtered.map((item) => renderRow(item, contentEl))}
               </tbody>
             </table>
           </div>

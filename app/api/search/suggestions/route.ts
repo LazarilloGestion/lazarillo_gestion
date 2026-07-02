@@ -12,6 +12,7 @@ export type Suggestion = {
   param: "rubroCodigo" | "conceptoCodigo" | "proveedorId";
   value: string;
   rubroNombre?: string; // solo para type === "concepto"
+  rubroCodigo?: string; // solo para type === "concepto"
 };
 
 export async function GET() {
@@ -26,7 +27,7 @@ export async function GET() {
         take: 500,
       }),
       prisma.conceptoCaja.findMany({
-        select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } },
+        select: { codigo: true, nombre: true, rubro: { select: { codigo: true, nombre: true } } },
         orderBy: { nombre: "asc" },
         take: 500,
       }),
@@ -52,6 +53,7 @@ export async function GET() {
         param: "conceptoCodigo" as const,
         value: c.codigo,
         rubroNombre: c.rubro?.nombre ?? undefined,
+        rubroCodigo: c.rubro?.codigo ?? undefined,
       })),
       ...proveedores.map((p) => ({
         id: `proveedor:${p.id}`,
