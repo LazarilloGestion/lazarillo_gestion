@@ -22,6 +22,7 @@ interface DetalleModalShellProps<T> {
   sortFn?: (a: T, b: T, sort: SortState) => number;
   renderRow: (item: T, portalContainer: HTMLElement | null) => React.ReactNode;
   saveError?: string | null;
+  isEditing?: boolean;
 }
 
 export function DetalleModalShell<T>({
@@ -35,6 +36,7 @@ export function DetalleModalShell<T>({
   sortFn,
   renderRow,
   saveError,
+  isEditing,
 }: DetalleModalShellProps<T>) {
   const { sort, handleSortClick } = useSortState();
   // Portal container para popovers/selects anidados: sin esto, montan en document.body
@@ -67,7 +69,13 @@ export function DetalleModalShell<T>({
       <DialogContent
         ref={setContentEl}
         showCloseButton={false}
-        className="w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden"
+        className={cn(
+          "w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden",
+          // Mientras se edita una fila, el combo de concepto puede necesitar desbordar
+          // el modal (como ya hace el Select de rubro al portar a document.body).
+          // Sin esto, overflow-hidden lo recorta contra el borde del modal.
+          isEditing && "overflow-visible"
+        )}
       >
 
         {(!isLoading && !error && count > 0) ? null : (

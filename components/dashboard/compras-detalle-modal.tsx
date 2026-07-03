@@ -437,6 +437,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         searchFields={searchFields}
         sortFn={sortCompras}
         saveError={saveError}
+        isEditing={editing !== null}
         renderRow={(item, portalContainer) => (
           <ComprasRow
             key={item.rowId}
