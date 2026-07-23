@@ -14,3 +14,8 @@ export const SIN_TIPO_CODE     = "__sin_tipo";
 export const SIN_TIPO_NOMBRE   = "Sin Tipo";
 export const SIN_COBRO_CODE    = "__sin_cobro";
 export const SIN_COBRO_NOMBRE  = "Sin Cobro";
+
+// Campo booleano de RubroConceptoCaja que controla si un rubro se ve en cada vista del dashboard.
+// Única fuente de verdad — no redeclarar este union en otros archivos.
+export const VISIBILIDAD_FIELDS = ["visibleEnDashboard", "visibleEnResultados"] as const;
+export type VisibilidadField = typeof VISIBILIDAD_FIELDS[number];

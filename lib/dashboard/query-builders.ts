@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { VISIBILIDAD_FIELDS, type VisibilidadField } from "./constants";
 
 export function buildDateRange(year: number, mes?: number): { fechaStart: Date; fechaEnd: Date } {
   const fechaStart = mes ? new Date(Date.UTC(year, mes - 1, 1)) : new Date(Date.UTC(year, 0, 1));
@@ -19,6 +20,7 @@ interface PivotConditionParams {
   proveedorId?: number;
   observacionQuery?: string;
   filterRubrosOcultos?: boolean;
+  visibilidadCol?: VisibilidadField;
 }
 
 export function buildPivotConditions({
@@ -34,6 +36,7 @@ export function buildPivotConditions({
   proveedorId,
   observacionQuery,
   filterRubrosOcultos = false,
+  visibilidadCol = "visibleEnDashboard",
 }: PivotConditionParams): Prisma.Sql[] {
   const fechaExpr = hasFechaManual
     ? Prisma.sql`COALESCE(${Prisma.raw(t)}."fechaManual", ${Prisma.raw(t)}.fecha)`
@@ -63,7 +66,11 @@ export function buildPivotConditions({
   if (rubroCodigo) {
     conditions.push(Prisma.sql`COALESCE(rc.codigo, '__sin_rubro') = ${rubroCodigo}`);
   } else if (filterRubrosOcultos) {
-    conditions.push(Prisma.sql`(rc."visibleEnDashboard" = true OR rc.codigo IS NULL)`);
+    // Whitelist estricta: visibilidadCol nunca debe construirse a partir de un string arbitrario del request.
+    const col: VisibilidadField = VISIBILIDAD_FIELDS.includes(visibilidadCol as VisibilidadField)
+      ? (visibilidadCol as VisibilidadField)
+      : "visibleEnDashboard";
+    conditions.push(Prisma.sql`(rc."${Prisma.raw(col)}" = true OR rc.codigo IS NULL)`);
   }
   if (conceptoCodigo) conditions.push(Prisma.sql`COALESCE(cc.codigo, '__sin_concepto') = ${conceptoCodigo}`);
   if (proveedorId) conditions.push(Prisma.sql`p.id = ${proveedorId}`);

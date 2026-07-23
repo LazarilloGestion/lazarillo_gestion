@@ -14,15 +14,29 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import type { VisibilidadField } from "@/lib/dashboard/constants";
 
 interface RubroConfig {
   codigo: string;
   nombre: string;
-  visibleEnDashboard: boolean;
+  visible: boolean;
 }
 
-export function RubrosConfigModal() {
-  const { bumpRubroConfig, rubroOcultoCount, setRubroOcultoCount } = useDashboard();
+interface RubrosConfigModalProps {
+  field?: VisibilidadField;
+  title?: string;
+}
+
+export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubros visibles en panel" }: RubrosConfigModalProps) {
+  const {
+    bumpRubroConfig, rubroOcultoCount, setRubroOcultoCount,
+    bumpResultadosConfig, resultadosOcultoCount, setResultadosOcultoCount,
+  } = useDashboard();
+  const isResultados = field === "visibleEnResultados";
+  const ocultoCount = isResultados ? resultadosOcultoCount : rubroOcultoCount;
+  const setOcultoCount = isResultados ? setResultadosOcultoCount : setRubroOcultoCount;
+  const bumpConfig = isResultados ? bumpResultadosConfig : bumpRubroConfig;
+
   const [open, setOpen] = useState(false);
   const [rubros, setRubros] = useState<RubroConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -32,7 +46,7 @@ export function RubrosConfigModal() {
   const fetchRubros = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch("/api/config/rubros-dashboard")
+    fetch(`/api/config/rubros-dashboard?field=${field}`)
       .then(async (r) => {
         const text = await r.text();
         if (!text) throw new Error(`Respuesta vacía (HTTP ${r.status})`);
@@ -40,11 +54,11 @@ export function RubrosConfigModal() {
         if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
         const list: RubroConfig[] = Array.isArray(data) ? data : [];
         setRubros(list);
-        setRubroOcultoCount(list.filter((r) => !r.visibleEnDashboard).length);
+        setOcultoCount(list.filter((r) => !r.visible).length);
       })
       .catch((e) => { console.error(e); setError(e.message); })
       .finally(() => setLoading(false));
-  }, [setRubroOcultoCount]);
+  }, [field, setOcultoCount]);
 
   // Mount: fetcha para poblar el badge count sin abrir el modal.
   useEffect(() => { fetchRubros(); }, [fetchRubros]);
@@ -59,13 +73,13 @@ export function RubrosConfigModal() {
       const res = await fetch("/api/config/rubros-dashboard", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ codigo, visibleEnDashboard: visible }),
+        body: JSON.stringify({ codigo, visible, field }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const next = rubros.map((r) => (r.codigo === codigo ? { ...r, visibleEnDashboard: visible } : r));
+      const next = rubros.map((r) => (r.codigo === codigo ? { ...r, visible } : r));
       setRubros(next);
-      setRubroOcultoCount(next.filter((r) => !r.visibleEnDashboard).length);
-      bumpRubroConfig();
+      setOcultoCount(next.filter((r) => !r.visible).length);
+      bumpConfig();
       notify.rubroVisibilidad(nombre, visible);
     } catch (e) {
       console.error(e);
@@ -82,15 +96,15 @@ export function RubrosConfigModal() {
           title="Configurar rubros visibles"
           className={cn(
             "relative h-8 w-8 flex items-center justify-center rounded-lg border transition-all shrink-0",
-            rubroOcultoCount > 0
+            ocultoCount > 0
               ? "border-zinc-400 dark:border-zinc-500 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
               : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600"
           )}
         >
           <Settings2 className="w-3.5 h-3.5" />
-          {rubroOcultoCount > 0 && (
+          {ocultoCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 dark:bg-zinc-100 text-[9px] font-bold leading-none text-white dark:text-zinc-900">
-              {rubroOcultoCount}
+              {ocultoCount}
             </span>
           )}
         </button>
@@ -100,7 +114,7 @@ export function RubrosConfigModal() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
             <Settings2 className="w-4 h-4" />
-            Rubros visibles en panel
+            {title}
           </DialogTitle>
         </DialogHeader>
 
@@ -126,19 +140,19 @@ export function RubrosConfigModal() {
                 key={rubro.codigo}
                 className={cn(
                   "flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg transition-colors",
-                  rubro.visibleEnDashboard
+                  rubro.visible
                     ? "hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
                     : "opacity-50"
                 )}
               >
                 <span className={cn(
                   "text-sm",
-                  !rubro.visibleEnDashboard && "text-muted-foreground"
+                  !rubro.visible && "text-muted-foreground"
                 )}>
                   {rubro.nombre}
                 </span>
                 <Switch
-                  checked={rubro.visibleEnDashboard}
+                  checked={rubro.visible}
                   disabled={saving === rubro.codigo}
                   onCheckedChange={(v) => toggleRubro(rubro.codigo, v)}
                   aria-label={rubro.nombre}

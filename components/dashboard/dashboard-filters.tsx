@@ -47,6 +47,10 @@ export function DashboardFilters() {
   } = useDashboard();
 
   const isVentas = tab === "ventas";
+  const isResultados = tab === "resultados";
+  const rubrosConfigProps = isResultados
+    ? { field: "visibleEnResultados" as const, title: "Conceptos visibles en Resultados" }
+    : {};
   const isMobile = useIsMobile();
 
   const [locales, setLocales] = useState<Local[]>([]);
@@ -104,7 +108,7 @@ export function DashboardFilters() {
             >
               <Search className="w-3.5 h-3.5" />
             </button>
-            {isMobile && <RubrosConfigModal />}
+            {isMobile && <RubrosConfigModal {...rubrosConfigProps} />}
           </>
         )}
       </div>
@@ -166,7 +170,7 @@ export function DashboardFilters() {
 
         {!isVentas && (
           <div className="flex items-center gap-2 ml-auto shrink-0">
-            {!isMobile && <RubrosConfigModal />}
+            {!isMobile && <RubrosConfigModal {...rubrosConfigProps} />}
             <button
               onClick={() => setPaletteOpen(true)}
               className="h-8 w-auto px-3 flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all"

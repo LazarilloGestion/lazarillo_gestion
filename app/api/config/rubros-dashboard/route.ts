@@ -2,19 +2,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { z } from "zod";
+import { VISIBILIDAD_FIELDS, type VisibilidadField } from "@/lib/dashboard/constants";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+// Whitelist estricta: nunca derivar el nombre de columna directo de un query param sin este mapeo.
+function resolveField(raw: string | null): VisibilidadField {
+  return VISIBILIDAD_FIELDS.includes(raw as VisibilidadField) ? (raw as VisibilidadField) : "visibleEnDashboard";
+}
+
+export async function GET(request: NextRequest) {
   const denied = await requireAuth();
   if (denied) return denied;
 
+  const field = resolveField(new URL(request.url).searchParams.get("field"));
+
   try {
     const rubros = await prisma.rubroConceptoCaja.findMany({
-      select: { codigo: true, nombre: true, visibleEnDashboard: true },
+      select: { codigo: true, nombre: true, [field]: true },
       orderBy: { nombre: "asc" },
     });
-    return NextResponse.json(rubros);
+    const visible = rubros.map((r) => ({ codigo: r.codigo, nombre: r.nombre, visible: r[field as keyof typeof r] }));
+    return NextResponse.json(visible);
   } catch (err) {
     console.error("[GET /api/config/rubros-dashboard]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -23,7 +32,8 @@ export async function GET() {
 
 const patchSchema = z.object({
   codigo: z.string().min(1),
-  visibleEnDashboard: z.boolean(),
+  visible: z.boolean(),
+  field: z.enum(VISIBILIDAD_FIELDS).optional(),
 });
 
 export async function PATCH(request: NextRequest) {
@@ -36,11 +46,12 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const { codigo, visibleEnDashboard } = parsed.data;
+  const { codigo, visible, field: rawField } = parsed.data;
+  const field = rawField ?? "visibleEnDashboard";
 
   const updated = await prisma.rubroConceptoCaja.updateMany({
     where: { codigo },
-    data: { visibleEnDashboard },
+    data: { [field]: visible },
   });
 
   if (updated.count === 0) {

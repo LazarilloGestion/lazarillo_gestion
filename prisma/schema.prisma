@@ -12,10 +12,11 @@ model Local {
   id     Int    @id @default(autoincrement())
   nombre String @unique
 
-  puntosDeVenta  PuntoDeVenta[]
-  compras        Compra[]
-  ventas         Venta[]
-  detallesCompra DetalleCompra[]
+  puntosDeVenta   PuntoDeVenta[]
+  compras         Compra[]
+  ventas          Venta[]
+  detallesCompra  DetalleCompra[]
+  flujoCajaManual FlujoCajaManual[]
 
   @@map("locales")
 }
@@ -25,9 +26,10 @@ model PuntoDeVenta {
   nombre  String
   localId Int
 
-  local   Local    @relation(fields: [localId], references: [id])
-  compras Compra[]
-  ventas  Venta[]
+  local           Local             @relation(fields: [localId], references: [id])
+  compras         Compra[]
+  ventas          Venta[]
+  flujoCajaManual FlujoCajaManual[]
 
   @@unique([nombre, localId])
   @@map("puntos_de_venta")
@@ -36,11 +38,12 @@ model PuntoDeVenta {
 // ─── MAESTROS ────────────────────────────────────────────────────────────────
 
 model RubroConceptoCaja {
-  id                 Int     @id @default(autoincrement())
-  codigo             String  @unique
-  nombre             String
-  calcRent           String?
-  visibleEnDashboard Boolean @default(true)
+  id                  Int     @id @default(autoincrement())
+  codigo              String  @unique
+  nombre              String
+  calcRent            String?
+  visibleEnDashboard  Boolean @default(true)
+  visibleEnResultados Boolean @default(false)
 
   conceptosCaja ConceptoCaja[]
 
@@ -275,4 +278,21 @@ model Venta {
   @@index([fecha])
   @@index([localId, puntoDeVentaId])
   @@map("ventas")
+}
+
+model FlujoCajaManual {
+  id             Int      @id @default(autoincrement())
+  localId        Int?
+  puntoDeVentaId Int?
+  anio           Int
+  mes            Int
+  monto          Decimal
+
+  local        Local?        @relation(fields: [localId], references: [id])
+  puntoDeVenta PuntoDeVenta? @relation(fields: [puntoDeVentaId], references: [id])
+
+  // El índice real en DB es NULLS NOT DISTINCT (ver migración 20260723000100) — Prisma no
+  // tiene sintaxis nativa para eso, por eso queda declarado acá como unique común (drift esperado).
+  @@unique([localId, puntoDeVentaId, anio, mes])
+  @@map("flujo_caja_manual")
 }

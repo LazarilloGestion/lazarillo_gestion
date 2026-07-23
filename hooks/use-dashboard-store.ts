@@ -6,7 +6,7 @@ import { MONTH_IDXS } from "@/lib/dashboard/constants";
 import { writeFiltersCookie } from "@/lib/dashboard/filters-cookie";
 import type { SortCol, SortDir } from "@/lib/dashboard/pivot-utils";
 
-type Tab = "compras" | "ventas";
+type Tab = "compras" | "ventas" | "resultados";
 
 type SearchFilters = {
   rubroCodigo: string | undefined;
@@ -48,11 +48,17 @@ type DashboardStore = {
   clearSearch: () => void;
   switchTab: (tab: Tab) => void;
 
-  // rubro config
+  // rubro config (Compras)
   rubroConfigVersion: number;
   bumpRubroConfig: () => void;
   rubroOcultoCount: number;
   setRubroOcultoCount: (n: number) => void;
+
+  // rubro config (Resultados)
+  resultadosConfigVersion: number;
+  bumpResultadosConfig: () => void;
+  resultadosOcultoCount: number;
+  setResultadosOcultoCount: (n: number) => void;
 
   // panel colapsable (persistido vía cookie, leída en SSR — ver filters-cookie.ts)
   showFilters: boolean;
@@ -108,7 +114,7 @@ const useDashboardStore = create<DashboardStore>()(
       proveedorId: undefined,
       observacionQuery: undefined,
       searchLabel: undefined,
-      savedFilters: { compras: { ...EMPTY_FILTERS }, ventas: { ...EMPTY_FILTERS } },
+      savedFilters: { compras: { ...EMPTY_FILTERS }, ventas: { ...EMPTY_FILTERS }, resultados: { ...EMPTY_FILTERS } },
       // Solo un filtro de palette activo a la vez (mutuamente excluyentes).
       setSearch: (param, value, label) => {
         set({
@@ -134,11 +140,17 @@ const useDashboardStore = create<DashboardStore>()(
         });
       },
 
-      // rubro config
+      // rubro config (Compras)
       rubroConfigVersion: 0,
       bumpRubroConfig: () => set((s) => ({ rubroConfigVersion: s.rubroConfigVersion + 1 })),
       rubroOcultoCount: 0,
       setRubroOcultoCount: (n) => set({ rubroOcultoCount: n }),
+
+      // rubro config (Resultados)
+      resultadosConfigVersion: 0,
+      bumpResultadosConfig: () => set((s) => ({ resultadosConfigVersion: s.resultadosConfigVersion + 1 })),
+      resultadosOcultoCount: 0,
+      setResultadosOcultoCount: (n) => set({ resultadosOcultoCount: n }),
 
       // panel colapsable
       showFilters: true,
@@ -211,8 +223,11 @@ export function useDashboard() {
     rubroCodigo: s.rubroCodigo, conceptoCodigo: s.conceptoCodigo,
     proveedorId: s.proveedorId, observacionQuery: s.observacionQuery, searchLabel: s.searchLabel,
     setSearch: s.setSearch, clearSearch: s.clearSearch, switchTab: s.switchTab,
-    // rubro config
+    // rubro config (Compras)
     rubroConfigVersion: s.rubroConfigVersion, bumpRubroConfig: s.bumpRubroConfig,
     rubroOcultoCount: s.rubroOcultoCount, setRubroOcultoCount: s.setRubroOcultoCount,
+    // rubro config (Resultados)
+    resultadosConfigVersion: s.resultadosConfigVersion, bumpResultadosConfig: s.bumpResultadosConfig,
+    resultadosOcultoCount: s.resultadosOcultoCount, setResultadosOcultoCount: s.setResultadosOcultoCount,
   };
 }

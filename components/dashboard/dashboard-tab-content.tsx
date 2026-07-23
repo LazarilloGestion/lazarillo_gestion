@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { PivotTable } from "./pivot-table";
 import { VentasPivotTable } from "./ventas-pivot-table";
+import { ResultadosPivotTable } from "./resultados-pivot-table";
 import { Maximize2, Minimize2 } from "lucide-react";
 
 interface DashboardTabContentProps {
@@ -40,7 +41,7 @@ export function DashboardTabContent({ isFullscreen, onToggleFullscreen }: Dashbo
         className="flex items-center justify-between gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50 shrink-0"
       >
         <div className="flex gap-0 border border-zinc-200 dark:border-zinc-700 rounded-lg p-1 bg-zinc-50 dark:bg-zinc-800/50">
-          {(["compras", "ventas"] as const).map((t) => (
+          {(["compras", "ventas", "resultados"] as const).map((t) => (
             <button
               key={t}
               id={tabId(t)}
@@ -55,7 +56,7 @@ export function DashboardTabContent({ isFullscreen, onToggleFullscreen }: Dashbo
                   : "text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-200"
               )}
             >
-              {t === "compras" ? "Compras" : "Ventas"}
+              {t === "compras" ? "Compras" : t === "ventas" ? "Ventas" : "Resultados"}
             </button>
           ))}
         </div>
@@ -87,6 +88,16 @@ export function DashboardTabContent({ isFullscreen, onToggleFullscreen }: Dashbo
         className="flex-1 min-h-0 flex flex-col overflow-hidden"
       >
         {tab === "ventas" && <VentasPivotTable />}
+      </div>
+
+      <div
+        id={panelId("resultados")}
+        role="tabpanel"
+        aria-labelledby={tabId("resultados")}
+        hidden={tab !== "resultados"}
+        className="flex-1 min-h-0 flex flex-col overflow-hidden"
+      >
+        {tab === "resultados" && <ResultadosPivotTable />}
       </div>
     </motion.div>
   );

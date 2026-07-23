@@ -1,18 +1,17 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
-import { useFetchQuery } from "@/hooks/use-fetch-query";
+import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
 import { ExpandableButton } from "@/components/ui/expandable-button";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
-import { buildDashboardUrl, buildVentasPivotUrl } from "@/lib/dashboard/params";
 import { flattenRows, sortPivotRows, hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
+import { KpiBlock } from "./kpi-block";
 import { EditedDot } from "./edit-row-controls";
 import type {
-  PivotData,
   PivotRubroRow,
   PivotConceptoRow,
   DetalleFilter,
@@ -35,28 +34,10 @@ export function PivotTable() {
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
   const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number; observacionQuery?: string }>({});
 
-
-  const url = useMemo(() => {
-    const base = buildDashboardUrl("/api/dashboard/pivot", {
-      year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months: activeMonths,
-    });
-    return rubroConfigVersion > 0 ? `${base}&_rcv=${rubroConfigVersion}` : base;
-  }, [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, activeMonths, rubroConfigVersion]);
-
-  const { data, isLoading, error } = useFetchQuery<PivotData>(
-    ["pivot", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months, rubroConfigVersion],
-    url
-  );
-
-  const ventasUrl = useMemo(
-    () => buildVentasPivotUrl("/api/dashboard/pivot-ventas", { year, localId, pdvId, months: activeMonths }),
-    [year, localId, pdvId, activeMonths]
-  );
-
-  const { data: ventasData, isLoading: ventasLoading } = useFetchQuery<PivotData>(
-    ["pivot-ventas", year, localId, pdvId, months],
-    ventasUrl
-  );
+  const { data, isLoading, error, ventasData, ventasLoading } = useOperacionKpis({
+    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
+    months, activeMonths, configVersion: rubroConfigVersion,
+  });
 
   // Auto-expandir cuando hay filtro de concepto, proveedor u observacion; colapsar al quitar filtro.
   useEffect(() => {
@@ -116,124 +97,22 @@ export function PivotTable() {
 
   const ingresosPorMes = ventasData?.columnTotals ?? {};
   const egresosPorMes = data.columnTotals;
-  const maxIngresos = Math.max(...months.map((m) => ingresosPorMes[m] ?? 0), 1);
-
-  function ingresosColor(mes: number): string {
-    const v = ingresosPorMes[mes] ?? 0;
-    const ratio = v / maxIngresos;
-    const lightness = Math.round(88 - ratio * 40);
-    return `hsl(142 60% ${lightness}%)`;
-  }
 
   return (
     <>
       <div className="overflow-auto flex-1 min-h-0">
         <table className="w-full text-sm border-separate border-spacing-0">
           <thead>
-            {/* KPI rows */}
-            <tr className="border-b">
-              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
-                Ingresos
-              </td>
-              {months.map((mes) => (
-                <td
-                  key={mes}
-                  className={cn("text-right px-3 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap transition-opacity", (ingresosPorMes[mes] ?? 0) > 0 && "cursor-pointer hover:opacity-75")}
-                  style={{ backgroundColor: ventasData ? ingresosColor(mes) : undefined, color: "hsl(142 55% 28%)" }}
-                  onClick={() => { if ((ingresosPorMes[mes] ?? 0) > 0) setVentasDetalleFilter({ year, localId, pdvId, mes }); }}
-                >
-                  {fmtARS(ingresosPorMes[mes])}
-                </td>
-              ))}
-              <td
-                className={cn("text-right px-4 py-1.5 text-sm font-bold tabular-nums text-success whitespace-nowrap", ventasData?.grandTotal && "cursor-pointer hover:opacity-75")}
-                onClick={() => { if (ventasData?.grandTotal) setVentasDetalleFilter({ year, localId, pdvId }); }}
-              >
-                {fmtARS(ventasData?.grandTotal)}
-              </td>
-              <td />
-            </tr>
-            <tr className="border-b">
-              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
-                Egresos
-              </td>
-              {months.map((mes) => (
-                <td key={mes} className="text-right px-3 py-1.5 text-xs tabular-nums text-muted-foreground whitespace-nowrap">
-                  {fmtARS(egresosPorMes[mes])}
-                </td>
-              ))}
-              <td className="text-right px-4 py-1.5 text-sm font-medium tabular-nums text-muted-foreground whitespace-nowrap">
-                {fmtARS(data.grandTotal)}
-              </td>
-              <td />
-            </tr>
-            <tr className="border-b">
-              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-bold whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
-                Resultado OP
-              </td>
-              {months.map((mes) => {
-                const ing = ingresosPorMes[mes] ?? 0;
-                const egr = egresosPorMes[mes] ?? 0;
-                const res = ing - egr;
-                return (
-                  <td
-                    key={mes}
-                    className={cn(
-                      "text-right px-3 py-1.5 text-xs font-semibold tabular-nums whitespace-nowrap",
-                      res < 0 ? "text-destructive" : "text-foreground"
-                    )}
-                  >
-                    {fmtARS(res || undefined)}
-                  </td>
-                );
-              })}
-              {(() => {
-                const res = (ventasData?.grandTotal ?? 0) - data.grandTotal;
-                return (
-                  <td className={cn("text-right px-4 py-1.5 text-sm font-bold tabular-nums whitespace-nowrap", res < 0 ? "text-destructive" : "text-foreground")}>
-                    {fmtARS(res || undefined)}
-                  </td>
-                );
-              })()}
-              <td />
-            </tr>
-            <tr className="border-b-2">
-              <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
-                Gastos / Ventas
-              </td>
-              {months.map((mes) => {
-                const ing = ingresosPorMes[mes] ?? 0;
-                const egr = egresosPorMes[mes] ?? 0;
-                const ratio = ing > 0 ? (egr / ing) * 100 : null;
-                return (
-                  <td key={mes} className={cn(
-                    "text-right px-3 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap",
-                    ratio === null ? "text-muted-foreground/40"
-                      : ratio > 90 ? "text-destructive"
-                      : ratio > 60 ? "text-warning"
-                      : "text-muted-foreground"
-                  )}>
-                    {ratio !== null ? `${ratio.toFixed(1)}%` : "—"}
-                  </td>
-                );
-              })}
-              {(() => {
-                const ventasTotal = ventasData?.grandTotal ?? 0;
-                const ratio = ventasTotal > 0 ? (data.grandTotal / ventasTotal) * 100 : null;
-                return (
-                  <td className={cn(
-                    "text-right px-4 py-1.5 text-sm font-semibold tabular-nums whitespace-nowrap",
-                    ratio === null ? "text-muted-foreground/40"
-                      : ratio > 90 ? "text-destructive"
-                      : ratio > 60 ? "text-warning"
-                      : "text-muted-foreground"
-                  )}>
-                    {ratio !== null ? `${ratio.toFixed(1)}%` : "—"}
-                  </td>
-                );
-              })()}
-              <td />
-            </tr>
+            <KpiBlock
+              months={months}
+              ingresosPorMes={ingresosPorMes}
+              egresosPorMes={egresosPorMes}
+              ingresosTotal={ventasData?.grandTotal}
+              egresosTotal={data.grandTotal}
+              ingresosReady={!!ventasData}
+              onIngresoCellClick={(mes) => setVentasDetalleFilter({ year, localId, pdvId, mes })}
+              onIngresoTotalClick={() => setVentasDetalleFilter({ year, localId, pdvId })}
+            />
             <tr className="bg-muted border-b">
               <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                 Concepto / Proveedor
