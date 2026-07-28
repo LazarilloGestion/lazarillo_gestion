@@ -203,11 +203,11 @@ export function VentasPivotTable() {
                 Total {year}
               </td>
               {months.map((mes) => (
-                <td key={mes} className="text-right px-3 py-3 tabular-nums">
+                <td key={mes} className="text-right px-3 py-3 tabular-nums bg-muted">
                   {fmtARS(data.columnTotals[mes])}
                 </td>
               ))}
-              <td className="text-right px-4 py-3 tabular-nums text-primary">
+              <td className="text-right px-4 py-3 tabular-nums text-primary bg-muted">
                 {fmtARS(data.grandTotal)}
               </td>
             </tr>

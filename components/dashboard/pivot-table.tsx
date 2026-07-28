@@ -172,7 +172,7 @@ export function PivotTable() {
                 return (
                   <tr
                     key={rubro.id}
-                    className="border-b bg-muted/25 font-semibold hover:bg-muted/50 transition-colors"
+                    className="border-b font-semibold"
                     onContextMenu={collapseAll}
                   >
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -184,7 +184,7 @@ export function PivotTable() {
                       <td
                         key={mes}
                         className={cn(
-                          "text-right px-3 py-2.5 tabular-nums",
+                          "text-right px-3 py-2.5 tabular-nums bg-muted/25 hover:bg-muted/50 transition-colors",
                           hasValue(rubro.values[mes]) && "cursor-pointer hover:text-primary"
                         )}
                         onClick={(e) => {
@@ -197,7 +197,7 @@ export function PivotTable() {
                       </td>
                     ))}
                     <td
-                      className="text-right px-4 py-2.5 tabular-nums font-bold text-base cursor-pointer hover:text-primary"
+                      className="text-right px-4 py-2.5 tabular-nums font-bold text-base bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary"
                       onClick={(e) => {
                         e.stopPropagation();
                         openDetalle({ rubroCodigo: rubro.rubroCodigo });
@@ -205,7 +205,7 @@ export function PivotTable() {
                     >
                       {fmtARS(rubro.rowTotal)}
                     </td>
-                    <td className="text-right px-3 py-2.5 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap">
+                    <td className="text-right px-3 py-2.5 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap bg-muted/25 hover:bg-muted/50 transition-colors">
                       {fmtPct(rubro.rowTotal)}
                     </td>
                   </tr>
@@ -316,14 +316,14 @@ export function PivotTable() {
                 Total {year}
               </td>
               {months.map((mes) => (
-                <td key={mes} className="text-right px-3 py-3 tabular-nums">
+                <td key={mes} className="text-right px-3 py-3 tabular-nums bg-muted">
                   {fmtARS(data.columnTotals[mes])}
                 </td>
               ))}
-              <td className="text-right px-4 py-3 tabular-nums text-primary">
+              <td className="text-right px-4 py-3 tabular-nums text-primary bg-muted">
                 {fmtARS(data.grandTotal)}
               </td>
-              <td className="text-right px-3 py-3 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap font-semibold">
+              <td className="text-right px-3 py-3 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap font-semibold bg-muted">
                 {pctMode === "egresos" ? "—" : fmtPct(data.grandTotal)}
               </td>
             </tr>

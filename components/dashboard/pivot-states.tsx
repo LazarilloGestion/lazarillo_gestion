@@ -19,7 +19,7 @@ export function PivotError() {
 
 export function PivotEmpty() {
   return (
-    <div className="flex flex-col items-center gap-2 py-16 text-zinc-400">
+    <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
       <SearchX className="w-8 h-8 opacity-40" />
       <p className="text-sm text-center">Sin datos para los filtros seleccionados.</p>
     </div>

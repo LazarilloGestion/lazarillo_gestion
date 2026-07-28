@@ -36,22 +36,28 @@ export function KpiBlock({
         <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
           Ingresos
         </td>
-        {months.map((mes) => (
-          <td
-            key={mes}
-            className={cn(
-              "text-right px-3 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap transition-opacity",
-              (ingresosPorMes[mes] ?? 0) > 0 && onIngresoCellClick && "cursor-pointer hover:opacity-75"
-            )}
-            style={{
-              backgroundColor: ingresosReady && (ingresosPorMes[mes] ?? 0) > 0 ? ingresosColor(mes) : undefined,
-              color: "hsl(142 55% 28%)",
-            }}
-            onClick={() => { if ((ingresosPorMes[mes] ?? 0) > 0) onIngresoCellClick?.(mes); }}
-          >
-            {fmtARS(ingresosPorMes[mes])}
-          </td>
-        ))}
+        {months.map((mes) => {
+          const val = ingresosPorMes[mes];
+          const hasVal = val != null && val > 0;
+          const hasHeatmap = ingresosReady && hasVal;
+          return (
+            <td
+              key={mes}
+              className={cn(
+                "text-right px-3 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap transition-opacity",
+                !hasHeatmap && (val == null ? "text-muted-foreground/40" : "text-success"),
+                hasVal && onIngresoCellClick && "cursor-pointer hover:opacity-75"
+              )}
+              style={{
+                backgroundColor: hasHeatmap ? ingresosColor(mes) : undefined,
+                color: hasHeatmap ? "hsl(142 55% 28%)" : undefined,
+              }}
+              onClick={() => { if (hasVal) onIngresoCellClick?.(mes); }}
+            >
+              {fmtARS(val)}
+            </td>
+          );
+        })}
         <td
           className={cn(
             "text-right px-4 py-1.5 text-sm font-bold tabular-nums text-success whitespace-nowrap",
@@ -84,15 +90,16 @@ export function KpiBlock({
           Resultado OP
         </td>
         {months.map((mes) => {
-          const ing = ingresosPorMes[mes] ?? 0;
-          const egr = egresosPorMes[mes] ?? 0;
-          const res = ing - egr;
+          const ingVal = ingresosPorMes[mes];
+          const egrVal = egresosPorMes[mes];
+          const noData = ingVal == null && egrVal == null;
+          const res = (ingVal ?? 0) - (egrVal ?? 0);
           return (
             <td
               key={mes}
               className={cn(
                 "text-right px-3 py-1.5 text-xs font-semibold tabular-nums whitespace-nowrap",
-                res < 0 ? "text-destructive" : "text-foreground"
+                noData ? "text-muted-foreground/40" : res < 0 ? "text-destructive" : "text-foreground"
               )}
             >
               {fmtARS(res || undefined)}
