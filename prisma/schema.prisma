@@ -296,3 +296,16 @@ model FlujoCajaManual {
   @@unique([localId, puntoDeVentaId, anio, mes])
   @@map("flujo_caja_manual")
 }
+
+model ResultadosVistaGuardada {
+  id                Int      @id @default(autoincrement())
+  nombre            String
+  param             String? // "rubroCodigo" | "conceptoCodigo" | "proveedorId" | "observacionQuery"
+  value             String?
+  label             String?
+  conceptosVisibles String[] // codigos de RubroConceptoCaja — vacío = no captura visibilidad
+  meses             Int[]
+  createdAt         DateTime @default(now())
+
+  @@map("resultados_vistas_guardadas")
+}

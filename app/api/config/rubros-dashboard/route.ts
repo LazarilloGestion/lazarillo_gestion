@@ -60,3 +60,36 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
+
+const putSchema = z.object({
+  field: z.enum(VISIBILIDAD_FIELDS).optional(),
+  codigosVisibles: z.array(z.string()),
+});
+
+// Bulk-set: apaga todo, prende sólo los codigos pasados. Usado al aplicar una
+// vista guardada que capturó un set de conceptos visibles (ver vistas-guardadas-selector).
+export async function PUT(request: NextRequest) {
+  const denied = await requireAuth();
+  if (denied) return denied;
+
+  const body = await request.json().catch(() => null);
+  const parsed = putSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  const { codigosVisibles } = parsed.data;
+  const field = parsed.data.field ?? "visibleEnDashboard";
+
+  try {
+    await prisma.$transaction([
+      prisma.rubroConceptoCaja.updateMany({ where: {}, data: { [field]: false } }),
+      prisma.rubroConceptoCaja.updateMany({ where: { codigo: { in: codigosVisibles } }, data: { [field]: true } }),
+    ]);
+    const total = await prisma.rubroConceptoCaja.count();
+    return NextResponse.json({ ok: true, ocultos: total - codigosVisibles.length });
+  } catch (err) {
+    console.error("[PUT /api/config/rubros-dashboard]", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

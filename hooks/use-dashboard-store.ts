@@ -21,6 +21,7 @@ type DashboardStore = {
   stored: number[];
   toggleMonth: (idx: number) => void;
   clearMonths: () => void;
+  setSelectedMonths: (months: number[]) => void;
 
   // sort
   sortCol: SortCol;
@@ -85,6 +86,7 @@ const useDashboardStore = create<DashboardStore>()(
         set({ stored: next.size === 12 ? [] : Array.from(next).sort((a, b) => a - b) });
       },
       clearMonths: () => set({ stored: [] }),
+      setSelectedMonths: (months) => set({ stored: months.length === 12 ? [] : [...months].sort((a, b) => a - b) }),
 
       // sort
       sortCol: 1 as SortCol,
@@ -210,10 +212,26 @@ export function useDashboard() {
       ? s.sortCol
       : months[0];
 
+  // Único filtro de búsqueda activo (mutuamente excluyentes) — derivado acá para que
+  // los distintos consumidores (chips de filtro, selector de vistas guardadas) no
+  // reimplementen la misma cadena de precedencia cada uno por su lado.
+  const activeSearchParam: "rubroCodigo" | "conceptoCodigo" | "proveedorId" | "observacionQuery" | undefined =
+    s.rubroCodigo ? "rubroCodigo"
+    : s.conceptoCodigo ? "conceptoCodigo"
+    : s.proveedorId ? "proveedorId"
+    : s.observacionQuery ? "observacionQuery"
+    : undefined;
+  const activeSearchValue: string | undefined =
+    activeSearchParam === "rubroCodigo" ? s.rubroCodigo
+    : activeSearchParam === "conceptoCodigo" ? s.conceptoCodigo
+    : activeSearchParam === "proveedorId" ? (s.proveedorId != null ? String(s.proveedorId) : undefined)
+    : activeSearchParam === "observacionQuery" ? s.observacionQuery
+    : undefined;
+
   return {
     // months
     months, activeMonths, selectedMonths,
-    toggleMonth: s.toggleMonth, clearMonths: s.clearMonths,
+    toggleMonth: s.toggleMonth, clearMonths: s.clearMonths, setSelectedMonths: s.setSelectedMonths,
     // sort
     sortCol, sortDir: s.sortDir, handleSortClick: s.handleSortClick,
     // navigation
@@ -222,6 +240,7 @@ export function useDashboard() {
     // search
     rubroCodigo: s.rubroCodigo, conceptoCodigo: s.conceptoCodigo,
     proveedorId: s.proveedorId, observacionQuery: s.observacionQuery, searchLabel: s.searchLabel,
+    activeSearchParam, activeSearchValue,
     setSearch: s.setSearch, clearSearch: s.clearSearch, switchTab: s.switchTab,
     // rubro config (Compras)
     rubroConfigVersion: s.rubroConfigVersion, bumpRubroConfig: s.bumpRubroConfig,

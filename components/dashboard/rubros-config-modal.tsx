@@ -15,12 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import type { VisibilidadField } from "@/lib/dashboard/constants";
-
-interface RubroConfig {
-  codigo: string;
-  nombre: string;
-  visible: boolean;
-}
+import type { RubroVisibilidad } from "@/lib/dashboard/types";
 
 interface RubrosConfigModalProps {
   field?: VisibilidadField;
@@ -38,7 +33,7 @@ export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubro
   const bumpConfig = isResultados ? bumpResultadosConfig : bumpRubroConfig;
 
   const [open, setOpen] = useState(false);
-  const [rubros, setRubros] = useState<RubroConfig[]>([]);
+  const [rubros, setRubros] = useState<RubroVisibilidad[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
@@ -52,7 +47,7 @@ export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubro
         if (!text) throw new Error(`Respuesta vacía (HTTP ${r.status})`);
         const data = JSON.parse(text);
         if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
-        const list: RubroConfig[] = Array.isArray(data) ? data : [];
+        const list: RubroVisibilidad[] = Array.isArray(data) ? data : [];
         setRubros(list);
         setOcultoCount(list.filter((r) => !r.visible).length);
       })
