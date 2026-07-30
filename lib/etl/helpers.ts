@@ -85,6 +85,9 @@ export function normalizeCuit(val: unknown): string | null {
 // ─── Excel ────────────────────────────────────────────────────────────────────
 
 // Normaliza todas las keys a UPPERCASE para acceso consistente en todos los normalizers.
+// Carga el workbook completo en memoria (SheetJS no ofrece streaming real en la versión
+// libre) — riesgo aceptado: app/api/etl/drive-import/route.ts limita cada archivo a 10 MB
+// (MAX_SIZE), lo que acota el impacto. Revisar si ese cap deja de alcanzar en la práctica.
 export function readExcelBuffer(buffer: Buffer): ETLRow[] {
   const wb = XLSX.read(buffer, { type: "buffer" });
   if (!wb.SheetNames.length) return [];

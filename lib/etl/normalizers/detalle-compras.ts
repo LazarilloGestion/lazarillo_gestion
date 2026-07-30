@@ -1,9 +1,11 @@
 import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient, ETLContext } from "../types";
-import { normalizeText, trim, toDecimalStr, safeDate, excelDateToISO } from "../helpers";
+import { trim, toDecimalStr, excelDateToISO } from "../helpers";
 import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 import type { ETLRow, ETLRowError, ETLSkippedRow } from "../types";
+import { detalleCompraRowSchema, type DetalleCompraRow } from "../schemas/detalle-compras";
+import { formatZodError } from "../schemas/common";
 
 const CHUNK_SIZE = 500;
 
@@ -15,6 +17,8 @@ function makeComprobante(r: ETLRow): string | null {
   return `${cpb}${num1.padStart(4, "0")}${num2.padStart(8, "0")}`;
 }
 
+// makeRowId opera siempre sobre la fila cruda — el hash tiene que ser estable
+// entre reimports del mismo archivo.
 function makeRowId(r: ETLRow): string {
   // El ERP no exporta número de línea — CANTIDAD+NETO son los únicos
   // diferenciadores cuando el mismo artículo aparece dos veces en la misma factura.
@@ -36,21 +40,51 @@ export async function normalizeDetalleCompras(
   prisma: DbClient,
   ctx?: ETLContext
 ): Promise<{ created: number; updated: number; skipped: number; skippedRows: ETLSkippedRow[]; errors: ETLRowError[] }> {
-  const invalid = rows.filter((r) => r["COD_CPB"] == null || r["CODIGO"] == null);
-  const valid = rows.filter((r) => r["COD_CPB"] != null && r["CODIGO"] != null);
-  const filtered = Array.from(
-    valid.reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>()).values()
-  );
-  const skippedRows: ETLSkippedRow[] = invalid.map((r): ETLSkippedRow => ({
-    fecha: formatFecha(r["FECHA"]),
-    concepto: trim(r["CODIGO"]) ?? trim(r["NOMBRE"]) ?? undefined,
-    importe: toDecimalStr(r["NETO"]) ?? toDecimalStr(r["TOTALINS"]) ?? undefined,
-    proveedor: trim(r["COD_PRO"]) ?? undefined,
-    motivo: "sin_datos",
-  }));
+  const skippedRows: ETLSkippedRow[] = [];
+  const errors: ETLRowError[] = [];
+
+  type ParsedRow = { rowId: string; row: ETLRow; data: DetalleCompraRow };
+  const parsedRows: ParsedRow[] = [];
+
+  rows.forEach((r, idx) => {
+    if (trim(r["COD_CPB"]) == null || trim(r["CODIGO"]) == null) {
+      skippedRows.push({
+        fecha: formatFecha(r["FECHA"]),
+        concepto: trim(r["CODIGO"]) ?? trim(r["NOMBRE"]) ?? undefined,
+        importe: toDecimalStr(r["NETO"]) ?? toDecimalStr(r["TOTALINS"]) ?? undefined,
+        proveedor: trim(r["COD_PRO"]) ?? undefined,
+        motivo: "sin_datos",
+      });
+      return;
+    }
+    const parsed = detalleCompraRowSchema.safeParse(r);
+    if (!parsed.success) {
+      errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
+      return;
+    }
+    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data });
+  });
+
+  // Dedup por rowId — last-wins, pero ahora la fila que se pisa se reporta en
+  // skippedRows con motivo "duplicado" en vez de perderse en silencio.
+  const rowIdMap = new Map<string, ParsedRow>();
+  for (const pr of parsedRows) {
+    const prev = rowIdMap.get(pr.rowId);
+    if (prev) {
+      skippedRows.push({
+        fecha: formatFecha(prev.row["FECHA"]),
+        concepto: trim(prev.row["CODIGO"]) ?? trim(prev.row["NOMBRE"]) ?? undefined,
+        importe: toDecimalStr(prev.row["NETO"]) ?? toDecimalStr(prev.row["TOTALINS"]) ?? undefined,
+        proveedor: trim(prev.row["COD_PRO"]) ?? undefined,
+        motivo: "duplicado",
+      });
+    }
+    rowIdMap.set(pr.rowId, pr);
+  }
+  const filtered = Array.from(rowIdMap.values());
   const skipped = skippedRows.length;
 
-  const codigosArt = [...new Set(filtered.map((r) => trim(r["CODIGO"])).filter(Boolean))] as string[];
+  const codigosArt = [...new Set(filtered.map((pr) => pr.data.CODIGO).filter((v): v is string => v != null))];
   const artSet = new Set(
     (await prisma.articulo.findMany({
       where: { codigo: { in: codigosArt } },
@@ -58,7 +92,7 @@ export async function normalizeDetalleCompras(
     })).map((a) => a.codigo)
   );
 
-  const codigosProvDet = [...new Set(filtered.map((r) => trim(r["COD_PRO"])).filter(Boolean))] as string[];
+  const codigosProvDet = [...new Set(filtered.map((pr) => pr.data.COD_PRO).filter((v): v is string => v != null))];
   const provMapDet = new Map(
     (await prisma.proveedor.findMany({
       where: { codigo: { in: codigosProvDet } },
@@ -68,11 +102,10 @@ export async function normalizeDetalleCompras(
 
   let created = 0;
   let updated = 0;
-  const errors: ETLRowError[] = [];
 
   for (let i = 0; i < filtered.length; i += CHUNK_SIZE) {
     const chunk = filtered.slice(i, i + CHUNK_SIZE);
-    const chunkRowIds = chunk.map(makeRowId);
+    const chunkRowIds = chunk.map((pr) => pr.rowId);
 
     const existingSet = new Set(
       (await prisma.detalleCompra.findMany({
@@ -84,38 +117,37 @@ export async function normalizeDetalleCompras(
     try {
       const localId = ctx?.localId ?? null;
 
-      const rowValues = chunk.map((r) => {
-        const rowId = makeRowId(r);
-        const articuloCodigo = artSet.has(trim(r["CODIGO"]) ?? "") ? trim(r["CODIGO"]) : null;
-        const proveedorId = provMapDet.get(trim(r["COD_PRO"]) ?? "") ?? null;
+      const rowValues = chunk.map(({ rowId, row, data }) => {
+        const articuloCodigo = artSet.has(data.CODIGO) ? data.CODIGO : null;
+        const proveedorId = data.COD_PRO != null ? provMapDet.get(data.COD_PRO) ?? null : null;
         return Prisma.sql`(
           ${rowId},
-          ${trim(r["COD_PRO"])},
-          ${trim(r["COD_CPB"])},
-          ${trim(r["NUMERO1"])},
-          ${trim(r["NUMERO2"])},
-          ${makeComprobante(r)},
-          ${safeDate(r["FECHA"])},
-          ${trim(r["CODIGO"])},
-          ${normalizeText(r["NOMBRE"])},
-          ${trim(r["MEDIDA"])},
-          ${toDecimalStr(r["CANTIDAD"])}::numeric,
-          ${toDecimalStr(r["NETO"])}::numeric,
-          ${toDecimalStr(r["TOTALINS"])}::numeric,
-          ${toDecimalStr(r["IVATOT"])}::numeric,
-          ${toDecimalStr(r["IMPINTTOT"])}::numeric,
-          ${toDecimalStr(r["TASA"])}::numeric,
-          ${toDecimalStr(r["IVA"])}::numeric,
-          ${toDecimalStr(r["IMP_INT"])}::numeric,
-          ${toDecimalStr(r["PERCEP"])}::numeric,
-          ${normalizeText(r["OBSERVAC"])},
+          ${data.COD_PRO},
+          ${data.COD_CPB},
+          ${data.NUMERO1},
+          ${data.NUMERO2},
+          ${makeComprobante(row)},
+          ${data.FECHA},
+          ${data.CODIGO},
+          ${data.NOMBRE},
+          ${data.MEDIDA},
+          ${data.CANTIDAD}::numeric,
+          ${data.NETO}::numeric,
+          ${data.TOTALINS}::numeric,
+          ${data.IVATOT}::numeric,
+          ${data.IMPINTTOT}::numeric,
+          ${data.TASA}::numeric,
+          ${data.IVA}::numeric,
+          ${data.IMP_INT}::numeric,
+          ${data.PERCEP}::numeric,
+          ${data.OBSERVAC},
           ${articuloCodigo},
           ${proveedorId}::integer,
           ${localId}::integer
         )`;
       });
 
-      await (prisma as unknown as { $executeRaw: (q: Prisma.Sql) => Promise<number> }).$executeRaw(Prisma.sql`
+      await prisma.$executeRaw(Prisma.sql`
         INSERT INTO detalle_compras (
           "rowId", "codPro", "codCpb", numero1, numero2, comprobante, fecha, codigo,
           nombre, medida, cantidad, neto, "totalIns", "ivaTot", "impNtTot", tasa, iva,
@@ -154,7 +186,7 @@ export async function normalizeDetalleCompras(
     } catch (err) {
       errors.push({
         rowIndex: i,
-        rawCodigo: chunk[0]?.["CODIGO"],
+        rawCodigo: chunk[0]?.data.CODIGO,
         message: err instanceof Error ? err.message : String(err),
       });
     }

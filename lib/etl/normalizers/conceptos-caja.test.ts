@@ -1,0 +1,56 @@
+import { describe, it, expect, vi } from "vitest";
+import { normalizeConceptosCaja } from "./conceptos-caja";
+import { createMockDb, mockAllExisting } from "../test-utils/mock-db";
+import type { ETLRow } from "../types";
+
+function baseRow(overrides: Partial<Record<string, unknown>> = {}): ETLRow {
+  return {
+    CODIGO: "CC1",
+    NOMBRE: "Concepto Uno",
+    TIPO: "E",
+    COD_IMP: "1",
+    COD_RGA: 0,
+    ...overrides,
+  };
+}
+
+describe("normalizeConceptosCaja", () => {
+  it("fila sin CODIGO se cuenta en skipped, no se inserta", async () => {
+    const db = createMockDb();
+    const res = await normalizeConceptosCaja([baseRow({ CODIGO: null })], db);
+    expect(res.skipped).toBe(1);
+    expect(res.created).toBe(0);
+    expect(res.errors).toHaveLength(0);
+  });
+
+  it("COD_RGA no numérico va a errors, no queda null en silencio", async () => {
+    const db = createMockDb();
+    const res = await normalizeConceptosCaja([baseRow({ COD_RGA: "ERROR" })], db);
+    expect(res.created).toBe(0);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].message).toMatch(/COD_RGA/);
+  });
+
+  it("cuenta created vs updated según si el codigo ya existe en la tabla", async () => {
+    const dbCreated = createMockDb();
+    const resCreated = await normalizeConceptosCaja([baseRow()], dbCreated);
+    expect(resCreated.created).toBe(1);
+    expect(resCreated.updated).toBe(0);
+
+    const conceptoModel = { findMany: vi.fn() };
+    mockAllExisting(conceptoModel, "codigo");
+    const dbUpdated = createMockDb({ conceptoCaja: conceptoModel });
+    const resUpdated = await normalizeConceptosCaja([baseRow()], dbUpdated);
+    expect(resUpdated.created).toBe(0);
+    expect(resUpdated.updated).toBe(1);
+  });
+
+  it("un fallo de $executeRaw se reporta en errors sin lanzar excepción", async () => {
+    const db = createMockDb();
+    (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("constraint violation"));
+    const res = await normalizeConceptosCaja([baseRow()], db);
+    expect(res.created).toBe(0);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].message).toMatch(/constraint violation/);
+  });
+});

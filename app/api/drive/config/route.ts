@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { requireAuthUser } from "@/lib/auth/require-auth";
 import { refreshGoogleAccessToken, getDriveFolderName } from "@/lib/drive/client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -24,6 +25,10 @@ export async function GET() {
   });
 }
 
+const putBodySchema = z.object({
+  folder_url: z.string().min(1, "folder_url requerido"),
+});
+
 /** PUT — guarda o actualiza la carpeta Drive del usuario
  *  Body: { folder_url: string }  (URL o ID directo de la carpeta)
  */
@@ -32,13 +37,12 @@ export async function PUT(req: NextRequest) {
   if (auth.response) return auth.response;
   const { user } = auth;
 
-  let body: { folder_url?: string };
-  try {
-    body = await req.json() as { folder_url?: string };
-  } catch {
-    return NextResponse.json({ error: "Body inválido" }, { status: 400 });
+  const rawBody = await req.json().catch(() => null);
+  const parsed = putBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "folder_url requerido" }, { status: 400 });
   }
-  const raw = body.folder_url?.trim() ?? "";
+  const raw = parsed.data.folder_url.trim();
   if (!raw) return NextResponse.json({ error: "folder_url requerido" }, { status: 400 });
 
   // Extraer folder ID de URL o usar directamente si es un ID limpio

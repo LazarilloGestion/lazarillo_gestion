@@ -1,0 +1,46 @@
+import { describe, it, expect, vi } from "vitest";
+import { normalizeRubrosConceptoCaja } from "./rubros-concepto-caja";
+import { createMockDb, mockAllExisting } from "../test-utils/mock-db";
+import type { ETLRow } from "../types";
+
+function baseRow(overrides: Partial<Record<string, unknown>> = {}): ETLRow {
+  return {
+    CODIGO: "RCC1",
+    NOMBRE: "Rubro Concepto Uno",
+    CALC_RENT: "S",
+    ...overrides,
+  };
+}
+
+describe("normalizeRubrosConceptoCaja", () => {
+  it("fila sin CODIGO se cuenta en skipped, no se inserta", async () => {
+    const db = createMockDb();
+    const res = await normalizeRubrosConceptoCaja([baseRow({ CODIGO: null })], db);
+    expect(res.skipped).toBe(1);
+    expect(res.created).toBe(0);
+    expect(res.errors).toHaveLength(0);
+  });
+
+  it("cuenta created vs updated según si el codigo ya existe en la tabla", async () => {
+    const dbCreated = createMockDb();
+    const resCreated = await normalizeRubrosConceptoCaja([baseRow()], dbCreated);
+    expect(resCreated.created).toBe(1);
+    expect(resCreated.updated).toBe(0);
+
+    const rubroModel = { findMany: vi.fn() };
+    mockAllExisting(rubroModel, "codigo");
+    const dbUpdated = createMockDb({ rubroConceptoCaja: rubroModel });
+    const resUpdated = await normalizeRubrosConceptoCaja([baseRow()], dbUpdated);
+    expect(resUpdated.created).toBe(0);
+    expect(resUpdated.updated).toBe(1);
+  });
+
+  it("un fallo de $executeRaw se reporta en errors sin lanzar excepción", async () => {
+    const db = createMockDb();
+    (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("constraint violation"));
+    const res = await normalizeRubrosConceptoCaja([baseRow()], db);
+    expect(res.created).toBe(0);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].message).toMatch(/constraint violation/);
+  });
+});

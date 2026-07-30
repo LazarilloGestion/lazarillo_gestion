@@ -1,7 +1,9 @@
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { normalizeText, toDecimalStr } from "../helpers";
+import { trim } from "../helpers";
 import type { ETLRow, ETLRowError } from "../types";
+import { articuloRowSchema, type ArticuloRow } from "../schemas/articulos";
+import { formatZodError } from "../schemas/common";
 
 const CHUNK_SIZE = 500;
 
@@ -9,42 +11,54 @@ export async function normalizeArticulos(
   rows: ETLRow[],
   prisma: DbClient
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
-  const filtered = rows.filter((r) => String(r["CODIGO"] ?? "").trim() !== "");
-  const skipped = rows.length - filtered.length;
+  const errors: ETLRowError[] = [];
+  let skipped = 0;
 
-  const deduped = Array.from(
-    filtered.reduce((m, r) => m.set(String(r["CODIGO"]).trim(), r), new Map<string, ETLRow>()).values()
-  );
+  // Dedup por CODIGO (last-wins) intencional para maestros.
+  const parsedByCodigo = new Map<string, ArticuloRow>();
 
-  const allCodigos = deduped.map((r) => String(r["CODIGO"]).trim());
+  rows.forEach((r, idx) => {
+    if (trim(r["CODIGO"]) == null) {
+      skipped++;
+      return;
+    }
+    const parsed = articuloRowSchema.safeParse(r);
+    if (!parsed.success) {
+      errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
+      return;
+    }
+    parsedByCodigo.set(parsed.data.CODIGO, parsed.data);
+  });
+
+  const deduped = Array.from(parsedByCodigo.values());
+
+  const allCodigos = deduped.map((d) => d.CODIGO);
   const existingSet = new Set(
     (await prisma.articulo.findMany({ where: { codigo: { in: allCodigos } }, select: { codigo: true } }))
       .map((x) => x.codigo)
   );
 
   let created = 0, updated = 0;
-  const errors: ETLRowError[] = [];
 
   for (let i = 0; i < deduped.length; i += CHUNK_SIZE) {
     const chunk = deduped.slice(i, i + CHUNK_SIZE);
     try {
-      const values = chunk.map((r) => {
-        const codigo = String(r["CODIGO"]).trim();
-        const codRua = r["COD_RUA"] != null && Number(r["COD_RUA"]) > 0 ? String(r["COD_RUA"]) : null;
-        const codSua = r["COD_SUA"] != null && Number(r["COD_SUA"]) > 0 ? String(r["COD_SUA"]) : null;
+      const values = chunk.map((data) => {
+        const codRua = data.COD_RUA != null && data.COD_RUA > 0 ? String(data.COD_RUA) : null;
+        const codSua = data.COD_SUA != null && data.COD_SUA > 0 ? String(data.COD_SUA) : null;
         return Prisma.sql`(
-          ${codigo},
-          ${normalizeText(r["NOMBRE"]) ?? "(sin nombre)"},
-          ${toDecimalStr(r["PRECIO1"])}::numeric,
-          ${toDecimalStr(r["PRECIO2"])}::numeric,
-          ${toDecimalStr(r["PRECIO3"])}::numeric,
-          ${toDecimalStr(r["PRECIO4"])}::numeric,
+          ${data.CODIGO},
+          ${data.NOMBRE ?? "(sin nombre)"},
+          ${data.PRECIO1}::numeric,
+          ${data.PRECIO2}::numeric,
+          ${data.PRECIO3}::numeric,
+          ${data.PRECIO4}::numeric,
           ${codRua},
           ${codSua}
         )`;
       });
 
-      await (prisma as unknown as { $executeRaw: (q: Prisma.Sql) => Promise<number> }).$executeRaw(Prisma.sql`
+      await prisma.$executeRaw(Prisma.sql`
         INSERT INTO articulos (codigo, nombre, precio1, precio2, precio3, precio4, "codRua", "codSua")
         VALUES ${Prisma.join(values)}
         ON CONFLICT (codigo) DO UPDATE SET
@@ -57,11 +71,11 @@ export async function normalizeArticulos(
           "codSua" = EXCLUDED."codSua"
       `);
 
-      for (const r of chunk) {
-        if (existingSet.has(String(r["CODIGO"]).trim())) updated++; else created++;
+      for (const data of chunk) {
+        if (existingSet.has(data.CODIGO)) updated++; else created++;
       }
     } catch (err) {
-      errors.push({ rowIndex: i, rawCodigo: `chunk[${i}..${i + chunk.length - 1}] — primero: ${chunk[0]?.["CODIGO"]}`, message: err instanceof Error ? err.message : String(err) });
+      errors.push({ rowIndex: i, rawCodigo: chunk[0]?.CODIGO, message: err instanceof Error ? err.message : String(err) });
     }
   }
 

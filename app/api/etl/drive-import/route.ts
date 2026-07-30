@@ -1,5 +1,6 @@
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { requireAuthUser } from "@/lib/auth/require-auth";
 import { refreshGoogleAccessToken, downloadDriveFile } from "@/lib/drive/client";
 import { runETL } from "@/lib/etl/run-etl";
@@ -32,10 +33,29 @@ function isValidExcel(buf: Buffer): boolean {
 
 type FileInput = { file_id: string; file_name: string };
 
+const fileInputSchema = z.object({
+  file_id: z.string().min(1),
+  file_name: z.string().min(1),
+});
+
+// Body: { files: FileInput[]; local_id?: number; punto_de_venta_id?: number }
+//   o   { file_id: string; file_name: string; local_id?: number; punto_de_venta_id?: number }  (compat. individual)
+const driveImportBodySchema = z
+  .object({
+    files: z.array(fileInputSchema).optional(),
+    file_id: z.string().min(1).optional(),
+    file_name: z.string().min(1).optional(),
+    // Number(...) + Number.isNaN(...) del código original — z.coerce.number() replica
+    // el mismo comportamiento sin endurecer con .positive()/.int() (no estaban antes).
+    local_id: z.coerce.number().optional(),
+    punto_de_venta_id: z.coerce.number().optional(),
+  })
+  .refine((b) => b.files !== undefined || (b.file_id != null && b.file_name != null), {
+    message: "Se requiere files[] o file_id+file_name",
+  });
+
 /**
  * POST — descarga archivos de Drive y los procesa con el ETL en orden de dependencia.
- * Body: { files: FileInput[]; local_id?: number; punto_de_venta_id?: number }
- *   o   { file_id: string; file_name: string; local_id?: number; punto_de_venta_id?: number }  (compat. individual)
  */
 export async function POST(req: NextRequest) {
   const auth = await requireAuthUser();
@@ -46,40 +66,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Demasiadas solicitudes. Esperá un momento." }, { status: 429 });
   }
 
-  let rawBody: Record<string, unknown>;
-  try {
-    rawBody = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Body inválido" }, { status: 400 });
+  const rawBody = await req.json().catch(() => null);
+  const parsed = driveImportBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Body inválido" }, { status: 400 });
   }
+  const body = parsed.data;
 
-  // Normalizar a array de archivos
-  let fileInputs: FileInput[];
-  if (Array.isArray(rawBody.files)) {
-    const items = rawBody.files as unknown[];
-    const valid = items.every(
-      (x) => x != null && typeof (x as FileInput).file_id === "string" && typeof (x as FileInput).file_name === "string"
-    );
-    if (!valid) return NextResponse.json({ error: "Cada item de files debe tener file_id y file_name" }, { status: 400 });
-    fileInputs = items as FileInput[];
-  } else if (rawBody.file_id && rawBody.file_name) {
-    fileInputs = [{ file_id: String(rawBody.file_id), file_name: String(rawBody.file_name) }];
-  } else {
-    return NextResponse.json({ error: "Se requiere files[] o file_id+file_name" }, { status: 400 });
-  }
-
-  const localIdRaw = rawBody.local_id != null ? Number(rawBody.local_id) : undefined;
-  const puntoDeVentaIdRaw = rawBody.punto_de_venta_id != null ? Number(rawBody.punto_de_venta_id) : undefined;
-
-  if (localIdRaw !== undefined && Number.isNaN(localIdRaw)) {
-    return NextResponse.json({ error: "local_id debe ser un número" }, { status: 400 });
-  }
-  if (puntoDeVentaIdRaw !== undefined && Number.isNaN(puntoDeVentaIdRaw)) {
-    return NextResponse.json({ error: "punto_de_venta_id debe ser un número" }, { status: 400 });
-  }
-
-  const localId = localIdRaw;
-  const puntoDeVentaId = puntoDeVentaIdRaw;
+  const fileInputs: FileInput[] = body.files ?? [{ file_id: body.file_id!, file_name: body.file_name! }];
+  const localId = body.local_id;
+  const puntoDeVentaId = body.punto_de_venta_id;
 
   // Validar nombres de archivo (path traversal)
   for (const f of fileInputs) {

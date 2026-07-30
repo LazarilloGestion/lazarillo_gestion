@@ -227,7 +227,7 @@ function DriveTab({
     fetch("/api/etl/maestros-status")
       .then((r) => r.json() as Promise<{ loaded: boolean }>)
       .then((d) => onMaestrosChange(d.loaded))
-      .catch(() => {});
+      .catch((err) => console.error("[importar] no se pudo refrescar maestros-status tras el import", err));
     return { errors, total: files.length, records };
   }
 

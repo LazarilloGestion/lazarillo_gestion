@@ -1,7 +1,9 @@
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { normalizeText, trim, toBool, toDecimal, toDecimalStr, excelDateToISO } from "../helpers";
+import { trim } from "../helpers";
 import type { ETLRow, ETLRowError } from "../types";
+import { rubroArticuloRowSchema, type RubroArticuloRow } from "../schemas/rubros-articulo";
+import { formatZodError } from "../schemas/common";
 
 const CHUNK_SIZE = 500;
 
@@ -9,49 +11,58 @@ export async function normalizeRubrosArticulo(
   rows: ETLRow[],
   prisma: DbClient
 ): Promise<{ created: number; updated: number; skipped: number; errors: ETLRowError[] }> {
-  const filtered = rows.filter((r) => trim(r["CODIGO"]) != null);
-  const skipped = rows.length - filtered.length;
+  const errors: ETLRowError[] = [];
+  let skipped = 0;
 
-  const deduped = Array.from(
-    filtered.reduce((m, r) => m.set(String(r["CODIGO"]).trim(), r), new Map<string, ETLRow>()).values()
-  );
+  const parsedByCodigo = new Map<string, RubroArticuloRow>();
 
-  const allCodigos = deduped.map((r) => String(r["CODIGO"]).trim());
+  rows.forEach((r, idx) => {
+    if (trim(r["CODIGO"]) == null) {
+      skipped++;
+      return;
+    }
+    const parsed = rubroArticuloRowSchema.safeParse(r);
+    if (!parsed.success) {
+      errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
+      return;
+    }
+    parsedByCodigo.set(parsed.data.CODIGO, parsed.data);
+  });
+
+  const deduped = Array.from(parsedByCodigo.values());
+
+  const allCodigos = deduped.map((d) => d.CODIGO);
   const existingSet = new Set(
     (await prisma.rubroArticulo.findMany({ where: { codigo: { in: allCodigos } }, select: { codigo: true } }))
       .map((x) => x.codigo)
   );
 
   let created = 0, updated = 0;
-  const errors: ETLRowError[] = [];
 
   for (let i = 0; i < deduped.length; i += CHUNK_SIZE) {
     const chunk = deduped.slice(i, i + CHUNK_SIZE);
     try {
-      const values = chunk.map((r) => {
-        const codigo = String(r["CODIGO"]).trim();
-        const fechaRaw = excelDateToISO(r["FECHA_UPDA"]);
-        const fechaUpda = fechaRaw ? new Date(fechaRaw) : null;
+      const values = chunk.map((data) => {
         return Prisma.sql`(
-          ${codigo},
-          ${normalizeText(r["NOMBRE"]) ?? "(sin nombre)"},
-          ${trim(r["COLOR"])},
-          ${trim(r["GRUPO_NRO"])},
-          ${trim(r["GRUPO_COL"])},
-          ${trim(r["GRUPO_FOT"])},
-          ${toBool(r["EXCLUYEINF"])},
-          ${trim(r["EVENTO"])},
-          ${toBool(r["DELIACT"])},
-          ${trim(r["EVE_FOR"])},
-          ${trim(r["EVE_FORM"])},
-          ${trim(r["EVE_FORMH"])},
-          ${toDecimalStr(r["DISCONT"])}::numeric,
-          ${fechaUpda},
-          ${trim(r["MODO_VISTA"])}
+          ${data.CODIGO},
+          ${data.NOMBRE ?? "(sin nombre)"},
+          ${data.COLOR},
+          ${data.GRUPO_NRO},
+          ${data.GRUPO_COL},
+          ${data.GRUPO_FOT},
+          ${data.EXCLUYEINF},
+          ${data.EVENTO},
+          ${data.DELIACT},
+          ${data.EVE_FOR},
+          ${data.EVE_FORM},
+          ${data.EVE_FORMH},
+          ${data.DISCONT}::numeric,
+          ${data.FECHA_UPDA},
+          ${data.MODO_VISTA}
         )`;
       });
 
-      await (prisma as unknown as { $executeRaw: (q: Prisma.Sql) => Promise<number> }).$executeRaw(Prisma.sql`
+      await prisma.$executeRaw(Prisma.sql`
         INSERT INTO rubros_articulo (
           codigo, nombre, color, "grupoNro", "grupoCol", "grupoFot",
           "excluyeInf", evento, "deliAct", "eveFor", "eveForm", "eveFormH",
@@ -75,11 +86,11 @@ export async function normalizeRubrosArticulo(
           "modoVista"   = EXCLUDED."modoVista"
       `);
 
-      for (const r of chunk) {
-        if (existingSet.has(String(r["CODIGO"]).trim())) updated++; else created++;
+      for (const data of chunk) {
+        if (existingSet.has(data.CODIGO)) updated++; else created++;
       }
     } catch (err) {
-      errors.push({ rowIndex: i, rawCodigo: `chunk[${i}..${i + chunk.length - 1}] — primero: ${chunk[0]?.["CODIGO"]}`, message: err instanceof Error ? err.message : String(err) });
+      errors.push({ rowIndex: i, rawCodigo: chunk[0]?.CODIGO, message: err instanceof Error ? err.message : String(err) });
     }
   }
 

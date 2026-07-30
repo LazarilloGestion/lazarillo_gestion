@@ -18,7 +18,12 @@ export async function createClient() {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             );
-          } catch {}
+          } catch {
+            // Patrón oficial de @supabase/ssr: cookieStore.set() lanza si se
+            // llama desde un Server Component (sólo Server Actions/Route
+            // Handlers pueden setear cookies). No es un error real — proxy.ts
+            // ya refresca la sesión en cada request vía el middleware.
+          }
         },
       },
     }

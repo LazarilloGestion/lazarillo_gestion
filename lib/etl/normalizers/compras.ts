@@ -1,8 +1,10 @@
 import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { trim, toDecimalStr, safeDate, normalizeText, excelDateToISO } from "../helpers";
+import { trim, toDecimalStr, normalizeText, excelDateToISO } from "../helpers";
 import { linkDetalleComprasByComprobante } from "../normalizer-utils";
+import { compraRowSchema, type CompraRow } from "../schemas/compras";
+import { formatZodError } from "../schemas/common";
 
 import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 
@@ -25,6 +27,10 @@ function parseComprobanteFromDetalle(raw: unknown): string | null {
   return normalizedCod + num1.padStart(4, "0") + num2.padStart(8, "0");
 }
 
+// makeRowId opera SIEMPRE sobre la fila cruda (ETLRow), nunca sobre datos ya
+// coercionados por Zod — el hash tiene que ser estable entre reimports del mismo
+// archivo, y cambiar la representación de entrada cambiaría el hash de filas ya
+// existentes en la base (se perderían como "nuevas" en vez de actualizarse).
 function makeRowId(r: ETLRow): string {
   // DETALLE (nro. comprobante) está vacío en ~40% de filas (sueldos, publicidad, alquiler).
   // OBSERVAC diferencia esos casos (ej: "gonza cumple" vs "luna cumple" el mismo día).
@@ -50,25 +56,58 @@ export async function normalizeCompras(
   prisma: DbClient,
   ctx?: ETLContext
 ): Promise<{ created: number; updated: number; skipped: number; skippedRows: ETLSkippedRow[]; errors: ETLRowError[] }> {
-  const invalid = rows.filter((r) => r["COD_CGA"] == null || r["FECHA"] == null);
-  const valid = rows.filter((r) => r["COD_CGA"] != null && r["FECHA"] != null);
+  const skippedRows: ETLSkippedRow[] = [];
+  const errors: ETLRowError[] = [];
 
-  const skippedRows: ETLSkippedRow[] = invalid.map((r): ETLSkippedRow => ({
-    fecha: formatFechaDisplay(r["FECHA"]),
-    concepto: trim(r["CONCEPTO"]) ?? undefined,
-    importe: toDecimalStr(r["IMPORTE"]) ?? undefined,
-    proveedor: trim(r["PROVEEDOR"]) ?? undefined,
-    motivo: "sin_datos",
-  }));
+  // 1) Filtro de presencia: identificadores realmente ausentes → sin_datos.
+  //    Endurecido con trim() en COD_CGA para capturar strings vacíos/whitespace,
+  //    no sólo null (gap que existía en el chequeo anterior).
+  // 2) Zod: fila con identificadores presentes pero algún campo (incluida FECHA
+  //    corrupta, no sólo ausente) que no parsea → errors, no null en silencio.
+  type ParsedRow = { rowId: string; row: ETLRow; data: CompraRow };
+  const parsedRows: ParsedRow[] = [];
+
+  rows.forEach((r, idx) => {
+    if (trim(r["COD_CGA"]) == null || r["FECHA"] == null) {
+      skippedRows.push({
+        fecha: formatFechaDisplay(r["FECHA"]),
+        concepto: trim(r["CONCEPTO"]) ?? undefined,
+        importe: toDecimalStr(r["IMPORTE"]) ?? undefined,
+        proveedor: trim(r["PROVEEDOR"]) ?? undefined,
+        motivo: "sin_datos",
+      });
+      return;
+    }
+    const parsed = compraRowSchema.safeParse(r);
+    if (!parsed.success) {
+      errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
+      return;
+    }
+    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data });
+  });
+
+  // Dedup por rowId — last-wins, pero ahora la fila que se pisa se reporta en
+  // skippedRows con motivo "duplicado" en vez de perderse en silencio (antes
+  // era exactamente el patrón que causó la pérdida del registro de $2.6M).
+  const rowIdMap = new Map<string, ParsedRow>();
+  for (const pr of parsedRows) {
+    const prev = rowIdMap.get(pr.rowId);
+    if (prev) {
+      skippedRows.push({
+        fecha: formatFechaDisplay(prev.row["FECHA"]),
+        concepto: trim(prev.row["CONCEPTO"]) ?? undefined,
+        importe: toDecimalStr(prev.row["IMPORTE"]) ?? undefined,
+        proveedor: trim(prev.row["PROVEEDOR"]) ?? undefined,
+        motivo: "duplicado",
+      });
+    }
+    rowIdMap.set(pr.rowId, pr);
+  }
+  const filtered = Array.from(rowIdMap.values());
   const skipped = skippedRows.length;
-  // Dedup global por rowId (last-wins, silencioso). NO se cuenta en skipped.
-  // Garantiza unicidad dentro de cada chunk de INSERT ON CONFLICT.
-  const filtered: ETLRow[] = Array.from(
-    valid.reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>()).values()
-  );
 
   // Lookup tables — una sola query cada una para todo el archivo
-  const codigosProv = [...new Set(filtered.map((r) => trim(r["CODIGO"])).filter(Boolean))] as string[];
+  const codigosProv = [...new Set(filtered.map((pr) => pr.data.CODIGO).filter((v): v is string => v != null))];
   const provMap = new Map(
     (await prisma.proveedor.findMany({
       where: { codigo: { in: codigosProv } },
@@ -76,7 +115,7 @@ export async function normalizeCompras(
     })).map((p) => [p.codigo, p.id])
   );
 
-  const codigosConcepto = [...new Set(filtered.map((r) => trim(r["COD_CGA"])).filter(Boolean))] as string[];
+  const codigosConcepto = [...new Set(filtered.map((pr) => pr.data.COD_CGA).filter((v): v is string => v != null))];
   const conceptoSet = new Set(
     (await prisma.conceptoCaja.findMany({
       where: { codigo: { in: codigosConcepto } },
@@ -89,12 +128,10 @@ export async function normalizeCompras(
 
   let created = 0;
   let updated = 0;
-  const errors: ETLRowError[] = [];
 
   for (let i = 0; i < filtered.length; i += CHUNK_SIZE) {
     const chunk = filtered.slice(i, i + CHUNK_SIZE);
-    const chunkEntries = chunk.map((r) => [makeRowId(r), r] as const);
-    const chunkRowIds = chunkEntries.map(([id]) => id);
+    const chunkRowIds = chunk.map((pr) => pr.rowId);
 
     const existingSet = new Set(
       (await prisma.compra.findMany({
@@ -104,28 +141,27 @@ export async function normalizeCompras(
     );
 
     try {
-      const rowValues = chunkEntries.map(([rowId, r]) => {
-        const importe = toDecimalStr(r["IMPORTE"]);
-        const proveedorId = provMap.get(trim(r["CODIGO"]) ?? "") ?? null;
-        const conceptoCodigo = conceptoSet.has(trim(r["COD_CGA"]) ?? "") ? trim(r["COD_CGA"]) : null;
+      const rowValues = chunk.map(({ rowId, row, data }) => {
+        const proveedorId = data.CODIGO != null ? provMap.get(data.CODIGO) ?? null : null;
+        const conceptoCodigo = conceptoSet.has(data.COD_CGA) ? data.COD_CGA : null;
 
         return Prisma.sql`(
           ${rowId},
-          ${trim(r["COD_CGA"])},
-          ${trim(r["CONCEPTO"])},
-          ${parseComprobanteFromDetalle(r["DETALLE"])},
-          ${safeDate(r["FECHA"])},
-          ${trim(r["CODIGO"])},
-          ${trim(r["PROVEEDOR"])},
-          ${trim(r["DETALLE"])},
-          ${normalizeText(r["OBSERVAC"])},
-          ${importe}::numeric,
-          ${importe}::numeric,
-          ${toDecimalStr(r["IMP_INT"])}::numeric,
-          ${trim(r["IMPUTAC"])},
-          ${toDecimalStr(r["PER1"])}::numeric,
-          ${toDecimalStr(r["PER2"])}::numeric,
-          ${toDecimalStr(r["PER3"])}::numeric,
+          ${data.COD_CGA},
+          ${data.CONCEPTO},
+          ${parseComprobanteFromDetalle(row["DETALLE"])},
+          ${data.FECHA},
+          ${data.CODIGO},
+          ${data.PROVEEDOR},
+          ${data.DETALLE},
+          ${data.OBSERVAC},
+          ${data.IMPORTE}::numeric,
+          ${data.IMPORTE}::numeric,
+          ${data.IMP_INT}::numeric,
+          ${data.IMPUTAC},
+          ${data.PER1}::numeric,
+          ${data.PER2}::numeric,
+          ${data.PER3}::numeric,
           ${proveedorId}::integer,
           ${conceptoCodigo},
           ${localId}::integer,
@@ -133,7 +169,7 @@ export async function normalizeCompras(
         )`;
       });
 
-      await (prisma as unknown as { $executeRaw: (q: Prisma.Sql) => Promise<number> }).$executeRaw(Prisma.sql`
+      await prisma.$executeRaw(Prisma.sql`
         INSERT INTO compras (
           "rowId", "codCga", concepto, comprobante, fecha, codigo, proveedor, detalle, observac,
           importe, "importeTrabajado", "impInt", imputac, per1, per2, per3,
@@ -170,7 +206,7 @@ export async function normalizeCompras(
     } catch (err) {
       errors.push({
         rowIndex: i,
-        rawCodigo: chunk[0]?.["CODIGO"],
+        rawCodigo: chunk[0]?.data.CODIGO,
         message: err instanceof Error ? err.message : String(err),
       });
     }

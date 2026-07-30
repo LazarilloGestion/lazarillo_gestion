@@ -2,6 +2,9 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { env } from "./env";
 
+// Conexión directa a Postgres — nunca pasa por PostgREST, así que el RLS de
+// Supabase no aplica a nada de lo que se consulte con este cliente. Ver SECURITY.md.
+
 const g = globalThis as unknown as { _prisma?: PrismaClient };
 
 function getClient(): PrismaClient {

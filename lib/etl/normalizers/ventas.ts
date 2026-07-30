@@ -1,12 +1,17 @@
 import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { trim, toDecimalStr, safeDate, excelDateToISO } from "../helpers";
+import { trim, toDecimalStr, excelDateToISO } from "../helpers";
 import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
+import { ventaRowSchema, type VentaRow } from "../schemas/ventas";
+import { formatZodError } from "../schemas/common";
 
 // Filas por chunk de INSERT ... ON CONFLICT. Con ~23 columnas: ~11.5k params/chunk < 65535.
 const CHUNK_SIZE = 500;
 
+// makeRowId opera sobre la fila ya "rellenada" por fillPartialRows (igual que el
+// comportamiento original) pero nunca sobre datos coercionados por Zod — el hash
+// tiene que ser estable entre reimports del mismo archivo.
 function makeRowId(r: ETLRow): string {
   // FECHA incluida para evitar colisiones entre transacciones sin TURNO/COMPROBANT
   // (ventas de cancha sin turno asignado): distintos días con mismo COBRO/IMPORTE
@@ -23,7 +28,7 @@ function makeRowId(r: ETLRow): string {
 // Soporta N formas de cobro consecutivas (el cliente puede pagar con 4, 5 o 6 métodos).
 function fillPartialRows(rows: ETLRow[]): ETLRow[] {
   const CARRY_FIELDS = ["TURNO", "COMPROBANT", "HORA", "TIPO", "MESA", "MOZO", "COD_SUC", "NOMBRESUC"];
-  let last: Partial<ETLRow> = {};
+  const last: Partial<ETLRow> = {};
   return rows.map((r) => {
     const filled = { ...r };
     for (const f of CARRY_FIELDS) {
@@ -51,21 +56,48 @@ export async function normalizeVentas(
   prisma: DbClient,
   ctx?: ETLContext
 ): Promise<{ created: number; updated: number; skipped: number; skippedRows: ETLSkippedRow[]; errors: ETLRowError[] }> {
-  // Filtrar primero: eliminar encabezados de fecha/totales del día (TURNO Y COD_COBRO ambos nulos)
-  const invalidRows = rows.filter((r) => r["TURNO"] == null && r["COD_COBRO"] == null);
-  const validRows = rows.filter((r) => !(r["TURNO"] == null && r["COD_COBRO"] == null));
-  // Completar filas parciales, luego deduplicar por rowId — last wins
-  const filtered = Array.from(
-    fillPartialRows(validRows)
-      .reduce((m, r) => m.set(makeRowId(r), r), new Map<string, ETLRow>())
-      .values()
-  );
+  // Filtrar primero: eliminar encabezados de fecha/totales del día (TURNO y COD_COBRO ambos vacíos)
+  const invalidRows = rows.filter((r) => trim(r["TURNO"]) == null && trim(r["COD_COBRO"]) == null);
+  const validRows = rows.filter((r) => !(trim(r["TURNO"]) == null && trim(r["COD_COBRO"]) == null));
+  const filled = fillPartialRows(validRows);
+
   const skippedRows: ETLSkippedRow[] = invalidRows.map((r): ETLSkippedRow => ({
     fecha: formatFecha(r["FECHA"]),
     concepto: trim(r["COBRO"]) ?? undefined,
     importe: toDecimalStr(r["IMPORTE"]) ?? toDecimalStr(r["TOTAL"]) ?? undefined,
     motivo: "sin_datos",
   }));
+  const errors: ETLRowError[] = [];
+
+  // Fila con TURNO/COD_COBRO presentes pero algún otro campo (ej. IMPORTE con
+  // contenido no numérico) que no parsea → errors, no null en silencio.
+  type ParsedRow = { rowId: string; row: ETLRow; data: VentaRow };
+  const parsedRows: ParsedRow[] = [];
+  filled.forEach((r, idx) => {
+    const parsed = ventaRowSchema.safeParse(r);
+    if (!parsed.success) {
+      errors.push({ rowIndex: idx, rawCodigo: r["COMPROBANT"], message: formatZodError(parsed.error) });
+      return;
+    }
+    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data });
+  });
+
+  // Dedup por rowId — last-wins, pero ahora la fila que se pisa se reporta en
+  // skippedRows con motivo "duplicado" en vez de perderse en silencio.
+  const rowIdMap = new Map<string, ParsedRow>();
+  for (const pr of parsedRows) {
+    const prev = rowIdMap.get(pr.rowId);
+    if (prev) {
+      skippedRows.push({
+        fecha: formatFecha(prev.row["FECHA"]),
+        concepto: trim(prev.row["COBRO"]) ?? undefined,
+        importe: toDecimalStr(prev.row["IMPORTE"]) ?? toDecimalStr(prev.row["TOTAL"]) ?? undefined,
+        motivo: "duplicado",
+      });
+    }
+    rowIdMap.set(pr.rowId, pr);
+  }
+  const filtered = Array.from(rowIdMap.values());
   const skipped = skippedRows.length;
 
   const localId = ctx?.localId ?? null;
@@ -73,13 +105,11 @@ export async function normalizeVentas(
 
   let created = 0;
   let updated = 0;
-  const errors: ETLRowError[] = [];
 
   for (let i = 0; i < filtered.length; i += CHUNK_SIZE) {
     const chunk = filtered.slice(i, i + CHUNK_SIZE);
+    const chunkRowIds = chunk.map((pr) => pr.rowId);
 
-    // Precompute rowIds para contar created vs updated
-    const chunkRowIds = chunk.map(makeRowId);
     const existingSet = new Set(
       (await prisma.venta.findMany({
         where: { rowId: { in: chunkRowIds } },
@@ -88,37 +118,35 @@ export async function normalizeVentas(
     );
 
     try {
-      const rowValues = chunk.map((r) => {
-        const rowId = makeRowId(r);
-        const importe = toDecimalStr(r["IMPORTE"]);
+      const rowValues = chunk.map(({ rowId, data }) => {
         return Prisma.sql`(
           ${rowId},
-          ${trim(r["TURNO"])},
-          ${trim(r["COMPROBANT"])},
-          ${trim(r["HORA"])},
-          ${trim(r["TIPO"])},
-          ${trim(r["MESA"])},
-          ${trim(r["MOZO"])},
-          ${trim(r["CUB"])},
-          ${trim(r["COBRO"])},
-          ${trim(r["COD_COBRO"])},
-          ${importe}::numeric,
-          ${importe}::numeric,
-          ${toDecimalStr(r["TOTAL"])}::numeric,
-          ${toDecimalStr(r["DESCUENTO"])}::numeric,
-          ${trim(r["CLINOMBRE"])},
-          ${trim(r["CLIRAZON"])},
-          ${trim(r["CLICUIT"])},
-          ${safeDate(r["FECHA"])},
-          ${trim(r["COD_SUC"])},
-          ${trim(r["NOMBRESUC"])},
-          ${trim(r["CUPON"])},
+          ${data.TURNO},
+          ${data.COMPROBANT},
+          ${data.HORA},
+          ${data.TIPO},
+          ${data.MESA},
+          ${data.MOZO},
+          ${data.CUB},
+          ${data.COBRO},
+          ${data.COD_COBRO},
+          ${data.IMPORTE}::numeric,
+          ${data.IMPORTE}::numeric,
+          ${data.TOTAL}::numeric,
+          ${data.DESCUENTO}::numeric,
+          ${data.CLINOMBRE},
+          ${data.CLIRAZON},
+          ${data.CLICUIT},
+          ${data.FECHA},
+          ${data.COD_SUC},
+          ${data.NOMBRESUC},
+          ${data.CUPON},
           ${localId}::integer,
           ${puntoDeVentaId}::integer
         )`;
       });
 
-      await (prisma as unknown as { $executeRaw: (q: Prisma.Sql) => Promise<number> }).$executeRaw(Prisma.sql`
+      await prisma.$executeRaw(Prisma.sql`
         INSERT INTO ventas (
           "rowId", turno, comprobant, hora, tipo, mesa, mozo, cub, cobro, "codCobro",
           importe, "importeTrabajado", total, descuento, "cliNombre", "cliRazon", "cliCut",
@@ -157,7 +185,7 @@ export async function normalizeVentas(
     } catch (err) {
       errors.push({
         rowIndex: i,
-        rawCodigo: `chunk[${i}..${i + chunk.length - 1}] — primero: ${chunk[0]?.["COMPROBANT"]}`,
+        rawCodigo: `chunk[${i}..${i + chunk.length - 1}] — primero: ${chunk[0]?.data.COMPROBANT}`,
         message: err instanceof Error ? err.message : String(err),
       });
     }
