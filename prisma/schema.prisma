@@ -60,7 +60,7 @@ model ConceptoCaja {
   codRga String?
   rubro  RubroConceptoCaja? @relation(fields: [codRga], references: [codigo])
 
-  compras        Compra[] @relation("conceptoPrincipal")
+  compras         Compra[] @relation("conceptoPrincipal")
   comprasManuales Compra[] @relation("conceptoManual")
 
   @@index([codRga])
@@ -68,8 +68,8 @@ model ConceptoCaja {
 }
 
 model RubroArticulo {
-  id         Int      @id @default(autoincrement())
-  codigo     String   @unique
+  id         Int       @id @default(autoincrement())
+  codigo     String    @unique
   nombre     String
   color      String?
   grupoNro   String?
@@ -92,8 +92,8 @@ model RubroArticulo {
 }
 
 model SubrubroArticulo {
-  id        Int      @id @default(autoincrement())
-  codigo    String   @unique
+  id        Int       @id @default(autoincrement())
+  codigo    String    @unique
   nombre    String
   deliAct   Boolean?
   eveFor    String?
@@ -161,20 +161,20 @@ model Compra {
   rowId       String  @id
   comprobante String? // generado en ETL: COD_CPB + NUMERO1(4) + NUMERO2(8)
 
-  codCga    String?
-  concepto  String?
-  fecha     DateTime?
-  codigo    String?  // código proveedor del ERP (texto)
-  proveedor String?  // nombre proveedor del ERP (texto)
-  detalle   String?
-  observac  String?
-  importe   Decimal?
+  codCga           String?
+  concepto         String?
+  fecha            DateTime?
+  codigo           String? // código proveedor del ERP (texto)
+  proveedor        String? // nombre proveedor del ERP (texto)
+  detalle          String?
+  observac         String?
+  importe          Decimal?
   importeTrabajado Decimal? // = importe en Fase 1; campo para prorrateo en Fase 2
-  impInt    Decimal?
-  imputac   String?
-  per1      Decimal?
-  per2      Decimal?
-  per3      Decimal?
+  impInt           Decimal?
+  imputac          String?
+  per1             Decimal?
+  per2             Decimal?
+  per3             Decimal?
 
   // Overrides manuales — sobreviven re-importaciones
   importeManual  Decimal?
@@ -204,7 +204,7 @@ model Compra {
 }
 
 model DetalleCompra {
-  rowId       String @id
+  rowId String @id
 
   codPro      String?
   codCpb      String?
@@ -213,7 +213,7 @@ model DetalleCompra {
   comprobante String? // COD_CPB + NUMERO1(4) + NUMERO2(8) — FK lógica hacia compras
 
   fecha    DateTime?
-  codigo   String?  // id producto del ERP
+  codigo   String? // id producto del ERP
   nombre   String?
   medida   String?
   cantidad Decimal?
@@ -246,29 +246,29 @@ model DetalleCompra {
 }
 
 model Venta {
-  rowId      String @id
+  rowId String @id
 
-  turno      String?
-  comprobant String?
-  hora       String?
-  tipo       String?
-  mesa       String?
-  mozo       String?
-  cub        String?
-  cobro      String?  // texto forma de cobro
-  codCobro   String?  // id forma de cobro
-  importe    Decimal?
+  turno            String?
+  comprobant       String?
+  hora             String?
+  tipo             String?
+  mesa             String?
+  mozo             String?
+  cub              String?
+  cobro            String? // texto forma de cobro
+  codCobro         String? // id forma de cobro
+  importe          Decimal?
   importeTrabajado Decimal? // = importe en Fase 1; campo para prorrateo en Fase 2
   importeManual    Decimal?
-  total      Decimal?
-  descuento  Decimal?
-  cliNombre  String?
-  cliRazon   String?
-  cliCut     String?
-  fecha      DateTime?
-  codSuc     String?
-  nombreSuc  String?
-  cupon      String?
+  total            Decimal?
+  descuento        Decimal?
+  cliNombre        String?
+  cliRazon         String?
+  cliCut           String?
+  fecha            DateTime?
+  codSuc           String?
+  nombreSuc        String?
+  cupon            String?
 
   localId        Int?
   puntoDeVentaId Int?
@@ -281,7 +281,7 @@ model Venta {
 }
 
 model FlujoCajaManual {
-  id             Int      @id @default(autoincrement())
+  id             Int     @id @default(autoincrement())
   localId        Int?
   puntoDeVentaId Int?
   anio           Int
@@ -295,17 +295,4 @@ model FlujoCajaManual {
   // tiene sintaxis nativa para eso, por eso queda declarado acá como unique común (drift esperado).
   @@unique([localId, puntoDeVentaId, anio, mes])
   @@map("flujo_caja_manual")
-}
-
-model ResultadosVistaGuardada {
-  id                Int      @id @default(autoincrement())
-  nombre            String
-  param             String? // "rubroCodigo" | "conceptoCodigo" | "proveedorId" | "observacionQuery"
-  value             String?
-  label             String?
-  conceptosVisibles String[] // codigos de RubroConceptoCaja — vacío = no captura visibilidad
-  meses             Int[]
-  createdAt         DateTime @default(now())
-
-  @@map("resultados_vistas_guardadas")
 }

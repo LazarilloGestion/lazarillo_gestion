@@ -14,7 +14,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { CommandPalette } from "@/components/dashboard/command-palette";
 import { RubrosConfigModal } from "@/components/dashboard/rubros-config-modal";
-import { VistasGuardadasSelector } from "@/components/dashboard/vistas-guardadas-selector";
 import { MonthFilterDrawer } from "@/components/dashboard/month-filter-drawer";
 import { FiltersDrawer } from "@/components/dashboard/filters-drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -108,7 +107,6 @@ export function DashboardFilters() {
               <Search className="w-3.5 h-3.5" />
             </button>
             {isMobile && <RubrosConfigModal {...rubrosConfigProps} />}
-            {isResultados && <VistasGuardadasSelector />}
           </>
         )}
       </div>
@@ -171,7 +169,6 @@ export function DashboardFilters() {
         {!isVentas && (
           <div className="flex items-center gap-2 ml-auto shrink-0">
             {!isMobile && <RubrosConfigModal {...rubrosConfigProps} />}
-            {isResultados && <VistasGuardadasSelector />}
             <button
               onClick={() => setPaletteOpen(true)}
               className="h-8 w-auto px-3 flex items-center justify-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all"

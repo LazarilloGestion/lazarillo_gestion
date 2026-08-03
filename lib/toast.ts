@@ -5,11 +5,6 @@ export const notify = {
 
   errorGuardar: () => toast.error("No se pudo guardar. Intentá de nuevo."),
 
-  errorSinFiltro: () =>
-    toast.error("La vista quedaría vacía", {
-      description: "Buscá un rubro, concepto, proveedor u observación (⌘K), o tildá al menos un concepto en \"Conceptos visibles en Resultados\".",
-    }),
-
   errorActualizar: (nombre: string) =>
     toast.error(`No se pudo actualizar ${nombre}. Intentá de nuevo.`),
 
