@@ -1,22 +1,17 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useExpandableSet } from "@/hooks/use-expandable-set";
+import { useState } from "react";
 import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
+import { usePivotScreenData } from "@/hooks/use-pivot-screen-data";
 import { ExpandableButton } from "@/components/ui/expandable-button";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
-import { flattenRows, sortPivotRows, hasValue } from "@/lib/dashboard/pivot-utils";
+import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
 import { EditedDot } from "./edit-row-controls";
-import type {
-  PivotRubroRow,
-  PivotConceptoRow,
-  DetalleFilter,
-  VentasDetalleFilter,
-} from "@/lib/dashboard/types";
+import type { PivotRubroRow, PivotConceptoRow } from "@/lib/dashboard/types";
 import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 
@@ -28,59 +23,19 @@ export function PivotTable() {
     rubroConfigVersion,
   } = useDashboard();
 
-  const { expanded, setExpanded, toggle: toggleRow, collapseAll } = useExpandableSet();
-  const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
-  const [ventasDetalleFilter, setVentasDetalleFilter] = useState<VentasDetalleFilter | null>(null);
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
-  const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number; observacionQuery?: string }>({});
 
   const { data, isLoading, error, ventasData, ventasLoading } = useOperacionKpis({
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
     months, activeMonths, configVersion: rubroConfigVersion,
   });
 
-  // Auto-expandir cuando hay filtro de concepto, proveedor u observacion; colapsar al quitar filtro.
-  useEffect(() => {
-    if (!data) return;
-    const prev = prevFilterRef.current;
-    const filterChanged =
-      prev.conceptoCodigo !== conceptoCodigo || prev.proveedorId !== proveedorId || prev.observacionQuery !== observacionQuery;
-    prevFilterRef.current = { conceptoCodigo, proveedorId, observacionQuery };
-    if (!filterChanged) return;
-
-    if (conceptoCodigo || proveedorId || observacionQuery) {
-      const ids = new Set<string>();
-      for (const rubro of data.rows) {
-        ids.add(rubro.id);
-        for (const concepto of rubro.children) ids.add(concepto.id);
-      }
-      setExpanded(ids);
-    } else {
-      setExpanded(new Set());
-    }
-  }, [data, conceptoCodigo, proveedorId, observacionQuery]);
-
-  function openDetalle(extra: Omit<DetalleFilter, "year" | "localId" | "pdvId">) {
-    setDetalleFilter({ year, localId, pdvId, ...extra });
-  }
-
-  const sortedRows = useMemo(
-    () => (data ? sortPivotRows(data.rows, sortCol, sortDir) : []),
-    [data, sortCol, sortDir]
-  );
-
-  const flatRows = useMemo(
-    () => flattenRows({ rows: sortedRows, columnTotals: data?.columnTotals ?? {}, grandTotal: data?.grandTotal ?? 0 }, expanded, 3),
-    [sortedRows, expanded, data]
-  );
-
-  const rubroIds = useMemo(() => new Set(sortedRows.map(r => r.id)), [sortedRows]);
-
-  const collapseConceptos = useCallback((e: React.MouseEvent) => {
-    if (navigator.maxTouchPoints > 0) return;
-    e.preventDefault();
-    setExpanded(prev => new Set([...prev].filter(id => rubroIds.has(id))));
-  }, [rubroIds, setExpanded]);
+  const {
+    expanded, toggleRow, collapseAll, collapseConceptos,
+    flatRows, detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
+  } = usePivotScreenData({
+    data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery,
+  });
 
   if (isLoading) return <PivotLoading />;
   if (error) return <PivotError />;

@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, Inbox, ListTree } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
+import { pctSobreIngresos } from "@/lib/dashboard/resultados-calc";
 import { PivotLoading, PivotError } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
 import { SocietarioCajaRows, SectionDivider } from "./societario-caja-rows";
@@ -162,7 +163,7 @@ export function ResultadosPivotTable() {
                           {fmtARS(rubro.rowTotal)}
                         </td>
                         <td className="text-right px-3 py-2.5 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap bg-muted/25 hover:bg-muted/50 transition-colors">
-                          {(ventasData?.grandTotal ?? 0) > 0 ? `${((rubro.rowTotal / (ventasData?.grandTotal ?? 1)) * 100).toFixed(1)}%` : "—"}
+                          {pctSobreIngresos(rubro.rowTotal, ventasData?.grandTotal ?? 0)}
                         </td>
                       </tr>
                     );
@@ -208,7 +209,7 @@ export function ResultadosPivotTable() {
                           {fmtARS(concepto.rowTotal)}
                         </td>
                         <td className="text-right px-3 py-2 tabular-nums text-xs text-muted-foreground/50 whitespace-nowrap">
-                          {(ventasData?.grandTotal ?? 0) > 0 ? `${((concepto.rowTotal / (ventasData?.grandTotal ?? 1)) * 100).toFixed(1)}%` : "—"}
+                          {pctSobreIngresos(concepto.rowTotal, ventasData?.grandTotal ?? 0)}
                         </td>
                       </tr>
                     );
@@ -259,7 +260,7 @@ export function ResultadosPivotTable() {
                         {fmtARS(prov.rowTotal)}
                       </td>
                       <td className="text-right px-3 py-1.5 tabular-nums text-xs text-muted-foreground/40 whitespace-nowrap">
-                        {(ventasData?.grandTotal ?? 0) > 0 ? `${((prov.rowTotal / (ventasData?.grandTotal ?? 1)) * 100).toFixed(1)}%` : "—"}
+                        {pctSobreIngresos(prov.rowTotal, ventasData?.grandTotal ?? 0)}
                       </td>
                     </tr>
                   );
