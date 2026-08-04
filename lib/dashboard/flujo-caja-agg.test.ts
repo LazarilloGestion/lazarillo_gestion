@@ -45,4 +45,13 @@ describe("aggregateFlujoCajaPorMes", () => {
     const result = aggregateFlujoCajaPorMes(rows);
     expect(result[6]).toBe(800);
   });
+
+  it("nivel local con monto 0 explícito le gana al PDV no-cero (?? no ||: el 0 explícito cuenta)", () => {
+    const rows: FlujoCajaRow[] = [
+      { localId: 1, puntoDeVentaId: null, mes: 5, monto: 0 },
+      { localId: 1, puntoDeVentaId: 10, mes: 5, monto: 200 },
+    ];
+    const result = aggregateFlujoCajaPorMes(rows);
+    expect(result[5]).toBe(0);
+  });
 });

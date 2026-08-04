@@ -63,8 +63,9 @@ export async function PUT(req: NextRequest) {
     try {
       const accessToken = await refreshGoogleAccessToken(config.refresh_token);
       folderName = await getDriveFolderName(accessToken, folderId);
-    } catch {
+    } catch (e) {
       // No fatal — guardamos el ID si no podemos resolver el nombre
+      console.error("[PUT /api/drive/config] No se pudo resolver el nombre de carpeta, se guarda el ID", { userId: user.id, folderId }, e);
     }
   }
 

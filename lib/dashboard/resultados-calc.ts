@@ -2,9 +2,13 @@
 // para poder testear la aritmética financiera sin renderizar componentes.
 
 // Acepta coma o punto como separador decimal (formato es-AR: "1234,56" o "1234.56").
+// Si hay coma, el punto se interpreta como separador de miles ("1.234,56" -> 1234.56).
 export function parseMontoARS(raw: string): number | null {
-  const normalized = raw.trim().replace(",", ".");
-  if (normalized === "") return 0;
+  const trimmed = raw.trim();
+  if (trimmed === "") return 0;
+  const normalized = trimmed.includes(",")
+    ? trimmed.replace(/\./g, "").replace(",", ".")
+    : trimmed;
   const n = Number(normalized);
   return Number.isFinite(n) ? n : null;
 }

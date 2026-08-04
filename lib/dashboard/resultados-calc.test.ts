@@ -21,6 +21,18 @@ describe("parseMontoARS", () => {
   it("recorta espacios", () => {
     expect(parseMontoARS("  1234,5  ")).toBe(1234.5);
   });
+
+  it("formato AR con separador de miles", () => {
+    expect(parseMontoARS("1.234,56")).toBe(1234.56);
+  });
+
+  it("formato AR con separador de miles y decimales en cero", () => {
+    expect(parseMontoARS("12.345,00")).toBe(12345);
+  });
+
+  it("punto sin coma se interpreta como decimal, no como miles (ambigüedad resuelta a favor del comportamiento previo)", () => {
+    expect(parseMontoARS("1.234")).toBe(1.234);
+  });
 });
 
 describe("pctSobreIngresos", () => {

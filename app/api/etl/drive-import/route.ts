@@ -169,7 +169,8 @@ export async function POST(req: NextRequest) {
           contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           upsert: false,
         });
-      } catch {
+      } catch (e) {
+        console.error("[POST /api/etl/drive-import] Falló el archivado en Storage, se sigue sin archivar", { userId: user.id, file_name }, e);
         storagePath = undefined;
       }
 

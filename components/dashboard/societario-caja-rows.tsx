@@ -107,7 +107,8 @@ export function SocietarioCajaRows({
       await queryClient.invalidateQueries({ queryKey: flujoCajaKey });
       notify.registroActualizado();
       setEditingMonth(null);
-    } catch {
+    } catch (e) {
+      console.error(e);
       notify.errorGuardar();
     } finally {
       setSaving(false);
