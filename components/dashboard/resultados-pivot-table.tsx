@@ -1,95 +1,26 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useExpandableSet } from "@/hooks/use-expandable-set";
-import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
+import { useResultadosData } from "@/hooks/use-resultados-data";
 import { ExpandableButton } from "@/components/ui/expandable-button";
-import { ChevronDown, ChevronUp, Inbox } from "lucide-react";
+import { ChevronDown, ChevronUp, Inbox, ListTree } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
-import { flattenRows, sortPivotRows, hasValue } from "@/lib/dashboard/pivot-utils";
-import { useDashboard } from "@/hooks/use-dashboard-store";
+import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { PivotLoading, PivotError } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
-import { SocietarioCajaRows } from "./societario-caja-rows";
+import { SocietarioCajaRows, SectionDivider } from "./societario-caja-rows";
 import { EditedDot } from "./edit-row-controls";
-import type {
-  PivotRubroRow,
-  PivotConceptoRow,
-  DetalleFilter,
-  VentasDetalleFilter,
-} from "@/lib/dashboard/types";
+import type { PivotRubroRow, PivotConceptoRow } from "@/lib/dashboard/types";
 import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 
 export function ResultadosPivotTable() {
   const {
-    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
-    months, activeMonths, sortCol, sortDir, handleSortClick,
-    rubroConfigVersion, resultadosConfigVersion,
-  } = useDashboard();
-
-  const { expanded, setExpanded, toggle: toggleRow, collapseAll } = useExpandableSet();
-  const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
-  const [ventasDetalleFilter, setVentasDetalleFilter] = useState<VentasDetalleFilter | null>(null);
-  const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number; observacionQuery?: string }>({});
-
-  // Operación: mismos totales de Egresos/Ingresos que Compras (misma vista, sin filtrar por visibleEnResultados),
-  // reaccionando al buscador de rubro/concepto/proveedor/observación igual que hace Compras.
-  const operacion = useOperacionKpis({
-    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
-    months, activeMonths, configVersion: rubroConfigVersion, vista: "compras",
-  });
-
-  // Societario: pivot filtrado por visibleEnResultados — alimenta "Movimientos societarios" y la tabla de detalle.
-  const {
-    data, isLoading, error, ventasData,
-  } = useOperacionKpis({
-    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
-    months, activeMonths, configVersion: resultadosConfigVersion, vista: "resultados",
-  });
-
-  useEffect(() => {
-    if (!data) return;
-    const prev = prevFilterRef.current;
-    const filterChanged =
-      prev.conceptoCodigo !== conceptoCodigo || prev.proveedorId !== proveedorId || prev.observacionQuery !== observacionQuery;
-    prevFilterRef.current = { conceptoCodigo, proveedorId, observacionQuery };
-    if (!filterChanged) return;
-
-    if (conceptoCodigo || proveedorId || observacionQuery) {
-      const ids = new Set<string>();
-      for (const rubro of data.rows) {
-        ids.add(rubro.id);
-        for (const concepto of rubro.children) ids.add(concepto.id);
-      }
-      setExpanded(ids);
-    } else {
-      setExpanded(new Set());
-    }
-  }, [data, conceptoCodigo, proveedorId, observacionQuery]);
-
-  function openDetalle(extra: Omit<DetalleFilter, "year" | "localId" | "pdvId">) {
-    setDetalleFilter({ year, localId, pdvId, ...extra });
-  }
-
-  const sortedRows = useMemo(
-    () => (data ? sortPivotRows(data.rows, sortCol, sortDir) : []),
-    [data, sortCol, sortDir]
-  );
-
-  const flatRows = useMemo(
-    () => flattenRows({ rows: sortedRows, columnTotals: data?.columnTotals ?? {}, grandTotal: data?.grandTotal ?? 0 }, expanded, 3),
-    [sortedRows, expanded, data]
-  );
-
-  const rubroIds = useMemo(() => new Set(sortedRows.map(r => r.id)), [sortedRows]);
-  const resultadosEmpty = flatRows.length === 0;
-
-  const collapseConceptos = useCallback((e: React.MouseEvent) => {
-    if (navigator.maxTouchPoints > 0) return;
-    e.preventDefault();
-    setExpanded(prev => new Set([...prev].filter(id => rubroIds.has(id))));
-  }, [rubroIds, setExpanded]);
+    year, localId, pdvId, months, sortCol, sortDir, handleSortClick,
+    operacion, data, isLoading, error, ventasData,
+    flatRows, resultadosEmpty,
+    expanded, toggleRow, collapseAll, collapseConceptos,
+    detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
+  } = useResultadosData();
 
   if (operacion.isLoading || isLoading) return <PivotLoading />;
   if (operacion.error || error) return <PivotError />;
@@ -97,7 +28,7 @@ export function ResultadosPivotTable() {
 
   const ingresosPorMes = ventasData?.columnTotals ?? {};
   const egresosPorMes = operacion.data.columnTotals;
-  const movSocietariosPorMes = data.columnTotals;
+  const gananciaPorMes = data.columnTotals;
 
   return (
     <>
@@ -167,11 +98,9 @@ export function ResultadosPivotTable() {
               pdvId={pdvId}
               months={months}
               ingresosPorMes={ingresosPorMes}
-              egresosPorMes={egresosPorMes}
               ingresosTotal={ventasData?.grandTotal}
-              egresosTotal={operacion.data.grandTotal}
-              movSocietariosPorMes={movSocietariosPorMes}
-              movSocietariosTotal={data.grandTotal}
+              gananciaPorMes={gananciaPorMes}
+              gananciaTotal={data.grandTotal}
               isEmpty={resultadosEmpty}
             />
           </thead>
@@ -190,170 +119,154 @@ export function ResultadosPivotTable() {
                 </td>
               </tr>
             ) : (
-              flatRows.map((item) => {
-                if (item.type === "rubro") {
-                  const rubro = item.data as PivotRubroRow;
-                  const isExpanded = expanded.has(rubro.id);
+              <>
+                <SectionDivider label="Detalle" icon={ListTree} colSpan={months.length + 3} />
+                {flatRows.map((item) => {
+                  if (item.type === "rubro") {
+                    const rubro = item.data as PivotRubroRow;
+                    const isExpanded = expanded.has(rubro.id);
+                    return (
+                      <tr
+                        key={rubro.id}
+                        className="border-b font-semibold"
+                        onContextMenu={collapseAll}
+                      >
+                        <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
+                          <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(rubro.id)}>
+                            {rubro.nombre}
+                          </ExpandableButton>
+                        </td>
+                        {months.map((mes) => (
+                          <td
+                            key={mes}
+                            className={cn(
+                              "text-right px-3 py-2.5 tabular-nums bg-muted/25 hover:bg-muted/50 transition-colors",
+                              hasValue(rubro.values[mes]) && "cursor-pointer hover:text-primary"
+                            )}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (hasValue(rubro.values[mes]))
+                                openDetalle({ mes, rubroCodigo: rubro.rubroCodigo });
+                            }}
+                          >
+                            {fmtARS(rubro.values[mes])}
+                          </td>
+                        ))}
+                        <td
+                          className="text-right px-4 py-2.5 tabular-nums font-bold text-base bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDetalle({ rubroCodigo: rubro.rubroCodigo });
+                          }}
+                        >
+                          {fmtARS(rubro.rowTotal)}
+                        </td>
+                        <td className="text-right px-3 py-2.5 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap bg-muted/25 hover:bg-muted/50 transition-colors">
+                          {(ventasData?.grandTotal ?? 0) > 0 ? `${((rubro.rowTotal / (ventasData?.grandTotal ?? 1)) * 100).toFixed(1)}%` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  }
+  
+                  if (item.type === "concepto") {
+                    const concepto = item.data as PivotConceptoRow;
+                    const isExpanded = expanded.has(concepto.id);
+                    return (
+                      <tr
+                        key={concepto.id}
+                        className="border-b hover:bg-accent/40 transition-colors"
+                        onContextMenu={collapseConceptos}
+                      >
+                        <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
+                          <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(concepto.id)} indent="pl-5" iconSize="w-3.5 h-3.5">
+                            {concepto.nombre}
+                          </ExpandableButton>
+                        </td>
+                        {months.map((mes) => (
+                          <td
+                            key={mes}
+                            className={cn(
+                              "text-right px-3 py-2 tabular-nums text-muted-foreground",
+                              hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
+                            )}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (hasValue(concepto.values[mes]))
+                                openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo });
+                            }}
+                          >
+                            {fmtARS(concepto.values[mes])}
+                          </td>
+                        ))}
+                        <td
+                          className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDetalle({ conceptoCodigo: concepto.conceptoCodigo });
+                          }}
+                        >
+                          {fmtARS(concepto.rowTotal)}
+                        </td>
+                        <td className="text-right px-3 py-2 tabular-nums text-xs text-muted-foreground/50 whitespace-nowrap">
+                          {(ventasData?.grandTotal ?? 0) > 0 ? `${((concepto.rowTotal / (ventasData?.grandTotal ?? 1)) * 100).toFixed(1)}%` : "—"}
+                        </td>
+                      </tr>
+                    );
+                  }
+  
+                  const prov = item.data;
+                  const labelParts = [
+                    prov.fecha ? `${prov.fecha.slice(8, 10)}/${prov.fecha.slice(5, 7)}` : null,
+                    normalize(prov.nombre),
+                    prov.observac || null,
+                    fmtARS(prov.importe),
+                  ].filter(Boolean);
                   return (
                     <tr
-                      key={rubro.id}
-                      className="border-b font-semibold"
-                      onContextMenu={collapseAll}
+                      key={prov.id}
+                      className={cn(
+                        "border-b transition-colors",
+                        prov.hasManualOverride
+                          ? "bg-attention/5 hover:bg-attention/10"
+                          : "hover:bg-accent/20"
+                      )}
                     >
-                      <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
-                        <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(rubro.id)}>
-                          {rubro.nombre}
-                        </ExpandableButton>
+                      <td className={cn("sticky left-0 z-10 px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", prov.hasManualOverride ? "text-attention bg-attention/5" : "text-muted-foreground bg-background")}>
+                        <span className="flex items-center gap-1.5">
+                          {prov.hasManualOverride && <EditedDot />}
+                          {labelParts.join(' · ')}
+                        </span>
                       </td>
                       {months.map((mes) => (
                         <td
                           key={mes}
                           className={cn(
-                            "text-right px-3 py-2.5 tabular-nums bg-muted/25 hover:bg-muted/50 transition-colors",
-                            hasValue(rubro.values[mes]) && "cursor-pointer hover:text-primary"
+                            "text-right px-3 py-1.5 tabular-nums text-muted-foreground text-xs",
+                            hasValue(prov.values[mes]) && "cursor-pointer hover:text-foreground"
                           )}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (hasValue(rubro.values[mes]))
-                              openDetalle({ mes, rubroCodigo: rubro.rubroCodigo });
+                          onClick={() => {
+                            if (hasValue(prov.values[mes]))
+                              openDetalle({ rowId: prov.rowId });
                           }}
                         >
-                          {fmtARS(rubro.values[mes])}
+                          {fmtARS(prov.values[mes])}
                         </td>
                       ))}
                       <td
-                        className="text-right px-4 py-2.5 tabular-nums font-bold text-base bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDetalle({ rubroCodigo: rubro.rubroCodigo });
-                        }}
+                        className="text-right px-4 py-1.5 tabular-nums text-muted-foreground text-xs cursor-pointer hover:text-foreground"
+                        onClick={() => openDetalle({ rowId: prov.rowId })}
                       >
-                        {fmtARS(rubro.rowTotal)}
+                        {fmtARS(prov.rowTotal)}
                       </td>
-                      <td className="text-right px-3 py-2.5 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap bg-muted/25 hover:bg-muted/50 transition-colors">
-                        {(ventasData?.grandTotal ?? 0) > 0 ? `${((rubro.rowTotal / (ventasData?.grandTotal ?? 1)) * 100).toFixed(1)}%` : "—"}
+                      <td className="text-right px-3 py-1.5 tabular-nums text-xs text-muted-foreground/40 whitespace-nowrap">
+                        {(ventasData?.grandTotal ?? 0) > 0 ? `${((prov.rowTotal / (ventasData?.grandTotal ?? 1)) * 100).toFixed(1)}%` : "—"}
                       </td>
                     </tr>
                   );
-                }
-
-                if (item.type === "concepto") {
-                  const concepto = item.data as PivotConceptoRow;
-                  const isExpanded = expanded.has(concepto.id);
-                  return (
-                    <tr
-                      key={concepto.id}
-                      className="border-b hover:bg-accent/40 transition-colors"
-                      onContextMenu={collapseConceptos}
-                    >
-                      <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
-                        <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(concepto.id)} indent="pl-5" iconSize="w-3.5 h-3.5">
-                          {concepto.nombre}
-                        </ExpandableButton>
-                      </td>
-                      {months.map((mes) => (
-                        <td
-                          key={mes}
-                          className={cn(
-                            "text-right px-3 py-2 tabular-nums text-muted-foreground",
-                            hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
-                          )}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (hasValue(concepto.values[mes]))
-                              openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo });
-                          }}
-                        >
-                          {fmtARS(concepto.values[mes])}
-                        </td>
-                      ))}
-                      <td
-                        className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDetalle({ conceptoCodigo: concepto.conceptoCodigo });
-                        }}
-                      >
-                        {fmtARS(concepto.rowTotal)}
-                      </td>
-                      <td className="text-right px-3 py-2 tabular-nums text-xs text-muted-foreground/50 whitespace-nowrap">
-                        {(ventasData?.grandTotal ?? 0) > 0 ? `${((concepto.rowTotal / (ventasData?.grandTotal ?? 1)) * 100).toFixed(1)}%` : "—"}
-                      </td>
-                    </tr>
-                  );
-                }
-
-                const prov = item.data;
-                const labelParts = [
-                  prov.fecha ? `${prov.fecha.slice(8, 10)}/${prov.fecha.slice(5, 7)}` : null,
-                  normalize(prov.nombre),
-                  prov.observac || null,
-                  fmtARS(prov.importe),
-                ].filter(Boolean);
-                return (
-                  <tr
-                    key={prov.id}
-                    className={cn(
-                      "border-b transition-colors",
-                      prov.hasManualOverride
-                        ? "bg-attention/5 hover:bg-attention/10"
-                        : "hover:bg-accent/20"
-                    )}
-                  >
-                    <td className={cn("sticky left-0 z-10 px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", prov.hasManualOverride ? "text-attention bg-attention/5" : "text-muted-foreground bg-background")}>
-                      <span className="flex items-center gap-1.5">
-                        {prov.hasManualOverride && <EditedDot />}
-                        {labelParts.join(' · ')}
-                      </span>
-                    </td>
-                    {months.map((mes) => (
-                      <td
-                        key={mes}
-                        className={cn(
-                          "text-right px-3 py-1.5 tabular-nums text-muted-foreground text-xs",
-                          hasValue(prov.values[mes]) && "cursor-pointer hover:text-foreground"
-                        )}
-                        onClick={() => {
-                          if (hasValue(prov.values[mes]))
-                            openDetalle({ rowId: prov.rowId });
-                        }}
-                      >
-                        {fmtARS(prov.values[mes])}
-                      </td>
-                    ))}
-                    <td
-                      className="text-right px-4 py-1.5 tabular-nums text-muted-foreground text-xs cursor-pointer hover:text-foreground"
-                      onClick={() => openDetalle({ rowId: prov.rowId })}
-                    >
-                      {fmtARS(prov.rowTotal)}
-                    </td>
-                    <td className="text-right px-3 py-1.5 tabular-nums text-xs text-muted-foreground/40 whitespace-nowrap">
-                      {(ventasData?.grandTotal ?? 0) > 0 ? `${((prov.rowTotal / (ventasData?.grandTotal ?? 1)) * 100).toFixed(1)}%` : "—"}
-                    </td>
-                  </tr>
-                );
-              })
+                })}
+              </>
             )}
           </tbody>
-
-          <tfoot>
-            <tr className="border-t-2 bg-muted font-bold text-base">
-              <td className="sticky left-0 z-10 bg-muted px-4 py-3 shadow-[1px_0_0_0_hsl(var(--border))]">
-                Total {year}
-              </td>
-              {months.map((mes) => (
-                <td key={mes} className="text-right px-3 py-3 tabular-nums bg-muted">
-                  {fmtARS(data.columnTotals[mes])}
-                </td>
-              ))}
-              <td className="text-right px-4 py-3 tabular-nums text-primary bg-muted">
-                {fmtARS(data.grandTotal)}
-              </td>
-              <td className="text-right px-3 py-3 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap font-semibold bg-muted">
-                {(ventasData?.grandTotal ?? 0) > 0 ? `${((data.grandTotal / (ventasData?.grandTotal ?? 1)) * 100).toFixed(1)}%` : "—"}
-              </td>
-            </tr>
-          </tfoot>
         </table>
       </div>
 

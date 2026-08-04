@@ -3,27 +3,32 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { z } from "zod";
+import { aggregateFlujoCajaPorMes } from "@/lib/dashboard/flujo-caja-agg";
 
 export const dynamic = "force-dynamic";
 
-function toInt(s: string | null): number | undefined {
-  if (!s) return undefined;
-  const n = Number(s);
-  return Number.isInteger(n) ? n : undefined;
-}
+// Sin .min/.max en anio (a diferencia de putSchema más abajo): un año fuera de rango hoy
+// responde 200 con los 12 meses en null en vez de 400, y mantenemos ese comportamiento acá.
+const getQuerySchema = z.object({
+  anio: z.coerce.number().int(),
+  localId: z.coerce.number().int().optional(),
+  puntoDeVentaId: z.coerce.number().int().optional(),
+});
 
 export async function GET(request: NextRequest) {
   const denied = await requireAuth();
   if (denied) return denied;
 
   const { searchParams } = new URL(request.url);
-  const anio = toInt(searchParams.get("anio"));
-  const localId = toInt(searchParams.get("localId"));
-  const puntoDeVentaId = toInt(searchParams.get("puntoDeVentaId"));
-
-  if (!anio) {
+  const parsed = getQuerySchema.safeParse({
+    anio: searchParams.get("anio") ?? undefined,
+    localId: searchParams.get("localId") ?? undefined,
+    puntoDeVentaId: searchParams.get("puntoDeVentaId") ?? undefined,
+  });
+  if (!parsed.success) {
     return NextResponse.json({ error: "Falta anio" }, { status: 400 });
   }
+  const { anio, localId, puntoDeVentaId } = parsed.data;
 
   try {
     const rows = await prisma.flujoCajaManual.findMany({
@@ -35,33 +40,10 @@ export async function GET(request: NextRequest) {
       select: { localId: true, puntoDeVentaId: true, mes: true, monto: true },
     });
 
-    const meses: Record<number, number | null> = {};
-    for (let m = 1; m <= 12; m++) meses[m] = null;
-
-    if (puntoDeVentaId !== undefined) {
-      // Filtro exacto por PDV puntual: no hay ambigüedad de niveles, se suma directo.
-      for (const row of rows) {
-        meses[row.mes] = (meses[row.mes] ?? 0) + Number(row.monto);
-      }
-    } else {
-      // Sin PDV específico (vista "todos los PDV" de un local, o "todos los locales"):
-      // por cada local+mes, priorizar la fila "todo el local" (puntoDeVentaId null) sobre
-      // la suma de PDVs — si Diego cargó a los dos niveles para el mismo mes, evita duplicar.
-      const porLocalYMes = new Map<string, { local: number | null; pdv: number; mes: number }>();
-      for (const row of rows) {
-        const key = `${row.localId ?? "null"}:${row.mes}`;
-        const entry = porLocalYMes.get(key) ?? { local: null, pdv: 0, mes: row.mes };
-        if (row.puntoDeVentaId == null) {
-          entry.local = (entry.local ?? 0) + Number(row.monto);
-        } else {
-          entry.pdv += Number(row.monto);
-        }
-        porLocalYMes.set(key, entry);
-      }
-      for (const { local, pdv, mes } of porLocalYMes.values()) {
-        meses[mes] = (meses[mes] ?? 0) + (local ?? pdv);
-      }
-    }
+    const meses = aggregateFlujoCajaPorMes(
+      rows.map((r) => ({ localId: r.localId, puntoDeVentaId: r.puntoDeVentaId, mes: r.mes, monto: Number(r.monto) })),
+      puntoDeVentaId,
+    );
 
     return NextResponse.json({ anio, meses });
   } catch (err) {

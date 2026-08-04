@@ -51,14 +51,14 @@ type DashboardStore = {
   // rubro config (Compras)
   rubroConfigVersion: number;
   bumpRubroConfig: () => void;
-  rubroOcultoCount: number;
-  setRubroOcultoCount: (n: number) => void;
+  rubroVisibleCount: number;
+  setRubroVisibleCount: (n: number) => void;
 
   // rubro config (Resultados)
   resultadosConfigVersion: number;
   bumpResultadosConfig: () => void;
-  resultadosOcultoCount: number;
-  setResultadosOcultoCount: (n: number) => void;
+  resultadosVisibleCount: number;
+  setResultadosVisibleCount: (n: number) => void;
 
   // panel colapsable (persistido vía cookie, leída en SSR — ver filters-cookie.ts)
   showFilters: boolean;
@@ -143,14 +143,14 @@ const useDashboardStore = create<DashboardStore>()(
       // rubro config (Compras)
       rubroConfigVersion: 0,
       bumpRubroConfig: () => set((s) => ({ rubroConfigVersion: s.rubroConfigVersion + 1 })),
-      rubroOcultoCount: 0,
-      setRubroOcultoCount: (n) => set({ rubroOcultoCount: n }),
+      rubroVisibleCount: 0,
+      setRubroVisibleCount: (n) => set({ rubroVisibleCount: n }),
 
       // rubro config (Resultados)
       resultadosConfigVersion: 0,
       bumpResultadosConfig: () => set((s) => ({ resultadosConfigVersion: s.resultadosConfigVersion + 1 })),
-      resultadosOcultoCount: 0,
-      setResultadosOcultoCount: (n) => set({ resultadosOcultoCount: n }),
+      resultadosVisibleCount: 0,
+      setResultadosVisibleCount: (n) => set({ resultadosVisibleCount: n }),
 
       // panel colapsable
       showFilters: true,
@@ -235,9 +235,9 @@ export function useDashboard() {
     setSearch: s.setSearch, clearSearch: s.clearSearch, switchTab: s.switchTab,
     // rubro config (Compras)
     rubroConfigVersion: s.rubroConfigVersion, bumpRubroConfig: s.bumpRubroConfig,
-    rubroOcultoCount: s.rubroOcultoCount, setRubroOcultoCount: s.setRubroOcultoCount,
+    rubroVisibleCount: s.rubroVisibleCount, setRubroVisibleCount: s.setRubroVisibleCount,
     // rubro config (Resultados)
     resultadosConfigVersion: s.resultadosConfigVersion, bumpResultadosConfig: s.bumpResultadosConfig,
-    resultadosOcultoCount: s.resultadosOcultoCount, setResultadosOcultoCount: s.setResultadosOcultoCount,
+    resultadosVisibleCount: s.resultadosVisibleCount, setResultadosVisibleCount: s.setResultadosVisibleCount,
   };
 }

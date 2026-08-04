@@ -3,21 +3,17 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { notify } from "@/lib/toast";
-import { cn, fmtARS } from "@/lib/utils";
+import { cn, fmtARS, fmtARSDecimal } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
-import { EditActionButtons, EditTriggerButton } from "./edit-row-controls";
+import { parseMontoARS, pctSobreIngresos } from "@/lib/dashboard/resultados-calc";
+import { buildFlujoCajaUrl } from "@/lib/dashboard/params";
+import { useDiferenciaCajaAcumulada } from "@/hooks/use-diferencia-caja-acumulada";
+import { EditActionButtons, EditTriggerButton, toEditString } from "./edit-row-controls";
 import { Users, Wallet, type LucideIcon } from "lucide-react";
 
 interface FlujoCajaResponse {
   anio: number;
   meses: Record<number, number | null>;
-}
-
-function buildFlujoCajaUrl(year: number, localId?: number, pdvId?: number): string {
-  const sp = new URLSearchParams({ anio: String(year) });
-  if (localId != null) sp.set("localId", String(localId));
-  if (pdvId != null) sp.set("puntoDeVentaId", String(pdvId));
-  return `/api/dashboard/flujo-caja?${sp.toString()}`;
 }
 
 // Mismas clases que KpiBlock — filas sueltas de <tr>, sin tabla ni wrapper propio,
@@ -32,18 +28,16 @@ interface SocietarioCajaRowsProps {
   pdvId?: number;
   months: number[];
   ingresosPorMes: Record<number, number>;
-  egresosPorMes: Record<number, number>;
   ingresosTotal?: number;
-  egresosTotal: number;
-  movSocietariosPorMes: Record<number, number>;
-  movSocietariosTotal: number;
+  gananciaPorMes: Record<number, number>;
+  gananciaTotal: number;
   isEmpty: boolean;
 }
 
-function SectionDivider({ label, icon: Icon, colSpan }: { label: string; icon: LucideIcon; colSpan: number }) {
+export function SectionDivider({ label, icon: Icon, colSpan }: { label: string; icon: LucideIcon; colSpan: number }) {
   return (
     <tr>
-      <td colSpan={colSpan} className="bg-muted/30 py-1.5">
+      <td colSpan={colSpan} className="bg-muted py-1.5">
         <div className="sticky left-0 z-10 flex w-fit items-center gap-1.5 bg-muted px-4 text-xs font-medium text-muted-foreground shadow-[1px_0_0_0_hsl(var(--border))]">
           <Icon className="h-3.5 w-3.5 shrink-0" />
           {label}
@@ -53,14 +47,40 @@ function SectionDivider({ label, icon: Icon, colSpan }: { label: string; icon: L
   );
 }
 
+// Celda de monto genérica: pinta gris si `gray`, rojo si `negative` (y no gris), y muestra `text`.
+// Puramente presentacional — cada fila decide sus propias reglas de "sin dato"/signo/redondeo a 0
+// antes de llamarla, para no forzar una única regla de negocio entre filas que hoy difieren sutilmente.
+function ValueCell({
+  text,
+  negative,
+  gray,
+  base = VALUE_TD,
+  className,
+  title,
+}: {
+  text: string;
+  negative: boolean;
+  gray: boolean;
+  base?: string;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <td title={title} className={cn(base, className, gray ? "text-muted-foreground/40" : negative && "text-destructive")}>
+      {text}
+    </td>
+  );
+}
+
 export function SocietarioCajaRows({
   year, localId, pdvId, months,
-  ingresosPorMes, egresosPorMes, ingresosTotal, egresosTotal,
-  movSocietariosPorMes, movSocietariosTotal, isEmpty,
+  ingresosPorMes, ingresosTotal,
+  gananciaPorMes, gananciaTotal, isEmpty,
 }: SocietarioCajaRowsProps) {
   const queryClient = useQueryClient();
   const flujoCajaKey = ["flujo-caja", year, localId, pdvId];
   const { data: flujoCajaData, isLoading: flujoCajaLoading } = useFetchQuery<FlujoCajaResponse>(flujoCajaKey, buildFlujoCajaUrl(year, localId, pdvId));
+  const { acumuladoPorMes, isLoading: diferenciaLoading } = useDiferenciaCajaAcumulada({ year, localId, pdvId });
 
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [draftValue, setDraftValue] = useState("");
@@ -69,10 +89,13 @@ export function SocietarioCajaRows({
   const flujoCajaPorMes = flujoCajaData?.meses ?? {};
   const flujoCajaTotal = months.reduce((acc, mes) => acc + (flujoCajaPorMes[mes] ?? 0), 0);
   const colSpan = months.length + 3; // label + meses + total + % ing
+  // Sin local seleccionado, "todos los locales" es una vista agregada de solo lectura —
+  // editar acá guardaría un valor ambiguo (localId null) que se suma al resto sin distinguirse.
+  const canEditFlujoCaja = localId != null;
 
   async function handleSaveFlujoCaja(mes: number) {
-    const monto = draftValue === "" ? 0 : parseFloat(draftValue);
-    if (Number.isNaN(monto)) return;
+    const monto = parseMontoARS(draftValue);
+    if (monto === null) return;
     setSaving(true);
     try {
       const res = await fetch("/api/dashboard/flujo-caja", {
@@ -91,37 +114,41 @@ export function SocietarioCajaRows({
     }
   }
 
-  function pctLabel(numerador: number, denominador: number): string {
-    return denominador > 0 ? `${((numerador / denominador) * 100).toFixed(1)}%` : "—";
-  }
-
   return (
     <>
       <SectionDivider label="Societario" icon={Users} colSpan={colSpan} />
 
       <tr className="border-b">
-        <td className={LABEL_TD}>Movimientos societarios</td>
+        <td className={cn(LABEL_TD, "bg-success-muted text-base font-bold")}>Ganancia</td>
         {months.map((mes) => {
-          const raw = movSocietariosPorMes[mes];
-          const showDash = isEmpty || raw == null;
+          const raw = gananciaPorMes[mes];
+          const gray = isEmpty || raw == null;
           return (
-            <td key={mes} className={cn(VALUE_TD, showDash ? "text-muted-foreground/40" : (raw as number) < 0 && "text-destructive")}>
-              {showDash ? "—" : fmtARS(raw)}
-            </td>
+            <ValueCell
+              key={mes}
+              className="bg-success-muted text-sm font-semibold"
+              text={gray ? "—" : fmtARS(raw)}
+              negative={(raw ?? 0) < 0}
+              gray={gray}
+            />
           );
         })}
-        <td className={cn(TOTAL_TD, isEmpty ? "text-muted-foreground/40" : movSocietariosTotal < 0 && "text-destructive")}>
-          {isEmpty ? "—" : fmtARS(movSocietariosTotal)}
-        </td>
-        <td />
+        <ValueCell
+          base={TOTAL_TD}
+          className="bg-success-muted text-base font-bold"
+          text={isEmpty ? "—" : fmtARS(gananciaTotal)}
+          negative={gananciaTotal < 0}
+          gray={isEmpty}
+        />
+        <td className="bg-success-muted" />
       </tr>
 
       <tr className="border-b-2">
         <td className={LABEL_TD}>% Rentabilidad</td>
         {months.map((mes) => {
-          const raw = movSocietariosPorMes[mes];
+          const raw = gananciaPorMes[mes];
           const num = raw ?? 0;
-          const label = isEmpty || raw == null ? "—" : pctLabel(num, ingresosPorMes[mes] ?? 0);
+          const label = isEmpty || raw == null ? "—" : pctSobreIngresos(num, ingresosPorMes[mes] ?? 0);
           const isDash = label === "—";
           return (
             <td key={mes} className={VALUE_TD}>
@@ -131,10 +158,10 @@ export function SocietarioCajaRows({
         })}
         <td className={TOTAL_TD}>
           {(() => {
-            const label = isEmpty ? "—" : pctLabel(movSocietariosTotal, ingresosTotal ?? 0);
+            const label = isEmpty ? "—" : pctSobreIngresos(gananciaTotal, ingresosTotal ?? 0);
             const isDash = label === "—";
             return (
-              <span className={cn(isDash ? "text-muted-foreground/40" : movSocietariosTotal > 0 ? "text-success" : movSocietariosTotal < 0 ? "text-destructive" : undefined)}>{label}</span>
+              <span className={cn(isDash ? "text-muted-foreground/40" : gananciaTotal > 0 ? "text-success" : gananciaTotal < 0 ? "text-destructive" : undefined)}>{label}</span>
             );
           })()}
         </td>
@@ -144,17 +171,19 @@ export function SocietarioCajaRows({
       <SectionDivider label="Caja" icon={Wallet} colSpan={colSpan} />
 
       <tr className="border-b group">
-        <td className={LABEL_TD}>Flujo de caja</td>
+        <td className={LABEL_TD} title={canEditFlujoCaja ? undefined : "Seleccioná un local para cargar Flujo de caja — acá se muestra la suma de todos"}>
+          Flujo de caja
+        </td>
         {months.map((mes) => {
-          const isEditing = editingMonth === mes;
+          const isEditing = editingMonth === mes && canEditFlujoCaja;
           const value = flujoCajaPorMes[mes];
           return (
             <td key={mes} className={VALUE_TD}>
               {isEditing ? (
                 <div className="flex items-center justify-end gap-1">
                   <input
-                    type="number"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     autoFocus
                     aria-label={`Flujo de caja ${MONTHS[mes - 1]}`}
                     value={draftValue}
@@ -165,43 +194,56 @@ export function SocietarioCajaRows({
                 </div>
               ) : (
                 <div className="flex items-center justify-end gap-1">
-                  <span className={cn(!value && "text-muted-foreground/40")}>
-                    {flujoCajaLoading ? "…" : value ? fmtARS(value) : "—"}
+                  <span className={cn(value == null && "text-muted-foreground/40")}>
+                    {flujoCajaLoading ? "…" : value != null ? fmtARSDecimal(value) : "—"}
                   </span>
-                  <EditTriggerButton
-                    onClick={() => { setEditingMonth(mes); setDraftValue(value ? String(value) : ""); }}
-                  />
+                  {canEditFlujoCaja && (
+                    <EditTriggerButton
+                      onClick={() => { setEditingMonth(mes); setDraftValue(toEditString(value)); }}
+                    />
+                  )}
                 </div>
               )}
             </td>
           );
         })}
-        <td className={TOTAL_TD}>{flujoCajaTotal ? fmtARS(flujoCajaTotal) : "—"}</td>
+        <td className={TOTAL_TD}>{flujoCajaTotal ? fmtARSDecimal(flujoCajaTotal) : "—"}</td>
         <td />
       </tr>
 
-      <tr className={cn("border-b-2", isEmpty && "opacity-60")} title={isEmpty ? "Incluye $0 de movimientos societarios: no hay conceptos configurados en Resultados" : undefined}>
-        <td className={cn(LABEL_TD, "bg-muted text-base font-bold")}>Diferencia de caja</td>
+      <tr className={cn("border-b-2", isEmpty && "opacity-60")} title={isEmpty ? "Incluye $0 de Ganancia: no hay conceptos configurados en Resultados" : undefined}>
+        <td className={cn(LABEL_TD, "bg-muted text-base font-bold")} title="Saldo de caja acumulado mes a mes, arrastrando el cierre de años anteriores">
+          Diferencia de caja
+        </td>
         {months.map((mes) => {
-          const ingVal = ingresosPorMes[mes];
-          const egrVal = egresosPorMes[mes];
-          const movVal = movSocietariosPorMes[mes];
-          const flujoVal = flujoCajaPorMes[mes];
-          const noData = ingVal == null && egrVal == null && movVal == null && flujoVal == null;
-          const diferencia = (ingVal ?? 0) - (egrVal ?? 0) - (movVal ?? 0) - (flujoVal ?? 0);
+          const acumulado = acumuladoPorMes[mes];
+          const noData = diferenciaLoading || acumulado == null;
           return (
-            <td key={mes} className={cn(VALUE_TD, "bg-muted text-sm")}>
-              <span className={cn(noData ? "text-muted-foreground/40" : diferencia < 0 && "text-destructive")}>{fmtARS(diferencia || undefined)}</span>
-            </td>
+            <ValueCell
+              key={mes}
+              base={VALUE_TD}
+              className="bg-muted text-sm"
+              text={diferenciaLoading ? "…" : noData ? "—" : fmtARS(acumulado)}
+              negative={!noData && acumulado! < 0}
+              gray={noData}
+            />
           );
         })}
-        <td className={cn(TOTAL_TD, "bg-muted text-base font-bold")}>
-          {(() => {
-            const resultadoOpTotal = (ingresosTotal ?? 0) - egresosTotal;
-            const diferenciaTotal = resultadoOpTotal - movSocietariosTotal - flujoCajaTotal;
-            return <span className={cn(diferenciaTotal < 0 && "text-destructive")}>{fmtARS(diferenciaTotal || undefined)}</span>;
-          })()}
-        </td>
+        {(() => {
+          const lastMes = months[months.length - 1];
+          const total = acumuladoPorMes[lastMes];
+          const noData = diferenciaLoading || total == null;
+          return (
+            <ValueCell
+              base={TOTAL_TD}
+              className="bg-muted text-base font-bold"
+              title="Saldo acumulado al último mes visible (no es una sumatoria de la fila)"
+              text={diferenciaLoading ? "…" : noData ? "—" : fmtARS(total)}
+              negative={!noData && total! < 0}
+              gray={noData}
+            />
+          );
+        })()}
         <td className="bg-muted" />
       </tr>
     </>

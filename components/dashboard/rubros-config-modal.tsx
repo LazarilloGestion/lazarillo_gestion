@@ -24,16 +24,19 @@ interface RubrosConfigModalProps {
 
 export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubros visibles en panel" }: RubrosConfigModalProps) {
   const {
-    bumpRubroConfig, rubroOcultoCount, setRubroOcultoCount,
-    bumpResultadosConfig, resultadosOcultoCount, setResultadosOcultoCount,
+    bumpRubroConfig, rubroVisibleCount, setRubroVisibleCount,
+    bumpResultadosConfig, resultadosVisibleCount, setResultadosVisibleCount,
   } = useDashboard();
   const isResultados = field === "visibleEnResultados";
-  const ocultoCount = isResultados ? resultadosOcultoCount : rubroOcultoCount;
-  const setOcultoCount = isResultados ? setResultadosOcultoCount : setRubroOcultoCount;
+  const visibleCount = isResultados ? resultadosVisibleCount : rubroVisibleCount;
+  const setVisibleCount = isResultados ? setResultadosVisibleCount : setRubroVisibleCount;
   const bumpConfig = isResultados ? bumpResultadosConfig : bumpRubroConfig;
 
   const [open, setOpen] = useState(false);
   const [rubros, setRubros] = useState<RubroVisibilidad[]>([]);
+  // Badge de alerta: solo aparece si hay al menos un rubro apagado (igual que antes),
+  // pero ahora muestra cuántos SÍ están visibles en vez de cuántos están ocultos.
+  const hayOcultos = rubros.length > 0 && visibleCount < rubros.length;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
@@ -49,11 +52,11 @@ export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubro
         if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
         const list: RubroVisibilidad[] = Array.isArray(data) ? data : [];
         setRubros(list);
-        setOcultoCount(list.filter((r) => !r.visible).length);
+        setVisibleCount(list.filter((r) => r.visible).length);
       })
       .catch((e) => { console.error(e); setError(e.message); })
       .finally(() => setLoading(false));
-  }, [field, setOcultoCount]);
+  }, [field, setVisibleCount]);
 
   // Mount: fetcha para poblar el badge count sin abrir el modal.
   useEffect(() => { fetchRubros(); }, [fetchRubros]);
@@ -73,7 +76,7 @@ export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubro
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const next = rubros.map((r) => (r.codigo === codigo ? { ...r, visible } : r));
       setRubros(next);
-      setOcultoCount(next.filter((r) => !r.visible).length);
+      setVisibleCount(next.filter((r) => r.visible).length);
       bumpConfig();
       notify.rubroVisibilidad(nombre, visible);
     } catch (e) {
@@ -91,15 +94,18 @@ export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubro
           title="Configurar rubros visibles"
           className={cn(
             "relative h-8 w-8 flex items-center justify-center rounded-lg border transition-all shrink-0",
-            ocultoCount > 0
+            hayOcultos
               ? "border-zinc-400 dark:border-zinc-500 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-200 dark:hover:bg-zinc-700"
               : "border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600"
           )}
         >
           <Settings2 className="w-3.5 h-3.5" />
-          {ocultoCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 dark:bg-zinc-100 text-[9px] font-bold leading-none text-white dark:text-zinc-900">
-              {ocultoCount}
+          {hayOcultos && (
+            <span
+              title={`${visibleCount} visible${visibleCount === 1 ? "" : "s"} de ${rubros.length}`}
+              className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-zinc-800 dark:bg-zinc-100 text-[9px] font-bold leading-none text-white dark:text-zinc-900"
+            >
+              {visibleCount}
             </span>
           )}
         </button>
