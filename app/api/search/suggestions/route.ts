@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 
@@ -15,26 +15,35 @@ export type Suggestion = {
   rubroCodigo?: string; // solo para type === "concepto"
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const denied = await requireAuth();
   if (denied) return denied;
+
+  // Sin query: preview alfabético acotado (pantalla "Buscar en" antes de tipear).
+  // Con query: búsqueda real sobre toda la tabla vía ILIKE, no limitada por el preview.
+  const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
+  const sanitizedQ = q.replace(/[%_\\]/g, "\\$&"); // escapa wildcards de ILIKE
+  const textFilter = q.length > 0 ? { contains: sanitizedQ, mode: "insensitive" as const } : undefined;
 
   try {
     const [rubros, conceptos, proveedores] = await Promise.all([
       prisma.rubroConceptoCaja.findMany({
         select: { codigo: true, nombre: true },
+        where: textFilter ? { nombre: textFilter } : undefined,
         orderBy: { nombre: "asc" },
-        take: 500,
+        take: textFilter ? 50 : 500,
       }),
       prisma.conceptoCaja.findMany({
         select: { codigo: true, nombre: true, rubro: { select: { codigo: true, nombre: true } } },
+        where: textFilter ? { nombre: textFilter } : undefined,
         orderBy: { nombre: "asc" },
-        take: 500,
+        take: textFilter ? 50 : 500,
       }),
       prisma.proveedor.findMany({
         select: { id: true, nombre: true, razon: true },
+        where: textFilter ? { OR: [{ nombre: textFilter }, { razon: textFilter }] } : undefined,
         orderBy: [{ nombre: "asc" }],
-        take: 200,
+        take: textFilter ? 50 : 200,
       }),
     ]);
 

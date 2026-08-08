@@ -40,38 +40,62 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   const { setSearch } = useDashboard();
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<SuggestionType | null>(null);
+
+  // Resultados de búsqueda por texto (rubros/conceptos/proveedores), fetched on demand
+  const [searchResults, setSearchResults] = useState<Suggestion[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Observaciones — fetched on demand
   const [observaciones, setObservaciones] = useState<ObservacionResult[]>([]);
   const [obsLoading, setObsLoading] = useState(false);
   const obsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Preview inicial (pantalla "Buscar en" antes de tipear) — acotado, no es la búsqueda real
+  const loading = open && !loaded;
   useEffect(() => {
     if (!open || loaded) return;
     const controller = new AbortController();
-    setLoading(true);
     fetch("/api/search/suggestions", { signal: controller.signal })
       .then((r) => r.json())
       .then((data: Suggestion[]) => {
         setSuggestions(Array.isArray(data) ? data : []);
         setLoaded(true);
       })
-      .catch((err) => { if (err.name !== "AbortError") console.error(err); })
-      .finally(() => setLoading(false));
+      .catch((err) => { if (err.name !== "AbortError") console.error(err); });
     return () => controller.abort();
   }, [open, loaded]);
 
-  // Fetch observaciones with debounce when query changes
+  // Búsqueda real: al tipear, consulta server-side sobre toda la tabla (no el preview acotado).
+  // Por debajo de 2 caracteres no fetcheamos; sourceSuggestions ya ignora searchResults en ese caso.
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    const q = query.trim();
+    if (q.length < 2) return;
+    const controller = new AbortController();
+    searchTimerRef.current = setTimeout(() => {
+      setSearchLoading(true);
+      fetch(`/api/search/suggestions?q=${encodeURIComponent(q)}`, { signal: controller.signal })
+        .then((r) => r.json())
+        .then((data: Suggestion[]) => setSearchResults(Array.isArray(data) ? data : []))
+        .catch((err) => { if (err.name !== "AbortError") console.error(err); })
+        .finally(() => setSearchLoading(false));
+    }, 300);
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      controller.abort();
+    };
+  }, [query]);
+
+  // Fetch observaciones with debounce when query changes.
+  // Por debajo de 2 caracteres (o con otra categoría filtrada) no fetcheamos;
+  // visibleObservaciones ya ignora observaciones en esos casos.
   useEffect(() => {
     if (obsTimerRef.current) clearTimeout(obsTimerRef.current);
     const q = query.trim();
-    if (q.length < 2 || (typeFilter !== null && typeFilter !== "observacion")) {
-      setObservaciones([]);
-      return;
-    }
+    if (q.length < 2 || (typeFilter !== null && typeFilter !== "observacion")) return;
     const controller = new AbortController();
     obsTimerRef.current = setTimeout(() => {
       setObsLoading(true);
@@ -89,7 +113,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
 
   const handleClose = useCallback(
     (v: boolean) => {
-      if (!v) { setQuery(""); setTypeFilter(null); setObservaciones([]); }
+      if (!v) { setQuery(""); setTypeFilter(null); setObservaciones([]); setSearchResults([]); }
       onOpenChange(v);
     },
     [onOpenChange]
@@ -111,28 +135,43 @@ export function CommandPalette({ open, onOpenChange }: Props) {
     [setSearch, handleClose]
   );
 
+  // observaciones no se limpia sincrónicamente al acortar la query (evita setState directo
+  // en el efecto); en vez de eso, se ignora acá salvo que la query/categoría actual la habiliten.
+  const visibleObservaciones = useMemo(
+    () =>
+      query.trim().length >= 2 && (typeFilter === null || typeFilter === "observacion")
+        ? observaciones
+        : [],
+    [query, typeFilter, observaciones]
+  );
+
   const counts = useMemo(
     () => ({
       ...TYPE_ORDER.reduce(
         (acc, t) => ({ ...acc, [t]: suggestions.filter((s) => s.type === t).length }),
         {} as Record<SuggestionType, number>
       ),
-      observacion: observaciones.length,
+      observacion: visibleObservaciones.length,
     }),
-    [suggestions, observaciones]
+    [suggestions, visibleObservaciones]
   );
 
-  const visibleTypes = typeFilter ? [typeFilter] : TYPE_ORDER;
+  const visibleTypes = useMemo(() => (typeFilter ? [typeFilter] : TYPE_ORDER), [typeFilter]);
   const showResults = query.trim().length > 0 || typeFilter !== null;
+
+  // Con >=2 caracteres tipeados usamos la búsqueda real (server-side, no acotada por el preview);
+  // por debajo de eso (o al navegar una categoría sin tipear) usamos el preview ya cargado.
+  const usingSearchResults = query.trim().length >= 2;
+  const sourceSuggestions = usingSearchResults ? searchResults : suggestions;
 
   const grouped = useMemo(
     () =>
       visibleTypes.map((type) => ({
         type,
         cfg: TYPE_CONFIG[type],
-        items: type === "observacion" ? [] : suggestions.filter((s) => s.type === type),
+        items: type === "observacion" ? [] : sourceSuggestions.filter((s) => s.type === type),
       })),
-    [suggestions, typeFilter]
+    [sourceSuggestions, visibleTypes]
   );
 
   return (
@@ -198,7 +237,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
 
                 {!(typeFilter === "observacion" && !query.trim()) && (
                   <CommandEmpty className="py-8 text-center text-sm text-muted-foreground/50">
-                    {obsLoading ? "Buscando…" : `Sin resultados para "${query}"`}
+                    {obsLoading || searchLoading ? "Buscando…" : `Sin resultados para "${query}"`}
                   </CommandEmpty>
                 )}
                 {grouped.map(({ type, cfg, items }, idx) => {
@@ -234,14 +273,14 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                 })}
 
                 {/* Observaciones group */}
-                {(typeFilter === null || typeFilter === "observacion") && observaciones.length > 0 && (
+                {visibleObservaciones.length > 0 && (
                   <>
                     <CommandSeparator className="bg-border/30" />
                     <CommandGroup
                       heading="Observaciones"
                       className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground/40 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2"
                     >
-                      {observaciones.map((obs) => {
+                      {visibleObservaciones.map((obs) => {
                         const cfg = TYPE_CONFIG.observacion;
                         const Icon = cfg.icon;
                         const dateParts = obs.fecha
