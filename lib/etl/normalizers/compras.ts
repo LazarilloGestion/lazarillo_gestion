@@ -116,11 +116,21 @@ export async function normalizeCompras(
   );
 
   const codigosConcepto = [...new Set(filtered.map((pr) => pr.data.COD_CGA).filter((v): v is string => v != null))];
-  const conceptoSet = new Set(
-    (await prisma.conceptoCaja.findMany({
-      where: { codigo: { in: codigosConcepto } },
-      select: { codigo: true },
-    })).map((c) => c.codigo)
+  const conceptosInfo = await prisma.conceptoCaja.findMany({
+    where: { codigo: { in: codigosConcepto } },
+    select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } },
+  });
+  const conceptoSet = new Set(conceptosInfo.map((c) => c.codigo));
+
+  // Gastos de personal (rubro "Gastos En Personal" / concepto "Liquidacion Sueldo"):
+  // el CODIGO de la fila es un identificador de empleado de la planilla de origen,
+  // no un código de proveedor — puede colisionar por casualidad con un Proveedor real
+  // del maestro. Para estas filas nunca resolvemos proveedorId contra el maestro; el
+  // nombre correcto ya viene en el texto propio de la fila (columna proveedor).
+  const codigosGastoPersonal = new Set(
+    conceptosInfo
+      .filter((c) => c.rubro?.nombre === "Gastos En Personal" && c.nombre === "Liquidacion Sueldo")
+      .map((c) => c.codigo)
   );
 
   const localId = ctx?.localId ?? null;
@@ -142,7 +152,8 @@ export async function normalizeCompras(
 
     try {
       const rowValues = chunk.map(({ rowId, row, data }) => {
-        const proveedorId = data.CODIGO != null ? provMap.get(data.CODIGO) ?? null : null;
+        const proveedorId =
+          data.CODIGO != null && !codigosGastoPersonal.has(data.COD_CGA) ? provMap.get(data.CODIGO) ?? null : null;
         const conceptoCodigo = conceptoSet.has(data.COD_CGA) ? data.COD_CGA : null;
 
         return Prisma.sql`(
