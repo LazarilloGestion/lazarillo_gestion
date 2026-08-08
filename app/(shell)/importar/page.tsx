@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { notify } from "@/lib/toast";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -16,12 +17,6 @@ import { translateError } from "@/lib/etl/error-messages";
 import type { DriveFile, DriveConfig, DriveFilesResponse } from "@/lib/drive/types";
 
 // ── tipos ────────────────────────────────────────────────────────────────────
-
-type DriveFilesState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "ready"; data: DriveFilesResponse }
-  | { status: "error"; message: string };
 
 type FileImportStatus = "idle" | "importing" | "success" | "error";
 type FileStates = Record<string, FileImportStatus>;
@@ -115,8 +110,6 @@ function DriveTab({
   const [savingConfig, setSavingConfig] = useState(false);
   const [configError, setConfigError] = useState("");
 
-  const [filesState, setFilesState] = useState<DriveFilesState>({ status: "idle" });
-
   const [fileStatuses, setFileStatuses] = useState<FileStates>({});
   const [fileReports, setFileReports] = useState<FileReports>({});
   const [fileErrors, setFileErrors] = useState<FileErrors>({});
@@ -130,23 +123,24 @@ function DriveTab({
       .finally(() => setConfigLoading(false));
   }, []);
 
-  const loadFiles = useCallback(() => {
-    setFilesState({ status: "loading" });
+  const filesQuery = useQuery<DriveFilesResponse>({
+    queryKey: ["drive-files", config?.folder_id],
+    queryFn: async () => {
+      const r = await fetch("/api/drive/files");
+      const d = await r.json() as DriveFilesResponse & { error?: string };
+      if (d.error) throw new Error(d.error);
+      return { maestros: d.maestros ?? [], folders: d.folders ?? [] };
+    },
+    enabled: !configLoading && !!config?.folder_id,
+    retry: false,
+  });
+
+  function loadFiles() {
     setFileStatuses({});
     setFileReports({});
     setFileErrors({});
-    fetch("/api/drive/files")
-      .then((r) => r.json() as Promise<DriveFilesResponse & { error?: string }>)
-      .then((d) => {
-        if (d.error) setFilesState({ status: "error", message: d.error });
-        else setFilesState({ status: "ready", data: { maestros: d.maestros ?? [], folders: d.folders ?? [] } });
-      })
-      .catch(() => setFilesState({ status: "error", message: "Error de red" }));
-  }, []);
-
-  useEffect(() => {
-    if (!configLoading && config?.folder_id) loadFiles();
-  }, [configLoading, config?.folder_id, loadFiles]);
+    filesQuery.refetch();
+  }
 
   const isImporting = Object.values(fileStatuses).some((s) => s === "importing");
 
@@ -284,7 +278,7 @@ function DriveTab({
     setFileErrors((e) => { const n = { ...e }; delete n[fileId]; return n; });
   }
 
-  const ready = filesState.status === "ready" ? filesState.data : null;
+  const ready = filesQuery.data ?? null;
 
   if (configLoading) {
     // Skeleton del box "Carpeta de Drive" mientras carga la config.
@@ -366,27 +360,27 @@ function DriveTab({
       </div>
 
       {/* Estados de carga */}
-      {filesState.status === "loading" && (
+      {filesQuery.isPending && filesQuery.fetchStatus !== "idle" && (
         <div className="flex items-center justify-center py-12">
           <Spinner size="lg" />
         </div>
       )}
-      {filesState.status === "error" && (
+      {filesQuery.isError && (
         <div className="flex flex-col gap-2 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3">
           <div className="flex items-start gap-3">
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-destructive" />
-            <p className="text-sm text-destructive">{filesState.message}</p>
+            <p className="text-sm text-destructive">{filesQuery.error.message}</p>
           </div>
-          {(filesState.message.toLowerCase().includes("token") ||
-            filesState.message.toLowerCase().includes("revoc") ||
-            filesState.message.toLowerCase().includes("sesión")) && (
+          {(filesQuery.error.message.toLowerCase().includes("token") ||
+            filesQuery.error.message.toLowerCase().includes("revoc") ||
+            filesQuery.error.message.toLowerCase().includes("sesión")) && (
             <ReconectarDriveButton />
           )}
         </div>
       )}
 
       {/* Botones de acción global */}
-      {config?.folder_id && filesState.status !== "loading" && (
+      {config?.folder_id && !(filesQuery.isPending && filesQuery.fetchStatus !== "idle") && (
         <div className="flex items-center justify-end gap-3">
           {ready && (() => {
             const allFiles = [...ready.maestros, ...ready.folders.filter((f) => f.localId).flatMap((f) => f.files)];

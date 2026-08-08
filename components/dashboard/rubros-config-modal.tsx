@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { notify } from "@/lib/toast";
 import { useDashboard } from "@/hooks/use-dashboard-store";
+import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { Settings2, Inbox } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
@@ -33,36 +35,25 @@ export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubro
   const bumpConfig = isResultados ? bumpResultadosConfig : bumpRubroConfig;
 
   const [open, setOpen] = useState(false);
-  const [rubros, setRubros] = useState<RubroVisibilidad[]>([]);
+  const [saving, setSaving] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  // Una sola query sirve para poblar el badge (sin abrir el modal) y la lista del modal;
+  // TanStack Query cachea entre aperturas en vez de refetchear cada vez.
+  const queryKey = ["rubros-dashboard", field];
+  const { data, isLoading: loading, error } = useFetchQuery<RubroVisibilidad[]>(
+    queryKey,
+    `/api/config/rubros-dashboard?field=${field}`
+  );
+  const rubros = data ?? [];
   // Badge de alerta: solo aparece si hay al menos un rubro apagado (igual que antes),
   // pero ahora muestra cuántos SÍ están visibles en vez de cuántos están ocultos.
   const hayOcultos = rubros.length > 0 && visibleCount < rubros.length;
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState<string | null>(null);
 
-  const fetchRubros = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    fetch(`/api/config/rubros-dashboard?field=${field}`)
-      .then(async (r) => {
-        const text = await r.text();
-        if (!text) throw new Error(`Respuesta vacía (HTTP ${r.status})`);
-        const data = JSON.parse(text);
-        if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
-        const list: RubroVisibilidad[] = Array.isArray(data) ? data : [];
-        setRubros(list);
-        setVisibleCount(list.filter((r) => r.visible).length);
-      })
-      .catch((e) => { console.error(e); setError(e.message); })
-      .finally(() => setLoading(false));
-  }, [field, setVisibleCount]);
-
-  // Mount: fetcha para poblar el badge count sin abrir el modal.
-  useEffect(() => { fetchRubros(); }, [fetchRubros]);
-
-  // Open: fetcha para lista fresca cada vez que se abre.
-  useEffect(() => { if (open) fetchRubros(); }, [open, fetchRubros]);
+  // Mantiene el count del badge (store) sincronizado con lo que trae la query.
+  useEffect(() => {
+    if (data) setVisibleCount(data.filter((r) => r.visible).length);
+  }, [data, setVisibleCount]);
 
   async function toggleRubro(codigo: string, visible: boolean) {
     const nombre = rubros.find((r) => r.codigo === codigo)?.nombre ?? codigo;
@@ -75,7 +66,7 @@ export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubro
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const next = rubros.map((r) => (r.codigo === codigo ? { ...r, visible } : r));
-      setRubros(next);
+      queryClient.setQueryData(queryKey, next);
       setVisibleCount(next.filter((r) => r.visible).length);
       bumpConfig();
       notify.rubroVisibilidad(nombre, visible);
@@ -128,7 +119,7 @@ export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubro
             <div className="py-8 flex justify-center"><Spinner size="lg" /></div>
           ) : error ? (
             <div className="py-8 text-center text-sm text-destructive">
-              Error: {error}
+              Error: {error.message}
             </div>
           ) : rubros.length === 0 ? (
             <div className="py-8 flex flex-col items-center gap-2 text-sm text-muted-foreground">
