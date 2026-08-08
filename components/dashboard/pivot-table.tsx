@@ -93,7 +93,7 @@ export function PivotTable() {
                   </button>
                 </th>
               ))}
-              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-bold text-base min-w-[110px] whitespace-nowrap">
+              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-semibold text-[15px] min-w-[110px] whitespace-nowrap">
                 <button
                   onClick={() => handleSortClick("total")}
                   className={cn(
@@ -152,7 +152,7 @@ export function PivotTable() {
                       </td>
                     ))}
                     <td
-                      className="text-right px-4 py-2.5 tabular-nums font-bold text-base bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary"
+                      className="text-right px-4 py-2.5 tabular-nums font-semibold text-[15px] bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary"
                       onClick={(e) => {
                         e.stopPropagation();
                         openDetalle({ rubroCodigo: rubro.rubroCodigo });
@@ -230,7 +230,7 @@ export function PivotTable() {
                       : "hover:bg-accent/20"
                   )}
                 >
-                  <td className={cn("sticky left-0 z-10 px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", prov.hasManualOverride ? "text-attention bg-attention/5" : "text-muted-foreground bg-background")}>
+                  <td className={cn("sticky left-0 z-10 bg-background px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", prov.hasManualOverride ? "text-attention" : "text-muted-foreground")}>
                     <span className="flex items-center gap-1.5">
                       {prov.hasManualOverride && <EditedDot />}
                       {labelParts.join(' · ')}
@@ -266,7 +266,7 @@ export function PivotTable() {
           </tbody>
 
           <tfoot>
-            <tr className="border-t-2 bg-muted font-bold text-base">
+            <tr className="border-t-2 bg-muted font-semibold text-[15px]">
               <td className="sticky left-0 z-10 bg-muted px-4 py-3 shadow-[1px_0_0_0_hsl(var(--border))]">
                 Total {year}
               </td>

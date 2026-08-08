@@ -1,4 +1,7 @@
 import { cn, fmtARS } from "@/lib/utils";
+import { heatmapFill } from "@/lib/dashboard/resultados-calc";
+import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
+import { StickyCardCell } from "./sticky-card-cell";
 
 type KpiBlockProps = {
   months: number[];
@@ -21,37 +24,31 @@ export function KpiBlock({
   onIngresoCellClick,
   onIngresoTotalClick,
 }: KpiBlockProps) {
-  const maxIngresos = Math.max(...months.map((m) => ingresosPorMes[m] ?? 0), 1);
-
-  function ingresosColor(mes: number): string {
-    const v = ingresosPorMes[mes] ?? 0;
-    const ratio = v / maxIngresos;
-    const lightness = Math.round(88 - ratio * 40);
-    return `hsl(142 60% ${lightness}%)`;
-  }
+  const ingresosVisibles = months.map((m) => ingresosPorMes[m]).filter((v): v is number => v != null && v > 0);
+  const minIngresos = ingresosVisibles.length ? Math.min(...ingresosVisibles) : 0;
+  const maxIngresos = ingresosVisibles.length ? Math.max(...ingresosVisibles) : 1;
 
   return (
     <>
-      <tr className="border-b">
-        <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+      <tr>
+        <StickyCardCell position="first" className="px-4 py-1.5 text-[15px] font-semibold text-muted-foreground whitespace-nowrap">
           Ingresos
-        </td>
+        </StickyCardCell>
         {months.map((mes) => {
           const val = ingresosPorMes[mes];
           const hasVal = val != null && val > 0;
           const hasHeatmap = ingresosReady && hasVal;
+          const fill = hasHeatmap ? heatmapFill(val, minIngresos, maxIngresos) : null;
           return (
             <td
               key={mes}
               className={cn(
-                "text-right px-3 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap transition-opacity",
-                !hasHeatmap && (val == null ? "text-muted-foreground/40" : "text-success"),
+                "text-right px-3 py-1.5 text-[15px] font-semibold tabular-nums whitespace-nowrap transition-opacity",
+                cardCellClasses("first", "mid"),
+                !fill && (val == null ? "text-muted-foreground/40" : "text-[#159457]"),
                 hasVal && onIngresoCellClick && "cursor-pointer hover:opacity-75"
               )}
-              style={{
-                backgroundColor: hasHeatmap ? ingresosColor(mes) : undefined,
-                color: hasHeatmap ? "hsl(142 55% 28%)" : undefined,
-              }}
+              style={fill ? { backgroundColor: fill.background, color: fill.foreground } : undefined}
               onClick={() => { if (hasVal) onIngresoCellClick?.(mes); }}
             >
               {fmtARS(val)}
@@ -60,35 +57,36 @@ export function KpiBlock({
         })}
         <td
           className={cn(
-            "text-right px-4 py-1.5 text-sm font-bold tabular-nums text-success whitespace-nowrap",
+            "text-right px-4 py-1.5 text-[15px] font-semibold tabular-nums text-[#159457] whitespace-nowrap",
+            cardCellClasses("first", "mid"),
             ingresosTotal && onIngresoTotalClick && "cursor-pointer hover:opacity-75"
           )}
           onClick={() => { if (ingresosTotal) onIngresoTotalClick?.(); }}
         >
           {fmtARS(ingresosTotal)}
         </td>
-        <td />
+        <td className={cardCellClasses("first", "right")} />
       </tr>
 
-      <tr className="border-b">
-        <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+      <tr>
+        <StickyCardCell position="middle" className="px-4 py-1.5 font-medium text-muted-foreground whitespace-nowrap">
           Egresos
-        </td>
+        </StickyCardCell>
         {months.map((mes) => (
-          <td key={mes} className="text-right px-3 py-1.5 text-xs tabular-nums text-muted-foreground whitespace-nowrap">
+          <td key={mes} className={cn("text-right px-3 py-1.5 tabular-nums text-muted-foreground whitespace-nowrap", cardCellClasses("middle", "mid"))}>
             {fmtARS(egresosPorMes[mes])}
           </td>
         ))}
-        <td className="text-right px-4 py-1.5 text-sm font-medium tabular-nums text-muted-foreground whitespace-nowrap">
+        <td className={cn("text-right px-4 py-1.5 font-medium tabular-nums text-muted-foreground whitespace-nowrap", cardCellClasses("middle", "mid"))}>
           {fmtARS(egresosTotal)}
         </td>
-        <td />
+        <td className={cardCellClasses("middle", "right")} />
       </tr>
 
-      <tr className="border-b">
-        <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-bold whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+      <tr>
+        <StickyCardCell position="middle" className="px-4 py-1.5 font-bold whitespace-nowrap">
           Resultado OP
-        </td>
+        </StickyCardCell>
         {months.map((mes) => {
           const ingVal = ingresosPorMes[mes];
           const egrVal = egresosPorMes[mes];
@@ -98,7 +96,8 @@ export function KpiBlock({
             <td
               key={mes}
               className={cn(
-                "text-right px-3 py-1.5 text-xs font-semibold tabular-nums whitespace-nowrap",
+                "text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap",
+                cardCellClasses("middle", "mid"),
                 noData ? "text-muted-foreground/40" : res < 0 ? "text-destructive" : "text-foreground"
               )}
             >
@@ -109,25 +108,26 @@ export function KpiBlock({
         {(() => {
           const res = (ingresosTotal ?? 0) - egresosTotal;
           return (
-            <td className={cn("text-right px-4 py-1.5 text-sm font-bold tabular-nums whitespace-nowrap", res < 0 ? "text-destructive" : "text-foreground")}>
+            <td className={cn("text-right px-4 py-1.5 font-bold tabular-nums whitespace-nowrap", cardCellClasses("middle", "mid"), res < 0 ? "text-destructive" : "text-foreground")}>
               {fmtARS(res || undefined)}
             </td>
           );
         })()}
-        <td />
+        <td className={cardCellClasses("middle", "right")} />
       </tr>
 
-      <tr className="border-b-2">
-        <td className="sticky left-0 z-10 bg-background px-4 py-1.5 text-sm font-medium text-muted-foreground whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+      <tr>
+        <StickyCardCell position="last" className="px-4 py-1.5 font-medium text-muted-foreground whitespace-nowrap">
           Gastos / Ventas
-        </td>
+        </StickyCardCell>
         {months.map((mes) => {
           const ing = ingresosPorMes[mes] ?? 0;
           const egr = egresosPorMes[mes] ?? 0;
           const ratio = ing > 0 ? (egr / ing) * 100 : null;
           return (
             <td key={mes} className={cn(
-              "text-right px-3 py-1.5 text-xs font-medium tabular-nums whitespace-nowrap",
+              "text-right px-3 py-1.5 font-medium tabular-nums whitespace-nowrap",
+              cardCellClasses("last", "mid"),
               ratio === null ? "text-muted-foreground/40"
                 : ratio > 90 ? "text-destructive"
                 : ratio > 60 ? "text-warning"
@@ -141,7 +141,8 @@ export function KpiBlock({
           const ratio = (ingresosTotal ?? 0) > 0 ? (egresosTotal / (ingresosTotal ?? 0)) * 100 : null;
           return (
             <td className={cn(
-              "text-right px-4 py-1.5 text-sm font-semibold tabular-nums whitespace-nowrap",
+              "text-right px-4 py-1.5 font-semibold tabular-nums whitespace-nowrap",
+              cardCellClasses("last", "mid"),
               ratio === null ? "text-muted-foreground/40"
                 : ratio > 90 ? "text-destructive"
                 : ratio > 60 ? "text-warning"
@@ -151,7 +152,7 @@ export function KpiBlock({
             </td>
           );
         })()}
-        <td />
+        <td className={cardCellClasses("last", "right")} />
       </tr>
     </>
   );

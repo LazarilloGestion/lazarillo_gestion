@@ -8,7 +8,11 @@ import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { pctSobreIngresos } from "@/lib/dashboard/resultados-calc";
 import { PivotLoading, PivotError } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
-import { SocietarioCajaRows, SectionDivider } from "./societario-caja-rows";
+import { CajaRows } from "./caja-rows";
+import { SocietarioRows } from "./societario-rows";
+import { SectionDivider } from "./section-divider";
+import { StickyCardCell } from "./sticky-card-cell";
+import { cardCellClasses, CARD_GAP_HEIGHT } from "@/lib/dashboard/card-row-classes";
 import { EditedDot } from "./edit-row-controls";
 import type { PivotRubroRow, PivotConceptoRow } from "@/lib/dashboard/types";
 import { ComprasDetalleModal } from "./compras-detalle-modal";
@@ -30,99 +34,116 @@ export function ResultadosPivotTable() {
   const ingresosPorMes = ventasData?.columnTotals ?? {};
   const egresosPorMes = operacion.data.columnTotals;
   const gananciaPorMes = data.columnTotals;
+  const colSpan = months.length + 3; // label + meses + total + % ing
 
   return (
     <>
-      <div className="overflow-auto flex-1 min-h-0">
-        <table className="w-full text-sm border-separate border-spacing-0">
-          <thead>
-            <tr className="bg-muted border-b">
-              <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
-                Concepto / Proveedor
-              </th>
-              {months.map((idx) => (
-                <th
-                  key={idx}
-                  className="sticky top-0 z-20 bg-muted text-right px-3 py-3 font-medium min-w-[90px] whitespace-nowrap"
-                >
+      {/* El padding vive en este wrapper (sin scroll), no en el div con overflow-auto: position:sticky
+          se calcula mal en Chrome cuando el propio contenedor scrolleable tiene padding, y el header/columna
+          sticky dejan pasar contenido por detrás tanto en scroll vertical como horizontal. */}
+      <div className="flex-1 min-h-0 p-2.5 overflow-hidden">
+        <div className="overflow-auto h-full">
+          <table className="w-full text-sm border-separate border-spacing-0">
+            <thead>
+              <tr className="bg-muted border-b">
+                <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+                  Operación
+                </th>
+                {months.map((idx) => (
+                  <th
+                    key={idx}
+                    className="sticky top-0 z-20 bg-muted text-right px-3 py-3 font-medium min-w-[90px] whitespace-nowrap"
+                  >
+                    <button
+                      onClick={() => handleSortClick(idx)}
+                      className={cn(
+                        "inline-flex items-center gap-1 ml-auto hover:text-foreground transition-colors",
+                        sortCol === idx ? "text-foreground" : "text-muted-foreground"
+                      )}
+                    >
+                      {MONTHS[idx - 1]}
+                      {sortCol === idx ? (
+                        sortDir === "desc" ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />
+                      ) : (
+                        sortDir === "desc" ? <ChevronDown className="w-3 h-3 opacity-40" /> : <ChevronUp className="w-3 h-3 opacity-40" />
+                      )}
+                    </button>
+                  </th>
+                ))}
+                <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-semibold text-[15px] min-w-[110px] whitespace-nowrap">
                   <button
-                    onClick={() => handleSortClick(idx)}
+                    onClick={() => handleSortClick("total")}
                     className={cn(
                       "inline-flex items-center gap-1 ml-auto hover:text-foreground transition-colors",
-                      sortCol === idx ? "text-foreground" : "text-muted-foreground"
+                      sortCol === "total" ? "text-foreground" : "text-muted-foreground"
                     )}
                   >
-                    {MONTHS[idx - 1]}
-                    {sortCol === idx ? (
+                    Total
+                    {sortCol === "total" ? (
                       sortDir === "desc" ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />
                     ) : (
                       sortDir === "desc" ? <ChevronDown className="w-3 h-3 opacity-40" /> : <ChevronUp className="w-3 h-3 opacity-40" />
                     )}
                   </button>
                 </th>
-              ))}
-              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-bold text-base min-w-[110px] whitespace-nowrap">
-                <button
-                  onClick={() => handleSortClick("total")}
-                  className={cn(
-                    "inline-flex items-center gap-1 ml-auto hover:text-foreground transition-colors",
-                    sortCol === "total" ? "text-foreground" : "text-muted-foreground"
-                  )}
-                >
-                  Total
-                  {sortCol === "total" ? (
-                    sortDir === "desc" ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />
-                  ) : (
-                    sortDir === "desc" ? <ChevronDown className="w-3 h-3 opacity-40" /> : <ChevronUp className="w-3 h-3 opacity-40" />
-                  )}
-                </button>
-              </th>
-              <th className="sticky top-0 z-20 bg-muted text-right px-3 py-3 font-medium text-muted-foreground min-w-[64px] whitespace-nowrap">
-                % ing
-              </th>
-            </tr>
-
-            <KpiBlock
-              months={months}
-              ingresosPorMes={ingresosPorMes}
-              egresosPorMes={egresosPorMes}
-              ingresosTotal={ventasData?.grandTotal}
-              egresosTotal={operacion.data.grandTotal}
-              ingresosReady={!!ventasData}
-              onIngresoCellClick={(mes) => setVentasDetalleFilter({ year, localId, pdvId, mes })}
-              onIngresoTotalClick={() => setVentasDetalleFilter({ year, localId, pdvId })}
-            />
-
-            <SocietarioCajaRows
-              year={year}
-              localId={localId}
-              pdvId={pdvId}
-              months={months}
-              ingresosPorMes={ingresosPorMes}
-              ingresosTotal={ventasData?.grandTotal}
-              gananciaPorMes={gananciaPorMes}
-              gananciaTotal={data.grandTotal}
-              isEmpty={resultadosEmpty}
-            />
-          </thead>
-
-          <tbody>
-            {flatRows.length === 0 ? (
-              <tr>
-                <td colSpan={months.length + 3} className="py-12">
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <Inbox className="w-8 h-8 opacity-40" />
-                    <p className="text-sm text-center">
-                      No hay conceptos marcados como visibles en Resultados.<br />
-                      Usá el ícono de configuración para elegir cuáles mostrar.
-                    </p>
-                  </div>
-                </td>
+                <th className="sticky top-0 z-20 bg-muted text-right px-3 py-3 font-medium text-muted-foreground min-w-[64px] whitespace-nowrap">
+                  % ing
+                </th>
               </tr>
-            ) : (
-              <>
-                <SectionDivider label="Detalle" icon={ListTree} colSpan={months.length + 3} />
-                {flatRows.map((item) => {
+
+              <KpiBlock
+                months={months}
+                ingresosPorMes={ingresosPorMes}
+                egresosPorMes={egresosPorMes}
+                ingresosTotal={ventasData?.grandTotal}
+                egresosTotal={operacion.data.grandTotal}
+                ingresosReady={!!ventasData}
+                onIngresoCellClick={(mes) => setVentasDetalleFilter({ year, localId, pdvId, mes })}
+                onIngresoTotalClick={() => setVentasDetalleFilter({ year, localId, pdvId })}
+              />
+
+              <tr aria-hidden><td colSpan={colSpan} className={CARD_GAP_HEIGHT} /></tr>
+
+              <CajaRows
+                year={year}
+                localId={localId}
+                pdvId={pdvId}
+                months={months}
+                isEmpty={resultadosEmpty}
+              />
+
+              <tr aria-hidden><td colSpan={colSpan} className={CARD_GAP_HEIGHT} /></tr>
+
+              <SocietarioRows
+                months={months}
+                ingresosPorMes={ingresosPorMes}
+                ingresosTotal={ventasData?.grandTotal}
+                gananciaPorMes={gananciaPorMes}
+                gananciaTotal={data.grandTotal}
+                isEmpty={resultadosEmpty}
+              />
+
+              <tr aria-hidden><td colSpan={colSpan} className={CARD_GAP_HEIGHT} /></tr>
+            </thead>
+
+            <tbody>
+              <SectionDivider label="Detalle" icon={ListTree} colSpan={colSpan} topOfCard />
+              {flatRows.length === 0 ? (
+                <tr>
+                  <td colSpan={colSpan} className={cn("py-12 border-b border-l border-r border-black/[0.08] rounded-b-xl")}>
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <Inbox className="w-8 h-8 opacity-40" />
+                      <p className="text-sm text-center">
+                        No hay conceptos marcados como visibles en Resultados.<br />
+                        Usá el ícono de configuración para elegir cuáles mostrar.
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                flatRows.map((item, idx) => {
+                  const rowPosition = idx === flatRows.length - 1 ? "last" : "middle";
+
                   if (item.type === "rubro") {
                     const rubro = item.data as PivotRubroRow;
                     const isExpanded = expanded.has(rubro.id);
@@ -132,16 +153,17 @@ export function ResultadosPivotTable() {
                         className="border-b font-semibold"
                         onContextMenu={collapseAll}
                       >
-                        <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
+                        <StickyCardCell position={rowPosition} bg="bg-muted" className="px-4 py-2.5">
                           <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(rubro.id)}>
                             {rubro.nombre}
                           </ExpandableButton>
-                        </td>
+                        </StickyCardCell>
                         {months.map((mes) => (
                           <td
                             key={mes}
                             className={cn(
                               "text-right px-3 py-2.5 tabular-nums bg-muted/25 hover:bg-muted/50 transition-colors",
+                              cardCellClasses(rowPosition, "mid"),
                               hasValue(rubro.values[mes]) && "cursor-pointer hover:text-primary"
                             )}
                             onClick={(e) => {
@@ -154,7 +176,7 @@ export function ResultadosPivotTable() {
                           </td>
                         ))}
                         <td
-                          className="text-right px-4 py-2.5 tabular-nums font-bold text-base bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary"
+                          className={cn("text-right px-4 py-2.5 tabular-nums font-bold bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary", cardCellClasses(rowPosition, "mid"))}
                           onClick={(e) => {
                             e.stopPropagation();
                             openDetalle({ rubroCodigo: rubro.rubroCodigo });
@@ -162,13 +184,13 @@ export function ResultadosPivotTable() {
                         >
                           {fmtARS(rubro.rowTotal)}
                         </td>
-                        <td className="text-right px-3 py-2.5 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap bg-muted/25 hover:bg-muted/50 transition-colors">
+                        <td className={cn("text-right px-3 py-2.5 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap bg-muted/25 hover:bg-muted/50 transition-colors", cardCellClasses(rowPosition, "right"))}>
                           {pctSobreIngresos(rubro.rowTotal, ventasData?.grandTotal ?? 0)}
                         </td>
                       </tr>
                     );
                   }
-  
+
                   if (item.type === "concepto") {
                     const concepto = item.data as PivotConceptoRow;
                     const isExpanded = expanded.has(concepto.id);
@@ -178,16 +200,17 @@ export function ResultadosPivotTable() {
                         className="border-b hover:bg-accent/40 transition-colors"
                         onContextMenu={collapseConceptos}
                       >
-                        <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
+                        <StickyCardCell position={rowPosition} className="px-4 py-2">
                           <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(concepto.id)} indent="pl-5" iconSize="w-3.5 h-3.5">
                             {concepto.nombre}
                           </ExpandableButton>
-                        </td>
+                        </StickyCardCell>
                         {months.map((mes) => (
                           <td
                             key={mes}
                             className={cn(
                               "text-right px-3 py-2 tabular-nums text-muted-foreground",
+                              cardCellClasses(rowPosition, "mid"),
                               hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
                             )}
                             onClick={(e) => {
@@ -200,7 +223,7 @@ export function ResultadosPivotTable() {
                           </td>
                         ))}
                         <td
-                          className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
+                          className={cn("text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold cursor-pointer hover:text-foreground", cardCellClasses(rowPosition, "mid"))}
                           onClick={(e) => {
                             e.stopPropagation();
                             openDetalle({ conceptoCodigo: concepto.conceptoCodigo });
@@ -208,13 +231,13 @@ export function ResultadosPivotTable() {
                         >
                           {fmtARS(concepto.rowTotal)}
                         </td>
-                        <td className="text-right px-3 py-2 tabular-nums text-xs text-muted-foreground/50 whitespace-nowrap">
+                        <td className={cn("text-right px-3 py-2 tabular-nums text-xs text-muted-foreground/50 whitespace-nowrap", cardCellClasses(rowPosition, "right"))}>
                           {pctSobreIngresos(concepto.rowTotal, ventasData?.grandTotal ?? 0)}
                         </td>
                       </tr>
                     );
                   }
-  
+
                   const prov = item.data;
                   const labelParts = [
                     prov.fecha ? `${prov.fecha.slice(8, 10)}/${prov.fecha.slice(5, 7)}` : null,
@@ -232,17 +255,18 @@ export function ResultadosPivotTable() {
                           : "hover:bg-accent/20"
                       )}
                     >
-                      <td className={cn("sticky left-0 z-10 px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", prov.hasManualOverride ? "text-attention bg-attention/5" : "text-muted-foreground bg-background")}>
+                      <StickyCardCell position={rowPosition} className={cn("px-4 py-1.5 pl-14 text-xs", prov.hasManualOverride ? "text-attention" : "text-muted-foreground")}>
                         <span className="flex items-center gap-1.5">
                           {prov.hasManualOverride && <EditedDot />}
                           {labelParts.join(' · ')}
                         </span>
-                      </td>
+                      </StickyCardCell>
                       {months.map((mes) => (
                         <td
                           key={mes}
                           className={cn(
                             "text-right px-3 py-1.5 tabular-nums text-muted-foreground text-xs",
+                            cardCellClasses(rowPosition, "mid"),
                             hasValue(prov.values[mes]) && "cursor-pointer hover:text-foreground"
                           )}
                           onClick={() => {
@@ -254,21 +278,21 @@ export function ResultadosPivotTable() {
                         </td>
                       ))}
                       <td
-                        className="text-right px-4 py-1.5 tabular-nums text-muted-foreground text-xs cursor-pointer hover:text-foreground"
+                        className={cn("text-right px-4 py-1.5 tabular-nums text-muted-foreground text-xs cursor-pointer hover:text-foreground", cardCellClasses(rowPosition, "mid"))}
                         onClick={() => openDetalle({ rowId: prov.rowId })}
                       >
                         {fmtARS(prov.rowTotal)}
                       </td>
-                      <td className="text-right px-3 py-1.5 tabular-nums text-xs text-muted-foreground/40 whitespace-nowrap">
+                      <td className={cn("text-right px-3 py-1.5 tabular-nums text-xs text-muted-foreground/40 whitespace-nowrap", cardCellClasses(rowPosition, "right"))}>
                         {pctSobreIngresos(prov.rowTotal, ventasData?.grandTotal ?? 0)}
                       </td>
                     </tr>
                   );
-                })}
-              </>
-            )}
-          </tbody>
-        </table>
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <ComprasDetalleModal

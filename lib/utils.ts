@@ -15,18 +15,6 @@ export function fmtARS(value: number | undefined | null): string {
   return value != null ? ARS.format(value) : "—";
 }
 
-// Con decimales — solo para montos cargados manualmente (ej. Flujo de caja) donde los centavos importan.
-export const ARS_DECIMAL = new Intl.NumberFormat("es-AR", {
-  style: "currency",
-  currency: "ARS",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
-export function fmtARSDecimal(value: number | undefined | null): string {
-  return value != null ? ARS_DECIMAL.format(value) : "—";
-}
-
 export function fmtDate(date: string | Date | null | undefined): string {
   if (!date) return "—";
   return new Date(date).toLocaleDateString("es-AR", { timeZone: "UTC" });

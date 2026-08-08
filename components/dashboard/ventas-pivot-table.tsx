@@ -45,7 +45,7 @@ export function VentasPivotTable() {
 
   const flatRows = useMemo(
     () => (data ? flattenRows({ rows: sortedRows, columnTotals: data.columnTotals, grandTotal: data.grandTotal }, expanded, 2) : []),
-    [sortedRows, expanded]
+    [data, sortedRows, expanded]
   );
 
   const rubroIds = useMemo(() => new Set(sortedRows.map(r => r.id)), [sortedRows]);
@@ -88,7 +88,7 @@ export function VentasPivotTable() {
                   </button>
                 </th>
               ))}
-              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-bold text-base min-w-[110px] whitespace-nowrap">
+              <th className="sticky top-0 z-20 bg-muted text-right px-4 py-3 font-semibold text-[15px] min-w-[110px] whitespace-nowrap">
                 <button
                   onClick={() => handleSortClick("total")}
                   className={cn(
@@ -138,7 +138,7 @@ export function VentasPivotTable() {
                       </td>
                     ))}
                     <td
-                      className="text-right px-4 py-2.5 tabular-nums font-bold text-base cursor-pointer hover:text-primary"
+                      className="text-right px-4 py-2.5 tabular-nums font-semibold text-[15px] cursor-pointer hover:text-primary"
                       onClick={(e) => {
                         e.stopPropagation();
                         openDetalle({ tipoCodigo: tipo.rubroCodigo });
@@ -198,7 +198,7 @@ export function VentasPivotTable() {
           </tbody>
 
           <tfoot>
-            <tr className="border-t-2 bg-muted font-bold text-base">
+            <tr className="border-t-2 bg-muted font-semibold text-[15px]">
               <td className="sticky left-0 z-10 bg-muted px-4 py-3 shadow-[1px_0_0_0_hsl(var(--border))]">
                 Total {year}
               </td>

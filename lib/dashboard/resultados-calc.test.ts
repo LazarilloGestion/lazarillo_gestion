@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseMontoARS, pctSobreIngresos, diferenciaCaja, computeDiferenciaCajaAcumulada } from "./resultados-calc";
+import { parseMontoARS, pctSobreIngresos, diferenciaCaja, computeDiferenciaCajaAcumulada, heatmapFill, heatmapText } from "./resultados-calc";
 
 describe("parseMontoARS", () => {
   it("acepta coma como separador decimal", () => {
@@ -54,8 +54,8 @@ describe("diferenciaCaja", () => {
     expect(diferenciaCaja(undefined, undefined, undefined, undefined)).toBe(0);
   });
 
-  it("resta egresos, ganancia y flujo de caja de los ingresos", () => {
-    expect(diferenciaCaja(1000, 400, 100, 50)).toBe(450);
+  it("resta egresos y ganancia, suma flujo de caja, a los ingresos", () => {
+    expect(diferenciaCaja(1000, 400, 100, 50)).toBe(550);
   });
 
   it("mezcla de valores definidos e indefinidos trata los undefined como 0", () => {
@@ -64,6 +64,42 @@ describe("diferenciaCaja", () => {
 
   it("resultado negativo", () => {
     expect(diferenciaCaja(100, 500, 0, 0)).toBe(-400);
+  });
+});
+
+describe("heatmapFill", () => {
+  it("mínimo da el extremo rojo con texto blanco", () => {
+    expect(heatmapFill(0, 0, 100)).toEqual({ background: "#d64545", foreground: "#ffffff" });
+  });
+
+  it("máximo da el extremo verde con texto blanco", () => {
+    expect(heatmapFill(100, 0, 100)).toEqual({ background: "#1f9b59", foreground: "#ffffff" });
+  });
+
+  it("valor medio da el ámbar con texto oscuro (luminancia alta)", () => {
+    expect(heatmapFill(50, 0, 100)).toEqual({ background: "#f2c94c", foreground: "#1f1f1d" });
+  });
+
+  it("min === max (un solo mes visible) devuelve el punto medio, no un extremo", () => {
+    expect(heatmapFill(50, 50, 50)).toEqual({ background: "#f2c94c", foreground: "#1f1f1d" });
+  });
+});
+
+describe("heatmapText", () => {
+  it("mínimo da el rojo apagado", () => {
+    expect(heatmapText(0, 0, 100)).toBe("#be423c");
+  });
+
+  it("máximo da el verde apagado", () => {
+    expect(heatmapText(100, 0, 100)).toBe("#2e8554");
+  });
+
+  it("valor medio da el ámbar apagado", () => {
+    expect(heatmapText(50, 0, 100)).toBe("#a8832c");
+  });
+
+  it("min === max devuelve el punto medio", () => {
+    expect(heatmapText(7, 7, 7)).toBe("#a8832c");
   });
 });
 
