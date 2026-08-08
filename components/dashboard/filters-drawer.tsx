@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { CalendarDays, Building2, Store } from "lucide-react";
 import {

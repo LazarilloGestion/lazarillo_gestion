@@ -12,9 +12,12 @@ export function DashboardContent({ defaultOpen }: { defaultOpen: boolean }) {
   const [clipping, setClipping] = useState(!defaultOpen);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Sembrar el store con la preferencia del server una vez en cliente.
+  // Sembrar el store con la preferencia del server una vez en cliente. Necesita ser un
+  // Effect real (no se puede calcular en render): defaultOpen solo se conoce en el
+  // primer commit y showFilters vive en un store externo compartido con el header.
   useEffect(() => {
     setShowFilters(defaultOpen);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sembrado único post-hidratación, no un derived-state accidental
     setSeeded(true);
   }, [defaultOpen, setShowFilters]);
 

@@ -11,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { CommandPalette } from "@/components/dashboard/command-palette";
 import { RubrosConfigModal } from "@/components/dashboard/rubros-config-modal";
 import { MonthFilterDrawer } from "@/components/dashboard/month-filter-drawer";

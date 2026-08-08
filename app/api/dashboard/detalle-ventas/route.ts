@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { parseVentasParams } from "@/lib/dashboard/params";
 import { SIN_TIPO_CODE, SIN_COBRO_CODE } from "@/lib/dashboard/constants";
-import { z } from "zod";
 import { mesSchema, yearSchema, codigoSchema } from "@/lib/dashboard/schemas";
 import { buildDateRange } from "@/lib/dashboard/query-builders";
 
