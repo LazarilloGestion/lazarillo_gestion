@@ -1,5 +1,5 @@
 import { cn, fmtARS } from "@/lib/utils";
-import { pctSobreIngresos, heatmapText } from "@/lib/dashboard/resultados-calc";
+import { pctSobreIngresos, heatmapTextZeroAnchored, heatmapFillZeroAnchored } from "@/lib/dashboard/resultados-calc";
 import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
 import { SectionDivider } from "./section-divider";
 import { StickyCardCell } from "./sticky-card-cell";
@@ -22,8 +22,9 @@ export function SocietarioRows({
 }: SocietarioRowsProps) {
   const colSpan = months.length + 3; // label + meses + total + % ing
 
-  // Escala relativa por fila sobre el % de rentabilidad de cada mes visible (no sobre la
-  // ganancia cruda) — mismo criterio que pide el doc para el heatmap de Ingresos.
+  // Min/max del % de rentabilidad de cada mes visible, para heatmapTextZeroAnchored — misma
+  // escala anclada en 0 que la fila de Ganancia (heatmapFillZeroAnchored), para que ambas filas
+  // coincidan en qué meses pintan rojo.
   const pctPorMes = months.map((mes) => {
     const raw = gananciaPorMes[mes];
     if (isEmpty || raw == null) return null;
@@ -34,26 +35,34 @@ export function SocietarioRows({
   const minPct = pctValidos.length ? Math.min(...pctValidos) : 0;
   const maxPct = pctValidos.length ? Math.max(...pctValidos) : 0;
 
+  // Min/max de la ganancia cruda de cada mes visible, para heatmapFillZeroAnchored
+  // (escala anclada en 0, no en el mínimo de la fila — ver comentario del helper).
+  const gananciaVisible = months.map((m) => gananciaPorMes[m]).filter((v): v is number => v != null);
+  const minGanancia = gananciaVisible.length ? Math.min(...gananciaVisible) : 0;
+  const maxGanancia = gananciaVisible.length ? Math.max(...gananciaVisible) : 0;
+
   return (
     <>
       <SectionDivider label="Societario" icon={Users} colSpan={colSpan} topOfCard />
 
       <tr>
-        <StickyCardCell position="middle" bg="bg-success-muted" className="px-4 py-1.5 whitespace-nowrap text-[15px] font-semibold">
+        <StickyCardCell position="middle" className="px-4 py-1.5 whitespace-nowrap text-[15px] font-semibold">
           Ganancia
         </StickyCardCell>
         {months.map((mes) => {
           const raw = gananciaPorMes[mes];
           const gray = isEmpty || raw == null;
+          const fill = !gray ? heatmapFillZeroAnchored(raw, minGanancia, maxGanancia) : null;
           return (
             <td
               key={mes}
               className={cn(
                 VALUE_TD,
                 cardCellClasses("middle", "mid"),
-                "bg-success-muted text-[15px] font-semibold",
-                gray ? "text-muted-foreground/40" : (raw ?? 0) < 0 && "text-destructive"
+                "text-[15px] font-semibold",
+                !fill && (gray ? "text-muted-foreground/40" : "text-destructive")
               )}
+              style={fill ? { backgroundColor: fill.background, color: fill.foreground } : undefined}
             >
               {gray ? "—" : fmtARS(raw)}
             </td>
@@ -63,13 +72,13 @@ export function SocietarioRows({
           className={cn(
             TOTAL_TD,
             cardCellClasses("middle", "mid"),
-            "bg-success-muted text-[15px] font-semibold",
+            "text-[15px] font-semibold",
             isEmpty ? "text-muted-foreground/40" : gananciaTotal < 0 && "text-destructive"
           )}
         >
           {isEmpty ? "—" : fmtARS(gananciaTotal)}
         </td>
-        <td className={cn("bg-success-muted", cardCellClasses("middle", "right"))} />
+        <td className={cardCellClasses("middle", "right")} />
       </tr>
 
       <tr>
@@ -78,7 +87,7 @@ export function SocietarioRows({
           const raw = gananciaPorMes[mes];
           const pct = pctPorMes[i];
           const label = isEmpty || raw == null ? "—" : pctSobreIngresos(raw, ingresosPorMes[mes] ?? 0);
-          const color = pct != null ? heatmapText(pct, minPct, maxPct) : undefined;
+          const color = pct != null ? heatmapTextZeroAnchored(pct, minPct, maxPct) : undefined;
           return (
             <td key={mes} className={cn(VALUE_TD, cardCellClasses("last", "mid"))}>
               <span style={color ? { color } : undefined} className={cn(!color && "text-muted-foreground/40")}>{label}</span>

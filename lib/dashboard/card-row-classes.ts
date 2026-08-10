@@ -8,16 +8,26 @@ export type CardCellEdge = "left" | "right" | "mid";
 
 const BORDER = "border-black/[0.08]";
 
-export function cardCellClasses(position: CardRowPosition, edge: CardCellEdge): string {
+// `border` en false quita las líneas de borde pero conserva el redondeo de esquinas —
+// algunas tarjetas (p.ej. Compras) quieren el contenedor sin borde sin perder la forma.
+// `roundedTop` en false quita puntualmente el redondeo de arriba (p.ej. Resultados: la fila
+// de Ingresos queda pegada al header de la tabla, sin esquina).
+export function cardCellClasses(
+  position: CardRowPosition,
+  edge: CardCellEdge,
+  opts?: { border?: boolean; roundedTop?: boolean },
+): string {
+  const border = opts?.border ?? true;
+  const roundedTop = opts?.roundedTop ?? true;
   const isTop = position === "first" || position === "only";
   const isBottom = position === "last" || position === "only";
   const classes = [
-    isTop && `border-t ${BORDER}`,
-    isBottom && `border-b ${BORDER}`,
-    edge === "left" && `border-l ${BORDER}`,
-    edge === "right" && `border-r ${BORDER}`,
-    isTop && edge === "left" && "rounded-tl-xl",
-    isTop && edge === "right" && "rounded-tr-xl",
+    border && isTop && `border-t ${BORDER}`,
+    border && isBottom && `border-b ${BORDER}`,
+    border && edge === "left" && `border-l ${BORDER}`,
+    border && edge === "right" && `border-r ${BORDER}`,
+    isTop && roundedTop && edge === "left" && "rounded-tl-xl",
+    isTop && roundedTop && edge === "right" && "rounded-tr-xl",
     isBottom && edge === "left" && "rounded-bl-xl",
     isBottom && edge === "right" && "rounded-br-xl",
   ];

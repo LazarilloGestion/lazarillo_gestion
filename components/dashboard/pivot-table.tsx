@@ -65,6 +65,7 @@ export function PivotTable() {
               ingresosTotal={ventasData?.grandTotal}
               egresosTotal={data.grandTotal}
               ingresosReady={!!ventasData}
+              variant="borderless"
               onIngresoCellClick={(mes) => setVentasDetalleFilter({ year, localId, pdvId, mes })}
               onIngresoTotalClick={() => setVentasDetalleFilter({ year, localId, pdvId })}
             />
