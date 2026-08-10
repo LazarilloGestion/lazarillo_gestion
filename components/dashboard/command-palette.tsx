@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo, useRef, type ElementType } from "react";
+import React, { useEffect, useState, useCallback, useMemo, type ElementType } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
+import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { Layers, Tag, Truck, MessageSquare, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -31,6 +32,11 @@ const TYPE_CONFIG: Record<
 const TYPE_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor"];
 const CATEGORY_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor", "observacion"];
 
+// Referencias estables para no invalidar los useMemo de abajo en cada render
+// mientras la query todavía no trajo datos.
+const EMPTY_SUGGESTIONS: Suggestion[] = [];
+const EMPTY_OBSERVACIONES: ObservacionResult[] = [];
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -38,82 +44,44 @@ interface Props {
 
 export function CommandPalette({ open, onOpenChange }: Props) {
   const { setSearch } = useDashboard();
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<SuggestionType | null>(null);
 
-  // Resultados de búsqueda por texto (rubros/conceptos/proveedores), fetched on demand
-  const [searchResults, setSearchResults] = useState<Suggestion[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Preview inicial (pantalla "Buscar en" antes de tipear) — acotado, no es la búsqueda real.
+  // Cacheado por TanStack Query: no vuelve a pedirse en cada apertura del diálogo.
+  const { data: suggestionsData, isLoading: loading } = useFetchQuery<Suggestion[]>(
+    ["search-suggestions-preview"],
+    open ? "/api/search/suggestions" : null
+  );
+  const suggestions = suggestionsData ?? EMPTY_SUGGESTIONS;
 
-  // Observaciones — fetched on demand
-  const [observaciones, setObservaciones] = useState<ObservacionResult[]>([]);
-  const [obsLoading, setObsLoading] = useState(false);
-  const obsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Preview inicial (pantalla "Buscar en" antes de tipear) — acotado, no es la búsqueda real
-  const loading = open && !loaded;
-  useEffect(() => {
-    if (!open || loaded) return;
-    const controller = new AbortController();
-    fetch("/api/search/suggestions", { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data: Suggestion[]) => {
-        setSuggestions(Array.isArray(data) ? data : []);
-        setLoaded(true);
-      })
-      .catch((err) => { if (err.name !== "AbortError") console.error(err); });
-    return () => controller.abort();
-  }, [open, loaded]);
-
-  // Búsqueda real: al tipear, consulta server-side sobre toda la tabla (no el preview acotado).
+  // Búsqueda real: al tipear (debounced 300ms), consulta server-side sobre toda la tabla.
   // Por debajo de 2 caracteres no fetcheamos; sourceSuggestions ya ignora searchResults en ese caso.
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   useEffect(() => {
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     const q = query.trim();
-    if (q.length < 2) return;
-    const controller = new AbortController();
-    searchTimerRef.current = setTimeout(() => {
-      setSearchLoading(true);
-      fetch(`/api/search/suggestions?q=${encodeURIComponent(q)}`, { signal: controller.signal })
-        .then((r) => r.json())
-        .then((data: Suggestion[]) => setSearchResults(Array.isArray(data) ? data : []))
-        .catch((err) => { if (err.name !== "AbortError") console.error(err); })
-        .finally(() => setSearchLoading(false));
-    }, 300);
-    return () => {
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-      controller.abort();
-    };
+    // Delay 0 al acortar por debajo de 2 caracteres: limpia sin esperar el debounce.
+    const t = setTimeout(() => setDebouncedQuery(q.length >= 2 ? q : ""), q.length >= 2 ? 300 : 0);
+    return () => clearTimeout(t);
   }, [query]);
 
-  // Fetch observaciones with debounce when query changes.
-  // Por debajo de 2 caracteres (o con otra categoría filtrada) no fetcheamos;
-  // visibleObservaciones ya ignora observaciones en esos casos.
-  useEffect(() => {
-    if (obsTimerRef.current) clearTimeout(obsTimerRef.current);
-    const q = query.trim();
-    if (q.length < 2 || (typeFilter !== null && typeFilter !== "observacion")) return;
-    const controller = new AbortController();
-    obsTimerRef.current = setTimeout(() => {
-      setObsLoading(true);
-      fetch(`/api/search/observaciones?q=${encodeURIComponent(q)}`, { signal: controller.signal })
-        .then((r) => r.json())
-        .then((data: ObservacionResult[]) => setObservaciones(Array.isArray(data) ? data : []))
-        .catch((err) => { if (err.name !== "AbortError") console.error(err); })
-        .finally(() => setObsLoading(false));
-    }, 300);
-    return () => {
-      if (obsTimerRef.current) clearTimeout(obsTimerRef.current);
-      controller.abort();
-    };
-  }, [query, typeFilter]);
+  const { data: searchResultsData, isFetching: searchLoading } = useFetchQuery<Suggestion[]>(
+    ["search-suggestions", debouncedQuery],
+    debouncedQuery ? `/api/search/suggestions?q=${encodeURIComponent(debouncedQuery)}` : null
+  );
+  const searchResults = searchResultsData ?? EMPTY_SUGGESTIONS;
+
+  // Observaciones — mismo debounce; además se apaga si hay otra categoría filtrada.
+  const obsEnabled = debouncedQuery.length >= 2 && (typeFilter === null || typeFilter === "observacion");
+  const { data: observacionesData, isFetching: obsLoading } = useFetchQuery<ObservacionResult[]>(
+    ["search-observaciones", debouncedQuery],
+    obsEnabled ? `/api/search/observaciones?q=${encodeURIComponent(debouncedQuery)}` : null
+  );
+  const observaciones = observacionesData ?? EMPTY_OBSERVACIONES;
 
   const handleClose = useCallback(
     (v: boolean) => {
-      if (!v) { setQuery(""); setTypeFilter(null); setObservaciones([]); setSearchResults([]); }
+      if (!v) { setQuery(""); setTypeFilter(null); }
       onOpenChange(v);
     },
     [onOpenChange]
@@ -135,8 +103,8 @@ export function CommandPalette({ open, onOpenChange }: Props) {
     [setSearch, handleClose]
   );
 
-  // observaciones no se limpia sincrónicamente al acortar la query (evita setState directo
-  // en el efecto); en vez de eso, se ignora acá salvo que la query/categoría actual la habiliten.
+  // La query de observaciones puede seguir "enabled" un instante con datos viejos mientras
+  // debouncedQuery se pone al día; se ignora acá salvo que la query/categoría actual la habiliten.
   const visibleObservaciones = useMemo(
     () =>
       query.trim().length >= 2 && (typeFilter === null || typeFilter === "observacion")

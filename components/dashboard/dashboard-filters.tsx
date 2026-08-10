@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
+import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { CalendarDays, Building2, Store, Search, X, Filter } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -52,19 +53,10 @@ export function DashboardFilters() {
     : {};
   const isMobile = useIsMobile();
 
-  const [locales, setLocales] = useState<Local[]>([]);
-  const [localesLoading, setLocalesLoading] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/locales", { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data: Local[]) => setLocales(Array.isArray(data) ? data : []))
-      .catch((err) => { if (err.name !== "AbortError") console.error("Error cargando locales:", err); })
-      .finally(() => setLocalesLoading(false));
-    return () => controller.abort();
-  }, []);
+  const { data: localesData, isLoading: localesLoading } = useFetchQuery<Local[]>(["locales"], "/api/locales");
+  const locales = localesData ?? [];
 
   useEffect(() => {
     if (isVentas) return;

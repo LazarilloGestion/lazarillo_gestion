@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 
 export const dynamic = "force-dynamic";
+
+const qSchema = z.string().trim().max(200);
 
 export type ObservacionResult = {
   id: string;
@@ -17,7 +20,7 @@ export async function GET(request: NextRequest) {
   const denied = await requireAuth();
   if (denied) return denied;
 
-  const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
+  const q = qSchema.safeParse(new URL(request.url).searchParams.get("q")).data ?? "";
   if (q.length < 2) return NextResponse.json([]);
   // Escape ILIKE wildcards so user input is treated as a literal substring
   const sanitizedQ = q.replace(/[%_\\]/g, "\\$&");

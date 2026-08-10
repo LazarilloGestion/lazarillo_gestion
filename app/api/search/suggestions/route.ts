@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 
 export const dynamic = "force-dynamic";
+
+const qSchema = z.string().trim().max(200);
 
 export type Suggestion = {
   id: string;
@@ -21,7 +24,7 @@ export async function GET(request: NextRequest) {
 
   // Sin query: preview alfabético acotado (pantalla "Buscar en" antes de tipear).
   // Con query: búsqueda real sobre toda la tabla vía ILIKE, no limitada por el preview.
-  const q = new URL(request.url).searchParams.get("q")?.trim() ?? "";
+  const q = qSchema.safeParse(new URL(request.url).searchParams.get("q")).data ?? "";
   const sanitizedQ = q.replace(/[%_\\]/g, "\\$&"); // escapa wildcards de ILIKE
   const textFilter = q.length > 0 ? { contains: sanitizedQ, mode: "insensitive" as const } : undefined;
 
