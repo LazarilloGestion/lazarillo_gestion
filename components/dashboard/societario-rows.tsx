@@ -60,7 +60,7 @@ export function SocietarioRows({
                 VALUE_TD,
                 cardCellClasses("middle", "mid"),
                 "text-[15px] font-semibold",
-                !fill && (gray ? "text-muted-foreground/40" : "text-destructive")
+                gray && "text-muted-foreground/40"
               )}
               style={fill ? { backgroundColor: fill.background, color: fill.foreground } : undefined}
             >

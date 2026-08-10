@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { parseMontoARS, pctSobreIngresos, diferenciaCaja, computeDiferenciaCajaAcumulada, heatmapFill, heatmapText } from "./resultados-calc";
+import {
+  parseMontoARS,
+  pctSobreIngresos,
+  diferenciaCaja,
+  computeDiferenciaCajaAcumulada,
+  heatmapFill,
+  heatmapText,
+  heatmapFillZeroAnchored,
+  heatmapTextZeroAnchored,
+} from "./resultados-calc";
 
 describe("parseMontoARS", () => {
   it("acepta coma como separador decimal", () => {
@@ -100,6 +109,66 @@ describe("heatmapText", () => {
 
   it("min === max devuelve el punto medio", () => {
     expect(heatmapText(7, 7, 7)).toBe("#a8832c");
+  });
+});
+
+describe("heatmapFillZeroAnchored", () => {
+  it("el valor más negativo de la fila da el extremo rojo", () => {
+    expect(heatmapFillZeroAnchored(-100, -100, 50)).toEqual({ background: "#d64545", foreground: "#ffffff" });
+  });
+
+  it("el valor más positivo de la fila da el extremo verde", () => {
+    expect(heatmapFillZeroAnchored(50, -100, 50)).toEqual({ background: "#1f9b59", foreground: "#ffffff" });
+  });
+
+  it("valor 0 siempre da el ámbar, sea cual sea el resto de la fila", () => {
+    expect(heatmapFillZeroAnchored(0, -100, 50)).toEqual({ background: "#f2c94c", foreground: "#1f1f1d" });
+  });
+
+  it("fila toda positiva: el mínimo de la fila (0) no pinta rojo, a diferencia de heatmapFill", () => {
+    expect(heatmapFillZeroAnchored(0, 0, 100)).toEqual({ background: "#f2c94c", foreground: "#1f1f1d" });
+  });
+
+  it("fila toda negativa: el máximo de la fila (0) no pinta verde, a diferencia de heatmapFill", () => {
+    expect(heatmapFillZeroAnchored(0, -100, 0)).toEqual({ background: "#f2c94c", foreground: "#1f1f1d" });
+  });
+
+  it("min === max positivo (un solo mes visible) da el extremo verde, no el ámbar de heatmapFill, porque el punto medio está anclado en 0 real", () => {
+    expect(heatmapFillZeroAnchored(50, 50, 50)).toEqual({ background: "#1f9b59", foreground: "#ffffff" });
+  });
+
+  it("min === max === 0 da el ámbar", () => {
+    expect(heatmapFillZeroAnchored(0, 0, 0)).toEqual({ background: "#f2c94c", foreground: "#1f1f1d" });
+  });
+});
+
+describe("heatmapTextZeroAnchored", () => {
+  it("el valor más negativo de la fila da el rojo apagado", () => {
+    expect(heatmapTextZeroAnchored(-100, -100, 50)).toBe("#be423c");
+  });
+
+  it("el valor más positivo de la fila da el verde apagado", () => {
+    expect(heatmapTextZeroAnchored(50, -100, 50)).toBe("#2e8554");
+  });
+
+  it("valor 0 siempre da el ámbar apagado", () => {
+    expect(heatmapTextZeroAnchored(0, -100, 50)).toBe("#a8832c");
+  });
+
+  it("fila toda positiva: el mínimo de la fila (0) no pinta rojo", () => {
+    expect(heatmapTextZeroAnchored(0, 0, 100)).toBe("#a8832c");
+  });
+
+  it("fila toda negativa: el máximo de la fila (0) no pinta verde", () => {
+    expect(heatmapTextZeroAnchored(0, -100, 0)).toBe("#a8832c");
+  });
+
+  it("min === max positivo da el extremo verde apagado, no el ámbar de heatmapText", () => {
+    expect(heatmapTextZeroAnchored(50, 50, 50)).toBe("#2e8554");
+  });
+
+  it("min === max === 0 da el ámbar apagado", () => {
+    expect(heatmapTextZeroAnchored(0, 0, 0)).toBe("#a8832c");
   });
 });
 

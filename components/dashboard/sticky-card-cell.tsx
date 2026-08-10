@@ -13,22 +13,25 @@ interface StickyCardCellProps {
 }
 
 // Celda sticky de la columna izquierda con borde/esquina de tarjeta. El <td> queda como
-// rectángulo 100% opaco y SIN borde propio — combinar position:sticky con un <border> en
-// el mismo elemento genera un artefacto de compositing en Chrome que deja pasar el color
-// de la celda vecina (el heatmap) por la esquina redondeada. El borde (incluido el recto
-// de arriba/abajo) va solo en el <div> interno, que no es sticky.
+// rectángulo 100% opaco y SIN borde propio — el borde (incluido el recto de arriba/abajo)
+// va solo en el <div> interno, que no es sticky.
 //
 // El <td> SÍ replica el redondeo del <div> (sin borde, vía opts.border:false): el <div> es
 // `w-fit` y en filas con esquina puede terminar más angosto que el ancho real de la
 // columna, así que el <td> es quien cubre ese resto con su propio fondo opaco. Sin el
 // mismo redondeo, ese fondo del <td> es un rectángulo recto que asoma detrás de la curva
 // del <div>, tapando el borde en la esquina.
+//
+// Combinar position:sticky con border-radius en el mismo elemento puede generar un artefacto
+// de compositing en Chrome que deja pasar el color de la celda vecina (el heatmap) por la
+// esquina redondeada. Se mitiga forzando que el <td> tenga su propia capa de compositing
+// (translateZ(0)) en vez de evitar el radius.
 export function StickyCardCell({ position, bg = "bg-background", bordered = true, roundedTop = true, className, title, children }: StickyCardCellProps) {
   return (
     <td
       title={title}
       className={cn(
-        "sticky left-0 z-10 p-0 shadow-[1px_0_0_0_hsl(var(--border))]",
+        "sticky left-0 z-10 p-0 shadow-[1px_0_0_0_hsl(var(--border))] [transform:translateZ(0)]",
         bg,
         cardCellClasses(position, "left", { border: false, roundedTop })
       )}
