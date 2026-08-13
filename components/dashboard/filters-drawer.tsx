@@ -1,7 +1,7 @@
 "use client";
 
 import { useDashboard } from "@/hooks/use-dashboard-store";
-import { CalendarDays, Building2, Store } from "lucide-react";
+import { CalendarDays, Building2, Store, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   Drawer,
   DrawerTrigger,
@@ -20,6 +20,8 @@ import type { Local } from "@/lib/types/domain";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: CURRENT_YEAR - 2024 }, (_, i) => CURRENT_YEAR - i);
+const MIN_YEAR = YEARS[YEARS.length - 1];
+const MAX_YEAR = YEARS[0];
 
 type Props = {
   locales: Local[];
@@ -58,16 +60,27 @@ export function FiltersDrawer({ locales, localesLoading }: Props) {
               <CalendarDays className="w-3.5 h-3.5" />
               Año
             </label>
-            <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-              <SelectTrigger className="h-11 text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {YEARS.map((y) => (
-                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setYear(year - 1)}
+                disabled={year <= MIN_YEAR}
+                aria-label="Año anterior"
+                className="h-11 w-11 flex items-center justify-center shrink-0 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-muted-foreground disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="flex-1 h-11 flex items-center justify-center text-sm font-medium text-muted-foreground tabular-nums rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800">
+                {year}
+              </span>
+              <button
+                onClick={() => setYear(year + 1)}
+                disabled={year >= MAX_YEAR}
+                aria-label="Año siguiente"
+                className="h-11 w-11 flex items-center justify-center shrink-0 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-muted-foreground disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-col gap-1.5">

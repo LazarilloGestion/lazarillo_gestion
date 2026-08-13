@@ -17,46 +17,45 @@ export function pctSobreIngresos(numerador: number, denominador: number): string
   return denominador > 0 ? `${((numerador / denominador) * 100).toFixed(1)}%` : "—";
 }
 
-// Misma fórmula para el cálculo mensual y para el total (pasando los totales en vez
-// de los valores del mes) — Diferencia de caja = Ingresos - Egresos - Ganancia + Flujo de caja.
-export function diferenciaCaja(
-  ingVal: number | null | undefined,
-  egrVal: number | null | undefined,
-  gananciaVal: number | null | undefined,
-  flujoVal: number | null | undefined,
-): number {
-  return (ingVal ?? 0) - (egrVal ?? 0) - (gananciaVal ?? 0) + (flujoVal ?? 0);
+// Diferencia de caja de un mes independiente (no acumulada): variación de la caja menos el
+// resultado societario del mes. null si falta el arqueo (Disponible en caja) del mes actual o
+// del mes anterior — sin los dos extremos no hay ΔCaja para comparar, ese mes va en "—", nunca $0.
+export function diferenciaCajaMensual(
+  disponibleMes: number | null | undefined,
+  disponibleMesAnterior: number | null | undefined,
+  resultadoOP: number | null | undefined,
+  ganancia: number | null | undefined,
+): number | null {
+  if (disponibleMes == null || disponibleMesAnterior == null) return null;
+  const deltaCaja = disponibleMes - disponibleMesAnterior;
+  return deltaCaja - ((resultadoOP ?? 0) - (ganancia ?? 0));
 }
 
-function hexToRgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
+// Paleta única de la pantalla Resultados — un solo tono por color, reusado tanto para fondos
+// (con texto blanco encima, ver FILL_BAND) como para texto plano (Diferencia de caja,
+// Societario, % Rentabilidad). El ámbar es amarillo puro (R=G, B=0 → hue 60°, 100% saturado) sin
+// respetar el piso de contraste habitual (~1.8:1 sobre blanco, por debajo del mínimo de 3:1 para
+// texto — a propósito, ver commit/feedback de color) — priorizando que se vea "amarillo típico".
+export const RESULT_COLORS = {
+  negative: "#D64545",
+  neutral:  "#AAAA00",
+  positive: "#159457",
+  noData:   "#bdbbb2",
+} as const;
 
-function rgbToHex([r, g, b]: [number, number, number]): string {
-  return `#${[r, g, b].map((c) => Math.round(c).toString(16).padStart(2, "0")).join("")}`;
-}
+// Fondo + texto para el heatmap de Ingresos/Ganancia — los 3 tonos de RESULT_COLORS son
+// suficientemente oscuros (luminancia BT.601 < 150) como para llevar siempre texto blanco.
+const FILL_BAND = {
+  negative: { background: RESULT_COLORS.negative, foreground: "#ffffff" },
+  neutral:  { background: RESULT_COLORS.neutral,  foreground: "#ffffff" },
+  positive: { background: RESULT_COLORS.positive, foreground: "#ffffff" },
+} as const;
 
-function lerpColor(fromHex: string, toHex: string, t: number): [number, number, number] {
-  const [r1, g1, b1] = hexToRgb(fromHex);
-  const [r2, g2, b2] = hexToRgb(toHex);
-  return [r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t];
+// Cuantiza un ratio 0..1 a 3 bandas discretas en vez de un degradé continuo — "que el cuadro
+// se entienda de un vistazo, sin colores de más" (criterio explícito del cliente).
+function band(ratio: number): "negative" | "neutral" | "positive" {
+  return ratio < 1 / 3 ? "negative" : ratio < 2 / 3 ? "neutral" : "positive";
 }
-
-// Luma perceptual (BT.601) — decide si el texto sobre el fondo va blanco u oscuro.
-function luminance([r, g, b]: [number, number, number]): number {
-  return 0.299 * r + 0.587 * g + 0.114 * b;
-}
-
-// Interpola un color en un degradé de 3 puntos según `ratio` (0 = stop bajo, 1 = stop alto).
-function stopColor(ratio: number, low: string, mid: string, high: string): [number, number, number] {
-  const t = Math.min(Math.max(ratio, 0), 1);
-  return t <= 0.5 ? lerpColor(low, mid, t / 0.5) : lerpColor(mid, high, (t - 0.5) / 0.5);
-}
-
-const HEAT_FILL_STOPS = { low: "#D64545", mid: "#F2C94C", high: "#1F9B59" };
-const HEAT_TEXT_STOPS = { low: "#BE423C", mid: "#A8832C", high: "#2E8554" };
-const LUMINANCE_THRESHOLD = 150;
 
 // Ratio (0..1) para una escala relativa por fila: 0 = mínimo visible, 1 = máximo visible.
 // Si min === max (un solo mes visible) no hay forma de ubicar el valor en la escala, así
@@ -77,54 +76,20 @@ function zeroAnchoredRatio(value: number, min: number, max: number): number {
     : floor < 0 ? 0.5 - 0.5 * Math.min(value / floor, 1) : 0.5;
 }
 
-function fillFromRatio(ratio: number): { background: string; foreground: string } {
-  const rgb = stopColor(ratio, HEAT_FILL_STOPS.low, HEAT_FILL_STOPS.mid, HEAT_FILL_STOPS.high);
-  const foreground = luminance(rgb) < LUMINANCE_THRESHOLD ? "#ffffff" : "#1f1f1d";
-  return { background: rgbToHex(rgb), foreground };
-}
-
-function textFromRatio(ratio: number): string {
-  const rgb = stopColor(ratio, HEAT_TEXT_STOPS.low, HEAT_TEXT_STOPS.mid, HEAT_TEXT_STOPS.high);
-  return rgbToHex(rgb);
-}
-
-// Heatmap de relleno para Ingresos: rojo (mínimo) -> ámbar -> verde (máximo), escala relativa
-// por fila — ver linearRatio.
+// Heatmap de relleno para Ingresos: rojo (banda baja) -> ámbar -> verde (banda alta), escala
+// relativa por fila — ver linearRatio.
 export function heatmapFill(value: number, min: number, max: number): { background: string; foreground: string } {
-  return fillFromRatio(linearRatio(value, min, max));
+  return FILL_BAND[band(linearRatio(value, min, max))];
 }
 
 // Heatmap de relleno anclado en cero, para filas que pueden ser negativas (p.ej. Ganancia).
 // Ver zeroAnchoredRatio — rojo solo aparece si el valor es realmente negativo.
 export function heatmapFillZeroAnchored(value: number, min: number, max: number): { background: string; foreground: string } {
-  return fillFromRatio(zeroAnchoredRatio(value, min, max));
+  return FILL_BAND[band(zeroAnchoredRatio(value, min, max))];
 }
 
-// Mismo criterio que heatmapFill pero con tonos apagados y solo para colorear texto (sin fondo),
-// usado en % Rentabilidad.
-export function heatmapText(value: number, min: number, max: number): string {
-  return textFromRatio(linearRatio(value, min, max));
-}
-
-// Variante anclada en cero de heatmapText — mismo criterio que heatmapFillZeroAnchored pero con
-// tonos apagados y solo para texto. Usada junto a heatmapFillZeroAnchored (p.ej. Ganancia y su
-// % Rentabilidad debajo) para que ambas filas coincidan en qué meses pintan rojo.
+// Variante anclada en cero para colorear texto (sin fondo) — usada en % Rentabilidad junto a
+// heatmapFillZeroAnchored (p.ej. Ganancia) para que ambas filas coincidan en qué meses pintan rojo.
 export function heatmapTextZeroAnchored(value: number, min: number, max: number): string {
-  return textFromRatio(zeroAnchoredRatio(value, min, max));
-}
-
-// Acumula diferenciaPorMes en orden ascendente de mes, arrastrando `saldoInicial`
-// (saldo heredado de meses/años anteriores). `mesesOrdenados` debe venir ascendente.
-export function computeDiferenciaCajaAcumulada(
-  mesesOrdenados: number[],
-  diferenciaPorMes: Record<number, number>,
-  saldoInicial: number,
-): Record<number, number> {
-  let acc = saldoInicial;
-  const result: Record<number, number> = {};
-  for (const mes of mesesOrdenados) {
-    acc += diferenciaPorMes[mes] ?? 0;
-    result[mes] = acc;
-  }
-  return result;
+  return RESULT_COLORS[band(zeroAnchoredRatio(value, min, max))];
 }

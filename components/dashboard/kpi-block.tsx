@@ -1,5 +1,5 @@
 import { cn, fmtARS } from "@/lib/utils";
-import { heatmapFill } from "@/lib/dashboard/resultados-calc";
+import { heatmapFill, RESULT_COLORS } from "@/lib/dashboard/resultados-calc";
 import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
 import { StickyCardCell } from "./sticky-card-cell";
 
@@ -52,10 +52,10 @@ export function KpiBlock({
               className={cn(
                 "text-right px-3 py-1.5 text-[15px] font-semibold tabular-nums whitespace-nowrap transition-opacity",
                 cardCellClasses("first", "mid", { border: bordered, roundedTop }),
-                !fill && (val == null ? "text-muted-foreground/40" : "text-[#159457]"),
+                !fill && val == null && "text-muted-foreground/40",
                 hasVal && onIngresoCellClick && "cursor-pointer hover:opacity-75"
               )}
-              style={fill ? { backgroundColor: fill.background, color: fill.foreground } : undefined}
+              style={fill ? { backgroundColor: fill.background, color: fill.foreground } : val != null ? { color: RESULT_COLORS.positive } : undefined}
               onClick={() => { if (hasVal) onIngresoCellClick?.(mes); }}
             >
               {fmtARS(val)}
@@ -64,10 +64,11 @@ export function KpiBlock({
         })}
         <td
           className={cn(
-            "text-right px-4 py-1.5 text-[15px] font-semibold tabular-nums text-[#159457] whitespace-nowrap",
+            "text-right px-4 py-1.5 text-[15px] font-semibold tabular-nums whitespace-nowrap",
             cardCellClasses("first", "mid", { border: bordered, roundedTop }),
             ingresosTotal && onIngresoTotalClick && "cursor-pointer hover:opacity-75"
           )}
+          style={{ color: RESULT_COLORS.positive }}
           onClick={() => { if (ingresosTotal) onIngresoTotalClick?.(); }}
         >
           {fmtARS(ingresosTotal)}
@@ -105,8 +106,9 @@ export function KpiBlock({
               className={cn(
                 "text-right px-3 py-1.5 font-semibold tabular-nums whitespace-nowrap",
                 cardCellClasses("middle", "mid", { border: bordered }),
-                noData ? "text-muted-foreground/40" : res < 0 ? "text-destructive" : "text-foreground"
+                noData && "text-muted-foreground/40"
               )}
+              style={noData ? undefined : { color: res < 0 ? RESULT_COLORS.negative : RESULT_COLORS.positive }}
             >
               {fmtARS(res || undefined)}
             </td>
@@ -115,7 +117,10 @@ export function KpiBlock({
         {(() => {
           const res = (ingresosTotal ?? 0) - egresosTotal;
           return (
-            <td className={cn("text-right px-4 py-1.5 font-bold tabular-nums whitespace-nowrap", cardCellClasses("middle", "mid", { border: bordered }), res < 0 ? "text-destructive" : "text-foreground")}>
+            <td
+              className={cn("text-right px-4 py-1.5 font-bold tabular-nums whitespace-nowrap", cardCellClasses("middle", "mid", { border: bordered }))}
+              style={{ color: res < 0 ? RESULT_COLORS.negative : RESULT_COLORS.positive }}
+            >
               {fmtARS(res || undefined)}
             </td>
           );
@@ -132,14 +137,15 @@ export function KpiBlock({
           const egr = egresosPorMes[mes] ?? 0;
           const ratio = ing > 0 ? (egr / ing) * 100 : null;
           return (
-            <td key={mes} className={cn(
-              "text-right px-3 py-1.5 font-medium tabular-nums whitespace-nowrap",
-              cardCellClasses("last", "mid", { border: bordered }),
-              ratio === null ? "text-muted-foreground/40"
-                : ratio > 90 ? "text-destructive"
-                : ratio > 60 ? "text-warning"
-                : "text-muted-foreground"
-            )}>
+            <td
+              key={mes}
+              className={cn(
+                "text-right px-3 py-1.5 font-medium tabular-nums whitespace-nowrap",
+                cardCellClasses("last", "mid", { border: bordered }),
+                ratio === null && "text-muted-foreground/40"
+              )}
+              style={ratio === null ? undefined : { color: ratio > 90 ? RESULT_COLORS.negative : ratio > 60 ? RESULT_COLORS.neutral : RESULT_COLORS.positive }}
+            >
               {ratio !== null ? `${ratio.toFixed(1)}%` : "—"}
             </td>
           );
@@ -147,14 +153,14 @@ export function KpiBlock({
         {(() => {
           const ratio = (ingresosTotal ?? 0) > 0 ? (egresosTotal / (ingresosTotal ?? 0)) * 100 : null;
           return (
-            <td className={cn(
-              "text-right px-4 py-1.5 font-semibold tabular-nums whitespace-nowrap",
-              cardCellClasses("last", "mid", { border: bordered }),
-              ratio === null ? "text-muted-foreground/40"
-                : ratio > 90 ? "text-destructive"
-                : ratio > 60 ? "text-warning"
-                : "text-muted-foreground"
-            )}>
+            <td
+              className={cn(
+                "text-right px-4 py-1.5 font-semibold tabular-nums whitespace-nowrap",
+                cardCellClasses("last", "mid", { border: bordered }),
+                ratio === null && "text-muted-foreground/40"
+              )}
+              style={ratio === null ? undefined : { color: ratio > 90 ? RESULT_COLORS.negative : ratio > 60 ? RESULT_COLORS.neutral : RESULT_COLORS.positive }}
+            >
               {ratio !== null ? `${ratio.toFixed(1)}%` : "—"}
             </td>
           );

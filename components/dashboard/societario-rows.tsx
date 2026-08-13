@@ -1,5 +1,5 @@
 import { cn, fmtARS } from "@/lib/utils";
-import { pctSobreIngresos, heatmapTextZeroAnchored, heatmapFillZeroAnchored } from "@/lib/dashboard/resultados-calc";
+import { pctSobreIngresos, heatmapTextZeroAnchored, heatmapFillZeroAnchored, RESULT_COLORS } from "@/lib/dashboard/resultados-calc";
 import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
 import { SectionDivider } from "./section-divider";
 import { StickyCardCell } from "./sticky-card-cell";
@@ -98,7 +98,7 @@ export function SocietarioRows({
           {(() => {
             const label = isEmpty ? "—" : pctSobreIngresos(gananciaTotal, ingresosTotal ?? 0);
             const isDash = label === "—";
-            return <span className={cn(isDash ? "text-muted-foreground/40" : "text-[#159457]")}>{label}</span>;
+            return <span className={cn(isDash && "text-muted-foreground/40")} style={isDash ? undefined : { color: RESULT_COLORS.positive }}>{label}</span>;
           })()}
         </td>
         <td className={cardCellClasses("last", "right")} />

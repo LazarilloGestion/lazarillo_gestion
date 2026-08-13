@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
-import { CalendarDays, Building2, Store, Search, X, Filter } from "lucide-react";
+import { CalendarDays, Building2, Store, Search, X, Filter, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -35,6 +35,8 @@ const PALETTE_PARAM_COLORS: Record<string, { label: string; bg: string; border: 
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: CURRENT_YEAR - 2024 }, (_, i) => CURRENT_YEAR - i);
+const MIN_YEAR = YEARS[YEARS.length - 1];
+const MAX_YEAR = YEARS[0];
 const MONTH_LABELS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
 export function DashboardFilters() {
@@ -106,16 +108,25 @@ export function DashboardFilters() {
       <div className="hidden md:flex gap-2 items-center">
         <div className="flex items-center gap-1.5 text-muted-foreground">
           <CalendarDays className="w-4 h-4 shrink-0" />
-          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-            <SelectTrigger className="w-24 h-8 text-sm">
-              <SelectValue placeholder="Año" />
-            </SelectTrigger>
-            <SelectContent>
-              {YEARS.map((y) => (
-                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <button
+            onClick={() => setYear(year - 1)}
+            disabled={year <= MIN_YEAR}
+            aria-label="Año anterior"
+            className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shrink-0 disabled:opacity-40 disabled:hover:text-muted-foreground disabled:hover:border-zinc-200 dark:disabled:hover:border-zinc-700 disabled:cursor-not-allowed"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <span className="w-14 h-8 flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-medium text-muted-foreground tabular-nums">
+            {year}
+          </span>
+          <button
+            onClick={() => setYear(year + 1)}
+            disabled={year >= MAX_YEAR}
+            aria-label="Año siguiente"
+            className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shrink-0 disabled:opacity-40 disabled:hover:text-muted-foreground disabled:hover:border-zinc-200 dark:disabled:hover:border-zinc-700 disabled:cursor-not-allowed"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         <div className="flex items-center gap-1.5 text-muted-foreground">

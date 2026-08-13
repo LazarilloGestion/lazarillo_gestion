@@ -5,14 +5,15 @@ import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { notify } from "@/lib/toast";
 import { cn, fmtARS } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
-import { parseMontoARS } from "@/lib/dashboard/resultados-calc";
+import { parseMontoARS, RESULT_COLORS } from "@/lib/dashboard/resultados-calc";
 import { buildFlujoCajaUrl } from "@/lib/dashboard/params";
-import { useDiferenciaCajaAcumulada } from "@/hooks/use-diferencia-caja-acumulada";
+import { useDiferenciaCaja } from "@/hooks/use-diferencia-caja";
 import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { EditActionButtons, EditTriggerButton, toEditString } from "./edit-row-controls";
 import { SectionDivider } from "./section-divider";
 import { StickyCardCell } from "./sticky-card-cell";
-import { Wallet } from "lucide-react";
+import { Wallet, Info } from "lucide-react";
 
 interface FlujoCajaResponse {
   anio: number;
@@ -39,7 +40,11 @@ function ValueCell({
   title?: string;
 }) {
   return (
-    <td title={title} className={cn(base, className, gray ? "text-muted-foreground/40" : negative ? "text-[#D64545]" : "text-[#159457]")}>
+    <td
+      title={title}
+      className={cn(base, className)}
+      style={{ color: gray ? RESULT_COLORS.noData : negative ? RESULT_COLORS.negative : RESULT_COLORS.positive }}
+    >
       {text}
     </td>
   );
@@ -57,7 +62,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
   const queryClient = useQueryClient();
   const flujoCajaKey = ["flujo-caja", year, localId, pdvId];
   const { data: flujoCajaData, isLoading: flujoCajaLoading } = useFetchQuery<FlujoCajaResponse>(flujoCajaKey, buildFlujoCajaUrl(year, localId, pdvId));
-  const { acumuladoPorMes, isLoading: diferenciaLoading } = useDiferenciaCajaAcumulada({ year, localId, pdvId });
+  const { diferenciaPorMes, isLoading: diferenciaLoading } = useDiferenciaCaja({ year, localId, pdvId });
 
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [draftValue, setDraftValue] = useState("");
@@ -138,32 +143,61 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
       </tr>
 
       <tr className={cn(isEmpty && "opacity-60")} title={isEmpty ? "Incluye $0 de Ganancia: no hay conceptos configurados en Resultados" : undefined}>
-        <StickyCardCell position="last" bg="bg-muted" className="px-4 py-1.5 whitespace-nowrap font-bold" title="Saldo de caja acumulado mes a mes, arrastrando el cierre de años anteriores">
-          Diferencia de caja
+        <StickyCardCell position="last" bg="bg-muted" className="px-4 py-1.5 whitespace-nowrap font-bold" title="Variación del disponible en caja del mes menos el resultado societario del mes (no acumulado)">
+          <span className="inline-flex items-center gap-1">
+            Diferencia de caja
+            <Popover>
+              <PopoverTrigger
+                className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                aria-label="Ver fórmula de Diferencia de caja"
+              >
+                <Info className="w-3.5 h-3.5" />
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-4 text-xs leading-relaxed text-muted-foreground font-normal">
+                <p className="text-[13px] font-semibold text-foreground leading-snug">
+                  Diferencia de caja = variación de la caja − (Resultado OP − Ganancia)
+                </p>
+                <div className="mt-3 pt-3 border-t border-border grid grid-cols-[14px_1fr] gap-x-2 gap-y-2.5">
+                  <span className="h-5 flex items-center justify-center" aria-hidden>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: RESULT_COLORS.negative }} />
+                  </span>
+                  <span><span className="font-medium text-foreground/80">Negativo (falta):</span> gastos que salieron de la caja sin cargar.</span>
+
+                  <span className="h-5 flex items-center justify-center" aria-hidden>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: RESULT_COLORS.positive }} />
+                  </span>
+                  <span><span className="font-medium text-foreground/80">Positivo (sobra):</span> gastos cargados que no salieron de la caja (deuda).</span>
+
+                  <span className="h-5 flex items-center justify-center font-semibold" style={{ color: RESULT_COLORS.noData }} aria-hidden>—</span>
+                  <span><span className="font-medium text-foreground/80">Sin dato:</span> mes de apertura o sin arqueo cargado.</span>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </span>
         </StickyCardCell>
         {months.map((mes) => {
-          const acumulado = acumuladoPorMes[mes];
-          const noData = diferenciaLoading || acumulado == null;
+          const diferencia = diferenciaPorMes[mes];
+          const noData = diferenciaLoading || diferencia == null;
           return (
             <ValueCell
               key={mes}
               base={VALUE_TD}
               className={cn("bg-muted", cardCellClasses("last", "mid"))}
-              text={diferenciaLoading ? "…" : noData ? "—" : fmtARS(acumulado)}
-              negative={!noData && acumulado! < 0}
+              text={diferenciaLoading ? "…" : noData ? "—" : fmtARS(diferencia)}
+              negative={!noData && diferencia! < 0}
               gray={noData}
             />
           );
         })}
         {(() => {
-          const lastMes = months[months.length - 1];
-          const total = acumuladoPorMes[lastMes];
+          const valores = months.map((mes) => diferenciaPorMes[mes]).filter((v): v is number => v != null);
+          const total = valores.length > 0 ? valores.reduce((acc, v) => acc + v, 0) : null;
           const noData = diferenciaLoading || total == null;
           return (
             <ValueCell
               base={TOTAL_TD}
               className={cn("bg-muted font-bold", cardCellClasses("last", "mid"))}
-              title="Saldo acumulado al último mes visible (no es una sumatoria de la fila)"
+              title="Suma de los meses visibles con arqueo cargado"
               text={diferenciaLoading ? "…" : noData ? "—" : fmtARS(total)}
               negative={!noData && total! < 0}
               gray={noData}
