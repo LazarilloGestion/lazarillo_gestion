@@ -56,9 +56,14 @@ describe("normalizeCompras", () => {
     expect(res.skippedRows[0].motivo).toBe("duplicado");
   });
 
-  it("dos filas iguales salvo IMPORTE (transacciones genuinamente distintas): ambas se insertan", async () => {
+  it("sin comprobante: dos filas iguales salvo IMPORTE (transacciones genuinamente distintas): ambas se insertan", async () => {
+    // DETALLE: null — sin comprobante parseable, IMPORTE es parte de la identidad
+    // (a diferencia del caso con comprobante, ver compra-identity.ts). Antes este
+    // test usaba el DETALLE default de baseRow() (que sí es un comprobante válido),
+    // lo cual dejó de ser válido tras la identidad partida: con comprobante presente,
+    // IMPORTE ya no distingue transacciones (CA-12).
     const db = createMockDb();
-    const res = await normalizeCompras([baseRow({ IMPORTE: 100 }), baseRow({ IMPORTE: 200 })], db);
+    const res = await normalizeCompras([baseRow({ DETALLE: null, IMPORTE: 100 }), baseRow({ DETALLE: null, IMPORTE: 200 })], db);
     expect(res.created).toBe(2);
     expect(res.skippedRows.filter((s) => s.motivo === "duplicado")).toHaveLength(0);
   });
@@ -106,6 +111,25 @@ describe("normalizeCompras", () => {
     expect(res.created).toBe(0);
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0].message).toMatch(/constraint violation/);
+  });
+
+  it("con comprobante: dos filas con el mismo comprobante pero IMPORTE distinto son el mismo registro (mismo rowId) — se dedupean, no se insertan como transacciones distintas", async () => {
+    // Nota: no se testea vía dos llamadas separadas a normalizeCompras() con
+    // mockAllExisting simulando "reimport" — mockAllExisting hace eco de
+    // CUALQUIER rowId consultado como "ya existente" sin comparar valores, así
+    // que ese approach da created=0/updated=1 sin importar qué hashee makeRowId
+    // (no discrimina la lógica bajo prueba). En cambio, dos filas con el MISMO
+    // comprobante en un solo batch sólo colapsan a un rowId si la identidad
+    // compartida ignora IMPORTE — igual que el test de "duplicado real" de
+    // arriba, pero cruzando IMPORTE distinto para aislar específicamente el
+    // comportamiento de compra-identity.ts con comprobante presente.
+    const db = createMockDb();
+    const res = await normalizeCompras(
+      [baseRow({ DETALLE: "A 0606-00761530", IMPORTE: 1000 }), baseRow({ DETALLE: "A 0606-00761530", IMPORTE: 5000 })],
+      db
+    );
+    expect(res.created).toBe(1);
+    expect(res.skippedRows.filter((s) => s.motivo === "duplicado")).toHaveLength(1);
   });
 
   it("sanity check: toda fila del archivo termina en exactamente un bucket (creada/actualizada/omitida/error)", async () => {

@@ -1,54 +1,30 @@
-import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { trim, toDecimalStr, normalizeText, excelDateToISO } from "../helpers";
+import { trim, toDecimalStr, excelDateToISO } from "../helpers";
 import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 import { compraRowSchema, type CompraRow } from "../schemas/compras";
 import { formatZodError } from "../schemas/common";
+import { parseComprobanteFromDetalle, computeCompraRowId, compraIdentityFromRawRow } from "./compra-identity";
 
 import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 
 // Filas por chunk de INSERT ... ON CONFLICT. Con ~18 columnas: ~9k params/chunk < 65535.
 const CHUNK_SIZE = 500;
 
-// Códigos del ERP en compras que difieren del COD_CPB en detalle_compras
-const CODE_ALIASES: Record<string, string> = {
-  TIC: "Z",
-};
-
-// Convierte "A 0606-00761530" → "A060600761530" (mismo formato que detalle_compras.comprobante)
-function parseComprobanteFromDetalle(raw: unknown): string | null {
-  const s = String(raw ?? "").trim();
-  if (!s) return null;
-  const match = s.match(/^(\S+)\s+(\d+)-(\d+)$/);
-  if (!match) return null;
-  const [, cod, num1, num2] = match;
-  const normalizedCod = CODE_ALIASES[cod.toUpperCase()] ?? cod.toUpperCase();
-  return normalizedCod + num1.padStart(4, "0") + num2.padStart(8, "0");
-}
-
-// makeRowId opera SIEMPRE sobre la fila cruda (ETLRow), nunca sobre datos ya
-// coercionados por Zod — el hash tiene que ser estable entre reimports del mismo
-// archivo, y cambiar la representación de entrada cambiaría el hash de filas ya
-// existentes en la base (se perderían como "nuevas" en vez de actualizarse).
-function makeRowId(r: ETLRow): string {
-  // DETALLE (nro. comprobante) está vacío en ~40% de filas (sueldos, publicidad, alquiler).
-  // OBSERVAC diferencia esos casos (ej: "gonza cumple" vs "luna cumple" el mismo día).
-  // IMPORTE incluido para distinguir dos transacciones genuinamente distintas con mismos campos
-  // descriptivos (ej: dos retiros el mismo día con diferente monto). Las correcciones del ERP
-  // generarán una fila nueva en vez de upsert — perder transacciones reales es peor que eso.
-  // Usar normalizeText en OBSERVAC para que variaciones de casing/espacios no generen rowIds distintos.
-  const key = [r["COD_CGA"], r["FECHA"], r["CODIGO"], r["CONCEPTO"], r["DETALLE"], normalizeText(r["OBSERVAC"]), r["IMPORTE"]]
-    .map((v) => String(v ?? ""))
-    .join("|");
-  return createHash("sha256").update(key).digest("hex").substring(0, 24);
-}
-
 function formatFechaDisplay(val: unknown): string | undefined {
   const iso = excelDateToISO(val);
   if (!iso) return undefined;
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
+}
+
+// Identidad partida (con/sin comprobante) delegada a compra-identity.ts — ver ese
+// módulo para el porqué. Opera SIEMPRE sobre la fila cruda (ETLRow), nunca sobre
+// datos ya coercionados por Zod, para que el resultado sea reproducible por el
+// script de migración de rowId (que reconstruye la misma identidad desde la
+// compra ya persistida, no desde el Excel original).
+function makeRowId(r: ETLRow): string {
+  return computeCompraRowId(compraIdentityFromRawRow(r));
 }
 
 export async function normalizeCompras(
