@@ -1577,6 +1577,8 @@ SELECT COUNT(*), SUM(importe) FROM v_compras_distribuidas;
 
 Expected: mismo conteo y misma suma en ambas — sin reglas activas, la vista es una copia 1:1 de `compras` (rama `esDistribuido = false` cubre el 100% de las filas).
 
+**Chequeo adicional (hallazgo de la revisión de Task 8):** `detalle/route.ts` reescrito ahora liga un `Date` de JS directamente como parámetro de `$queryRaw` — patrón nuevo en este repo (el resto del código filtra fechas con `EXTRACT(...)::int` o vía el cliente tipado de Prisma). El análisis de la revisión concluye que es seguro (columnas `timestamp(3)` en UTC-medianoche, Vercel corre en UTC), pero sin test automatizado que lo cubra, verificar a mano en este paso: pedir `GET /api/dashboard/detalle?year=<año con datos>&mes=8` y `mes=9` para el mismo local/concepto y confirmar que los totales no se solapan ni pierden filas en el límite del mes (una compra del 31/08 no debe aparecer en la respuesta de `mes=9`, ni viceversa).
+
 - [ ] **Step 4: Elegir un concepto de bajo volumen para la prueba real**
 
 ```sql
