@@ -163,6 +163,15 @@ Zona de mayor riesgo del proyecto (CLAUDE.md sección 4, TDD obligatorio para ET
 
 Cada fase es un plan ejecutable independiente dentro de `writing-plans`/`executing-plans` — dado el tamaño total, no entra en un solo plan.
 
+### 10.1 Alcance cerrado de Fase B (brainstorming 24-ago-2026)
+
+Dos puntos que este documento dejaba abiertos (fin de sección 10, punto 2) se cerraron con el usuario antes de escribir el plan ejecutable:
+
+- **Sin UI en Fase B.** CRUD de `reglas_apertura`/`destinos_regla` vía route handlers únicamente, verificado con tests automatizados sobre los fixtures CA-01..CA-18 relevantes a motor/reglas — no una pantalla de prueba manual. La UI completa llega de una sola vez en Fase C.
+- **Sección 7 (no-superposición + `esBloqueado`) entra en Fase B, no en Fase C.** Ambas son lógica de backend que ya tiene todo lo que necesita en Fase B (el route handler de crear/editar regla, el motor de aplicación) — la validación de superposición se implementa en el route handler (sin la línea de tiempo visual, que sigue siendo Fase C) y el motor ya salta `esBloqueado = true` desde el primer momento en que existe. Evita que Fase C tenga que volver a tocar el motor.
+
+Alcance de Fase B en una línea: CRUD de reglas (con validación de suma=100%, no-superposición, `esBloqueado`) + motor síncrono de aplicación/reversión + vista `v_compras_distribuidas` + migración de `pivot`/`detalle` a leerla. Reimportación (sección 6) sigue siendo Fase D; UI (modal, línea de tiempo visual, indicador) sigue siendo Fase C.
+
 ## 11. Riesgos y puntos abiertos
 
 - El alcance exacto de la comparación de campos en reimportación (sección 6 de este doc / 10.3 de la spec funcional) no está cerrado — se implementa con el criterio más amplio razonable (todos los campos ERP-controlados) pero puede necesitar ajuste con datos reales.
