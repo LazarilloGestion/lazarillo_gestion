@@ -129,6 +129,7 @@ export type VentaDetalle = {
 // --- Forma de cada compra devuelta por /api/dashboard/detalle ---
 export type CompraDetalle = {
   rowId: string;
+  distribucionId: number | null;
   fecha: string | null;
   importe: string | number | null;
   importeManual: string | number | null;

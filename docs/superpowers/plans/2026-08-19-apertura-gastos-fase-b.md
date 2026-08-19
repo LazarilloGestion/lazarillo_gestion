@@ -1577,6 +1577,17 @@ SELECT COUNT(*), SUM(importe) FROM v_compras_distribuidas;
 
 Expected: mismo conteo y misma suma en ambas — sin reglas activas, la vista es una copia 1:1 de `compras` (rama `esDistribuido = false` cubre el 100% de las filas).
 
+**Chequeo adicional (hallazgo de la revisión de Task 8):** `detalle/route.ts` reescrito ahora liga un `Date` de JS directamente como parámetro de `$queryRaw` — patrón nuevo en este repo (el resto del código filtra fechas con `EXTRACT(...)::int` o vía el cliente tipado de Prisma). El análisis de la revisión concluye que es seguro (columnas `timestamp(3)` en UTC-medianoche, Vercel corre en UTC), pero sin test automatizado que lo cubra, verificar a mano en este paso: pedir `GET /api/dashboard/detalle?year=<año con datos>&mes=8` y `mes=9` para el mismo local/concepto y confirmar que los totales no se solapan ni pierden filas en el límite del mes (una compra del 31/08 no debe aparecer en la respuesta de `mes=9`, ni viceversa). **Importante:** correr este chequeo contra el entorno desplegado (UTC), no un dev server local en huso horario Argentina — un servidor local podría enmascarar o inventar un desfasaje que no existe en producción.
+
+**Chequeo adicional (hallazgo de la revisión final de rama):** el motor redondea el importe efectivo a 2 decimales antes de repartir (`lib/apertura/motor.ts`), pero `compras.importe` es `numeric` sin precisión fija — si alguna compra real tiene más de 2 decimales, `SUM("importeCalculado")` del Step 6 podría diferir de `SUM(importe)` por una fracción de centavo, abortando la verificación a mitad de camino contra producción. Correr ANTES de continuar:
+
+```sql
+SELECT COUNT(*) FROM compras
+WHERE COALESCE("importeManual", importe) IS DISTINCT FROM round(COALESCE("importeManual", importe), 2);
+```
+
+Expected: `0`. Si no es `0`, detenerse y avisar antes de continuar — no asumir que el Step 6 va a coincidir exacto.
+
 - [ ] **Step 4: Elegir un concepto de bajo volumen para la prueba real**
 
 ```sql
@@ -1589,9 +1600,9 @@ LIMIT 10;
 
 Elegir un concepto con pocas compras (idealmente 1-5) para minimizar el radio de impacto de la prueba. Anotar su código y el rango de fechas de sus compras.
 
-- [ ] **Step 5: Crear una regla de prueba vía la API real**
+- [ ] **Step 5: Crear una regla de prueba vía la API real (incluye un destino solo-PDV, hallazgo de la revisión final de rama)**
 
-Con sesión autenticada (mismo mecanismo que cualquier request al dashboard), `POST /api/apertura/reglas`:
+Con sesión autenticada (mismo mecanismo que cualquier request al dashboard), `POST /api/apertura/reglas`. El segundo destino se manda con `puntoDeVentaId` únicamente (sin `localId`) a propósito — es exactamente el caso que `resolverLocalIdDestinos` (Task 7, fix de la revisión final) debe resolver:
 
 ```json
 {
@@ -1600,42 +1611,49 @@ Con sesión autenticada (mismo mecanismo que cualquier request al dashboard), `P
   "confirmarHistorico": true,
   "destinos": [
     { "localId": <id de un local real>, "porcentaje": 60 },
-    { "localId": <id de otro local real>, "porcentaje": 40 }
+    { "puntoDeVentaId": <id de un PDV real, de OTRO local que el de arriba>, "porcentaje": 40 }
   ]
 }
 ```
 
 Expected: `201`, `comprasAfectadas` coincide con el conteo del Step 4.
 
-- [ ] **Step 6: Verificar el estado en base**
+- [ ] **Step 6: Verificar el estado en base — incluye que el destino solo-PDV resolvió su localId**
 
 ```sql
 SELECT COUNT(*) FROM distribuciones_apertura WHERE "reglaId" = <id devuelto>;
 SELECT "rowId", "esDistribuido" FROM compras WHERE "conceptoCodigo" = '<código>';
 SELECT SUM("importeCalculado") FROM distribuciones_apertura WHERE "reglaId" = <id>;
 SELECT SUM(importe) FROM compras WHERE "conceptoCodigo" = '<código>';
+SELECT id, "localId", "puntoDeVentaId" FROM destinos_regla WHERE "reglaId" = <id>;
 ```
 
-Expected: `esDistribuido = true` en todas; suma de `importeCalculado` = suma de `importe` original (invariante no negociable); `v_compras_distribuidas` para ese concepto ahora devuelve el doble de filas (fan-out 2 destinos) con la suma total sin cambios.
+Expected: `esDistribuido = true` en todas; suma de `importeCalculado` = suma de `importe` original (invariante no negociable); `v_compras_distribuidas` para ese concepto ahora devuelve el doble de filas (fan-out 2 destinos) con la suma total sin cambios. **Crítico:** el destino que se mandó solo con `puntoDeVentaId` debe aparecer en `destinos_regla` con `localId` NO NULO (el local dueño de ese PDV) — si aparece `NULL`, el fix de `resolverLocalIdDestinos` no funcionó y esa porción de la compra desaparecería de cualquier lectura de `pivot`/`detalle` filtrada por local. Confirmar además: `SELECT COUNT(*) FROM v_compras_distribuidas WHERE "reglaId... "` no aplica directo (la vista no expone reglaId), en su lugar pedir `GET /api/dashboard/pivot?year=<año>&localId=<id del local dueño del PDV>` y confirmar que el importe distribuido a ese destino aparece en el total (no desaparece).
 
-- [ ] **Step 7: Revertir — eliminar la regla de prueba**
+- [ ] **Step 7: Verificar el límite conocido — desactivar + regla nueva superpuesta**
 
-`DELETE /api/apertura/reglas/<id>`
+Hallazgo de la revisión de Task 7 (ver ledger): desactivar una regla deja sus `distribuciones_apertura`/`esDistribuido=true` como historial (correcto, a propósito), pero como el chequeo de superposición solo mira reglas `estado: activa`, una regla NUEVA para el mismo concepto/período pasa la validación y luego el motor la salta (esas compras ya están `esDistribuido=true` por la regla vieja) — resultado: `201` con `comprasAfectadas: 0`, sin error. Verificar que este comportamiento documentado se sostiene, no que sea "corregido" (no hay fix de código para esto en este plan — ver ruling de Task 7):
 
-Expected: `200`, `comprasRevertidas` coincide con el Step 4.
+1. `PATCH /api/apertura/reglas/<id de Step 5>` con `{ "accion": "desactivar" }`. Expected: `200`, `estado: "inactiva"`.
+2. `SELECT COUNT(*) FROM distribuciones_apertura WHERE "reglaId" = <id>;` — Expected: sigue habiendo filas (no se revirtió, es historial).
+3. `POST /api/apertura/reglas` con el mismo `entidadId`/`modo: "historico"`/`confirmarHistorico: true` y los mismos destinos que Step 5. Expected: `201` (pasa la validación de superposición porque la vieja está inactiva), pero `comprasAfectadas: 0` — confirma el límite documentado, no un bug nuevo. Anotar el `id` de esta regla nueva como `<id2>`.
 
-- [ ] **Step 8: Verificar reversión completa**
+- [ ] **Step 8: Revertir ambas reglas de prueba**
+
+`DELETE /api/apertura/reglas/<id2>` (la nueva, sin distribuciones — `comprasRevertidas: 0`), luego `DELETE /api/apertura/reglas/<id>` (la original, Step 5) — Expected en la segunda: `200`, `comprasRevertidas` coincide con el Step 4.
+
+- [ ] **Step 9: Verificar reversión completa**
 
 ```sql
-SELECT COUNT(*) FROM distribuciones_apertura WHERE "reglaId" = <id>;
+SELECT COUNT(*) FROM distribuciones_apertura WHERE "reglaId" IN (<id>, <id2>);
 SELECT "esDistribuido", "distribuidoEn" FROM compras WHERE "conceptoCodigo" = '<código>';
 SELECT COUNT(*), SUM(importe) FROM compras;
 SELECT COUNT(*), SUM(importe) FROM v_compras_distribuidas;
 ```
 
-Expected: 0 filas en `distribuciones_apertura` para esa regla; `esDistribuido = false`, `distribuidoEn = null` en todas las compras del concepto; conteo/suma de `compras` vs `v_compras_distribuidas` vuelven a coincidir exactamente (mismo resultado que el Step 3 — el sistema queda en el mismo estado que antes de la prueba).
+Expected: 0 filas en `distribuciones_apertura` para ambas reglas; `esDistribuido = false`, `distribuidoEn = null` en todas las compras del concepto; conteo/suma de `compras` vs `v_compras_distribuidas` vuelven a coincidir exactamente (mismo resultado que el Step 3 — el sistema queda en el mismo estado que antes de la prueba).
 
-- [ ] **Step 9: Sanity check final**
+- [ ] **Step 10: Sanity check final**
 
 ```bash
 npm test
@@ -1645,6 +1663,11 @@ npx tsc --noEmit
 
 Expected: todos los tests pasan (los nuevos de `lib/apertura/` + los ya existentes), lint y tsc limpios.
 
-- [ ] **Step 10: Documentar el cierre de Fase B**
+- [ ] **Step 11: Documentar el cierre de Fase B**
 
-Guardar una memoria de proyecto nueva (`project_apertura_gastos_fase_b_estado.md`, mismo patrón que `project_apertura_gastos_fase_a_estado.md`) con: qué se aplicó, resultado de la verificación end-to-end (Steps 5-8), y que Fase C (UI) sigue pendiente.
+Guardar una memoria de proyecto nueva (`project_apertura_gastos_fase_b_estado.md`, mismo patrón que `project_apertura_gastos_fase_a_estado.md`) con: qué se aplicó, resultado de la verificación end-to-end (Steps 5-9, incluyendo el destino solo-PDV del Step 5/6 y el límite conocido de desactivar+regla nueva confirmado en el Step 7), y que Fase C (UI) sigue pendiente. Incluir explícitamente, como límites conocidos para que Fase C/D no los redescubra (hallazgos de la revisión final de rama, todos documentados y no corregidos en este plan a propósito — ver ledger de este plan para el razonamiento completo de cada uno):
+
+- **Ninguna regla debe quedar activa en producción hasta que Fase C/D implemente recálculo ante edición manual.** `PATCH /api/dashboard/compras/[rowId]` (endpoint preexistente, fuera del alcance de este plan) puede seguir escribiendo `importeManual`/`conceptoCodigoManual` sobre una compra ya distribuida sin que nada lo impida — la vista ignora el `importeManual` de una fila distribuida, y un cambio de concepto la desengancha silenciosamente de su propia regla.
+- **`pivot` tiene el mismo riesgo de key/drill-down que `detalle`** (ya anotado en el diseño técnico, sección 4): una compra distribuida genera N filas de nivel-proveedor con el mismo `rowId` (colisión de key de React), y el click de drill-down sigue leyendo la compra sin distribuir. Fase C debe resolver ambos casos juntos, no solo el de `detalle`.
+- **Editar una regla `inactiva` (vía `PATCH ... {accion:"editar"}`) reactiva sus distribuciones sin volver a poner `estado: "activa"`** — deja una regla inactiva con distribuciones vivas, invisible para el chequeo de superposición. No hay caso de uso real para esto todavía (sin UI), pero si Fase C expone "editar" en la UI, debe decidir explícitamente qué hacer con `estado` al editar.
+- El campo `porcentaje` persistido en `destinos_regla` puede diferir levemente del porcentaje efectivo real cuando el reparto no es exacto (el último destino se lleva el resto) — relevante para el campo %/$ bidireccional que planea el diseño de Fase C.
