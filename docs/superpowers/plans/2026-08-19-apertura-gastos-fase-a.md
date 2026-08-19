@@ -18,7 +18,7 @@
 - Tests con vitest, aislados y determinísticos, sin base de datos real (usar `createMockDb`/mocks de `lib/etl/test-utils/`).
 - Conventional Commits en cada paso de commit.
 - Correr `npm run lint` y `npm run test` antes de dar cualquier tarea por cerrada.
-- **No hay entornos separados dev/prod** — un solo Supabase, local y Vercel apuntan a la misma base (ver memoria `project_alta_nunez_comercio`). Cualquier migración de Prisma se genera con `--create-only` primero para revisar el SQL antes de aplicarlo — nunca `prisma migrate dev` directo contra esta base.
+- **No hay entornos separados dev/prod** — un solo Supabase, local y Vercel apuntan a la misma base (ver memoria `project_alta_nunez_comercio`). No hay shadow database configurada, así que `prisma migrate dev` (con o sin `--create-only`) no es utilizable — genera migraciones con `prisma migrate diff` en modo schema-a-schema (sin conexión a ninguna base, ver Task 3 Step 2) y revisa el SQL antes de aplicarlo. Nunca `prisma migrate dev` contra esta base.
 - Ningún paso de este plan que aplique una migración o corra el script de migración de `rowId` contra la base real se ejecuta sin aprobación explícita del usuario en esa sesión — no alcanza con la aprobación del plan.
 - No sumar dependencias nuevas.
 
@@ -471,14 +471,30 @@ Agregar también las relaciones inversas en `Local` y `PuntoDeVenta` (junto a la
 En `model Local`, agregar: `destinosRegla DestinoRegla[]`
 En `model PuntoDeVenta`, agregar: `destinosRegla DestinoRegla[]`
 
-- [ ] **Step 2: Generar la migración SIN aplicarla**
+- [ ] **Step 2: Generar la migración SIN aplicarla ni conectar a la base**
 
-Run: `npx prisma migrate dev --name apertura_gastos_schema --create-only`
-Expected: crea `prisma/migrations/<timestamp>_apertura_gastos_schema/migration.sql` sin tocar la base de datos (flag `--create-only`). Confirmar en la salida del comando que dice "have NOT been applied".
+**Corrección post-diseño (detectada en subagent-driven-development, 2026-08-19):** `prisma migrate dev --create-only` requiere una shadow database configurada (`datasource.shadowDatabaseUrl` en `prisma.config.ts`) — este proyecto no tiene una, porque no hay entornos separados dev/prod (un solo Supabase). Verificado corriendo el comando: falla con `Error: You must set 'datasource.shadowDatabaseUrl'...`. Usar en su lugar `prisma migrate diff` en modo schema-a-schema, que es puramente local (no abre ninguna conexión a la base — verificado, no consume ninguna variable de entorno de conexión al correrlo).
+
+1. Guardar una copia del `schema.prisma` actual (antes de los cambios del Step 1) en un archivo temporal, por ejemplo con `git show HEAD:prisma/schema.prisma > /tmp/schema-antes.prisma` (usar el HEAD de este task, antes de editar el archivo).
+2. Hacer los cambios del Step 1 sobre `prisma/schema.prisma`.
+3. Generar el SQL del diff:
+   ```bash
+   npx prisma migrate diff \
+     --from-schema /tmp/schema-antes.prisma \
+     --to-schema prisma/schema.prisma \
+     --script > /tmp/apertura-gastos-migration.sql
+   ```
+   Expected: el comando termina sin error y sin pedir ninguna variable de entorno de conexión (es diff schema-contra-schema, no toca la base real). El archivo de salida debe contener sentencias `CREATE TABLE` para las 3 tablas nuevas y `ALTER TABLE "compras" ADD COLUMN` para los 3 campos nuevos.
+4. Crear manualmente la carpeta de migración con el nombre que Prisma usaría (`YYYYMMDDHHMMSS_apertura_gastos_schema`, timestamp = fecha/hora real de este paso en UTC) y mover el SQL generado ahí:
+   ```bash
+   mkdir -p "prisma/migrations/$(date -u +%Y%m%d%H%M%S)_apertura_gastos_schema"
+   ```
+   (ejecutar el `mkdir` y luego mover `/tmp/apertura-gastos-migration.sql` al archivo `migration.sql` dentro de esa carpeta nueva, en el mismo paso, para que el timestamp del nombre de carpeta sea consistente).
+5. **No correr `prisma migrate resolve` ni ningún comando que registre esta migración como aplicada contra la base real** — esta migración se aplica recién en Task 5, con aprobación explícita.
 
 - [ ] **Step 3: Revisar el SQL generado a mano**
 
-Leer el archivo de migración generado. Confirmar que:
+Leer el archivo `migration.sql` recién creado. Confirmar que:
 - Crea las 3 tablas nuevas con los nombres mapeados (`reglas_apertura`, `destinos_regla`, `distribuciones_apertura`).
 - Agrega las 3 columnas nuevas a `compras` con sus defaults: `esDistribuido` boolean default false, `distribuidoEn` timestamp nullable, `esBloqueado` boolean default false. Estos nombres van tal cual en camelCase (comillas dobles en el SQL, ej. `"esDistribuido"`) — igual que el resto de las columnas de `compras` (`fechaManual`, `importeManual`, `localId`, etc.), que no usan `@map` a snake_case en ningún campo, solo `@@map` en el nombre de la tabla. Si el SQL generado muestra snake_case en vez de camelCase para estas columnas nuevas, hay un `@map` de más en el schema del Step 1 — corregirlo y regenerar.
 - No incluye ningún `DROP` ni cambio sobre tablas existentes fuera de los `ADD COLUMN` esperados en `compras`.
@@ -501,7 +517,7 @@ Expected: sin errores nuevos atribuibles a este cambio (el proyecto puede tener 
 git add prisma/schema.prisma prisma/migrations/
 git commit -m "feat(schema): agrega modelo de datos de Apertura de Gastos (reglas_apertura, destinos_regla, distribuciones_apertura)
 
-Migración generada con --create-only, todavía no aplicada contra la base de producción."
+Migración generada con prisma migrate diff (schema-a-schema, sin conexión a la base), todavía no aplicada contra la base de producción."
 ```
 
 **Nota explícita:** este commit NO aplica la migración contra la base real. Ver Task 5 para el paso de aplicación, que requiere aprobación explícita separada.
