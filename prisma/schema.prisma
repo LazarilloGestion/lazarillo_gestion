@@ -17,6 +17,7 @@ model Local {
   ventas          Venta[]
   detallesCompra  DetalleCompra[]
   flujoCajaManual FlujoCajaManual[]
+  destinosRegla   DestinoRegla[]
 
   @@map("locales")
 }
@@ -30,6 +31,7 @@ model PuntoDeVenta {
   compras         Compra[]
   ventas          Venta[]
   flujoCajaManual FlujoCajaManual[]
+  destinosRegla   DestinoRegla[]
 
   @@unique([nombre, localId])
   @@map("puntos_de_venta")
@@ -181,6 +183,13 @@ model Compra {
   fechaManual    DateTime?
   observacManual String?
 
+  // Apertura de Gastos — ver docs/superpowers/specs/2026-08-19-apertura-gastos-design.md
+  esDistribuido Boolean   @default(false)
+  distribuidoEn DateTime?
+  esBloqueado   Boolean   @default(false)
+
+  distribuciones DistribucionApertura[]
+
   localId        Int?
   puntoDeVentaId Int?
   local          Local?        @relation(fields: [localId], references: [id])
@@ -295,4 +304,62 @@ model FlujoCajaManual {
   // tiene sintaxis nativa para eso, por eso queda declarado acá como unique común (drift esperado).
   @@unique([localId, puntoDeVentaId, anio, mes])
   @@map("flujo_caja_manual")
+}
+
+// ─── APERTURA DE GASTOS ────────────────────────────────────────────────────
+
+model ReglaApertura {
+  id        Int    @id @default(autoincrement())
+  nivel     String // 'concepto' en v1; 'proveedor' | 'registro' reservados para versiones futuras
+  entidadId String // código de ConceptoCaja en v1
+
+  modo               String // 'historico' | 'entre_fechas' | 'desde_adelante' | 'desde_atras'
+  fechaDesde         DateTime?
+  fechaHasta         DateTime?
+  extremosInclusivos Boolean   @default(true)
+
+  estado    String   @default("activa") // 'activa' | 'inactiva'
+  creadoPor String?
+  creadoEn  DateTime @default(now())
+
+  destinos       DestinoRegla[]
+  distribuciones DistribucionApertura[]
+
+  @@index([entidadId, nivel])
+  @@map("reglas_apertura")
+}
+
+model DestinoRegla {
+  id             Int     @id @default(autoincrement())
+  reglaId        Int
+  localId        Int?
+  puntoDeVentaId Int?
+  porcentaje     Decimal @db.Decimal(5, 2)
+
+  regla        ReglaApertura @relation(fields: [reglaId], references: [id])
+  local        Local?        @relation(fields: [localId], references: [id])
+  puntoDeVenta PuntoDeVenta? @relation(fields: [puntoDeVentaId], references: [id])
+
+  distribuciones DistribucionApertura[]
+
+  @@index([reglaId])
+  @@map("destinos_regla")
+}
+
+model DistribucionApertura {
+  id               Int      @id @default(autoincrement())
+  compraRowId      String
+  reglaId          Int
+  destinoId        Int
+  importeOriginal  Decimal  @db.Decimal(14, 2)
+  porcentaje       Decimal  @db.Decimal(5, 2)
+  importeCalculado Decimal  @db.Decimal(14, 2)
+  procesadoEn      DateTime @default(now())
+
+  compra  Compra        @relation(fields: [compraRowId], references: [rowId])
+  regla   ReglaApertura @relation(fields: [reglaId], references: [id])
+  destino DestinoRegla  @relation(fields: [destinoId], references: [id])
+
+  @@index([compraRowId])
+  @@map("distribuciones_apertura")
 }
