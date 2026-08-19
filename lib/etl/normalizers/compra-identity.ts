@@ -35,6 +35,18 @@ export function parseComprobanteFromDetalle(raw: unknown): string | null {
   return normalizedCod + num1.padStart(4, "0") + num2.padStart(8, "0");
 }
 
+// Un "Tic" (ticket) no es un documento único como una factura real — el mismo
+// número de ticket puede repetirse para compras genuinamente distintas el
+// mismo día (hallazgo real en datos de producción: dos compras de catering
+// con el mismo Tic y distinto importe/observación). No se considera
+// comprobante confiable para identidad — solo afecta qué rama de
+// computeCompraRowId se usa; el valor aliasado (TIC -> Z) se sigue guardando
+// tal cual en la columna `comprobante` para vincular con detalle_compras
+// (parseComprobanteFromDetalle sigue igual, esto no lo toca).
+function esComprobanteConfiable(detalleRaw: unknown): boolean {
+  return !/^tic\s/i.test(String(detalleRaw ?? "").trim());
+}
+
 export interface CompraIdentityInput {
   codCga: string | null;
   fechaISO: string | null; // YYYY-MM-DD, canónico entre fila cruda y registro persistido
@@ -46,16 +58,22 @@ export interface CompraIdentityInput {
   importe: string | null; // decimal como string, anti-drift de punto flotante
 }
 
-// Identidad partida: si hay comprobante parseable (documento real del ERP), el
-// hash NO incluye importe — un cambio de importe para el mismo comprobante debe
-// tratarse como actualización del mismo registro, no como transacción nueva
-// (spec Apertura de Gastos, sección 10 / CA-12). Sin comprobante (~40% de las
-// filas: sueldos, alquiler, gastos sueltos) no hay forma de distinguir una
-// corrección de una transacción distinta con los mismos campos descriptivos, así
-// que se preserva el comportamiento anterior con IMPORTE incluido en el hash.
+// Identidad partida: si hay comprobante parseable y confiable (documento real
+// del ERP), el hash NO incluye importe — un cambio de importe para el mismo
+// comprobante debe tratarse como actualización del mismo registro, no como
+// transacción nueva (spec Apertura de Gastos, sección 10 / CA-12). Se incluye
+// OBSERVAC igual: un mismo número de comprobante puede repetirse legítimamente
+// entre compras distintas (hallazgo real: "Iva compensacion" reutiliza el
+// comprobante de la factura que referencia para cada ajuste; una factura con
+// múltiples ítems puede registrarse como varias compras con el mismo
+// comprobante) — OBSERVAC es lo que las distingue en esos casos reales.
+// Sin comprobante confiable (~40% de las filas: sueldos, alquiler, gastos
+// sueltos, tickets) no hay forma de distinguir una corrección de una
+// transacción distinta con los mismos campos descriptivos, así que se
+// preserva el comportamiento anterior con IMPORTE incluido en el hash.
 export function computeCompraRowId(input: CompraIdentityInput): string {
   const keyParts = input.comprobante
-    ? [input.codCga, input.fechaISO, input.codigo, input.concepto, input.comprobante]
+    ? [input.codCga, input.fechaISO, input.codigo, input.concepto, input.comprobante, input.observacNormalizado]
     : [input.codCga, input.fechaISO, input.codigo, input.concepto, input.detalle, input.observacNormalizado, input.importe];
   const key = keyParts.map((v) => v ?? "").join("|");
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
@@ -72,7 +90,7 @@ export function compraIdentityFromRawRow(r: ETLRow): CompraIdentityInput {
     fechaISO: excelDateToISO(r["FECHA"]),
     codigo: trim(r["CODIGO"]),
     concepto: trim(r["CONCEPTO"]),
-    comprobante: parseComprobanteFromDetalle(r["DETALLE"]),
+    comprobante: esComprobanteConfiable(r["DETALLE"]) ? parseComprobanteFromDetalle(r["DETALLE"]) : null,
     detalle: trim(r["DETALLE"]),
     observacNormalizado: normalizeText(r["OBSERVAC"]),
     importe: canonicalDecimal(toDecimalStr(r["IMPORTE"])),
@@ -100,7 +118,7 @@ export function compraIdentityFromDbRecord(c: CompraDbIdentitySource): CompraIde
     fechaISO: c.fecha ? c.fecha.toISOString().slice(0, 10) : null,
     codigo: c.codigo,
     concepto: c.concepto,
-    comprobante: c.comprobante,
+    comprobante: esComprobanteConfiable(c.detalle) ? c.comprobante : null,
     detalle: c.detalle,
     observacNormalizado: c.observac,
     importe: canonicalDecimal(c.importe != null ? c.importe.toString() : null),

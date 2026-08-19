@@ -50,6 +50,36 @@ describe("computeCompraRowId", () => {
     };
     expect(computeCompraRowId(base)).toBe(computeCompraRowId({ ...base }));
   });
+
+  // Regresión: hallazgo real en producción (dry-run de la migración de rowId,
+  // 19-ago-2026) — "Iva compensacion" reutiliza el mismo comprobante para dos
+  // ajustes distintos del mismo período, distinguibles solo por OBSERVAC
+  // (null vs "San Justo"). Sin OBSERVAC en el hash, colapsaban al mismo rowId.
+  it("con comprobante: mismo comprobante pero OBSERVAC distinto (mismo comprobante reutilizado en dos ajustes reales) da rowId distinto", () => {
+    const base = {
+      codCga: "820", fechaISO: "2026-01-16", codigo: "17", concepto: "Iva compensacion",
+      comprobante: "A000600003425", detalle: "A  0006-00003425", observacNormalizado: null, importe: "13830.96",
+    };
+    const a = computeCompraRowId(base);
+    const b = computeCompraRowId({ ...base, observacNormalizado: "San Justo", importe: "79692.69" });
+    expect(a).not.toBe(b);
+  });
+
+  // Regresión: hallazgo real — un "Tic" (ticket) no es un documento único como
+  // una factura real, el mismo número de ticket se repite para compras
+  // genuinamente distintas (dos compras de comida el mismo día, mismo Tic,
+  // OBSERVAC null en ambas, solo IMPORTE distingue). Deben tratarse como sin
+  // comprobante confiable — de lo contrario colapsan al mismo rowId.
+  it("Tic (ticket): dos compras con el mismo Tic, mismo OBSERVAC (null) pero IMPORTE distinto dan rowId distinto (comprobante no confiable, cae a la rama sin comprobante)", () => {
+    const base = {
+      codCga: "988", fechaISO: "2026-06-19", codigo: "3721", concepto: "Cumple COMIDA",
+      comprobante: null, // esComprobanteConfiable(detalle) ya descartó el comprobante derivado del Tic
+      detalle: "Tic 1522-19062026", observacNormalizado: null, importe: "112000",
+    };
+    const a = computeCompraRowId(base);
+    const b = computeCompraRowId({ ...base, importe: "75000" });
+    expect(a).not.toBe(b);
+  });
 });
 
 describe("compraIdentityFromRawRow / compraIdentityFromDbRecord — equivalencia", () => {
@@ -140,5 +170,34 @@ describe("compraIdentityFromRawRow / compraIdentityFromDbRecord — equivalencia
     const fromRaw = computeCompraRowId(compraIdentityFromRawRow(rawRow));
     const fromDb = computeCompraRowId(compraIdentityFromDbRecord(dbRecord));
     expect(fromRaw).toBe(fromDb);
+  });
+
+  it("Tic (ticket): compraIdentityFromRawRow y compraIdentityFromDbRecord coinciden en tratar el comprobante como no confiable (comprobante queda null pese a que DETALLE parsea)", () => {
+    const rawRow: ETLRow = {
+      COD_CGA: "988",
+      FECHA: 45000, // serial Excel, ~2023-03-15 (mismo serial usado en los demás tests de este archivo)
+      CODIGO: "3721",
+      CONCEPTO: "Cumple COMIDA",
+      DETALLE: "Tic 1522-19062026",
+      OBSERVAC: null,
+      IMPORTE: 112000,
+    };
+
+    const dbRecord = {
+      codCga: "988",
+      fecha: new Date("2023-03-15"),
+      codigo: "3721",
+      concepto: "Cumple COMIDA",
+      comprobante: "Z152219062026", // valor real guardado en la columna (alias TIC -> Z, se sigue guardando igual)
+      detalle: "Tic 1522-19062026",
+      observac: null,
+      importe: { toString: () => "112000" },
+    };
+
+    const fromRaw = compraIdentityFromRawRow(rawRow);
+    const fromDb = compraIdentityFromDbRecord(dbRecord);
+    expect(fromRaw.comprobante).toBeNull();
+    expect(fromDb.comprobante).toBeNull();
+    expect(computeCompraRowId(fromRaw)).toBe(computeCompraRowId(fromDb));
   });
 });
