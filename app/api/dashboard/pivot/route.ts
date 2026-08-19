@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
       COALESCE(c."observacManual", c.observac)                           AS observac,
       (c."importeManual" IS NOT NULL OR c."fechaManual" IS NOT NULL
         OR c."conceptoCodigoManual" IS NOT NULL OR c."observacManual" IS NOT NULL) AS has_manual_override
-    FROM compras c
+    FROM v_compras_distribuidas c
     LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
     LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
     LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
