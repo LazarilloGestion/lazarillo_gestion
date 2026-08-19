@@ -767,35 +767,52 @@ git commit -m "feat(scripts): agrega script de migración de rowId (dry-run por 
 
 Este task no se ejecuta como parte normal del flujo de tareas. **Antes de cada paso, pedir confirmación explícita al usuario en esa sesión** — la aprobación del plan completo no cuenta como aprobación para este paso (regla de Global Constraints y CLAUDE.md sección 7: cualquier cambio que toque compras/ventas ya importadas se pregunta antes de ejecutar).
 
+**Corrección post-revisión final (2026-08-19):** el orden original aplicaba el schema antes del dry-run de rowId. Se invierte: el dry-run es de solo lectura y es el paso con más probabilidad de encontrar un bloqueante real (colisiones — ver nota en Step 1), así que conviene descubrirlo antes de escribir nada en el schema. También: correr todo esto **desde el checkout principal del repo, no desde este worktree** — el worktree no tiene ningún `.env`/`.env.local`, a propósito, para que ningún comando de este plan pudiera conectarse a la base por accidente durante la ejecución automatizada.
+
+**Nota sobre variables de entorno (Recommendation #4 de la revisión final):** `prisma.config.ts` lee `DIRECT_URL` desde `.env`; `lib/env.ts` (usado por el script de migración vía `lib/prisma.ts`) lee `DATABASE_URL` desde `.env.local`. Son archivos y variables distintos — **confirmar que ambos apuntan a la misma base antes de arrancar** (`grep -E "DIRECT_URL|DATABASE_URL" .env .env.local`), para no aplicar el schema contra una base y el rowId contra otra.
+
 - [ ] **Step 1: Backup manual antes de cualquier escritura**
 
 Confirmar que existe un backup reciente y restaurable de la base (Supabase permite backups point-in-time — verificar con el usuario que están habilitados, o hacer un `pg_dump` manual del schema `public` antes de continuar).
 
-- [ ] **Step 2: Aplicar la migración de schema (Task 3)**
+- [ ] **Step 2: Dry-run del script de rowId (Task 4) — antes del schema**
+
+Run: `npx tsx scripts/migrate-rowid-compras.ts`
+Expected: reporta el plan sin aplicar nada, guarda `rowid-migration-plan.json` (se persiste siempre, incluso si hay colisiones — ver fix wave 1). Revisar el número de compras a actualizar (esperado: cercano a 9.508, ver corrección de alcance en el spec) y confirmar que no hay colisiones.
+
+Si hay colisiones: **detener acá**, no seguir a los próximos steps. Revisar `rowid-collisions.json` (contiene los campos identificatorios completos de cada grupo que colisiona, no solo los hashes) con Diego/Juan antes de decidir cómo proceder — la spec no define una política de resolución automática para este caso a propósito; es una decisión de negocio (¿cuál de las dos filas es la corrección real?), no algo que el script deba resolver solo.
+
+- [ ] **Step 3: Verificar estado de migraciones antes de aplicar el schema**
+
+Run: `npx prisma migrate status`
+Expected: confirma qué migraciones ya están aplicadas contra la base real y que `apertura_gastos_schema` (Task 3) aparece como pendiente, sin drift inesperado en migraciones anteriores. Si aparece cualquier drift o migración fallida previa, **detener acá** y resolverlo antes de continuar — no aplicar sobre un historial de migraciones inconsistente.
+
+- [ ] **Step 4: Aplicar la migración de schema (Task 3)**
 
 Con aprobación explícita del usuario:
 
 Run: `npx prisma migrate deploy`
-Expected: aplica la migración `apertura_gastos_schema` generada en Task 3. Verificar con `npx prisma migrate status` que quedó aplicada y no hay drift.
+Expected: aplica la migración `apertura_gastos_schema`. Verificar de nuevo con `npx prisma migrate status` que quedó aplicada y no hay drift.
 
-- [ ] **Step 3: Dry-run del script de rowId (Task 4)**
+- [ ] **Step 5: Aplicar el script de rowId**
 
-Run: `npx tsx scripts/migrate-rowid-compras.ts`
-Expected: reporta el plan sin aplicar nada, guarda `rowid-migration-plan.json`. Revisar el número de compras a actualizar (esperado: cercano a 9.508, ver corrección de alcance en el spec) y confirmar que no hay colisiones.
-
-Si hay colisiones: **detener acá**, revisar las filas señaladas a mano con el usuario antes de seguir — no forzar la aplicación.
-
-- [ ] **Step 4: Aplicar el script de rowId**
-
-Con aprobación explícita del usuario, después de revisar el dry-run:
+Con aprobación explícita del usuario, después de revisar el dry-run del Step 2:
 
 Run: `npx tsx scripts/migrate-rowid-compras.ts --apply`
-Expected: termina con "Migración completada y verificada." Si la verificación post-migración falla (conteos no coinciden, huérfanas > 0), el script termina con exit code 1 — **no continuar**, investigar antes de cualquier otra acción.
+Expected: termina con "Migración completada y verificada." Si la verificación post-migración falla (conteos no coinciden, huérfanas > 0), el script termina con exit code 1 — **no continuar**, investigar antes de cualquier otra acción. `rowid-migration-plan.json` (persistido en el Step 2, antes de cualquier escritura) sirve como registro de qué mapeo se pretendía aplicar si hace falta investigar un fallo a mitad de camino.
 
-- [ ] **Step 5: Verificación funcional post-migración**
+- [ ] **Step 6: Verificación end-to-end de la identidad (no solo totales)**
+
+**Nuevo paso (Important #4 de la revisión final):** verificar totales sin más (Step 7) no alcanza — un rowId mal calculado no cambia ningún importe, así que los totales del dashboard coinciden igual aunque la identidad esté rota. La única prueba barata de que la migración realmente logró su objetivo es reimportar un archivo real ya conocido y confirmar que actualiza en vez de duplicar:
+
+1. Elegir un archivo de compras (tabla 14) ya importado anteriormente, de cualquier período/local conocido.
+2. Reimportarlo desde la UI de la app (mismo flujo normal de importación).
+3. Confirmar en el reporte de importación: `created: 0`, `updated: N` (N = cantidad de filas del archivo que ya existían) — **cualquier `created > 0` sobre filas que ya estaban en la base es señal de que la identidad no está calculando lo mismo que antes de la migración**, y hay que investigar antes de dar la Fase A por cerrada (no seguir a Fase B con esto sin resolver).
+
+- [ ] **Step 7: Verificación funcional post-migración**
 
 Confirmar en el dashboard en producción (login real, no solo tests) que el pivot de Compras sigue mostrando los mismos totales que antes de la migración para al menos un local/año conocido — comparar contra una captura o los totales ya verificados en la corroboración de memoria del 2026-08-19 (9.508 compras, 57.614 ventas, 11.271 detalle_compras).
 
-- [ ] **Step 6: Documentar el cierre de Fase A**
+- [ ] **Step 8: Documentar el cierre de Fase A**
 
 Actualizar la memoria de proyecto (`project_apertura_gastos_spec.md` o una memoria nueva de seguimiento) con la fecha real de aplicación y los conteos de verificación — deja registro para cuando arranque Fase B.
