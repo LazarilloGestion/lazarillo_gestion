@@ -109,7 +109,12 @@ export async function GET(request: NextRequest) {
         conceptoCajaManual: { select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } } },
       },
     });
-    return NextResponse.json({ data: compra ? [compra] : [] });
+    // distribucionId: siempre null en esta rama — es un lookup puntual de una
+    // sola compra por su PK, nunca puede ser parte de un fan-out de reglas de
+    // apertura (esas viven exclusivamente en v_compras_distribuidas, ver nota
+    // en reshapeDetalle). Se agrega explícito para que el consumidor no reciba
+    // `undefined` donde el resto del endpoint siempre devuelve `null`.
+    return NextResponse.json({ data: compra ? [{ ...compra, distribucionId: null }] : [] });
   }
 
   const localId = idSchema.safeParse(searchParams.get("localId")).data;
@@ -142,7 +147,7 @@ export async function GET(request: NextRequest) {
   if (rubroCodigo && !conceptoCodigo) {
     conditions.push(Prisma.sql`rc_ef.codigo = ${rubroCodigo}`);
   } else if (conceptoCodigo) {
-    conditions.push(Prisma.sql`COALESCE(cc_ef.codigo, '__sin_concepto') = ${conceptoCodigo}`);
+    conditions.push(Prisma.sql`COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = ${conceptoCodigo}`);
   } else {
     // Sin filtro de rubro/concepto: excluir rubros ocultos. A diferencia de
     // los dos filtros de arriba, esta rama del detalle ORIGINAL (antes de
@@ -155,48 +160,53 @@ export async function GET(request: NextRequest) {
 
   const where = Prisma.join(conditions, " AND ");
 
-  const rows = await prisma.$queryRaw<DetalleSqlRow[]>(Prisma.sql`
-    SELECT
-      c."rowId",
-      c."distribucionId",
-      c.fecha,
-      c."fechaManual",
-      c.importe,
-      c."importeManual",
-      c."conceptoCodigoManual",
-      c.concepto,
-      c.detalle,
-      c.observac,
-      c."observacManual",
-      c.proveedor AS "proveedorTexto",
-      p.id                AS "proveedorId",
-      p.nombre            AS "proveedorNombre",
-      p.razon             AS "proveedorRazon",
-      l.nombre            AS "localNombre",
-      pdv.nombre          AS "pdvNombre",
-      cc.codigo           AS "conceptoCajaCodigo",
-      cc.nombre           AS "conceptoCajaNombre",
-      rc.nombre           AS "conceptoCajaRubroNombre",
-      ccm.codigo          AS "conceptoCajaManualCodigo",
-      ccm.nombre          AS "conceptoCajaManualNombre",
-      rcm.nombre          AS "conceptoCajaManualRubroNombre"
-    FROM v_compras_distribuidas c
-    LEFT JOIN proveedores p            ON c."proveedorId" = p.id
-    LEFT JOIN locales l                ON c."localId" = l.id
-    LEFT JOIN puntos_de_venta pdv      ON c."puntoDeVentaId" = pdv.id
-    -- Concepto/rubro EFECTIVO — solo para filtrar (mismo criterio que pivot).
-    LEFT JOIN conceptos_caja cc_ef        ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc_ef.codigo
-    LEFT JOIN rubros_concepto_caja rc_ef  ON cc_ef."codRga" = rc_ef.codigo
-    -- Concepto original y manual POR SEPARADO — para mostrar los dos objetos
-    -- anidados que CompraDetalle espera (conceptoCaja / conceptoCajaManual).
-    LEFT JOIN conceptos_caja cc           ON c."conceptoCodigo" = cc.codigo
-    LEFT JOIN rubros_concepto_caja rc     ON cc."codRga" = rc.codigo
-    LEFT JOIN conceptos_caja ccm          ON c."conceptoCodigoManual" = ccm.codigo
-    LEFT JOIN rubros_concepto_caja rcm    ON ccm."codRga" = rcm.codigo
-    WHERE ${where}
-    ORDER BY c.fecha ASC
-    LIMIT 2000
-  `);
+  try {
+    const rows = await prisma.$queryRaw<DetalleSqlRow[]>(Prisma.sql`
+      SELECT
+        c."rowId",
+        c."distribucionId",
+        c.fecha,
+        c."fechaManual",
+        c.importe,
+        c."importeManual",
+        c."conceptoCodigoManual",
+        c.concepto,
+        c.detalle,
+        c.observac,
+        c."observacManual",
+        c.proveedor AS "proveedorTexto",
+        p.id                AS "proveedorId",
+        p.nombre            AS "proveedorNombre",
+        p.razon             AS "proveedorRazon",
+        l.nombre            AS "localNombre",
+        pdv.nombre          AS "pdvNombre",
+        cc.codigo           AS "conceptoCajaCodigo",
+        cc.nombre           AS "conceptoCajaNombre",
+        rc.nombre           AS "conceptoCajaRubroNombre",
+        ccm.codigo          AS "conceptoCajaManualCodigo",
+        ccm.nombre          AS "conceptoCajaManualNombre",
+        rcm.nombre          AS "conceptoCajaManualRubroNombre"
+      FROM v_compras_distribuidas c
+      LEFT JOIN proveedores p            ON c."proveedorId" = p.id
+      LEFT JOIN locales l                ON c."localId" = l.id
+      LEFT JOIN puntos_de_venta pdv      ON c."puntoDeVentaId" = pdv.id
+      -- Concepto/rubro EFECTIVO — solo para filtrar (mismo criterio que pivot).
+      LEFT JOIN conceptos_caja cc_ef        ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc_ef.codigo
+      LEFT JOIN rubros_concepto_caja rc_ef  ON cc_ef."codRga" = rc_ef.codigo
+      -- Concepto original y manual POR SEPARADO — para mostrar los dos objetos
+      -- anidados que CompraDetalle espera (conceptoCaja / conceptoCajaManual).
+      LEFT JOIN conceptos_caja cc           ON c."conceptoCodigo" = cc.codigo
+      LEFT JOIN rubros_concepto_caja rc     ON cc."codRga" = rc.codigo
+      LEFT JOIN conceptos_caja ccm          ON c."conceptoCodigoManual" = ccm.codigo
+      LEFT JOIN rubros_concepto_caja rcm    ON ccm."codRga" = rcm.codigo
+      WHERE ${where}
+      ORDER BY c.fecha ASC
+      LIMIT 2000
+    `);
 
-  return NextResponse.json({ data: rows.map(reshapeDetalle) });
+    return NextResponse.json({ data: rows.map(reshapeDetalle) });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
