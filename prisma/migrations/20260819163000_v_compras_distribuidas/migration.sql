@@ -47,4 +47,5 @@ SELECT
   c."proveedorId"
 FROM distribuciones_apertura d
 JOIN compras c        ON c."rowId" = d."compraRowId"
-JOIN destinos_regla dr ON dr.id    = d."destinoId";
+JOIN destinos_regla dr ON dr.id    = d."destinoId"
+WHERE c."esDistribuido" = true;

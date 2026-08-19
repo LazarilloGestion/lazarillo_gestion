@@ -23,6 +23,43 @@ interface AplicarReglaInput {
   destinos: DestinoPct[];
 }
 
+interface DestinoInput {
+  localId: number | null;
+  puntoDeVentaId: number | null;
+  porcentaje: number;
+}
+
+// Un destino puede especificarse solo con puntoDeVentaId (el schema lo permite,
+// spec sección 8 pide "selector local/PDV"). PuntoDeVenta.localId es NOT NULL,
+// así que si falta localId lo resolvemos acá antes de persistir el destino —
+// dejarlo NULL rompería cualquier lectura de pivot/detalle filtrada por local
+// (hallazgo de la revisión final de rama de Fase B, 19-ago-2026).
+export async function resolverLocalIdDestinos(
+  prisma: AperturaDbClient,
+  destinos: DestinoInput[]
+): Promise<DestinoInput[]> {
+  const idsAResolver = [
+    ...new Set(
+      destinos
+        .filter((d) => d.localId == null && d.puntoDeVentaId != null)
+        .map((d) => d.puntoDeVentaId!)
+    ),
+  ];
+  if (idsAResolver.length === 0) return destinos;
+
+  const pdvs = await prisma.puntoDeVenta.findMany({
+    where: { id: { in: idsAResolver } },
+    select: { id: true, localId: true },
+  });
+  const localIdPorPdv = new Map(pdvs.map((p) => [p.id, p.localId]));
+
+  return destinos.map((d) =>
+    d.localId == null && d.puntoDeVentaId != null
+      ? { ...d, localId: localIdPorPdv.get(d.puntoDeVentaId) ?? null }
+      : d
+  );
+}
+
 // Aplica una regla ya persistida: busca las compras vigentes de su concepto,
 // calcula y persiste distribuciones_apertura, marca esDistribuido en las
 // compras afectadas. Siempre sobre el importe EFECTIVO — ver Global

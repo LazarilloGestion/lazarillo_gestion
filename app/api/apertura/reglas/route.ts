@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, requireAuthUser } from "@/lib/auth/require-auth";
 import { crearReglaSchema } from "@/lib/apertura/schemas";
 import { encontrarSuperposicion } from "@/lib/apertura/validaciones";
-import { aplicarRegla } from "@/lib/apertura/motor";
+import { aplicarRegla, resolverLocalIdDestinos } from "@/lib/apertura/motor";
 import type { ReglaVigencia } from "@/lib/apertura/vigencia";
 
 export const dynamic = "force-dynamic";
@@ -78,6 +78,15 @@ export async function POST(request: NextRequest) {
           throw new SuperposicionError(conflictoId);
         }
 
+        const destinosResueltos = await resolverLocalIdDestinos(
+          tx,
+          destinos.map((d) => ({
+            localId: d.localId ?? null,
+            puntoDeVentaId: d.puntoDeVentaId ?? null,
+            porcentaje: d.porcentaje,
+          }))
+        );
+
         const regla = await tx.reglaApertura.create({
           data: {
             nivel: "concepto",
@@ -88,9 +97,9 @@ export async function POST(request: NextRequest) {
             extremosInclusivos,
             creadoPor: user.email ?? user.id,
             destinos: {
-              create: destinos.map((d) => ({
-                localId: d.localId ?? null,
-                puntoDeVentaId: d.puntoDeVentaId ?? null,
+              create: destinosResueltos.map((d) => ({
+                localId: d.localId,
+                puntoDeVentaId: d.puntoDeVentaId,
                 porcentaje: d.porcentaje,
               })),
             },

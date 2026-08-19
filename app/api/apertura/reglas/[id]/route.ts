@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { patchReglaSchema } from "@/lib/apertura/schemas";
 import { encontrarSuperposicion } from "@/lib/apertura/validaciones";
-import { aplicarRegla, revertirRegla } from "@/lib/apertura/motor";
+import { aplicarRegla, revertirRegla, resolverLocalIdDestinos } from "@/lib/apertura/motor";
 import type { ReglaVigencia } from "@/lib/apertura/vigencia";
 
 export const dynamic = "force-dynamic";
@@ -92,6 +92,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         await revertirRegla(tx, id);
         await tx.destinoRegla.deleteMany({ where: { reglaId: id } });
 
+        const destinosResueltos = await resolverLocalIdDestinos(
+          tx,
+          destinos.map((d) => ({
+            localId: d.localId ?? null,
+            puntoDeVentaId: d.puntoDeVentaId ?? null,
+            porcentaje: d.porcentaje,
+          }))
+        );
+
         const regla = await tx.reglaApertura.update({
           where: { id },
           data: {
@@ -100,9 +109,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
             fechaHasta: vigenciaNueva.fechaHasta,
             extremosInclusivos,
             destinos: {
-              create: destinos.map((d) => ({
-                localId: d.localId ?? null,
-                puntoDeVentaId: d.puntoDeVentaId ?? null,
+              create: destinosResueltos.map((d) => ({
+                localId: d.localId,
+                puntoDeVentaId: d.puntoDeVentaId,
                 porcentaje: d.porcentaje,
               })),
             },
