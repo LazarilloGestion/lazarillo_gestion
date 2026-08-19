@@ -356,10 +356,12 @@ model DistribucionApertura {
   importeCalculado Decimal  @db.Decimal(14, 2)
   procesadoEn      DateTime @default(now())
 
-  compra  Compra        @relation(fields: [compraRowId], references: [rowId])
+  compra  Compra        @relation(fields: [compraRowId], references: [rowId], onDelete: Cascade)
   regla   ReglaApertura @relation(fields: [reglaId], references: [id])
   destino DestinoRegla  @relation(fields: [destinoId], references: [id])
 
   @@index([compraRowId])
+  @@index([reglaId])
+  @@index([destinoId])
   @@map("distribuciones_apertura")
 }

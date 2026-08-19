@@ -3,7 +3,11 @@
  *
  * Recalcula el rowId de cada compra existente con la identidad partida
  * (con/sin comprobante, ver lib/etl/normalizers/compra-identity.ts) y actualiza
- * compras.rowId + detalle_compras.compraId en la misma transacción por fila.
+ * compras.rowId con un único UPDATE por fila. No hace falta tocar
+ * detalle_compras a mano: la FK real detalle_compras_compraId_fkey (ver
+ * prisma/migrations/20260504151051_init/migration.sql) es ON UPDATE CASCADE,
+ * así que Postgres propaga el nuevo rowId a detalle_compras.compraId de forma
+ * atómica como parte del mismo UPDATE.
  *
  * Por defecto corre en modo dry-run (solo reporta el plan, no escribe nada).
  * Requiere --apply para ejecutar los UPDATE contra la base real.
@@ -76,37 +80,77 @@ async function main() {
   const plan = planRowIdMigration(compras);
   const colisiones = plan.filter((p) => p.colision);
 
+  // Se persiste el plan siempre (dry-run o --apply, con o sin colisiones) y
+  // antes de tocar la base — así queda un registro en disco de qué mapping
+  // se pensaba aplicar aunque --apply falle a mitad de camino.
+  const fs = await import("fs");
+  fs.writeFileSync("rowid-migration-plan.json", JSON.stringify(plan, null, 2));
+
   console.log(`\n=== Plan de migración ===`);
   console.log(`Compras a actualizar: ${plan.length} de ${compras.length}`);
   console.log(`Colisiones detectadas (requieren revisión manual antes de aplicar): ${colisiones.length}`);
+  console.log("Plan completo guardado en rowid-migration-plan.json");
 
   if (colisiones.length > 0) {
-    console.log("\n⚠ Hay colisiones — no se aplica nada. Revisar estas filas a mano:");
-    console.log(JSON.stringify(colisiones.slice(0, 20), null, 2));
+    // Recalculamos el rowIdNuevo para TODAS las compras (no solo las que
+    // planRowIdMigration incluyó en `plan`, que filtra las que no cambian)
+    // para no perder del reporte una compra sin cambios cuyo rowId actual
+    // colisiona con el rowIdNuevo de otra — ese caso también hay que revisar.
+    const nuevoRowIdPorCompra = new Map(
+      compras.map((c) => [c.rowId, computeCompraRowId(compraIdentityFromDbRecord(c))])
+    );
+    const conteoNuevos = new Map<string, number>();
+    for (const nuevo of nuevoRowIdPorCompra.values()) {
+      conteoNuevos.set(nuevo, (conteoNuevos.get(nuevo) ?? 0) + 1);
+    }
+    const gruposColision = new Map<string, CompraForMigration[]>();
+    for (const c of compras) {
+      const nuevo = nuevoRowIdPorCompra.get(c.rowId)!;
+      if ((conteoNuevos.get(nuevo) ?? 0) > 1) {
+        const grupo = gruposColision.get(nuevo) ?? [];
+        grupo.push(c);
+        gruposColision.set(nuevo, grupo);
+      }
+    }
+    const colisionesCompletas = Array.from(gruposColision.entries()).map(([rowIdNuevo, grupo]) => ({
+      rowIdNuevo,
+      compras: grupo.map((c) => ({
+        rowId: c.rowId,
+        codCga: c.codCga,
+        fecha: c.fecha,
+        codigo: c.codigo,
+        concepto: c.concepto,
+        comprobante: c.comprobante,
+        detalle: c.detalle,
+        importe: c.importe != null ? c.importe.toString() : null,
+      })),
+    }));
+    fs.writeFileSync("rowid-collisions.json", JSON.stringify(colisionesCompletas, null, 2));
+    console.log(`\n⚠ ${colisionesCompletas.length} grupos de colisión — no se aplica nada. Ver rowid-collisions.json para investigar.`);
     process.exit(1);
   }
 
   if (!apply) {
-    console.log("\nDry-run — no se escribió nada. Re-ejecutar con --apply para aplicar.\n");
-    const fs = await import("fs");
-    fs.writeFileSync("rowid-migration-plan.json", JSON.stringify(plan, null, 2));
-    console.log("Plan completo guardado en rowid-migration-plan.json\n");
+    console.log("\nDry-run — no se escribió nada más. Re-ejecutar con --apply para aplicar.\n");
     return;
   }
 
   console.log("\nAplicando...");
   let actualizadas = 0;
   for (const { rowIdViejo, rowIdNuevo } of plan) {
-    await prisma.$transaction([
-      prisma.detalleCompra.updateMany({ where: { compraId: rowIdViejo }, data: { compraId: rowIdNuevo } }),
-      prisma.compra.update({ where: { rowId: rowIdViejo }, data: { rowId: rowIdNuevo } }),
-    ]);
+    // Un único UPDATE ya es atómico — no hace falta $transaction. La FK
+    // ON UPDATE CASCADE de detalle_compras_compraId_fkey se encarga de
+    // propagar el nuevo rowId a detalle_compras.compraId a nivel de base.
+    await prisma.compra.update({ where: { rowId: rowIdViejo }, data: { rowId: rowIdNuevo } });
     actualizadas++;
   }
 
   const totalDespues = await prisma.compra.count();
   const totalDetalleDespues = await prisma.detalleCompra.count();
   const sumaImporteDespues = await prisma.compra.aggregate({ _sum: { importe: true } });
+  // La FK ON UPDATE CASCADE hace que esto sea estructuralmente imposible
+  // (no puede quedar un detalle_compras.compraId apuntando a un rowId que ya
+  // no existe) — se deja como re-chequeo defensivo, no porque se espere > 0.
   const huerfanas = await prisma.detalleCompra.count({ where: { compraId: { not: null }, compra: null } });
 
   console.log(`\n=== Verificación post-migración ===`);

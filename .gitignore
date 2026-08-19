@@ -43,3 +43,5 @@ supabase/.temp/
 
 # backups locales
 overrides-backup.json
+rowid-migration-plan.json
+rowid-collisions.json

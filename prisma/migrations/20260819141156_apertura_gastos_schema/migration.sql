@@ -53,6 +53,12 @@ CREATE INDEX "destinos_regla_reglaId_idx" ON "destinos_regla"("reglaId");
 -- CreateIndex
 CREATE INDEX "distribuciones_apertura_compraRowId_idx" ON "distribuciones_apertura"("compraRowId");
 
+-- CreateIndex
+CREATE INDEX "distribuciones_apertura_reglaId_idx" ON "distribuciones_apertura"("reglaId");
+
+-- CreateIndex
+CREATE INDEX "distribuciones_apertura_destinoId_idx" ON "distribuciones_apertura"("destinoId");
+
 -- AddForeignKey
 ALTER TABLE "destinos_regla" ADD CONSTRAINT "destinos_regla_reglaId_fkey" FOREIGN KEY ("reglaId") REFERENCES "reglas_apertura"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
@@ -63,7 +69,7 @@ ALTER TABLE "destinos_regla" ADD CONSTRAINT "destinos_regla_localId_fkey" FOREIG
 ALTER TABLE "destinos_regla" ADD CONSTRAINT "destinos_regla_puntoDeVentaId_fkey" FOREIGN KEY ("puntoDeVentaId") REFERENCES "puntos_de_venta"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "distribuciones_apertura" ADD CONSTRAINT "distribuciones_apertura_compraRowId_fkey" FOREIGN KEY ("compraRowId") REFERENCES "compras"("rowId") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "distribuciones_apertura" ADD CONSTRAINT "distribuciones_apertura_compraRowId_fkey" FOREIGN KEY ("compraRowId") REFERENCES "compras"("rowId") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "distribuciones_apertura" ADD CONSTRAINT "distribuciones_apertura_reglaId_fkey" FOREIGN KEY ("reglaId") REFERENCES "reglas_apertura"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

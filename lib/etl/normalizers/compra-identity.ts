@@ -1,6 +1,23 @@
 import { createHash } from "crypto";
+import { Prisma } from "@prisma/client";
 import { trim, normalizeText, excelDateToISO, toDecimalStr } from "../helpers";
 import type { ETLRow } from "../types";
+
+// Normaliza un importe ya convertido a string decimal a través de
+// Prisma.Decimal, así "1500.50" (fila cruda del Excel) y "1500.5" (lo que
+// devuelve Prisma.Decimal#toString() al leer el mismo valor desde la base)
+// producen el mismo string canónico — sin esto, computeCompraRowId podía
+// discrepar entre compraIdentityFromRawRow y compraIdentityFromDbRecord para
+// el mismo importe con formato distinto (riesgo real solo en las compras
+// sin comprobante, donde importe entra al hash).
+function canonicalDecimal(raw: string | null): string | null {
+  if (raw == null) return null;
+  try {
+    return new Prisma.Decimal(raw).toString();
+  } catch {
+    return raw; // no debería pasar para un valor que ya pasó toDecimalStr, pero este módulo nunca debe tirar
+  }
+}
 
 // Códigos del ERP en compras que difieren del COD_CPB en detalle_compras.
 const CODE_ALIASES: Record<string, string> = {
@@ -58,7 +75,7 @@ export function compraIdentityFromRawRow(r: ETLRow): CompraIdentityInput {
     comprobante: parseComprobanteFromDetalle(r["DETALLE"]),
     detalle: trim(r["DETALLE"]),
     observacNormalizado: normalizeText(r["OBSERVAC"]),
-    importe: toDecimalStr(r["IMPORTE"]),
+    importe: canonicalDecimal(toDecimalStr(r["IMPORTE"])),
   };
 }
 
@@ -86,6 +103,6 @@ export function compraIdentityFromDbRecord(c: CompraDbIdentitySource): CompraIde
     comprobante: c.comprobante,
     detalle: c.detalle,
     observacNormalizado: c.observac,
-    importe: c.importe != null ? toDecimalStr(c.importe.toString()) : null,
+    importe: canonicalDecimal(c.importe != null ? c.importe.toString() : null),
   };
 }

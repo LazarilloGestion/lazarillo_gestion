@@ -108,4 +108,37 @@ describe("compraIdentityFromRawRow / compraIdentityFromDbRecord — equivalencia
     const fromDb = computeCompraRowId(compraIdentityFromDbRecord(dbRecord));
     expect(fromRaw).toBe(fromDb);
   });
+
+  // Regresión: Prisma.Decimal#toString() elimina ceros finales al leer desde
+  // la base ("1500.50" persistido vuelve como "1500.5"), mientras que la fila
+  // cruda del Excel mantiene el string tal cual. Sin canonicalizar ambos
+  // lados a través de Prisma.Decimal, este mismatch de formato hacía que
+  // computeCompraRowId discrepara para el mismo importe — justo en las
+  // compras sin comprobante, donde importe es parte del hash.
+  it("sin comprobante: importe con distinto formato pero mismo valor (Excel '1500.50' vs Decimal#toString() '1500.5') da el mismo rowId", () => {
+    const rawRow: ETLRow = {
+      COD_CGA: "GASTO3",
+      FECHA: 45000,
+      CODIGO: "PROV9",
+      CONCEPTO: "Gasto suelto",
+      DETALLE: null,
+      OBSERVAC: "sin comprobante",
+      IMPORTE: "1500.50",
+    };
+
+    const dbRecord = {
+      codCga: "GASTO3",
+      fecha: new Date("2023-03-15"),
+      codigo: "PROV9",
+      concepto: "Gasto suelto",
+      comprobante: null,
+      detalle: null,
+      observac: "Sin Comprobante",
+      importe: { toString: () => "1500.5" }, // lo que devuelve Prisma.Decimal para ese mismo valor
+    };
+
+    const fromRaw = computeCompraRowId(compraIdentityFromRawRow(rawRow));
+    const fromDb = computeCompraRowId(compraIdentityFromDbRecord(dbRecord));
+    expect(fromRaw).toBe(fromDb);
+  });
 });
