@@ -25,7 +25,9 @@ El ERP (tabla 14) no expone ningún ID interno propio — se confirmó revisando
 - **Filas sin comprobante** (~40%, sueldos/alquiler/gastos sueltos): se mantiene el hash actual con `IMPORTE` incluido. No hay forma de distinguir de otro modo una corrección de una transacción distinta con los mismos campos descriptivos, así que se preserva la protección anti-pérdida ya existente.
 
 ### Migración de datos existentes
-Las ~5.700 compras con comprobante ya importadas (60% de 9.508) necesitan recalcular su `rowId` con la fórmula nueva. Pasos:
+**Corrección post-diseño (detectada en writing-plans, 2026-08-19):** el hash actual usa el número de serie crudo de Excel para `FECHA` (ej. `45000`), no un string ISO. El script de migración solo tiene acceso al `Date` ya parseado de cada compra existente (no al serial original), así que no puede reproducir ese formato. Para que el mismo archivo reimportado en el futuro produzca el mismo `rowId` que el que le asignamos en la migración, `FECHA` se canonicaliza como ISO (`YYYY-MM-DD`) en **las dos ramas** del hash (con y sin comprobante) — no solo en la rama con comprobante. Consecuencia: se migran **las ~9.508 compras del histórico completo**, no solo las ~5.700 con comprobante. No cambia el enfoque (identidad partida sigue igual), solo el alcance de filas tocadas por la migración.
+
+Pasos:
 1. Backup completo de `compras` y `detalle_compras` antes de tocar nada (mismo patrón que `scripts/reset-db.ts` ya usa para overrides).
 2. Script de migración (`scripts/migrate-rowid-compras.ts`, ejecución manual con confirmación explícita — **no correr sin aprobación directa**, toca compras/ventas ya importadas, CLAUDE.md sección 7): para cada compra con comprobante, calcular el `rowId` nuevo, y en una transacción por fila (o batch con `UPDATE ... FROM`) actualizar `compras.rowId` y todos los `detalle_compras.compraId` que apunten al `rowId` viejo (no hay FK real — es texto suelto, hay que hacerlo a mano y verificar conteos antes/después).
 3. Verificación post-migración: mismo total de filas en `compras` y `detalle_compras`, mismo `SUM(importe)`, ningún `detalle_compras.compraId` huérfano.
