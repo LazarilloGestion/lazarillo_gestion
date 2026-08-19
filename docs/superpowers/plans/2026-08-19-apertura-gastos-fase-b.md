@@ -1618,24 +1618,30 @@ SELECT SUM(importe) FROM compras WHERE "conceptoCodigo" = '<código>';
 
 Expected: `esDistribuido = true` en todas; suma de `importeCalculado` = suma de `importe` original (invariante no negociable); `v_compras_distribuidas` para ese concepto ahora devuelve el doble de filas (fan-out 2 destinos) con la suma total sin cambios.
 
-- [ ] **Step 7: Revertir — eliminar la regla de prueba**
+- [ ] **Step 7: Verificar el límite conocido — desactivar + regla nueva superpuesta**
 
-`DELETE /api/apertura/reglas/<id>`
+Hallazgo de la revisión de Task 7 (ver ledger): desactivar una regla deja sus `distribuciones_apertura`/`esDistribuido=true` como historial (correcto, a propósito), pero como el chequeo de superposición solo mira reglas `estado: activa`, una regla NUEVA para el mismo concepto/período pasa la validación y luego el motor la salta (esas compras ya están `esDistribuido=true` por la regla vieja) — resultado: `201` con `comprasAfectadas: 0`, sin error. Verificar que este comportamiento documentado se sostiene, no que sea "corregido" (no hay fix de código para esto en este plan — ver ruling de Task 7):
 
-Expected: `200`, `comprasRevertidas` coincide con el Step 4.
+1. `PATCH /api/apertura/reglas/<id de Step 5>` con `{ "accion": "desactivar" }`. Expected: `200`, `estado: "inactiva"`.
+2. `SELECT COUNT(*) FROM distribuciones_apertura WHERE "reglaId" = <id>;` — Expected: sigue habiendo filas (no se revirtió, es historial).
+3. `POST /api/apertura/reglas` con el mismo `entidadId`/`modo: "historico"`/`confirmarHistorico: true` y los mismos destinos que Step 5. Expected: `201` (pasa la validación de superposición porque la vieja está inactiva), pero `comprasAfectadas: 0` — confirma el límite documentado, no un bug nuevo. Anotar el `id` de esta regla nueva como `<id2>`.
 
-- [ ] **Step 8: Verificar reversión completa**
+- [ ] **Step 8: Revertir ambas reglas de prueba**
+
+`DELETE /api/apertura/reglas/<id2>` (la nueva, sin distribuciones — `comprasRevertidas: 0`), luego `DELETE /api/apertura/reglas/<id>` (la original, Step 5) — Expected en la segunda: `200`, `comprasRevertidas` coincide con el Step 4.
+
+- [ ] **Step 9: Verificar reversión completa**
 
 ```sql
-SELECT COUNT(*) FROM distribuciones_apertura WHERE "reglaId" = <id>;
+SELECT COUNT(*) FROM distribuciones_apertura WHERE "reglaId" IN (<id>, <id2>);
 SELECT "esDistribuido", "distribuidoEn" FROM compras WHERE "conceptoCodigo" = '<código>';
 SELECT COUNT(*), SUM(importe) FROM compras;
 SELECT COUNT(*), SUM(importe) FROM v_compras_distribuidas;
 ```
 
-Expected: 0 filas en `distribuciones_apertura` para esa regla; `esDistribuido = false`, `distribuidoEn = null` en todas las compras del concepto; conteo/suma de `compras` vs `v_compras_distribuidas` vuelven a coincidir exactamente (mismo resultado que el Step 3 — el sistema queda en el mismo estado que antes de la prueba).
+Expected: 0 filas en `distribuciones_apertura` para ambas reglas; `esDistribuido = false`, `distribuidoEn = null` en todas las compras del concepto; conteo/suma de `compras` vs `v_compras_distribuidas` vuelven a coincidir exactamente (mismo resultado que el Step 3 — el sistema queda en el mismo estado que antes de la prueba).
 
-- [ ] **Step 9: Sanity check final**
+- [ ] **Step 10: Sanity check final**
 
 ```bash
 npm test
@@ -1645,6 +1651,6 @@ npx tsc --noEmit
 
 Expected: todos los tests pasan (los nuevos de `lib/apertura/` + los ya existentes), lint y tsc limpios.
 
-- [ ] **Step 10: Documentar el cierre de Fase B**
+- [ ] **Step 11: Documentar el cierre de Fase B**
 
-Guardar una memoria de proyecto nueva (`project_apertura_gastos_fase_b_estado.md`, mismo patrón que `project_apertura_gastos_fase_a_estado.md`) con: qué se aplicó, resultado de la verificación end-to-end (Steps 5-8), y que Fase C (UI) sigue pendiente.
+Guardar una memoria de proyecto nueva (`project_apertura_gastos_fase_b_estado.md`, mismo patrón que `project_apertura_gastos_fase_a_estado.md`) con: qué se aplicó, resultado de la verificación end-to-end (Steps 5-9, incluyendo el límite conocido de desactivar+regla nueva confirmado en el Step 7), y que Fase C (UI) sigue pendiente.
