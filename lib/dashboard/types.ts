@@ -14,6 +14,7 @@ export type PivotProveedorRow = {
   readonly level: 2;
   readonly id: string;
   readonly rowId: string;
+  readonly distribucionId: number | null;
   readonly nombre: string;
   readonly fecha: string | null;
   readonly observac: string | null;
@@ -67,6 +68,7 @@ export type DetalleFilter = BaseDashboardFilter & {
   conceptoCodigo?: string;
   proveedorId?: number;
   rowId?: string;
+  distribucionId?: number;
 };
 
 export type VentasDetalleFilter = BaseDashboardFilter & {
@@ -91,6 +93,7 @@ export type SqlRow = {
   mes: number;
   total: DecimalLike;
   row_id: string;
+  distribucion_id: number | null;
   fecha: string | null;
   observac: string | null;
   has_manual_override: boolean;

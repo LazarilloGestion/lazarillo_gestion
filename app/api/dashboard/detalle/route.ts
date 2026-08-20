@@ -83,11 +83,81 @@ export async function GET(request: NextRequest) {
   const year = yearParsed.success ? yearParsed.data : new Date().getFullYear();
 
   const rowId = searchParams.get("rowId") ?? undefined;
+  const distribucionIdRaw = searchParams.get("distribucionId");
+  const distribucionId = distribucionIdRaw ? idSchema.safeParse(distribucionIdRaw).data : undefined;
 
-  // Filtro por rowId puntual (PK de compras, no de la vista) — se mantiene
-  // sobre `compras` directo, sin cambios de comportamiento (diseño sección 4:
-  // este caso no migra a la vista).
+  // Filtro por rowId puntual — se mantiene fuera de la vista (diseño sección
+  // 4: este caso no migra a v_compras_distribuidas). Dos variantes:
   if (rowId) {
+    // (a) Con distribucionId: el click vino de una fila de fan-out del pivot
+    // (Task 5) — hay que devolver ESA porción puntual, no la compra completa.
+    // Antes de este fix, esta rama ignoraba distribucionId por completo y
+    // siempre devolvía la compra sin distribuir (fix Fase C, ver diseño
+    // sección 4 "Resolución brainstorming Fase C").
+    if (distribucionId !== undefined) {
+      const distribucion = await prisma.distribucionApertura.findFirst({
+        where: { id: distribucionId, compraRowId: rowId },
+        select: {
+          id: true,
+          importeCalculado: true,
+          destino: {
+            select: {
+              local: { select: { nombre: true } },
+              puntoDeVenta: { select: { nombre: true } },
+            },
+          },
+          compra: {
+            select: {
+              rowId: true,
+              fecha: true,
+              fechaManual: true,
+              conceptoCodigoManual: true,
+              concepto: true,
+              detalle: true,
+              observac: true,
+              observacManual: true,
+              proveedor: true,
+              proveedorRef: { select: { id: true, nombre: true, razon: true } },
+              conceptoCaja: { select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } } },
+              conceptoCajaManual: { select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } } },
+            },
+          },
+        },
+      });
+      if (!distribucion) return NextResponse.json({ data: [] });
+      const { compra } = distribucion;
+      return NextResponse.json({
+        data: [
+          {
+            rowId: compra.rowId,
+            distribucionId: distribucion.id,
+            fecha: compra.fecha,
+            // importeManual siempre null acá: el override ya se usó como
+            // base del cálculo (diseño sección 5), importeCalculado ES el
+            // importe efectivo de esta porción — aplicarlo de nuevo sería
+            // doble aplicación.
+            importe: distribucion.importeCalculado,
+            importeManual: null,
+            fechaManual: compra.fechaManual,
+            conceptoCodigoManual: compra.conceptoCodigoManual,
+            concepto: compra.concepto,
+            detalle: compra.detalle,
+            observac: compra.observac,
+            observacManual: compra.observacManual,
+            proveedor: compra.proveedor,
+            proveedorRef: compra.proveedorRef,
+            local: distribucion.destino.local,
+            puntoDeVenta: distribucion.destino.puntoDeVenta,
+            conceptoCaja: compra.conceptoCaja,
+            conceptoCajaManual: compra.conceptoCajaManual,
+          },
+        ],
+      });
+    }
+
+    // (b) Sin distribucionId: comportamiento original intacto, usado por
+    // compra-lineas/[compraId] y por la edición manual — ambos siempre
+    // operan sobre la compra completa, nunca sobre una porción.
     const compra = await prisma.compra.findUnique({
       where: { rowId },
       select: {
@@ -109,11 +179,6 @@ export async function GET(request: NextRequest) {
         conceptoCajaManual: { select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } } },
       },
     });
-    // distribucionId: siempre null en esta rama — es un lookup puntual de una
-    // sola compra por su PK, nunca puede ser parte de un fan-out de reglas de
-    // apertura (esas viven exclusivamente en v_compras_distribuidas, ver nota
-    // en reshapeDetalle). Se agrega explícito para que el consumidor no reciba
-    // `undefined` donde el resto del endpoint siempre devuelve `null`.
     return NextResponse.json({ data: compra ? [{ ...compra, distribucionId: null }] : [] });
   }
 

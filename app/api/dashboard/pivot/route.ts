@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
       EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int        AS mes,
       COALESCE(c."importeManual", c.importe)                             AS total,
       c."rowId"                                                           AS row_id,
+      c."distribucionId"                                                  AS distribucion_id,
       TO_CHAR(COALESCE(c."fechaManual", c.fecha), 'YYYY-MM-DD')         AS fecha,
       COALESCE(c."observacManual", c.observac)                           AS observac,
       (c."importeManual" IS NOT NULL OR c."fechaManual" IS NOT NULL
@@ -82,6 +83,7 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
       mes,
       total,
       row_id,
+      distribucion_id,
       fecha,
       observac,
       has_manual_override,
@@ -124,8 +126,9 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
 
     const provRow: PivotProveedorRow = {
       level: 2,
-      id: `${concKey}|${row_id}`,
+      id: `${concKey}|${row_id}|${distribucion_id ?? "orig"}`,
       rowId: row_id,
+      distribucionId: distribucion_id,
       nombre: proveedor_nombre,
       fecha: fecha ?? null,
       observac: observac ?? null,
