@@ -37,6 +37,24 @@ export async function sincronizarTrasImport(
 
   for (const rowId of comprasModificadas) {
     try {
+      const distribucion = await prisma.distribucionApertura.findFirst({
+        where: { compraRowId: rowId },
+        select: { regla: { select: { id: true, estado: true } } },
+      });
+
+      if (distribucion?.regla.estado === "inactiva") {
+        // No revertir: la regla que cubre esta compra está desactivada, y
+        // desactivar preserva el historial de distribuciones ya generadas
+        // (contrato del endpoint, ver app/api/apertura/reglas/[id]/route.ts).
+        // Revertir acá borraría ese historial en silencio pese a que el ERP
+        // cambió el dato — se reporta en vez de tocar nada (Fase D, revisión
+        // final de rama, hallazgo Critical C1).
+        errores.push(
+          `revertirCompra(${rowId}): omitida — cubierta por la regla inactiva #${distribucion.regla.id}, se preserva el historial de distribución`
+        );
+        continue;
+      }
+
       await prisma.$transaction(async (tx) => {
         await revertirCompra(tx, rowId);
       });
@@ -69,7 +87,16 @@ export async function sincronizarTrasImport(
             destinos: regla.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
           });
         },
-        { timeout: 55000 }
+        // 15s, no 55s: esta transacción corre dentro de un loop de N reglas
+        // activas, adentro de una función con maxDuration=60 que ya gastó
+        // tiempo en ETL antes de llegar acá — 55s por regla podía exceder el
+        // presupuesto total con más de una regla activa (revisión final de
+        // rama, hallazgo Important I2). Si en la práctica una regla real
+        // necesita más de 15s (ej. "histórico completo" sobre un volumen muy
+        // grande), revisitar — no se sobre-diseña con presupuesto dinámico
+        // para un caso hipotético ahora (mismo criterio YAGNI que la sección
+        // 5 del diseño técnico usa para maxDuration en general).
+        { timeout: 15000 }
       );
       reglasReaplicadas++;
     } catch (err) {

@@ -183,8 +183,23 @@ export async function POST(req: NextRequest) {
         report = await runETL(buffer, storagePath, ctx, getEtlClient() as unknown as DbClient);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Error desconocido";
+        // Los archivos anteriores de este batch ya commitearon — sincronizar
+        // apertura sobre lo que sí se importó antes de cortar, para no perder
+        // la señal de compras distribuidas modificadas por esos archivos
+        // previos (Fase D, revisión final de rama, hallazgo Critical C2: sin
+        // esto, una reimportación futura del mismo archivo no detecta ningún
+        // cambio porque el dato en la DB ya coincide). Se salta si el batch
+        // parcial no tocó ninguna compra (hallazgo Important I3).
+        const huboComprasTocadasParcial = reports.some((r) => r.fileType === "compras" && (r.created > 0 || r.updated > 0));
+        const comprasModificadasParcial = reports.flatMap((r) => r.comprasDistribuidasModificadas ?? []);
+        const aperturaParcial = huboComprasTocadasParcial
+          ? await sincronizarTrasImport(getEtlClient(), comprasModificadasParcial)
+          : { comprasRecalculadas: 0, reglasReaplicadas: 0, errores: [] };
+        if (aperturaParcial.errores.length > 0) {
+          console.error("[POST /api/etl/drive-import] apertura.errores (batch parcial)", aperturaParcial.errores);
+        }
         return NextResponse.json(
-          { error: `Error procesando el archivo: ${message}`, reports },
+          { error: `Error procesando el archivo: ${message}`, reports, apertura: aperturaParcial },
           { status: 422 }
         );
       }
@@ -197,9 +212,15 @@ export async function POST(req: NextRequest) {
     // Apertura de Gastos (Fase D): compras ya distribuidas cuyos campos ERP
     // cambiaron se revierten y re-matchean contra las reglas activas, en la
     // misma pasada que también auto-aplica reglas activas a compras nuevas
-    // que hayan llegado en este batch. Ver diseño técnico sección 6.
+    // que hayan llegado en este batch. Ver diseño técnico sección 6. Se
+    // salta por completo si el batch no tocó ninguna compra (ej. import de
+    // ventas o de un maestro) — evita reaplicar todas las reglas activas sin
+    // motivo (revisión final de rama, hallazgo Important I3).
+    const huboComprasTocadas = reports.some((r) => r.fileType === "compras" && (r.created > 0 || r.updated > 0));
     const comprasModificadas = reports.flatMap((r) => r.comprasDistribuidasModificadas ?? []);
-    const apertura = await sincronizarTrasImport(getEtlClient(), comprasModificadas);
+    const apertura = huboComprasTocadas
+      ? await sincronizarTrasImport(getEtlClient(), comprasModificadas)
+      : { comprasRecalculadas: 0, reglasReaplicadas: 0, errores: [] };
     if (apertura.errores.length > 0) {
       console.error("[POST /api/etl/drive-import] apertura.errores", apertura.errores);
     }

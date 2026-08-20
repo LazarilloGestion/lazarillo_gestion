@@ -412,15 +412,22 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Error al guardar");
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Error al guardar");
+      }
       await Promise.all([
         queryClient.refetchQueries({ queryKey }),
         queryClient.refetchQueries({ queryKey: ["pivot"] }),
       ]);
       setEditing(null);
       notify.registroActualizado();
-    } catch {
-      setSaveError("No se pudo guardar. Intentá de nuevo.");
+    } catch (err) {
+      // El guard 409 de edición manual devuelve un mensaje accionable
+      // ("editá o revertí la regla…") — mostrarlo tal cual en vez del texto
+      // genérico (revisión final de rama, hallazgo Important I1).
+      const message = err instanceof Error ? err.message : "No se pudo guardar. Intentá de nuevo.";
+      setSaveError(message);
       notify.errorGuardar();
     } finally {
       setSaving(false);
