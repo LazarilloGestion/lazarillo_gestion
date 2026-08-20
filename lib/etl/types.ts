@@ -46,6 +46,7 @@ export interface ETLReport {
   skipped: number;
   skippedRows?: ETLSkippedRow[];
   errors: ETLRowError[];
+  comprasDistribuidasModificadas?: string[];
   durationMs: number;
   storagePath?: string;
 }

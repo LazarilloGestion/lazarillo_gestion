@@ -41,4 +41,18 @@ export const notify = {
       duration: Infinity,
       closeButton: true,
     }),
+
+  aperturaSincronizacionConErrores: (count: number) =>
+    toast.warning("Apertura de gastos — sincronización con errores", {
+      description: `${count} error${count !== 1 ? "es" : ""} al recalcular/aplicar reglas de apertura tras el import — revisá los detalles en el servidor`,
+      duration: Infinity,
+      closeButton: true,
+    }),
+
+  aperturaSincronizacionOmitidas: (count: number) =>
+    toast.info("Apertura de gastos — cambios no recalculados", {
+      description: `${count} compra${count !== 1 ? "s" : ""} con datos del ERP actualizados no se recalcularon porque su regla de apertura está desactivada — el historial de distribución se preservó tal cual.`,
+      duration: Infinity,
+      closeButton: true,
+    }),
 };

@@ -206,3 +206,20 @@ export async function revertirRegla(prisma: AperturaDbClient, reglaId: number): 
 
   return { comprasRevertidas: afectadas.length };
 }
+
+// Revierte la distribución de UNA sola compra (no toda una regla): borra sus
+// filas de distribuciones_apertura y la deja esDistribuido = false. Usada por
+// sincronizarTrasImport (lib/apertura/reimportacion.ts) cuando una compra ya
+// distribuida cambió en el ERP — revertir y dejar que la misma pasada de
+// matching la vuelva a tomar es más simple que un recalculo dirigido, y es el
+// mismo camino de código sin importar qué campo cambió (Fase D, diseño
+// técnico sección 6).
+//
+// IMPORTANTE: igual que aplicarRegla/revertirRegla, debe llamarse SIEMPRE
+// dentro de una $transaction — nunca con el `prisma` export a secas.
+export async function revertirCompra(prisma: AperturaDbClient, rowId: string): Promise<void> {
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM distribuciones_apertura WHERE "compraRowId" = ${rowId}`);
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE compras SET "esDistribuido" = false, "distribuidoEn" = null WHERE "rowId" = ${rowId}
+  `);
+}

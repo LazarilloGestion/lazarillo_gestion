@@ -133,6 +133,7 @@ export type VentaDetalle = {
 export type CompraDetalle = {
   rowId: string;
   distribucionId: number | null;
+  esDistribuido: boolean;
   fecha: string | null;
   importe: string | number | null;
   importeManual: string | number | null;

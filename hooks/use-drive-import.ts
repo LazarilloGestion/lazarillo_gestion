@@ -11,6 +11,13 @@ export type FileStates = Record<string, FileImportStatus>;
 export type FileReports = Record<string, ETLReport[]>;
 export type FileErrors = Record<string, string>;
 
+function notificarApertura(apertura: { errores?: string[]; omitidas?: string[] } | null | undefined) {
+  const errores = apertura?.errores ?? [];
+  const omitidas = apertura?.omitidas ?? [];
+  if (errores.length > 0) notify.aperturaSincronizacionConErrores(errores.length);
+  if (omitidas.length > 0) notify.aperturaSincronizacionOmitidas(omitidas.length);
+}
+
 /**
  * Orquesta el import de archivos de Drive: estado por archivo, importación
  * individual/en lote, y el status de maestros (bloquea transaccionales hasta
@@ -55,11 +62,13 @@ export function useDriveImport() {
       if (!res.ok) {
         setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
         setFileErrors((s) => ({ ...s, [file.id]: json.error ?? "Error" }));
+        notificarApertura(json.apertura);
         return { ok: false, records: 0 };
-      } else if (Array.isArray(json)) {
-        const reports = json as ETLReport[];
+      } else if (json && Array.isArray(json.reports)) {
+        const reports = json.reports as ETLReport[];
         setFileStatuses((s) => ({ ...s, [file.id]: "success" }));
         setFileReports((s) => ({ ...s, [file.id]: reports }));
+        notificarApertura(json.apertura);
         const records = reports.reduce((s, r) => s + r.created + r.updated, 0);
         return { ok: true, records };
       } else {

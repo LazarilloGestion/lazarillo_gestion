@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { normalizeCompras } from "./compras";
 import { createMockDb, mockAllExisting } from "../test-utils/mock-db";
 import type { ETLRow } from "../types";
+import { excelDateToISO, safeDate } from "../helpers";
 
 function baseRow(overrides: Partial<Record<string, unknown>> = {}): ETLRow {
   return {
@@ -11,7 +12,7 @@ function baseRow(overrides: Partial<Record<string, unknown>> = {}): ETLRow {
     CONCEPTO: "Alquiler",
     DETALLE: "A 0606-00761530",
     PROVEEDOR: "Juan Perez",
-    OBSERVAC: "obs",
+    OBSERVAC: "Obs",
     IMPORTE: 1000,
     IMP_INT: 0,
     IMPUTAC: "X",
@@ -142,5 +143,74 @@ describe("normalizeCompras", () => {
     const db = createMockDb();
     const res = await normalizeCompras(rows, db);
     expect(res.created + res.updated + res.skippedRows.length + res.errors.length).toBe(rows.length);
+  });
+
+  it("compra existente esDistribuido=true con importe idéntico → comprasDistribuidasModificadas vacío", async () => {
+    const fechaEsperada = safeDate(45000);
+    const db = createMockDb({
+      compra: {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+          const ids = args?.where?.rowId?.in ?? [];
+          return ids.map((rowId) => ({
+            rowId,
+            esDistribuido: true,
+            codCga: "GASTO1", concepto: "Alquiler", fecha: fechaEsperada,
+            codigo: "PROV1", proveedor: "Juan Perez", detalle: "A 0606-00761530", observac: "Obs",
+            importe: { toString: () => "1000" }, impInt: { toString: () => "0" }, imputac: "X",
+            per1: { toString: () => "0" }, per2: { toString: () => "0" }, per3: { toString: () => "0" },
+          }));
+        }),
+      },
+    });
+    const res = await normalizeCompras([baseRow()], db);
+    expect(res.comprasDistribuidasModificadas).toEqual([]);
+  });
+
+  it("compra existente esDistribuido=true con importe distinto → aparece en comprasDistribuidasModificadas", async () => {
+    const fechaEsperada = new Date(excelDateToISO(45000)!);
+    const db = createMockDb({
+      compra: {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+          const ids = args?.where?.rowId?.in ?? [];
+          return ids.map((rowId) => ({
+            rowId,
+            esDistribuido: true,
+            codCga: "GASTO1", concepto: "Alquiler", fecha: fechaEsperada,
+            codigo: "PROV1", proveedor: "Juan Perez", detalle: "A 0606-00761530", observac: "Obs",
+            importe: { toString: () => "1000" }, impInt: { toString: () => "0" }, imputac: "X",
+            per1: { toString: () => "0" }, per2: { toString: () => "0" }, per3: { toString: () => "0" },
+          }));
+        }),
+      },
+    });
+    const res = await normalizeCompras([baseRow({ IMPORTE: 1200 })], db);
+    expect(res.comprasDistribuidasModificadas).toHaveLength(1);
+  });
+
+  it("compra existente esDistribuido=false → nunca entra a comprasDistribuidasModificadas aunque cambie el importe", async () => {
+    const fechaEsperada = new Date(excelDateToISO(45000)!);
+    const db = createMockDb({
+      compra: {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+          const ids = args?.where?.rowId?.in ?? [];
+          return ids.map((rowId) => ({
+            rowId,
+            esDistribuido: false,
+            codCga: "GASTO1", concepto: "Alquiler", fecha: fechaEsperada,
+            codigo: "PROV1", proveedor: "Juan Perez", detalle: "A 0606-00761530", observac: "Obs",
+            importe: { toString: () => "1000" }, impInt: { toString: () => "0" }, imputac: "X",
+            per1: { toString: () => "0" }, per2: { toString: () => "0" }, per3: { toString: () => "0" },
+          }));
+        }),
+      },
+    });
+    const res = await normalizeCompras([baseRow({ IMPORTE: 1200 })], db);
+    expect(res.comprasDistribuidasModificadas).toEqual([]);
+  });
+
+  it("compra nueva (no existía) → nunca entra a comprasDistribuidasModificadas", async () => {
+    const db = createMockDb(); // findMany devuelve [] por defecto — nada existe
+    const res = await normalizeCompras([baseRow()], db);
+    expect(res.comprasDistribuidasModificadas).toEqual([]);
   });
 });

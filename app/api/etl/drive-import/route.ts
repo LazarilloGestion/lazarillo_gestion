@@ -8,6 +8,7 @@ import { getEtlClient } from "@/lib/etl/etl-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getFileOrder } from "@/lib/etl/file-processor";
 import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
+import { sincronizarTrasImport, type SincronizarTrasImportResultado } from "@/lib/apertura/reimportacion";
 import { getExcelHeaders } from "@/lib/etl/helpers";
 import { detectFileType } from "@/lib/etl/detect-file-type";
 import { prisma } from "@/lib/prisma";
@@ -53,6 +54,28 @@ const driveImportBodySchema = z
   .refine((b) => b.files !== undefined || (b.file_id != null && b.file_name != null), {
     message: "Se requiere files[] o file_id+file_name",
   });
+
+// Guard + llamada a sincronizarTrasImport compartidos entre el camino de
+// éxito y el camino de error parcial (archivo posterior del batch falló,
+// revisión final de rama, hallazgo Critical C2) — un solo lugar en vez de
+// duplicar el guard de "¿tocó alguna compra?" en dos call sites. El propio
+// try/catch evita que un fallo ACÁ (ej. reglaApertura.findMany sin conexión a
+// la base) se propague como una excepción que el catch externo convertiría en
+// un 500 genérico, perdiendo el mensaje real del error que se estaba por
+// devolver (revisión final de rama, ronda 2, hallazgo Minor).
+async function sincronizarAperturaSiCorresponde(reports: ETLReport[]): Promise<SincronizarTrasImportResultado> {
+  const huboComprasTocadas = reports.some((r) => r.fileType === "compras" && (r.created > 0 || r.updated > 0));
+  if (!huboComprasTocadas) {
+    return { comprasRecalculadas: 0, reglasReaplicadas: 0, errores: [], omitidas: [] };
+  }
+  const comprasModificadas = reports.flatMap((r) => r.comprasDistribuidasModificadas ?? []);
+  try {
+    return await sincronizarTrasImport(getEtlClient(), comprasModificadas);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { comprasRecalculadas: 0, reglasReaplicadas: 0, errores: [`sincronizarTrasImport: ${message}`], omitidas: [] };
+  }
+}
 
 /**
  * POST — descarga archivos de Drive y los procesa con el ETL en orden de dependencia.
@@ -182,8 +205,12 @@ export async function POST(req: NextRequest) {
         report = await runETL(buffer, storagePath, ctx, getEtlClient() as unknown as DbClient);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Error desconocido";
+        const aperturaParcial = await sincronizarAperturaSiCorresponde(reports);
+        if (aperturaParcial.errores.length > 0) {
+          console.error("[POST /api/etl/drive-import] apertura.errores (batch parcial)", aperturaParcial.errores);
+        }
         return NextResponse.json(
-          { error: `Error procesando el archivo: ${message}`, reports },
+          { error: `Error procesando el archivo: ${message}`, reports, apertura: aperturaParcial },
           { status: 422 }
         );
       }
@@ -193,7 +220,12 @@ export async function POST(req: NextRequest) {
     // Link detalle_compras → compras post-batch
     await linkDetalleCompras(getEtlClient() as unknown as DbClient, localId);
 
-    return NextResponse.json(reports);
+    const apertura = await sincronizarAperturaSiCorresponde(reports);
+    if (apertura.errores.length > 0) {
+      console.error("[POST /api/etl/drive-import] apertura.errores", apertura.errores);
+    }
+
+    return NextResponse.json({ reports, apertura });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error desconocido";
     return NextResponse.json({ error: msg }, { status: 500 });

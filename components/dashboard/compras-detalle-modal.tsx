@@ -300,7 +300,7 @@ function ComprasRow({
       <td className="px-3 py-1.5">
         {!item.detalle ? (
           <span className="text-muted-foreground">—</span>
-        ) : item.distribucionId == null ? (
+        ) : item.distribucionId == null && !item.esDistribuido ? (
           <button
             onClick={() => onOpenLineas(item.rowId, item.detalle)}
             className="text-muted-foreground hover:text-foreground hover:underline font-mono text-xs whitespace-nowrap"
@@ -325,7 +325,7 @@ function ComprasRow({
         {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
       </td>
       <td className="px-2 py-1.5">
-        {item.distribucionId == null ? (
+        {item.distribucionId == null && !item.esDistribuido ? (
           <EditTriggerButton
             onClick={() => {
               const initialConcepto = item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "";
@@ -347,7 +347,7 @@ function ComprasRow({
                 <Pencil className="h-3 w-3" />
               </span>
             </TooltipTrigger>
-            <TooltipContent>No se puede editar una porción distribuida todavía — editá la compra completa antes de aperturarla.</TooltipContent>
+            <TooltipContent>Esta compra está distribuida por una regla de apertura de gastos — editá o revertí la regla en vez de editar la compra.</TooltipContent>
           </Tooltip>
         )}
       </td>
@@ -356,6 +356,11 @@ function ComprasRow({
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
+
+// Distingue "el PATCH respondió con un error accionable" (ej. el guard 409 de
+// compra distribuida) de cualquier otro fallo (red, refetch) — solo el primero
+// muestra su mensaje real al usuario, ver handleSave.
+class GuardError extends Error {}
 
 export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter | null; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -401,7 +406,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     setSaving(true);
     setSaveError(null);
     try {
-      const body = {
+      const requestBody = {
         importeManual:        state.importeManual !== "" ? parseFloat(state.importeManual) : null,
         fechaManual:          state.fechaManual !== "" ? new Date(state.fechaManual + "T12:00:00Z").toISOString() : null,
         conceptoCodigoManual: state.conceptoCodigoManual !== "" ? state.conceptoCodigoManual : null,
@@ -410,21 +415,38 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
       const res = await fetch(`/api/dashboard/compras/${state.rowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(requestBody),
       });
-      if (!res.ok) throw new Error("Error al guardar");
+      if (!res.ok) {
+        const resBody = await res.json().catch(() => null);
+        throw new GuardError(resBody?.error ?? "Error al guardar");
+      }
+    } catch (err) {
+      // Solo un error del PATCH mismo (ej. el guard 409 de compra distribuida)
+      // trae un mensaje accionable del servidor — un fallo de red antes de
+      // llegar a la respuesta usa el texto genérico en vez del error técnico
+      // crudo (revisión final de rama, ronda 2, hallazgo Minor).
+      const message = err instanceof GuardError ? err.message : "No se pudo guardar. Intentá de nuevo.";
+      setSaveError(message);
+      notify.errorGuardar();
+      setSaving(false);
+      return;
+    }
+
+    // El PATCH ya guardó en este punto — un fallo del refetch posterior no es
+    // "no se guardó" (los datos ya están persistidos del lado del servidor),
+    // así que no lo tratamos como error de guardado.
+    try {
       await Promise.all([
         queryClient.refetchQueries({ queryKey }),
         queryClient.refetchQueries({ queryKey: ["pivot"] }),
       ]);
-      setEditing(null);
-      notify.registroActualizado();
-    } catch {
-      setSaveError("No se pudo guardar. Intentá de nuevo.");
-      notify.errorGuardar();
-    } finally {
-      setSaving(false);
+    } catch (err) {
+      console.error("[compras-detalle-modal] guardado OK pero falló el refetch posterior", err);
     }
+    setEditing(null);
+    notify.registroActualizado();
+    setSaving(false);
   }, [queryClient, queryKey]);
 
   const searchFields = useCallback((item: CompraDetalle) => [
