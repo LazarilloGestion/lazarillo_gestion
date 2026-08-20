@@ -1,19 +1,21 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
 import { usePivotScreenData } from "@/hooks/use-pivot-screen-data";
 import { ExpandableButton } from "@/components/ui/expandable-button";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Split } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
+import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
 import { EditedDot } from "./edit-row-controls";
 import type { PivotRubroRow, PivotConceptoRow } from "@/lib/dashboard/types";
 import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
+import { AperturaGastosModal } from "./apertura-gastos-modal";
 
 
 export function PivotTable() {
@@ -24,6 +26,12 @@ export function PivotTable() {
   } = useDashboard();
 
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
+  const [aperturaConcepto, setAperturaConcepto] = useState<{ codigo: string; nombre: string } | null>(null);
+  const { reglas } = useReglasApertura();
+  const conceptosConReglaActiva = useMemo(
+    () => new Set(reglas.filter((r) => r.estado === "activa").map((r) => r.entidadId)),
+    [reglas]
+  );
 
   const { data, isLoading, error, ventasData, ventasLoading } = useOperacionKpis({
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
@@ -178,9 +186,33 @@ export function PivotTable() {
                     onContextMenu={collapseConceptos}
                   >
                     <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
-                      <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(concepto.id)} indent="pl-5" iconSize="w-3.5 h-3.5">
-                        {concepto.nombre}
-                      </ExpandableButton>
+                      <div className="flex items-center gap-1">
+                        <ExpandableButton
+                          isExpanded={isExpanded}
+                          onClick={() => toggleRow(concepto.id)}
+                          indent="pl-5"
+                          iconSize="w-3.5 h-3.5"
+                          className="flex-1 min-w-0"
+                        >
+                          {concepto.nombre}
+                        </ExpandableButton>
+                        <button
+                          type="button"
+                          title="Apertura de gastos"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAperturaConcepto({ codigo: concepto.conceptoCodigo, nombre: concepto.nombre });
+                          }}
+                          className={cn(
+                            "shrink-0 flex h-5 w-5 items-center justify-center rounded hover:bg-muted transition-colors",
+                            conceptosConReglaActiva.has(concepto.conceptoCodigo)
+                              ? "text-primary"
+                              : "text-muted-foreground/40 hover:text-muted-foreground"
+                          )}
+                        >
+                          <Split className="w-3 h-3" />
+                        </button>
+                      </div>
                     </td>
                     {months.map((mes) => (
                       <td
@@ -294,6 +326,12 @@ export function PivotTable() {
       <VentasDetalleModal
         filter={ventasDetalleFilter}
         onClose={() => setVentasDetalleFilter(null)}
+      />
+
+      <AperturaGastosModal
+        conceptoCodigo={aperturaConcepto?.codigo ?? null}
+        conceptoNombre={aperturaConcepto?.nombre ?? ""}
+        onClose={() => setAperturaConcepto(null)}
       />
 
     </>
