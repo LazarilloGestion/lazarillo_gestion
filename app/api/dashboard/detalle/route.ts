@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 interface DetalleSqlRow {
   rowId: string;
   distribucionId: number | null;
+  esDistribuido: boolean;
   fecha: Date | null;
   fechaManual: Date | null;
   importe: Prisma.Decimal | null;
@@ -45,6 +46,7 @@ function reshapeDetalle(r: DetalleSqlRow) {
     // como key de UI una vez que existan filas distribuidas (riesgo anotado
     // en la sección 4 del diseño, "Riesgo para Fase C").
     distribucionId: r.distribucionId,
+    esDistribuido: r.esDistribuido,
     fecha: r.fecha,
     importe: r.importe,
     importeManual: r.importeManual,
@@ -131,6 +133,7 @@ export async function GET(request: NextRequest) {
           {
             rowId: compra.rowId,
             distribucionId: distribucion.id,
+            esDistribuido: true,
             fecha: compra.fecha,
             // importeManual siempre null acá: el override ya se usó como
             // base del cálculo (diseño sección 5), importeCalculado ES el
@@ -162,6 +165,7 @@ export async function GET(request: NextRequest) {
       where: { rowId },
       select: {
         rowId: true,
+        esDistribuido: true,
         fecha: true,
         importe: true,
         importeManual: true,
@@ -230,6 +234,7 @@ export async function GET(request: NextRequest) {
       SELECT
         c."rowId",
         c."distribucionId",
+        (c."distribucionId" IS NOT NULL) AS "esDistribuido",
         c.fecha,
         c."fechaManual",
         c.importe,
