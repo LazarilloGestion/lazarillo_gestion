@@ -10,7 +10,7 @@ import type { ETLRow } from "../types";
 // discrepar entre compraIdentityFromRawRow y compraIdentityFromDbRecord para
 // el mismo importe con formato distinto (riesgo real solo en las compras
 // sin comprobante, donde importe entra al hash).
-function canonicalDecimal(raw: string | null): string | null {
+export function canonicalDecimal(raw: string | null): string | null {
   if (raw == null) return null;
   try {
     return new Prisma.Decimal(raw).toString();
