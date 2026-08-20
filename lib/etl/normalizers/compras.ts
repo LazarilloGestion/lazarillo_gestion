@@ -5,6 +5,8 @@ import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 import { compraRowSchema, type CompraRow } from "../schemas/compras";
 import { formatZodError } from "../schemas/common";
 import { parseComprobanteFromDetalle, computeCompraRowId, compraIdentityFromRawRow } from "./compra-identity";
+import { camposErpCambiaron, type CompraErpFields } from "./compras-diff";
+import { canonicalDecimal } from "./compra-identity";
 
 import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 
@@ -27,11 +29,72 @@ function makeRowId(r: ETLRow): string {
   return computeCompraRowId(compraIdentityFromRawRow(r));
 }
 
+function erpFieldsDesdeDatoParseado(data: CompraRow): CompraErpFields {
+  return {
+    codCga: data.COD_CGA,
+    concepto: data.CONCEPTO,
+    fecha: data.FECHA,
+    codigo: data.CODIGO,
+    proveedor: data.PROVEEDOR,
+    detalle: data.DETALLE,
+    observac: data.OBSERVAC,
+    importe: canonicalDecimal(data.IMPORTE?.toString() ?? null),
+    impInt: canonicalDecimal(data.IMP_INT?.toString() ?? null),
+    imputac: data.IMPUTAC,
+    per1: canonicalDecimal(data.PER1?.toString() ?? null),
+    per2: canonicalDecimal(data.PER2?.toString() ?? null),
+    per3: canonicalDecimal(data.PER3?.toString() ?? null),
+  };
+}
+
+interface CompraExistenteRow {
+  rowId: string;
+  esDistribuido: boolean;
+  codCga: string | null;
+  concepto: string | null;
+  fecha: Date | null;
+  codigo: string | null;
+  proveedor: string | null;
+  detalle: string | null;
+  observac: string | null;
+  importe: { toString(): string } | null;
+  impInt: { toString(): string } | null;
+  imputac: string | null;
+  per1: { toString(): string } | null;
+  per2: { toString(): string } | null;
+  per3: { toString(): string } | null;
+}
+
+function erpFieldsDesdeCompraExistente(row: CompraExistenteRow): CompraErpFields {
+  return {
+    codCga: row.codCga,
+    concepto: row.concepto,
+    fecha: row.fecha,
+    codigo: row.codigo,
+    proveedor: row.proveedor,
+    detalle: row.detalle,
+    observac: row.observac,
+    importe: canonicalDecimal(row.importe != null ? row.importe.toString() : null),
+    impInt: canonicalDecimal(row.impInt != null ? row.impInt.toString() : null),
+    imputac: row.imputac,
+    per1: canonicalDecimal(row.per1 != null ? row.per1.toString() : null),
+    per2: canonicalDecimal(row.per2 != null ? row.per2.toString() : null),
+    per3: canonicalDecimal(row.per3 != null ? row.per3.toString() : null),
+  };
+}
+
 export async function normalizeCompras(
   rows: ETLRow[],
   prisma: DbClient,
   ctx?: ETLContext
-): Promise<{ created: number; updated: number; skipped: number; skippedRows: ETLSkippedRow[]; errors: ETLRowError[] }> {
+): Promise<{
+  created: number;
+  updated: number;
+  skipped: number;
+  skippedRows: ETLSkippedRow[];
+  errors: ETLRowError[];
+  comprasDistribuidasModificadas: string[];
+}> {
   const skippedRows: ETLSkippedRow[] = [];
   const errors: ETLRowError[] = [];
 
@@ -114,17 +177,22 @@ export async function normalizeCompras(
 
   let created = 0;
   let updated = 0;
+  const comprasDistribuidasModificadas: string[] = [];
 
   for (let i = 0; i < filtered.length; i += CHUNK_SIZE) {
     const chunk = filtered.slice(i, i + CHUNK_SIZE);
     const chunkRowIds = chunk.map((pr) => pr.rowId);
 
-    const existingSet = new Set(
-      (await prisma.compra.findMany({
-        where: { rowId: { in: chunkRowIds } },
-        select: { rowId: true },
-      })).map((c) => c.rowId)
-    );
+    const existingRows = await prisma.compra.findMany({
+      where: { rowId: { in: chunkRowIds } },
+      select: {
+        rowId: true, esDistribuido: true,
+        codCga: true, concepto: true, fecha: true, codigo: true, proveedor: true,
+        detalle: true, observac: true, importe: true, impInt: true, imputac: true,
+        per1: true, per2: true, per3: true,
+      },
+    });
+    const existingMap = new Map(existingRows.map((r) => [r.rowId, r]));
 
     try {
       const rowValues = chunk.map(({ rowId, row, data }) => {
@@ -187,8 +255,12 @@ export async function normalizeCompras(
           -- importeManual, fechaManual, conceptoCodigoManual: NO se sobreescriben (overrides manuales)
       `);
 
-      for (const rowId of chunkRowIds) {
-        if (existingSet.has(rowId)) updated++; else created++;
+      for (const { rowId, data } of chunk) {
+        const oldRow = existingMap.get(rowId);
+        if (oldRow) updated++; else created++;
+        if (oldRow?.esDistribuido && camposErpCambiaron(erpFieldsDesdeCompraExistente(oldRow), erpFieldsDesdeDatoParseado(data))) {
+          comprasDistribuidasModificadas.push(rowId);
+        }
       }
     } catch (err) {
       errors.push({
@@ -203,5 +275,5 @@ export async function normalizeCompras(
     await linkDetalleComprasByComprobante(prisma, ctx.localId);
   }
 
-  return { created, updated, skipped, skippedRows, errors };
+  return { created, updated, skipped, skippedRows, errors, comprasDistribuidasModificadas };
 }

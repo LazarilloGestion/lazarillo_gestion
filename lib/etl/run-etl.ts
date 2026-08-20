@@ -16,7 +16,14 @@ type NormalizerFn = (
   rows: ETLRow[],
   db: DbClient,
   ctx?: ETLContext
-) => Promise<{ created: number; updated: number; skipped: number; skippedRows?: ETLSkippedRow[]; errors: ETLRowError[] }>;
+) => Promise<{
+  created: number;
+  updated: number;
+  skipped: number;
+  skippedRows?: ETLSkippedRow[];
+  errors: ETLRowError[];
+  comprasDistribuidasModificadas?: string[];
+}>;
 
 const NORMALIZERS: Record<string, NormalizerFn> = {
   rubrosConceptoCaja: normalizeRubrosConceptoCaja,
@@ -52,7 +59,7 @@ export async function runETL(
   if (!normalizer)
     throw new Error(`No hay normalizer registrado para el tipo de archivo: ${fileType}`);
   const client = db ?? (prisma as unknown as DbClient);
-  const { created, updated, skipped, skippedRows, errors } = await normalizer(rows, client, ctx);
+  const { created, updated, skipped, skippedRows, errors, comprasDistribuidasModificadas } = await normalizer(rows, client, ctx);
 
   return {
     fileType,
@@ -62,6 +69,7 @@ export async function runETL(
     skipped,
     skippedRows,
     errors,
+    comprasDistribuidasModificadas,
     durationMs: Date.now() - startMs,
     storagePath,
   };
