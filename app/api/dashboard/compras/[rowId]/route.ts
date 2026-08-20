@@ -29,6 +29,18 @@ export async function PATCH(
 
   const { importeManual, fechaManual, conceptoCodigoManual, observacManual } = parsed.data;
 
+  const compra = await prisma.compra.findUnique({ where: { rowId }, select: { esDistribuido: true } });
+  if (!compra) return NextResponse.json({ error: "Registro no encontrado" }, { status: 404 });
+  if (compra.esDistribuido) {
+    return NextResponse.json(
+      {
+        error:
+          "Esta compra está distribuida por una regla de apertura de gastos. Para corregirla, editá o revertí la regla en vez de editar la compra.",
+      },
+      { status: 409 }
+    );
+  }
+
   try {
     const updated = await prisma.compra.update({
       where: { rowId },
