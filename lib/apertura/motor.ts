@@ -67,13 +67,33 @@ export async function resolverLocalIdDestinos(
 // importe efectivo, dentro de la vigencia). Devuelve el SELECT completo (no
 // solo el WHERE) porque ambos callers necesitan las mismas columnas —
 // aplicarRegla las usa fila por fila, preview-total las suma en un subquery.
-export function condicionComprasElegibles(entidadId: string, vigenciaSql: Prisma.Sql): Prisma.Sql {
+//
+// `reglaEnEdicionId` relaja el filtro esDistribuido para el preview del flujo
+// de EDICIÓN: las compras que la propia regla ya distribuyó tienen
+// esDistribuido = true, así que sin esta relajación el total previsualizado
+// excluía justamente la plata de la que trata la regla (típicamente mostraba
+// $0). aplicarRegla NO lo pasa a propósito: cuando corre durante una edición,
+// revertirRegla ya borró las distribuciones viejas y reseteó esDistribuido,
+// así que el filtro estricto es el correcto ahí.
+export function condicionComprasElegibles(
+  entidadId: string,
+  vigenciaSql: Prisma.Sql,
+  reglaEnEdicionId?: number | null
+): Prisma.Sql {
+  const filtroDistribuido =
+    reglaEnEdicionId != null
+      ? Prisma.sql`(c."esDistribuido" = false OR EXISTS (
+          SELECT 1 FROM distribuciones_apertura da
+          WHERE da."compraRowId" = c."rowId" AND da."reglaId" = ${reglaEnEdicionId}
+        ))`
+      : Prisma.sql`c."esDistribuido" = false`;
+
   return Prisma.sql`
     SELECT c."rowId", COALESCE(c."importeManual", c.importe) AS "importeBase"
     FROM compras c
     WHERE COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = ${entidadId}
       AND c."esBloqueado" = false
-      AND c."esDistribuido" = false
+      AND ${filtroDistribuido}
       AND COALESCE(c."importeManual", c.importe) IS NOT NULL
       AND (${vigenciaSql})
   `;

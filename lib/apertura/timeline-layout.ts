@@ -37,24 +37,46 @@ function fmt(d: Date): string {
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
 }
 
+// Una regla está "completa" cuando tiene todas las fechas que su modo exige.
+// El modal arma una entrada sintética ("nueva") con el estado EN CURSO del
+// formulario, así que recibimos rutinariamente reglas a medio llenar (ej.
+// entre_fechas con solo "Desde" tipeado). Esta función es el guard que hace
+// total a calcularSegmentosTimeline: nunca puede tirar (hallazgo Critical de
+// la revisión final de rama, Fase C).
+function esCompleta(r: TimelineReglaInput): boolean {
+  switch (r.modo) {
+    case "historico":
+      return true;
+    case "entre_fechas":
+      return r.fechaDesde !== null && r.fechaHasta !== null;
+    case "desde_adelante":
+      return r.fechaDesde !== null;
+    case "desde_atras":
+      return r.fechaHasta !== null;
+  }
+}
+
+function segmentoHistorico(r: TimelineReglaInput): TimelineSegmento {
+  return { id: r.id, estado: r.estado, leftPct: 0, widthPct: 100, fadeInicio: false, fadeFin: false, label: "Histórico completo" };
+}
+
+function segmentoIncompleto(r: TimelineReglaInput): TimelineSegmento {
+  return { id: r.id, estado: r.estado, leftPct: 0, widthPct: 0, fadeInicio: false, fadeFin: false, label: "Vigencia incompleta" };
+}
+
 export function calcularSegmentosTimeline(reglas: TimelineReglaInput[]): TimelineSegmento[] {
+  // Solo las reglas completas aportan fechas al eje: una fecha suelta de una
+  // regla a medio llenar no debe estirar/deformar el eje del resto.
   const fechasFinitas = reglas
+    .filter(esCompleta)
     .flatMap((r) => [r.fechaDesde, r.fechaHasta])
     .filter((d): d is Date => d !== null);
 
   if (fechasFinitas.length === 0) {
-    // Todas las reglas son "historico" — no hay eje temporal que dibujar,
-    // cada una ocupa el ancho completo (se apilan visualmente, una fila por
-    // regla, ver apertura-timeline.tsx).
-    return reglas.map((r) => ({
-      id: r.id,
-      estado: r.estado,
-      leftPct: 0,
-      widthPct: 100,
-      fadeInicio: false,
-      fadeFin: false,
-      label: "Histórico completo",
-    }));
+    // No hay eje temporal que dibujar: las historico ocupan el ancho completo
+    // (se apilan visualmente, una fila por regla, ver apertura-timeline.tsx) y
+    // las que esperan una fecha quedan como placeholder sin ancho.
+    return reglas.map((r) => (r.modo === "historico" ? segmentoHistorico(r) : segmentoIncompleto(r)));
   }
 
   const tiempos = fechasFinitas.map((d) => d.getTime());
@@ -66,9 +88,9 @@ export function calcularSegmentosTimeline(reglas: TimelineReglaInput[]): Timelin
   const rango = finEje - inicioEje || 1;
 
   return reglas.map((r) => {
-    if (r.modo === "historico") {
-      return { id: r.id, estado: r.estado, leftPct: 0, widthPct: 100, fadeInicio: false, fadeFin: false, label: "Histórico completo" };
-    }
+    if (r.modo === "historico") return segmentoHistorico(r);
+    // Corta ANTES de cualquier `!` — el resto de la función asume fechas presentes.
+    if (!esCompleta(r)) return segmentoIncompleto(r);
     if (r.modo === "entre_fechas") {
       const left = ((r.fechaDesde!.getTime() - inicioEje) / rango) * 100;
       const width = Math.max(((r.fechaHasta!.getTime() - r.fechaDesde!.getTime()) / rango) * 100, ANCHO_MINIMO_PCT);

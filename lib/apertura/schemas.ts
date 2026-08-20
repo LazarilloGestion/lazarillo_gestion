@@ -109,9 +109,14 @@ export type PatchReglaInput = z.infer<typeof patchReglaSchema>;
 // Query params de GET /api/apertura/reglas/preview-total (Fase C) — mismo
 // criterio de vigencia que crear/editar, sin destinos ni confirmarHistorico
 // (es una previsualización de lectura, no una escritura).
+// `reglaId` (opcional) identifica la regla que se está EDITANDO: el endpoint
+// se lo pasa a condicionComprasElegibles para que las compras que esa misma
+// regla ya distribuyó sigan contando en el total (si no, editar una regla
+// activa muestra $0 — hallazgo de la revisión final de rama, Fase C).
 export const previewTotalQuerySchema = z
   .object({
     entidadId: z.string().min(1).max(50),
+    reglaId: z.coerce.number().int().positive().optional(),
     ...camposVigenciaFecha,
   })
   .superRefine(validarFechasPorModo);

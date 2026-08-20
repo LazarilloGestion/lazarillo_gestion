@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { X } from "lucide-react";
@@ -13,6 +14,11 @@ export interface DestinoFormState {
 
 const TODO_EL_LOCAL = "__todo_el_local";
 
+function esNumeroValido(texto: string): boolean {
+  if (texto.trim() === "") return false;
+  return Number.isFinite(Number(texto));
+}
+
 export function AperturaDestinoRow({
   destino,
   locales,
@@ -23,14 +29,64 @@ export function AperturaDestinoRow({
 }: {
   destino: DestinoFormState;
   locales: Local[];
-  total: number;
+  /** null = el total del período todavía no se conoce (preview cargando/deshabilitado). */
+  total: number | null;
   onChange: (next: DestinoFormState) => void;
   onRemove: () => void;
   removable: boolean;
 }) {
   const localSeleccionado = locales.find((l) => l.id === destino.localId);
   const puntosDeVenta = localSeleccionado?.puntosDeVenta ?? [];
-  const monto = montoDesdePct(destino.porcentaje, total);
+  const monto = total !== null ? montoDesdePct(destino.porcentaje, total) : null;
+
+  // Campo %↔$ bidireccional: cada input tiene su propio borrador de texto que
+  // es la fuente de verdad MIENTRAS ese campo está enfocado. Sin esto, con
+  // totales reales en ARS (millones) cada tecla se re-derivaba vía
+  // pctDesdeMonto (resolución de 2 decimales de %), que colapsaba a 0 los
+  // valores intermedios y devolvía el campo a "0" a mitad del tipeo — el
+  // usuario solo podía pegar, no tipear (hallazgo de la revisión final de
+  // rama, Fase C).
+  const [campoActivo, setCampoActivo] = useState<"pct" | "monto" | null>(null);
+  const [pctDraft, setPctDraft] = useState(() => String(destino.porcentaje));
+  const [montoDraft, setMontoDraft] = useState(() => (monto !== null ? String(monto) : ""));
+
+  // Re-sincronización de borradores desde las props: ajuste durante el render
+  // (mismo patrón que apertura-gastos-modal.tsx usa para resetear estado) en
+  // vez de useEffect, y salteando siempre el campo enfocado para no pelear
+  // contra lo que el usuario está tipeando.
+  const [pctSincronizado, setPctSincronizado] = useState(destino.porcentaje);
+  if (campoActivo !== "pct" && pctSincronizado !== destino.porcentaje) {
+    setPctSincronizado(destino.porcentaje);
+    setPctDraft(String(destino.porcentaje));
+  }
+  const [montoSincronizado, setMontoSincronizado] = useState(monto);
+  if (campoActivo !== "monto" && montoSincronizado !== monto) {
+    setMontoSincronizado(monto);
+    setMontoDraft(monto !== null ? String(monto) : "");
+  }
+
+  function desenfocar(campo: "pct" | "monto") {
+    // Solo limpia si sigue siendo el campo activo — evita la carrera cuando el
+    // focus ya saltó al otro input antes de que llegue este blur.
+    setCampoActivo((prev) => (prev === campo ? null : prev));
+    // Al salir, el campo vuelve al valor canónico: un borrador a medio tipear
+    // ("" o "12.") nunca se llegó a commitear hacia arriba y quedaría mostrando
+    // algo distinto del estado real del destino.
+    if (campo === "pct") setPctDraft(String(destino.porcentaje));
+    else setMontoDraft(monto !== null ? String(monto) : "");
+  }
+
+  function handlePctChange(texto: string) {
+    setPctDraft(texto);
+    if (!esNumeroValido(texto)) return;
+    onChange({ ...destino, porcentaje: Number(texto) });
+  }
+
+  function handleMontoChange(texto: string) {
+    setMontoDraft(texto);
+    if (total === null || !esNumeroValido(texto)) return;
+    onChange({ ...destino, porcentaje: pctDesdeMonto(Number(texto), total) });
+  }
 
   return (
     <div className="flex items-center gap-2">
@@ -75,8 +131,10 @@ export function AperturaDestinoRow({
           min={0}
           max={100}
           className="h-8 w-16 text-xs text-right"
-          value={destino.porcentaje}
-          onChange={(e) => onChange({ ...destino, porcentaje: Number(e.target.value) || 0 })}
+          value={pctDraft}
+          onFocus={() => setCampoActivo("pct")}
+          onBlur={() => desenfocar("pct")}
+          onChange={(e) => handlePctChange(e.target.value)}
         />
         <span className="text-xs text-muted-foreground">%</span>
       </div>
@@ -86,8 +144,15 @@ export function AperturaDestinoRow({
           type="number"
           step="0.01"
           className="h-8 w-24 text-xs text-right"
-          value={monto}
-          onChange={(e) => onChange({ ...destino, porcentaje: pctDesdeMonto(Number(e.target.value) || 0, total) })}
+          // Sin total conocido no hay contra qué convertir: se muestra "—" en
+          // vez de un $0 que parecería dato real (mismo criterio que el total
+          // agregado del modal).
+          placeholder="—"
+          disabled={total === null}
+          value={total === null ? "" : montoDraft}
+          onFocus={() => setCampoActivo("monto")}
+          onBlur={() => desenfocar("monto")}
+          onChange={(e) => handleMontoChange(e.target.value)}
         />
         <span className="text-xs text-muted-foreground">$</span>
       </div>

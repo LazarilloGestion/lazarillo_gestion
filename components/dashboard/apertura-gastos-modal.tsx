@@ -95,9 +95,13 @@ export function AperturaGastosModal({
       (vigencia.modo === "desde_adelante" && vigencia.fechaDesde !== "") ||
       (vigencia.modo === "desde_atras" && vigencia.fechaHasta !== ""));
 
+  // Al editar, la regla en curso va como reglaId: sus compras ya distribuidas
+  // (esDistribuido = true) tienen que seguir contando en el total, si no el
+  // preview muestra $0 justo para la plata de la que trata la regla.
   const previewUrl = vigenciaCompletaParaPreview
     ? `/api/apertura/reglas/preview-total?${new URLSearchParams({
         entidadId: conceptoCodigo!,
+        ...(editando ? { reglaId: String(editando.id) } : {}),
         modo: vigencia.modo,
         ...(vigencia.fechaDesde ? { fechaDesde: fechaISOConHora(vigencia.fechaDesde)! } : {}),
         ...(vigencia.fechaHasta ? { fechaHasta: fechaISOConHora(vigencia.fechaHasta)! } : {}),
@@ -106,11 +110,15 @@ export function AperturaGastosModal({
     : null;
 
   const { data: previewData, isLoading: previewLoading } = useFetchQuery<{ total: number }>(
-    ["apertura-preview-total", conceptoCodigo, vigencia.modo, vigencia.fechaDesde, vigencia.fechaHasta, vigencia.extremosInclusivos],
+    // editando?.id en la key: crear y editar consultan totales distintos para
+    // la misma vigencia, no pueden compartir entrada de caché.
+    ["apertura-preview-total", conceptoCodigo, editando?.id ?? null, vigencia.modo, vigencia.fechaDesde, vigencia.fechaHasta, vigencia.extremosInclusivos],
     previewUrl,
     { staleTime: 10_000 }
   );
-  const total = previewData?.total ?? 0;
+  // null (no 0) cuando el total todavía no se conoce — un 0 se leería como
+  // dato real tanto en el agregado como en el $ de cada destino.
+  const total = previewUrl !== null && !previewLoading ? previewData?.total ?? null : null;
 
   // Reset de estado local al cerrarse el modal (conceptoCodigo -> null) —
   // ajuste durante el render en vez de useEffect (evita la cascada de
@@ -145,6 +153,10 @@ export function AperturaGastosModal({
 
   const sumaPorcentajes = destinos.reduce((acc, d) => acc + d.porcentaje, 0);
   const sumaValida = validarSumaPorcentajes(destinos);
+  // Chequeo barato en cliente para no gastar un round-trip que el servidor va
+  // a rechazar con 422 igual (la validación autoritativa sigue siendo la suya).
+  const destinosCompletos = destinos.every((d) => d.localId !== null);
+  const reactivaRegla = editando !== null && editando.estado === "inactiva";
 
   async function refetchDependientes() {
     await Promise.all([
@@ -165,11 +177,20 @@ export function AperturaGastosModal({
     if (conceptoCodigo === null) return;
     setGuardando(true);
     setErrorGuardar(null);
+    let guardadoOk = false;
     try {
+      // Solo se mandan las fechas que el modo usa: una fecha vieja que quedó
+      // en el formulario tras cambiar de modo el backend la ignora, pero se
+      // persiste igual en la regla y después deforma el eje de la línea de
+      // tiempo (calcularSegmentosTimeline lee fechaDesde/fechaHasta de TODAS
+      // las reglas del concepto).
+      const usaFechaDesde = vigencia.modo === "entre_fechas" || vigencia.modo === "desde_adelante";
+      const usaFechaHasta = vigencia.modo === "entre_fechas" || vigencia.modo === "desde_atras";
+
       const cuerpoComun = {
         modo: vigencia.modo,
-        fechaDesde: fechaISOConHora(vigencia.fechaDesde),
-        fechaHasta: fechaISOConHora(vigencia.fechaHasta),
+        fechaDesde: usaFechaDesde ? fechaISOConHora(vigencia.fechaDesde) : null,
+        fechaHasta: usaFechaHasta ? fechaISOConHora(vigencia.fechaHasta) : null,
         extremosInclusivos: vigencia.extremosInclusivos,
         confirmarHistorico: vigencia.modo === "historico" ? vigencia.confirmarHistorico : undefined,
         destinos: destinos.map((d) => ({ localId: d.localId, puntoDeVentaId: d.puntoDeVentaId, porcentaje: d.porcentaje })),
@@ -199,13 +220,25 @@ export function AperturaGastosModal({
         return;
       }
 
-      await refetchDependientes();
-      notify.registroActualizado();
-      setView("lista");
+      guardadoOk = true;
     } catch {
       setErrorGuardar("No se pudo guardar. Intentá de nuevo.");
     } finally {
       setGuardando(false);
+    }
+
+    if (!guardadoOk) return;
+
+    // Fuera del try de arriba a propósito: acá el servidor YA guardó. Si la
+    // invalidación de caché falla, lo peor que pasa es que la pantalla quede
+    // stale — reportarlo como "no se pudo guardar" sería mentir sobre una
+    // mutación financiera ya persistida.
+    setView("lista");
+    notify.registroActualizado();
+    try {
+      await refetchDependientes();
+    } catch (err) {
+      console.error("[apertura] no se pudieron refrescar los datos tras guardar la regla", err);
     }
   }
 
@@ -343,6 +376,12 @@ export function AperturaGastosModal({
             <div className="flex flex-col gap-3">
               <AperturaVigenciaSelector value={vigencia} onChange={setVigencia} />
 
+              {reactivaRegla && (
+                <p className="text-xs text-muted-foreground">
+                  Esta regla está inactiva: guardar la reactivará y volverá a distribuir las compras del período.
+                </p>
+              )}
+
               {reglasParaTimeline.length > 0 && <AperturaTimeline reglas={reglasParaTimeline} />}
 
               <div className="flex flex-col gap-2">
@@ -350,7 +389,7 @@ export function AperturaGastosModal({
                   <span>Destinos</span>
                   <span>
                     Total del período:{" "}
-                    {previewUrl === null ? "—" : previewLoading ? "…" : fmtARS(total)}
+                    {previewLoading ? "…" : total === null ? "—" : fmtARS(total)}
                   </span>
                 </div>
                 {destinos.map((d, i) => (
@@ -390,11 +429,16 @@ export function AperturaGastosModal({
                 <button
                   type="button"
                   onClick={handleGuardar}
-                  disabled={guardando || !sumaValida || (vigencia.modo === "historico" && !vigencia.confirmarHistorico)}
+                  disabled={
+                    guardando ||
+                    !sumaValida ||
+                    !destinosCompletos ||
+                    (vigencia.modo === "historico" && !vigencia.confirmarHistorico)
+                  }
                   className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-1.5"
                 >
                   {guardando && <Spinner size="sm" className="text-primary-foreground" />}
-                  {editando ? "Guardar cambios" : "Crear regla"}
+                  {reactivaRegla ? "Guardar y reactivar" : editando ? "Guardar cambios" : "Crear regla"}
                 </button>
               </div>
             </div>
