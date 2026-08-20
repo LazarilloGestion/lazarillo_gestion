@@ -200,6 +200,9 @@ export async function POST(req: NextRequest) {
     // que hayan llegado en este batch. Ver diseño técnico sección 6.
     const comprasModificadas = reports.flatMap((r) => r.comprasDistribuidasModificadas ?? []);
     const apertura = await sincronizarTrasImport(getEtlClient(), comprasModificadas);
+    if (apertura.errores.length > 0) {
+      console.error("[POST /api/etl/drive-import] apertura.errores", apertura.errores);
+    }
 
     return NextResponse.json({ reports, apertura });
   } catch (err) {
