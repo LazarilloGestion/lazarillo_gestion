@@ -48,4 +48,11 @@ export const notify = {
       duration: Infinity,
       closeButton: true,
     }),
+
+  aperturaSincronizacionOmitidas: (count: number) =>
+    toast.info("Apertura de gastos — cambios no recalculados", {
+      description: `${count} compra${count !== 1 ? "s" : ""} con datos del ERP actualizados no se recalcularon porque su regla de apertura está desactivada — el historial de distribución se preservó tal cual.`,
+      duration: Infinity,
+      closeButton: true,
+    }),
 };

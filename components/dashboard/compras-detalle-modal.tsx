@@ -357,6 +357,11 @@ function ComprasRow({
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
+// Distingue "el PATCH respondió con un error accionable" (ej. el guard 409 de
+// compra distribuida) de cualquier otro fallo (red, refetch) — solo el primero
+// muestra su mensaje real al usuario, ver handleSave.
+class GuardError extends Error {}
+
 export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<EditState | null>(null);
@@ -401,7 +406,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     setSaving(true);
     setSaveError(null);
     try {
-      const body = {
+      const requestBody = {
         importeManual:        state.importeManual !== "" ? parseFloat(state.importeManual) : null,
         fechaManual:          state.fechaManual !== "" ? new Date(state.fechaManual + "T12:00:00Z").toISOString() : null,
         conceptoCodigoManual: state.conceptoCodigoManual !== "" ? state.conceptoCodigoManual : null,
@@ -410,28 +415,38 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
       const res = await fetch(`/api/dashboard/compras/${state.rowId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(requestBody),
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "Error al guardar");
+        const resBody = await res.json().catch(() => null);
+        throw new GuardError(resBody?.error ?? "Error al guardar");
       }
+    } catch (err) {
+      // Solo un error del PATCH mismo (ej. el guard 409 de compra distribuida)
+      // trae un mensaje accionable del servidor — un fallo de red antes de
+      // llegar a la respuesta usa el texto genérico en vez del error técnico
+      // crudo (revisión final de rama, ronda 2, hallazgo Minor).
+      const message = err instanceof GuardError ? err.message : "No se pudo guardar. Intentá de nuevo.";
+      setSaveError(message);
+      notify.errorGuardar();
+      setSaving(false);
+      return;
+    }
+
+    // El PATCH ya guardó en este punto — un fallo del refetch posterior no es
+    // "no se guardó" (los datos ya están persistidos del lado del servidor),
+    // así que no lo tratamos como error de guardado.
+    try {
       await Promise.all([
         queryClient.refetchQueries({ queryKey }),
         queryClient.refetchQueries({ queryKey: ["pivot"] }),
       ]);
-      setEditing(null);
-      notify.registroActualizado();
     } catch (err) {
-      // El guard 409 de edición manual devuelve un mensaje accionable
-      // ("editá o revertí la regla…") — mostrarlo tal cual en vez del texto
-      // genérico (revisión final de rama, hallazgo Important I1).
-      const message = err instanceof Error ? err.message : "No se pudo guardar. Intentá de nuevo.";
-      setSaveError(message);
-      notify.errorGuardar();
-    } finally {
-      setSaving(false);
+      console.error("[compras-detalle-modal] guardado OK pero falló el refetch posterior", err);
     }
+    setEditing(null);
+    notify.registroActualizado();
+    setSaving(false);
   }, [queryClient, queryKey]);
 
   const searchFields = useCallback((item: CompraDetalle) => [

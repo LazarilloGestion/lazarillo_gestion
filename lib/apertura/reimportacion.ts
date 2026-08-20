@@ -6,6 +6,7 @@ export interface SincronizarTrasImportResultado {
   comprasRecalculadas: number;
   reglasReaplicadas: number;
   errores: string[];
+  omitidas: string[];
 }
 
 // Corre al final de cada import de compras (app/api/etl/drive-import/route.ts,
@@ -15,7 +16,13 @@ export interface SincronizarTrasImportResultado {
 //
 // 1. Cada compra en `comprasModificadas` (ya distribuida, con algún campo ERP
 //    cambiado — ver camposErpCambiaron en lib/etl/normalizers/compras-diff.ts)
-//    se revierte: queda esDistribuido = false, disponible para el paso 2.
+//    se revierte: queda esDistribuido = false, disponible para el paso 2. Si
+//    la regla que la cubre está inactiva, NO se revierte — desactivar
+//    preserva el historial de distribuciones ya generadas (contrato del
+//    endpoint, app/api/apertura/reglas/[id]/route.ts) y revertir acá lo
+//    borraría en silencio pese a que el ERP cambió el dato. Se reporta en
+//    `omitidas`, separado de `errores` (no es una falla, es la protección
+//    funcionando — revisión final de rama, ronda 2, hallazgo Minor).
 // 2. aplicarRegla se vuelve a correr para TODAS las reglas activas. Es
 //    idempotente por diseño (solo toca compras con esDistribuido = false), así
 //    que agarra en la misma pasada tanto las compras recién revertidas como
@@ -33,31 +40,38 @@ export async function sincronizarTrasImport(
   comprasModificadas: string[]
 ): Promise<SincronizarTrasImportResultado> {
   const errores: string[] = [];
+  const omitidas: string[] = [];
   let comprasRecalculadas = 0;
 
   for (const rowId of comprasModificadas) {
     try {
+      // orderBy determinístico: hoy una compra pertenece a una sola regla a
+      // la vez (aplicarRegla solo toma compras con esDistribuido = false), así
+      // que en la práctica hay a lo sumo una fila — el orderBy es una
+      // salvaguarda barata contra ese invariante rompiéndose en el futuro sin
+      // que este `findFirst` dependa de un orden arbitrario de Postgres.
       const distribucion = await prisma.distribucionApertura.findFirst({
         where: { compraRowId: rowId },
+        orderBy: { id: "desc" },
         select: { regla: { select: { id: true, estado: true } } },
       });
 
       if (distribucion?.regla.estado === "inactiva") {
-        // No revertir: la regla que cubre esta compra está desactivada, y
-        // desactivar preserva el historial de distribuciones ya generadas
-        // (contrato del endpoint, ver app/api/apertura/reglas/[id]/route.ts).
-        // Revertir acá borraría ese historial en silencio pese a que el ERP
-        // cambió el dato — se reporta en vez de tocar nada (Fase D, revisión
-        // final de rama, hallazgo Critical C1).
-        errores.push(
+        omitidas.push(
           `revertirCompra(${rowId}): omitida — cubierta por la regla inactiva #${distribucion.regla.id}, se preserva el historial de distribución`
         );
         continue;
       }
 
-      await prisma.$transaction(async (tx) => {
-        await revertirCompra(tx, rowId);
-      });
+      await prisma.$transaction(
+        async (tx) => {
+          await revertirCompra(tx, rowId);
+        },
+        // 15s explícito (no el default de Prisma, ~5s) — mismo criterio de
+        // margen que el timeout de aplicarRegla más abajo, aunque esta
+        // operación sea liviana (un DELETE + un UPDATE por rowId).
+        { timeout: 15000 }
+      );
       comprasRecalculadas++;
     } catch (err) {
       errores.push(`revertirCompra(${rowId}): ${err instanceof Error ? err.message : String(err)}`);
@@ -104,5 +118,5 @@ export async function sincronizarTrasImport(
     }
   }
 
-  return { comprasRecalculadas, reglasReaplicadas, errores };
+  return { comprasRecalculadas, reglasReaplicadas, errores, omitidas };
 }

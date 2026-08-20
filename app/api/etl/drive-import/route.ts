@@ -8,7 +8,7 @@ import { getEtlClient } from "@/lib/etl/etl-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getFileOrder } from "@/lib/etl/file-processor";
 import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
-import { sincronizarTrasImport } from "@/lib/apertura/reimportacion";
+import { sincronizarTrasImport, type SincronizarTrasImportResultado } from "@/lib/apertura/reimportacion";
 import { getExcelHeaders } from "@/lib/etl/helpers";
 import { detectFileType } from "@/lib/etl/detect-file-type";
 import { prisma } from "@/lib/prisma";
@@ -54,6 +54,28 @@ const driveImportBodySchema = z
   .refine((b) => b.files !== undefined || (b.file_id != null && b.file_name != null), {
     message: "Se requiere files[] o file_id+file_name",
   });
+
+// Guard + llamada a sincronizarTrasImport compartidos entre el camino de
+// éxito y el camino de error parcial (archivo posterior del batch falló,
+// revisión final de rama, hallazgo Critical C2) — un solo lugar en vez de
+// duplicar el guard de "¿tocó alguna compra?" en dos call sites. El propio
+// try/catch evita que un fallo ACÁ (ej. reglaApertura.findMany sin conexión a
+// la base) se propague como una excepción que el catch externo convertiría en
+// un 500 genérico, perdiendo el mensaje real del error que se estaba por
+// devolver (revisión final de rama, ronda 2, hallazgo Minor).
+async function sincronizarAperturaSiCorresponde(reports: ETLReport[]): Promise<SincronizarTrasImportResultado> {
+  const huboComprasTocadas = reports.some((r) => r.fileType === "compras" && (r.created > 0 || r.updated > 0));
+  if (!huboComprasTocadas) {
+    return { comprasRecalculadas: 0, reglasReaplicadas: 0, errores: [], omitidas: [] };
+  }
+  const comprasModificadas = reports.flatMap((r) => r.comprasDistribuidasModificadas ?? []);
+  try {
+    return await sincronizarTrasImport(getEtlClient(), comprasModificadas);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { comprasRecalculadas: 0, reglasReaplicadas: 0, errores: [`sincronizarTrasImport: ${message}`], omitidas: [] };
+  }
+}
 
 /**
  * POST — descarga archivos de Drive y los procesa con el ETL en orden de dependencia.
@@ -183,18 +205,7 @@ export async function POST(req: NextRequest) {
         report = await runETL(buffer, storagePath, ctx, getEtlClient() as unknown as DbClient);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Error desconocido";
-        // Los archivos anteriores de este batch ya commitearon — sincronizar
-        // apertura sobre lo que sí se importó antes de cortar, para no perder
-        // la señal de compras distribuidas modificadas por esos archivos
-        // previos (Fase D, revisión final de rama, hallazgo Critical C2: sin
-        // esto, una reimportación futura del mismo archivo no detecta ningún
-        // cambio porque el dato en la DB ya coincide). Se salta si el batch
-        // parcial no tocó ninguna compra (hallazgo Important I3).
-        const huboComprasTocadasParcial = reports.some((r) => r.fileType === "compras" && (r.created > 0 || r.updated > 0));
-        const comprasModificadasParcial = reports.flatMap((r) => r.comprasDistribuidasModificadas ?? []);
-        const aperturaParcial = huboComprasTocadasParcial
-          ? await sincronizarTrasImport(getEtlClient(), comprasModificadasParcial)
-          : { comprasRecalculadas: 0, reglasReaplicadas: 0, errores: [] };
+        const aperturaParcial = await sincronizarAperturaSiCorresponde(reports);
         if (aperturaParcial.errores.length > 0) {
           console.error("[POST /api/etl/drive-import] apertura.errores (batch parcial)", aperturaParcial.errores);
         }
@@ -209,18 +220,7 @@ export async function POST(req: NextRequest) {
     // Link detalle_compras → compras post-batch
     await linkDetalleCompras(getEtlClient() as unknown as DbClient, localId);
 
-    // Apertura de Gastos (Fase D): compras ya distribuidas cuyos campos ERP
-    // cambiaron se revierten y re-matchean contra las reglas activas, en la
-    // misma pasada que también auto-aplica reglas activas a compras nuevas
-    // que hayan llegado en este batch. Ver diseño técnico sección 6. Se
-    // salta por completo si el batch no tocó ninguna compra (ej. import de
-    // ventas o de un maestro) — evita reaplicar todas las reglas activas sin
-    // motivo (revisión final de rama, hallazgo Important I3).
-    const huboComprasTocadas = reports.some((r) => r.fileType === "compras" && (r.created > 0 || r.updated > 0));
-    const comprasModificadas = reports.flatMap((r) => r.comprasDistribuidasModificadas ?? []);
-    const apertura = huboComprasTocadas
-      ? await sincronizarTrasImport(getEtlClient(), comprasModificadas)
-      : { comprasRecalculadas: 0, reglasReaplicadas: 0, errores: [] };
+    const apertura = await sincronizarAperturaSiCorresponde(reports);
     if (apertura.errores.length > 0) {
       console.error("[POST /api/etl/drive-import] apertura.errores", apertura.errores);
     }
