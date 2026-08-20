@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Spinner } from "@/components/ui/spinner";
-import { Plus, Pencil, Trash2, Ban } from "lucide-react";
+import { Plus, Pencil, Trash2, Ban, Inbox } from "lucide-react";
 import { cn, fmtARS } from "@/lib/utils";
 import { notify } from "@/lib/toast";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
@@ -79,7 +79,7 @@ export function AperturaGastosModal({
   const [reglaAEliminar, setReglaAEliminar] = useState<ReglaAperturaDTO | null>(null);
   const [eliminando, setEliminando] = useState(false);
 
-  const { reglas: todasLasReglas } = useReglasApertura();
+  const { reglas: todasLasReglas, isLoading: reglasLoading, error: reglasError } = useReglasApertura();
   const reglasDelConcepto = useMemo(
     () => todasLasReglas.filter((r) => r.entidadId === conceptoCodigo).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)),
     [todasLasReglas, conceptoCodigo]
@@ -149,6 +149,13 @@ export function AperturaGastosModal({
   async function refetchDependientes() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["apertura-reglas"] }),
+      // El total previsualizado depende de qué compras siguen elegibles
+      // (condicionComprasElegibles filtra esDistribuido = false) — crear,
+      // editar o eliminar una regla cambia eso para la misma ventana de
+      // vigencia, así que el preview queda stale igual que pivot/detalle.
+      // Sin params: matchea por prefijo todas las instancias cacheadas
+      // (una por combinación de modo/fechas), no solo la que está montada.
+      queryClient.invalidateQueries({ queryKey: ["apertura-preview-total"] }),
       queryClient.invalidateQueries({ queryKey: ["pivot"] }),
       queryClient.invalidateQueries({ queryKey: ["detalle"] }),
     ]);
@@ -266,54 +273,62 @@ export function AperturaGastosModal({
 
           {view === "lista" && (
             <div className="flex flex-col gap-2">
-              {reglasDelConcepto.length === 0 && (
-                <p className="text-sm text-muted-foreground py-4 text-center">
+              {reglasLoading ? (
+                <div className="py-8 flex justify-center"><Spinner size="lg" /></div>
+              ) : reglasError ? (
+                <div className="py-8 text-center text-sm text-destructive">
+                  Error: {reglasError.message}
+                </div>
+              ) : reglasDelConcepto.length === 0 ? (
+                <div className="py-4 flex flex-col items-center gap-2 text-sm text-muted-foreground">
+                  <Inbox className="w-8 h-8 opacity-40" />
                   Este concepto todavía no tiene reglas de apertura.
-                </p>
-              )}
-              {reglasDelConcepto.map((regla) => (
-                <div key={regla.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
-                  <div className="flex flex-col gap-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <Badge variant={regla.estado === "activa" ? "default" : "outline"}>
-                        {regla.estado === "activa" ? "Activa" : "Inactiva"}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {regla.destinos.length} destino{regla.destinos.length !== 1 ? "s" : ""}
-                      </span>
+                </div>
+              ) : (
+                reglasDelConcepto.map((regla) => (
+                  <div key={regla.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={regla.estado === "activa" ? "default" : "outline"}>
+                          {regla.estado === "activa" ? "Activa" : "Inactiva"}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {regla.destinos.length} destino{regla.destinos.length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                      <span className="text-xs text-muted-foreground truncate">{resumenVigencia(regla)}</span>
                     </div>
-                    <span className="text-xs text-muted-foreground truncate">{resumenVigencia(regla)}</span>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      title="Editar"
-                      onClick={() => abrirFormularioEditar(regla)}
-                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    {regla.estado === "activa" && (
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
-                        title="Desactivar"
-                        onClick={() => handleDesactivar(regla)}
+                        title="Editar"
+                        onClick={() => abrirFormularioEditar(regla)}
                         className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted"
                       >
-                        <Ban className="h-3.5 w-3.5" />
+                        <Pencil className="h-3.5 w-3.5" />
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      title="Eliminar"
-                      onClick={() => setReglaAEliminar(regla)}
-                      className="flex h-7 w-7 items-center justify-center rounded text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                      {regla.estado === "activa" && (
+                        <button
+                          type="button"
+                          title="Desactivar"
+                          onClick={() => handleDesactivar(regla)}
+                          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+                        >
+                          <Ban className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        title="Eliminar"
+                        onClick={() => setReglaAEliminar(regla)}
+                        className="flex h-7 w-7 items-center justify-center rounded text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
               <button
                 type="button"
                 onClick={abrirFormularioNuevo}
@@ -333,7 +348,10 @@ export function AperturaGastosModal({
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Destinos</span>
-                  <span>Total del período: {previewLoading ? "…" : fmtARS(total)}</span>
+                  <span>
+                    Total del período:{" "}
+                    {previewUrl === null ? "—" : previewLoading ? "…" : fmtARS(total)}
+                  </span>
                 </div>
                 {destinos.map((d, i) => (
                   <AperturaDestinoRow
