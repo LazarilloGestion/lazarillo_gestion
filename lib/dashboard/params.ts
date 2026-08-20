@@ -94,6 +94,7 @@ export function buildComprasDetalleUrl(filter: DetalleFilter): string {
   if (filter.conceptoCodigo) params.set("conceptoCodigo", filter.conceptoCodigo);
   if (filter.proveedorId) params.set("proveedorId", String(filter.proveedorId));
   if (filter.rowId) params.set("rowId", filter.rowId);
+  if (filter.distribucionId != null) params.set("distribucionId", String(filter.distribucionId));
   return `/api/dashboard/detalle?${params}`;
 }
 

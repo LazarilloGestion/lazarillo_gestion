@@ -8,6 +8,7 @@ interface ExpandableButtonProps {
   children: React.ReactNode;
   indent?: string;
   iconSize?: string;
+  className?: string;
 }
 
 export function ExpandableButton({
@@ -16,12 +17,14 @@ export function ExpandableButton({
   children,
   indent,
   iconSize = "w-4 h-4",
+  className,
 }: ExpandableButtonProps) {
   return (
     <button
       className={cn(
         "flex items-center gap-1.5 w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded",
-        indent
+        indent,
+        className
       )}
       onClick={onClick}
       aria-expanded={isExpanded}

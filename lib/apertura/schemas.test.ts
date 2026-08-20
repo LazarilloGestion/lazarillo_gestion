@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { crearReglaSchema, patchReglaSchema } from "./schemas";
+import { crearReglaSchema, patchReglaSchema, previewTotalQuerySchema } from "./schemas";
 
 const destinosOk = [
   { localId: 1, porcentaje: 60 },
@@ -131,6 +131,38 @@ describe("patchReglaSchema", () => {
 
   it("rechaza cuerpo sin accion", () => {
     const result = patchReglaSchema.safeParse({ modo: "historico" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("previewTotalQuerySchema", () => {
+  it("acepta modo historico con solo entidadId (sin confirmarHistorico — no aplica al preview)", () => {
+    const result = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "historico" });
+    expect(result.success).toBe(true);
+  });
+
+  it("acepta modo entre_fechas con ambas fechas", () => {
+    const result = previewTotalQuerySchema.safeParse({
+      entidadId: "17",
+      modo: "entre_fechas",
+      fechaDesde: "2026-01-01T00:00:00Z",
+      fechaHasta: "2026-01-31T00:00:00Z",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rechaza desde_adelante sin fechaDesde", () => {
+    const result = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "desde_adelante" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rechaza desde_atras sin fechaHasta", () => {
+    const result = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "desde_atras" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rechaza entidadId vacío", () => {
+    const result = previewTotalQuerySchema.safeParse({ entidadId: "", modo: "historico" });
     expect(result.success).toBe(false);
   });
 });

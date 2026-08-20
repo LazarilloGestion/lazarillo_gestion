@@ -3,8 +3,9 @@ import { useState, useMemo, useCallback } from "react";
 import { notify } from "@/lib/toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
-import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare } from "lucide-react";
+import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare, Pencil } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Command, CommandEmpty, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
@@ -297,7 +298,9 @@ function ComprasRow({
         {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
       </td>
       <td className="px-3 py-1.5">
-        {item.detalle ? (
+        {!item.detalle ? (
+          <span className="text-muted-foreground">—</span>
+        ) : item.distribucionId == null ? (
           <button
             onClick={() => onOpenLineas(item.rowId, item.detalle)}
             className="text-muted-foreground hover:text-foreground hover:underline font-mono text-xs whitespace-nowrap"
@@ -305,7 +308,14 @@ function ComprasRow({
             {item.detalle}
           </button>
         ) : (
-          <span className="text-muted-foreground">—</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-muted-foreground font-mono text-xs whitespace-nowrap cursor-default">
+                {item.detalle}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Compra distribuida — el detalle por líneas no está disponible acá todavía.</TooltipContent>
+          </Tooltip>
         )}
       </td>
       <td className="px-3 py-1.5 max-w-[12rem] whitespace-normal break-words text-muted-foreground">{normalize(item.observacManual ?? item.observac)}</td>
@@ -315,20 +325,31 @@ function ComprasRow({
         {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
       </td>
       <td className="px-2 py-1.5">
-        <EditTriggerButton
-          onClick={() => {
-            const initialConcepto = item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "";
-            const initialRubro = conceptoOptions.find(o => o.codigo === initialConcepto)?.rubroCodigo ?? SIN_RUBRO_CODE;
-            onEdit({
-              rowId: String(item.rowId),
-              importeManual: toEditString(item.importeManual ?? item.importe),
-              fechaManual: toDateInputValue(item.fechaManual ?? item.fecha),
-              conceptoCodigoManual: initialConcepto,
-              observacManual: item.observacManual ?? "",
-              rubroFiltro: initialRubro,
-            });
-          }}
-        />
+        {item.distribucionId == null ? (
+          <EditTriggerButton
+            onClick={() => {
+              const initialConcepto = item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "";
+              const initialRubro = conceptoOptions.find(o => o.codigo === initialConcepto)?.rubroCodigo ?? SIN_RUBRO_CODE;
+              onEdit({
+                rowId: String(item.rowId),
+                importeManual: toEditString(item.importeManual ?? item.importe),
+                fechaManual: toDateInputValue(item.fechaManual ?? item.fecha),
+                conceptoCodigoManual: initialConcepto,
+                observacManual: item.observacManual ?? "",
+                rubroFiltro: initialRubro,
+              });
+            }}
+          />
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/30 cursor-default">
+                <Pencil className="h-3 w-3" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>No se puede editar una porción distribuida todavía — editá la compra completa antes de aperturarla.</TooltipContent>
+          </Tooltip>
+        )}
       </td>
     </tr>
   );
@@ -439,8 +460,15 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         saveError={saveError}
         isEditing={editing !== null}
         renderRow={(item, portalContainer) => (
+          // distribucionId ?? rowId: una compra distribuida en N destinos
+          // genera N objetos CompraDetalle con el mismo rowId (fan-out de
+          // v_compras_distribuidas) — sin esto, React ve keys duplicadas.
+          // isEditing (más abajo, sin cambios) sigue comparando por rowId sin
+          // riesgo: el trigger de edición está deshabilitado en toda fila con
+          // distribucionId != null (Step 3), así que `editing` nunca se
+          // setea desde una fila cuyo rowId está duplicado en esta lista.
           <ComprasRow
-            key={item.rowId}
+            key={item.distribucionId != null ? `d-${item.distribucionId}` : item.rowId}
             item={item}
             editing={editing}
             conceptoOptions={conceptoOptions}
