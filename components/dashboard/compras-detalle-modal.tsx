@@ -300,7 +300,7 @@ function ComprasRow({
       <td className="px-3 py-1.5">
         {!item.detalle ? (
           <span className="text-muted-foreground">—</span>
-        ) : item.distribucionId == null ? (
+        ) : item.distribucionId == null && !item.esDistribuido ? (
           <button
             onClick={() => onOpenLineas(item.rowId, item.detalle)}
             className="text-muted-foreground hover:text-foreground hover:underline font-mono text-xs whitespace-nowrap"
@@ -325,7 +325,7 @@ function ComprasRow({
         {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
       </td>
       <td className="px-2 py-1.5">
-        {item.distribucionId == null ? (
+        {item.distribucionId == null && !item.esDistribuido ? (
           <EditTriggerButton
             onClick={() => {
               const initialConcepto = item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "";
@@ -347,7 +347,7 @@ function ComprasRow({
                 <Pencil className="h-3 w-3" />
               </span>
             </TooltipTrigger>
-            <TooltipContent>No se puede editar una porción distribuida todavía — editá la compra completa antes de aperturarla.</TooltipContent>
+            <TooltipContent>Esta compra está distribuida por una regla de apertura de gastos — editá o revertí la regla en vez de editar la compra.</TooltipContent>
           </Tooltip>
         )}
       </td>
