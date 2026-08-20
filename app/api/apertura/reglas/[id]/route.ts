@@ -108,6 +108,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
             fechaDesde: vigenciaNueva.fechaDesde,
             fechaHasta: vigenciaNueva.fechaHasta,
             extremosInclusivos,
+            // Editar reactiva siempre — una regla editada tiene distribuciones
+            // vivas recién generadas por aplicarRegla más abajo, así que no
+            // puede quedar "inactiva" (invisible para el chequeo de
+            // superposición de cualquier regla futura). Sin condicional sobre
+            // el estado previo: es semántica del endpoint, no solo de la UI
+            // (Fase C, decisión de brainstorming 19-ago-2026).
+            estado: "activa",
             destinos: {
               create: destinosResueltos.map((d) => ({
                 localId: d.localId,
