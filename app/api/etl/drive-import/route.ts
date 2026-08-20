@@ -8,6 +8,7 @@ import { getEtlClient } from "@/lib/etl/etl-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getFileOrder } from "@/lib/etl/file-processor";
 import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
+import { sincronizarTrasImport } from "@/lib/apertura/reimportacion";
 import { getExcelHeaders } from "@/lib/etl/helpers";
 import { detectFileType } from "@/lib/etl/detect-file-type";
 import { prisma } from "@/lib/prisma";
@@ -193,7 +194,14 @@ export async function POST(req: NextRequest) {
     // Link detalle_compras → compras post-batch
     await linkDetalleCompras(getEtlClient() as unknown as DbClient, localId);
 
-    return NextResponse.json(reports);
+    // Apertura de Gastos (Fase D): compras ya distribuidas cuyos campos ERP
+    // cambiaron se revierten y re-matchean contra las reglas activas, en la
+    // misma pasada que también auto-aplica reglas activas a compras nuevas
+    // que hayan llegado en este batch. Ver diseño técnico sección 6.
+    const comprasModificadas = reports.flatMap((r) => r.comprasDistribuidasModificadas ?? []);
+    const apertura = await sincronizarTrasImport(getEtlClient(), comprasModificadas);
+
+    return NextResponse.json({ reports, apertura });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error desconocido";
     return NextResponse.json({ error: msg }, { status: 500 });

@@ -56,10 +56,14 @@ export function useDriveImport() {
         setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
         setFileErrors((s) => ({ ...s, [file.id]: json.error ?? "Error" }));
         return { ok: false, records: 0 };
-      } else if (Array.isArray(json)) {
-        const reports = json as ETLReport[];
+      } else if (json && Array.isArray(json.reports)) {
+        const reports = json.reports as ETLReport[];
         setFileStatuses((s) => ({ ...s, [file.id]: "success" }));
         setFileReports((s) => ({ ...s, [file.id]: reports }));
+        const erroresApertura: string[] = json.apertura?.errores ?? [];
+        if (erroresApertura.length > 0) {
+          notify.aperturaSincronizacionConErrores(erroresApertura.length);
+        }
         const records = reports.reduce((s, r) => s + r.created + r.updated, 0);
         return { ok: true, records };
       } else {
