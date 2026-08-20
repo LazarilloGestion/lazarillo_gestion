@@ -11,14 +11,44 @@ export const destinoSchema = z
     message: "Cada destino requiere localId o puntoDeVentaId",
   });
 
-const camposVigencia = {
+// Campos de vigencia sin destinos/confirmarHistorico — reusados por
+// previewTotalQuerySchema (Fase C), que solo necesita saber SOBRE QUÉ
+// PERÍODO previsualizar, no validar destinos ni pedir confirmación de
+// histórico (esa confirmación es del paso de guardar, no de previsualizar).
+export const camposVigenciaFecha = {
   modo: z.enum(["historico", "entre_fechas", "desde_adelante", "desde_atras"]),
   fechaDesde: z.string().datetime({ offset: true }).nullable().optional(),
   fechaHasta: z.string().datetime({ offset: true }).nullable().optional(),
   extremosInclusivos: z.boolean().default(true),
+};
+
+const camposVigencia = {
+  ...camposVigenciaFecha,
   destinos: z.array(destinoSchema).min(1),
   confirmarHistorico: z.boolean().optional(),
 };
+
+// Requisitos de fecha por modo — compartidos entre crear/editar regla (con
+// destinos/confirmarHistorico, ver validarCuerpoRegla) y el preview de total
+// (sin ellos, ver previewTotalQuerySchema más abajo).
+function validarFechasPorModo(
+  data: { modo: string; fechaDesde?: string | null; fechaHasta?: string | null },
+  ctx: z.RefinementCtx
+) {
+  if (data.modo === "entre_fechas" && (!data.fechaDesde || !data.fechaHasta)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "modo 'entre_fechas' requiere fechaDesde y fechaHasta",
+      path: ["fechaDesde"],
+    });
+  }
+  if (data.modo === "desde_adelante" && !data.fechaDesde) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "modo 'desde_adelante' requiere fechaDesde", path: ["fechaDesde"] });
+  }
+  if (data.modo === "desde_atras" && !data.fechaHasta) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "modo 'desde_atras' requiere fechaHasta", path: ["fechaHasta"] });
+  }
+}
 
 // Reglas de negocio comunes a crear y editar — no reinventar por endpoint. Ver
 // docs/superpowers/specs/2026-08-19-apertura-gastos-design.md sección 7/10.1.
@@ -40,19 +70,7 @@ function validarCuerpoRegla(
       path: ["destinos"],
     });
   }
-  if (data.modo === "entre_fechas" && (!data.fechaDesde || !data.fechaHasta)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "modo 'entre_fechas' requiere fechaDesde y fechaHasta",
-      path: ["fechaDesde"],
-    });
-  }
-  if (data.modo === "desde_adelante" && !data.fechaDesde) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "modo 'desde_adelante' requiere fechaDesde", path: ["fechaDesde"] });
-  }
-  if (data.modo === "desde_atras" && !data.fechaHasta) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "modo 'desde_atras' requiere fechaHasta", path: ["fechaHasta"] });
-  }
+  validarFechasPorModo(data, ctx);
   if (data.modo === "historico" && data.confirmarHistorico !== true) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -73,9 +91,10 @@ export type CrearReglaInput = z.infer<typeof crearReglaSchema>;
 
 // PATCH tiene dos formas mutuamente excluyentes, discriminadas por "accion":
 // desactivar (solo detiene aplicación futura, no toca distribuciones ya
-// generadas) o editar (reemplaza destinos/vigencia — el route handler,
-// Task 7, revierte y reaplica completo). No hay "reactivar": la spec no
-// discute ese caso, no se inventa (YAGNI).
+// generadas) o editar (reemplaza destinos/vigencia y reactiva la regla
+// automáticamente — ver app/api/apertura/reglas/[id]/route.ts, Task 2 de
+// Fase C). No existe accion "activar" standalone: sin caso de uso sin editar
+// también los datos, no se inventa (YAGNI).
 export const patchReglaSchema = z
   .discriminatedUnion("accion", [
     z.object({ accion: z.literal("desactivar") }),
@@ -86,3 +105,15 @@ export const patchReglaSchema = z
   });
 
 export type PatchReglaInput = z.infer<typeof patchReglaSchema>;
+
+// Query params de GET /api/apertura/reglas/preview-total (Fase C) — mismo
+// criterio de vigencia que crear/editar, sin destinos ni confirmarHistorico
+// (es una previsualización de lectura, no una escritura).
+export const previewTotalQuerySchema = z
+  .object({
+    entidadId: z.string().min(1).max(50),
+    ...camposVigenciaFecha,
+  })
+  .superRefine(validarFechasPorModo);
+
+export type PreviewTotalQuery = z.infer<typeof previewTotalQuerySchema>;

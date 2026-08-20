@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { requireAuth } from "@/lib/auth/require-auth";
+import { previewTotalQuerySchema } from "@/lib/apertura/schemas";
+import { condicionComprasElegibles } from "@/lib/apertura/motor";
+import { resolverVigencia, vigenciaToSql, type ReglaVigencia } from "@/lib/apertura/vigencia";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(request: NextRequest) {
+  const denied = await requireAuth();
+  if (denied) return denied;
+
+  const { searchParams } = new URL(request.url);
+  const parsed = previewTotalQuerySchema.safeParse({
+    entidadId: searchParams.get("entidadId") ?? undefined,
+    modo: searchParams.get("modo") ?? undefined,
+    fechaDesde: searchParams.get("fechaDesde") ?? undefined,
+    fechaHasta: searchParams.get("fechaHasta") ?? undefined,
+    // Ausente en la URL == default true (mismo default que el schema);
+    // "false" explícito == false. Se pre-coerciona acá porque los query
+    // params siempre llegan como string, nunca como boolean real.
+    extremosInclusivos: searchParams.get("extremosInclusivos") !== "false",
+  });
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Datos inválidos", issues: parsed.error.issues }, { status: 422 });
+  }
+  const { entidadId, modo, fechaDesde, fechaHasta, extremosInclusivos } = parsed.data;
+
+  const vigencia: ReglaVigencia = {
+    modo,
+    fechaDesde: fechaDesde ? new Date(fechaDesde) : null,
+    fechaHasta: fechaHasta ? new Date(fechaHasta) : null,
+    extremosInclusivos,
+  };
+
+  try {
+    const cond = resolverVigencia(vigencia);
+    const fechaEfectiva = Prisma.sql`COALESCE(c."fechaManual", c.fecha)`;
+    const vigenciaSql = vigenciaToSql(cond, fechaEfectiva);
+
+    const rows = await prisma.$queryRaw<{ total: Prisma.Decimal | null }[]>(Prisma.sql`
+      SELECT COALESCE(SUM(sub."importeBase"), 0) AS total
+      FROM (${condicionComprasElegibles(entidadId, vigenciaSql)}) sub
+    `);
+
+    const total = rows[0]?.total != null ? Number(rows[0].total.toString()) : 0;
+    return NextResponse.json({ total });
+  } catch (err) {
+    console.error("[GET /api/apertura/reglas/preview-total]", err);
+    return NextResponse.json({ error: "Error interno al calcular el total" }, { status: 500 });
+  }
+}

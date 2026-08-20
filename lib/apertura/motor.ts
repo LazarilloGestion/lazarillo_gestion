@@ -60,6 +60,25 @@ export async function resolverLocalIdDestinos(
   );
 }
 
+// Condición WHERE + SELECT compartidos entre aplicarRegla (motor real) y el
+// endpoint de preview de Fase C (GET /api/apertura/reglas/preview-total) —
+// extraída para que ambos NUNCA puedan divergir en qué compras cuentan como
+// "elegibles" (mismo concepto efectivo, no bloqueada, no distribuida, con
+// importe efectivo, dentro de la vigencia). Devuelve el SELECT completo (no
+// solo el WHERE) porque ambos callers necesitan las mismas columnas —
+// aplicarRegla las usa fila por fila, preview-total las suma en un subquery.
+export function condicionComprasElegibles(entidadId: string, vigenciaSql: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`
+    SELECT c."rowId", COALESCE(c."importeManual", c.importe) AS "importeBase"
+    FROM compras c
+    WHERE COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = ${entidadId}
+      AND c."esBloqueado" = false
+      AND c."esDistribuido" = false
+      AND COALESCE(c."importeManual", c.importe) IS NOT NULL
+      AND (${vigenciaSql})
+  `;
+}
+
 // Aplica una regla ya persistida: busca las compras vigentes de su concepto,
 // calcula y persiste distribuciones_apertura, marca esDistribuido en las
 // compras afectadas. Siempre sobre el importe EFECTIVO — ver Global
@@ -78,15 +97,9 @@ export async function aplicarRegla(
   const fechaEfectiva = Prisma.sql`COALESCE(c."fechaManual", c.fecha)`;
   const vigenciaSql = vigenciaToSql(cond, fechaEfectiva);
 
-  const compras = await prisma.$queryRaw<{ rowId: string; importeBase: Prisma.Decimal }[]>(Prisma.sql`
-    SELECT c."rowId", COALESCE(c."importeManual", c.importe) AS "importeBase"
-    FROM compras c
-    WHERE COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = ${input.entidadId}
-      AND c."esBloqueado" = false
-      AND c."esDistribuido" = false
-      AND COALESCE(c."importeManual", c.importe) IS NOT NULL
-      AND (${vigenciaSql})
-  `);
+  const compras = await prisma.$queryRaw<{ rowId: string; importeBase: Prisma.Decimal }[]>(
+    condicionComprasElegibles(input.entidadId, vigenciaSql)
+  );
 
   if (compras.length === 0) return { comprasAfectadas: 0 };
 
