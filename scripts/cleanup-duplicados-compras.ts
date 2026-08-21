@@ -21,6 +21,7 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 
 import { fileURLToPath } from "url";
+import * as path from "path";
 import { prisma } from "../lib/prisma";
 import { computeCompraRowId, compraIdentityFromDbRecord, canonicalDecimal } from "../lib/etl/normalizers/compra-identity";
 
@@ -47,6 +48,9 @@ export interface PlanLimpieza {
 
 // Mismos campos descriptivos que usó la investigación original para agrupar
 // duplicados — dos compras son "la misma transacción real" si coinciden acá.
+// Nota: `comprobante` está en la interfaz pero se excluye deliberadamente de
+// esta clave porque el esquema viejo y el nuevo pueden computarlo distinto para
+// la misma transacción real; incluirlo rompería el agrupamiento de los pares.
 function claveGrupo(c: CompraParaLimpieza): string {
   return [
     c.codCga,
@@ -135,7 +139,7 @@ async function conDetalleCompras<T extends { rowId: string }>(
 ): Promise<(T & { tieneDetalleCompras: boolean })[]> {
   const conteo = await client.detalleCompra.groupBy({
     by: ["compraId"],
-    where: { compraId: { in: compras.map((c) => c.rowId) } },
+    where: { compraId: { not: null } },
     _count: true,
   });
   const rowIdsConDetalle = new Set(
@@ -155,6 +159,7 @@ async function exportarDetalle(rowIdABorrar: string[], porRowId: Map<string, Com
     };
   });
   const fs = await import("fs");
+  fs.mkdirSync(path.dirname(archivo), { recursive: true });
   fs.writeFileSync(archivo, JSON.stringify(detalle, null, 2));
   return archivo;
 }
@@ -189,28 +194,82 @@ async function main() {
   }
 
   console.log("\nAplicando...");
-  const totalAntes = await prisma.compra.count();
 
-  const { cantidadBorrada, porRowIdEnVivo, rowIdABorrarEnVivo } = await prisma.$transaction(async (tx) => {
-    // Recálculo en vivo — nunca se reusa el plan de arriba, por si algo
-    // cambió la base entre el arranque del script y este punto.
-    const comprasEnVivo: CompraDbRow[] = await tx.compra.findMany({ select: SELECT_COMPRA });
-    const comprasParaLimpiezaEnVivo = await conDetalleCompras(tx, comprasEnVivo);
-    const planEnVivo = planCleanupDuplicados(comprasParaLimpiezaEnVivo);
+  const { cantidadBorrada, totalAntes, totalDespues, porRowIdEnVivo, rowIdABorrarEnVivo, gruposExcluidosEnVivo } = await prisma.$transaction(
+    async (tx) => {
+      // Recálculo en vivo — nunca se reusa el plan de arriba, por si algo
+      // cambió la base entre el arranque del script y este punto.
+      const comprasEnVivo: CompraDbRow[] = await tx.compra.findMany({ select: SELECT_COMPRA });
+      const comprasParaLimpiezaEnVivo = await conDetalleCompras(tx, comprasEnVivo);
+      const planEnVivo = planCleanupDuplicados(comprasParaLimpiezaEnVivo);
 
-    const resultado = await tx.compra.deleteMany({ where: { rowId: { in: planEnVivo.rowIdABorrar } } });
-    if (resultado.count !== planEnVivo.rowIdABorrar.length) {
-      throw new Error(
-        `Verificación falló: se esperaba borrar ${planEnVivo.rowIdABorrar.length} filas, se borraron ${resultado.count}`
-      );
-    }
+      // Si el plan en vivo difiere del que se mostró al usuario, abortar
+      if (planEnVivo.rowIdABorrar.length !== plan.rowIdABorrar.length) {
+        throw new Error(
+          `Plan cambió entre el resumen mostrado y la ejecución: ` +
+            `se esperaba borrar ${plan.rowIdABorrar.length} filas, ` +
+            `pero el recálculo en vivo encontró ${planEnVivo.rowIdABorrar.length}`
+        );
+      }
 
-    return {
-      cantidadBorrada: resultado.count,
-      porRowIdEnVivo: new Map(comprasParaLimpiezaEnVivo.map((c) => [c.rowId, c])),
-      rowIdABorrarEnVivo: planEnVivo.rowIdABorrar,
-    };
-  });
+      // Si no hay nada para borrar, no hacer nada
+      if (planEnVivo.rowIdABorrar.length === 0) {
+        const totalAntes = await tx.compra.count();
+        return {
+          cantidadBorrada: 0,
+          totalAntes,
+          totalDespues: totalAntes,
+          porRowIdEnVivo: new Map(),
+          rowIdABorrarEnVivo: [],
+          gruposExcluidosEnVivo: planEnVivo.gruposExcluidos,
+        };
+      }
+
+      // Chequear cascadas: no hay que borrar nada que tenga distribucionApertura asociada
+      const distribucionesABorrar = await tx.distribucionApertura.count({
+        where: { compraRowId: { in: planEnVivo.rowIdABorrar } },
+      });
+      if (distribucionesABorrar > 0) {
+        throw new Error(
+          `No se puede proceder: ${distribucionesABorrar} distribuciones de apertura ` +
+            `referencia compras candidatas a borrar. Revisar manualmente estos casos.`
+        );
+      }
+
+      const totalAntes = await tx.compra.count();
+
+      const resultado = await tx.compra.deleteMany({ where: { rowId: { in: planEnVivo.rowIdABorrar } } });
+      if (resultado.count !== planEnVivo.rowIdABorrar.length) {
+        throw new Error(
+          `Verificación falló: se esperaba borrar ${planEnVivo.rowIdABorrar.length} filas, se borraron ${resultado.count}`
+        );
+      }
+
+      const totalDespues = await tx.compra.count();
+      if (totalDespues !== totalAntes - resultado.count) {
+        throw new Error(
+          `Verificación falló: conteo post-borrado inconsistente ` +
+            `(antes ${totalAntes}, después ${totalDespues}, esperado ${totalAntes - resultado.count})`
+        );
+      }
+
+      return {
+        cantidadBorrada: resultado.count,
+        totalAntes,
+        totalDespues,
+        porRowIdEnVivo: new Map(comprasParaLimpiezaEnVivo.map((c) => [c.rowId, c])),
+        rowIdABorrarEnVivo: planEnVivo.rowIdABorrar,
+        gruposExcluidosEnVivo: planEnVivo.gruposExcluidos,
+      };
+    },
+    { timeout: 120000, maxWait: 20000 }
+  );
+
+  // Si nada fue borrado, reportar explícitamente
+  if (cantidadBorrada === 0) {
+    console.log("\nNo hay nada para borrar — no se declara éxito de limpieza.\n");
+    return;
+  }
 
   const archivoAplicado = await exportarDetalle(
     rowIdABorrarEnVivo,
@@ -218,17 +277,16 @@ async function main() {
     `${SCRATCHPAD_DIR}/cleanup-duplicados-aplicado.json`
   );
 
-  const totalDespues = await prisma.compra.count();
   console.log(`\n=== Verificación post-limpieza ===`);
   console.log(`Filas borradas: ${cantidadBorrada}`);
   console.log(`Compras: ${totalDespues} (antes ${totalAntes}, esperado ${totalAntes - cantidadBorrada})`);
-  console.log(`Detalle de lo borrado exportado a ${archivoAplicado}`);
-
-  if (totalDespues !== totalAntes - cantidadBorrada) {
-    console.error("\n⚠ VERIFICACIÓN FALLÓ — revisar antes de continuar con cualquier otro paso.\n");
-    process.exit(1);
+  if (gruposExcluidosEnVivo.length > 0) {
+    console.log(`Grupos excluidos en recálculo en vivo: ${gruposExcluidosEnVivo.length}`);
+    for (const g of gruposExcluidosEnVivo) {
+      console.log(`  - ${g.motivo}: ${g.rowIds.join(", ")}`);
+    }
   }
-
+  console.log(`Detalle de lo borrado exportado a ${archivoAplicado}`);
   console.log("\nLimpieza completada y verificada.\n");
 }
 

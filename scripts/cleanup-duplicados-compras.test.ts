@@ -85,4 +85,23 @@ describe("planCleanupDuplicados", () => {
     expect(plan.rowIdABorrar).toHaveLength(0);
     expect(plan.gruposExcluidos).toHaveLength(0);
   });
+
+  it("M2: fila nueva tiene esDistribuido=true, vieja no → grupo NO se excluye (guard scopeado a candidata)", () => {
+    const plan = planCleanupDuplicados([filaVieja(), filaNueva({ esDistribuido: true })]);
+    expect(plan.rowIdABorrar).toEqual(["hash-esquema-viejo-1"]);
+    expect(plan.gruposExcluidos).toHaveLength(0);
+  });
+
+  it("M2: fila nueva tiene tieneDetalleCompras=true, vieja no → grupo NO se excluye (guard scopeado a candidata)", () => {
+    const plan = planCleanupDuplicados([filaVieja(), filaNueva({ tieneDetalleCompras: true })]);
+    expect(plan.rowIdABorrar).toEqual(["hash-esquema-viejo-1"]);
+    expect(plan.gruposExcluidos).toHaveLength(0);
+  });
+
+  it("M3: 2 filas que no matchean NINGUNA el esquema nuevo → excluido por forma inesperada", () => {
+    const plan = planCleanupDuplicados([filaVieja({ rowId: "hash-viejo-a" }), filaVieja({ rowId: "hash-viejo-b" })]);
+    expect(plan.rowIdABorrar).toHaveLength(0);
+    expect(plan.gruposExcluidos).toHaveLength(1);
+    expect(plan.gruposExcluidos[0].motivo).toBe("forma inesperada (no es 1 vieja + 1 nueva)");
+  });
 });
