@@ -365,3 +365,36 @@ model DistribucionApertura {
   @@index([destinoId])
   @@map("distribuciones_apertura")
 }
+
+// ─── AUDITORÍA ────────────────────────────────────────────────────────────────
+
+model ImportLog {
+  id      Int    @id @default(autoincrement())
+  batchId String // uuid, uno por POST — correlaciona los archivos de un mismo import
+
+  fileType    String? // ETLFileType; null si el archivo no llegó a detectarse
+  fileName    String
+  storagePath String?
+
+  localId        Int?
+  puntoDeVentaId Int?
+
+  estado    String // 'ok' | 'error'
+  totalRows Int?
+  created   Int?
+  updated   Int?
+  skipped   Int?
+
+  errors       Json?   // ETLRowError[] tal cual los arma runETL
+  skippedRows  Json?   // ETLSkippedRow[] tal cual
+  errorMessage String? // solo cuando estado='error' (excepción de runETL, no llegó a haber report)
+
+  durationMs Int?
+
+  triggeredBy String // user.id de requireAuthUser()
+  creadoEn    DateTime @default(now())
+
+  @@index([batchId])
+  @@index([fileType, creadoEn])
+  @@map("import_logs")
+}
