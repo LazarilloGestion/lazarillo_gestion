@@ -11,6 +11,7 @@ import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
 import { sincronizarTrasImport, type SincronizarTrasImportResultado } from "@/lib/apertura/reimportacion";
 import { getExcelHeaders } from "@/lib/etl/helpers";
 import { detectFileType } from "@/lib/etl/detect-file-type";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/utils";
 import { rateLimit } from "@/lib/rate-limit";
@@ -245,10 +246,8 @@ export async function POST(req: NextRequest) {
             created: report.created,
             updated: report.updated,
             skipped: report.skipped,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Prisma Json field acepta arrays pero requiere cast
-            errors: (report.errors ?? []) as any,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Prisma Json field acepta undefined directamente
-            skippedRows: (report.skippedRows ?? undefined) as any,
+            errors: report.errors as unknown as Prisma.InputJsonValue,
+            skippedRows: (report.skippedRows ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
             durationMs: report.durationMs,
             triggeredBy: user.id,
           },
