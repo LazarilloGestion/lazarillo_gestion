@@ -52,3 +52,31 @@ export function encontrarSuperposicion(
   }
   return null;
 }
+
+export interface DestinoBasico {
+  localId: number | null;
+  puntoDeVentaId: number | null;
+}
+
+// Dos destinos compiten por la misma plata cuando son del mismo local y
+// además: apuntan al mismo punto de venta específico, o al menos uno de los
+// dos es "todo el local" (puntoDeVentaId null) — "todo el local" ya incluye
+// la plata de cualquier punto de venta específico de ese local, así que no
+// pueden coexistir como dos destinos separados sin duplicar el reparto.
+export function destinosSuperpuestos(a: DestinoBasico, b: DestinoBasico): boolean {
+  if (a.localId == null || b.localId == null || a.localId !== b.localId) return false;
+  if (a.puntoDeVentaId === null || b.puntoDeVentaId === null) return true;
+  return a.puntoDeVentaId === b.puntoDeVentaId;
+}
+
+// Devuelve el índice de la primera fila que se superpone con una fila
+// anterior (ver destinosSuperpuestos), o null si no hay ninguna superposición.
+export function encontrarDestinoDuplicado(destinos: DestinoBasico[]): number | null {
+  for (let i = 0; i < destinos.length; i++) {
+    if (destinos[i].localId == null) continue; // fila todavía sin completar, no es un duplicado real
+    for (let j = 0; j < i; j++) {
+      if (destinosSuperpuestos(destinos[i], destinos[j])) return i;
+    }
+  }
+  return null;
+}

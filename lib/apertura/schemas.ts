@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { validarSumaPorcentajes } from "./validaciones";
+import { validarSumaPorcentajes, encontrarDestinoDuplicado } from "./validaciones";
 
 export const destinoSchema = z
   .object({
@@ -57,7 +57,7 @@ function validarCuerpoRegla(
     modo: string;
     fechaDesde?: string | null;
     fechaHasta?: string | null;
-    destinos: { porcentaje: number }[];
+    destinos: { localId?: number | null; puntoDeVentaId?: number | null; porcentaje: number }[];
     confirmarHistorico?: boolean;
   },
   ctx: z.RefinementCtx
@@ -68,6 +68,16 @@ function validarCuerpoRegla(
       code: z.ZodIssueCode.custom,
       message: `La suma de porcentajes debe ser 100 (actual: ${suma})`,
       path: ["destinos"],
+    });
+  }
+  const indiceDuplicado = encontrarDestinoDuplicado(
+    data.destinos.map((d) => ({ localId: d.localId ?? null, puntoDeVentaId: d.puntoDeVentaId ?? null }))
+  );
+  if (indiceDuplicado !== null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Hay dos destinos con el mismo local y punto de venta",
+      path: ["destinos", indiceDuplicado],
     });
   }
   validarFechasPorModo(data, ctx);

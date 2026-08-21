@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validarSumaPorcentajes, encontrarSuperposicion } from "./validaciones";
+import { validarSumaPorcentajes, encontrarSuperposicion, encontrarDestinoDuplicado } from "./validaciones";
 import type { ReglaVigencia } from "./vigencia";
 
 describe("validarSumaPorcentajes", () => {
@@ -90,5 +90,69 @@ describe("encontrarSuperposicion", () => {
       { id: 2, modo: "entre_fechas" as const, extremosInclusivos: true, fechaDesde: new Date("2026-02-01"), fechaHasta: new Date("2026-02-28") },
     ];
     expect(encontrarSuperposicion(nueva, existentes)).toBe(1);
+  });
+});
+
+describe("encontrarDestinoDuplicado", () => {
+  it("detecta el mismo local + mismo punto de venta repetido, devuelve el índice de la segunda aparición", () => {
+    const destinos = [
+      { localId: 1, puntoDeVentaId: 10 },
+      { localId: 2, puntoDeVentaId: null },
+      { localId: 1, puntoDeVentaId: 10 },
+    ];
+    expect(encontrarDestinoDuplicado(destinos)).toBe(2);
+  });
+
+  it("detecta 'todo el local' (puntoDeVentaId null) repetido para el mismo local", () => {
+    const destinos = [
+      { localId: 1, puntoDeVentaId: null },
+      { localId: 1, puntoDeVentaId: null },
+    ];
+    expect(encontrarDestinoDuplicado(destinos)).toBe(1);
+  });
+
+  it("no marca duplicado entre distintos locales aunque compartan puntoDeVentaId", () => {
+    const destinos = [
+      { localId: 1, puntoDeVentaId: 10 },
+      { localId: 2, puntoDeVentaId: 10 },
+    ];
+    expect(encontrarDestinoDuplicado(destinos)).toBeNull();
+  });
+
+  it("no marca duplicado entre distintos puntos de venta del mismo local", () => {
+    const destinos = [
+      { localId: 1, puntoDeVentaId: 10 },
+      { localId: 1, puntoDeVentaId: 20 },
+    ];
+    expect(encontrarDestinoDuplicado(destinos)).toBeNull();
+  });
+
+  it("bloquea 'todo el local' contra un punto de venta específico ya usado del mismo local (se superponen, es la misma plata)", () => {
+    const destinos = [
+      { localId: 1, puntoDeVentaId: 20 },
+      { localId: 1, puntoDeVentaId: null },
+    ];
+    expect(encontrarDestinoDuplicado(destinos)).toBe(1);
+  });
+
+  it("bloquea aunque solo UN punto de venta del local esté cubierto — no hace falta que estén todos", () => {
+    const destinos = [
+      { localId: 1, puntoDeVentaId: 20 },
+      { localId: 1, puntoDeVentaId: 30 },
+      { localId: 1, puntoDeVentaId: null },
+    ];
+    expect(encontrarDestinoDuplicado(destinos)).toBe(2);
+  });
+
+  it("ignora filas todavía vacías (localId null) al comparar", () => {
+    const destinos = [
+      { localId: null, puntoDeVentaId: null },
+      { localId: null, puntoDeVentaId: null },
+    ];
+    expect(encontrarDestinoDuplicado(destinos)).toBeNull();
+  });
+
+  it("sin destinos: no hay duplicado", () => {
+    expect(encontrarDestinoDuplicado([])).toBeNull();
   });
 });

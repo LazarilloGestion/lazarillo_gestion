@@ -1,6 +1,7 @@
 "use client";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 
 export type ModoVigencia = "historico" | "entre_fechas" | "desde_adelante" | "desde_atras";
 
@@ -69,10 +70,10 @@ export function AperturaVigenciaSelector({
 
       {value.modo !== "historico" && (
         <label className="flex items-center gap-2 text-xs">
-          <input
-            type="checkbox"
+          <Switch
+            size="sm"
             checked={value.extremosInclusivos}
-            onChange={(e) => onChange({ ...value, extremosInclusivos: e.target.checked })}
+            onCheckedChange={(checked) => onChange({ ...value, extremosInclusivos: checked })}
           />
           Extremos inclusivos (incluye el día exacto de la fecha límite)
         </label>
@@ -80,10 +81,10 @@ export function AperturaVigenciaSelector({
 
       {value.modo === "historico" && (
         <label className="flex items-center gap-2 text-xs text-attention">
-          <input
-            type="checkbox"
+          <Switch
+            size="sm"
             checked={value.confirmarHistorico}
-            onChange={(e) => onChange({ ...value, confirmarHistorico: e.target.checked })}
+            onCheckedChange={(checked) => onChange({ ...value, confirmarHistorico: checked })}
           />
           Confirmo aplicar a todo el histórico de este concepto
         </label>

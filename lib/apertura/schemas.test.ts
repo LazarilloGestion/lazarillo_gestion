@@ -96,6 +96,32 @@ describe("crearReglaSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("rechaza dos destinos con el mismo local y punto de venta", () => {
+    const result = crearReglaSchema.safeParse({
+      entidadId: "17",
+      modo: "historico",
+      confirmarHistorico: true,
+      destinos: [
+        { localId: 1, puntoDeVentaId: 5, porcentaje: 50 },
+        { localId: 1, puntoDeVentaId: 5, porcentaje: 50 },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rechaza 'todo el local' superpuesto con un punto de venta específico del mismo local", () => {
+    const result = crearReglaSchema.safeParse({
+      entidadId: "17",
+      modo: "historico",
+      confirmarHistorico: true,
+      destinos: [
+        { localId: 1, puntoDeVentaId: 5, porcentaje: 50 },
+        { localId: 1, porcentaje: 50 },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("patchReglaSchema", () => {

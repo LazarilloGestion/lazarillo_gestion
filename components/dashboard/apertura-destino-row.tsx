@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { X } from "lucide-react";
 import { montoDesdePct, pctDesdeMonto } from "@/lib/apertura/conversion";
+import type { DestinoBasico } from "@/lib/apertura/validaciones";
 import type { Local } from "@/lib/types/domain";
 
 export interface DestinoFormState {
@@ -23,6 +24,7 @@ export function AperturaDestinoRow({
   destino,
   locales,
   total,
+  otrosDestinos,
   onChange,
   onRemove,
   removable,
@@ -31,6 +33,8 @@ export function AperturaDestinoRow({
   locales: Local[];
   /** null = el total del período todavía no se conoce (preview cargando/deshabilitado). */
   total: number | null;
+  /** Destinos de las OTRAS filas del formulario — para deshabilitar acá cualquier combinación que se superponga (ver destinosSuperpuestos). */
+  otrosDestinos: DestinoBasico[];
   onChange: (next: DestinoFormState) => void;
   onRemove: () => void;
   removable: boolean;
@@ -38,6 +42,15 @@ export function AperturaDestinoRow({
   const localSeleccionado = locales.find((l) => l.id === destino.localId);
   const puntosDeVenta = localSeleccionado?.puntosDeVenta ?? [];
   const monto = total !== null ? montoDesdePct(destino.porcentaje, total) : null;
+
+  // Otras filas que ya usan el MISMO local — cualquiera de ellas (sea "todo
+  // el local" o un punto de venta específico) compite por la misma plata que
+  // "todo el local" acá, así que basta con que exista una para bloquearlo.
+  const otrasDelMismoLocal = destino.localId != null ? otrosDestinos.filter((o) => o.localId === destino.localId) : [];
+  const todoElLocalDeshabilitado = otrasDelMismoLocal.length > 0;
+  function puntoDeVentaDeshabilitado(puntoDeVentaId: number): boolean {
+    return otrasDelMismoLocal.some((o) => o.puntoDeVentaId === null || o.puntoDeVentaId === puntoDeVentaId);
+  }
 
   // Campo %↔$ bidireccional: cada input tiene su propio borrador de texto que
   // es la fuente de verdad MIENTRAS ese campo está enfocado. Sin esto, con
@@ -78,18 +91,30 @@ export function AperturaDestinoRow({
 
   function handlePctChange(texto: string) {
     setPctDraft(texto);
+    // Vacío se commitea como 0 — si no, al desenfocar el campo "vuelve" al
+    // último valor no vacío (ver desenfocar) y el usuario nunca logra borrarlo,
+    // solo sobreescribirlo.
+    if (texto.trim() === "") {
+      onChange({ ...destino, porcentaje: 0 });
+      return;
+    }
     if (!esNumeroValido(texto)) return;
     onChange({ ...destino, porcentaje: Number(texto) });
   }
 
   function handleMontoChange(texto: string) {
     setMontoDraft(texto);
-    if (total === null || !esNumeroValido(texto)) return;
+    if (total === null) return;
+    if (texto.trim() === "") {
+      onChange({ ...destino, porcentaje: 0 });
+      return;
+    }
+    if (!esNumeroValido(texto)) return;
     onChange({ ...destino, porcentaje: pctDesdeMonto(Number(texto), total) });
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
       <Select
         value={destino.localId != null ? String(destino.localId) : ""}
         onValueChange={(v) => onChange({ ...destino, localId: Number(v), puntoDeVentaId: null })}
@@ -115,9 +140,11 @@ export function AperturaDestinoRow({
           <SelectValue placeholder="Punto de venta" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={TODO_EL_LOCAL} className="text-xs">Todo el local</SelectItem>
+          <SelectItem value={TODO_EL_LOCAL} className="text-xs" disabled={todoElLocalDeshabilitado}>
+            Todo el local
+          </SelectItem>
           {puntosDeVenta.map((p) => (
-            <SelectItem key={p.id} value={String(p.id)} className="text-xs">
+            <SelectItem key={p.id} value={String(p.id)} className="text-xs" disabled={puntoDeVentaDeshabilitado(p.id)}>
               {p.nombre}
             </SelectItem>
           ))}
@@ -161,6 +188,7 @@ export function AperturaDestinoRow({
         type="button"
         onClick={onRemove}
         disabled={!removable}
+        title={removable ? "Quitar destino" : "Tiene que quedar al menos un destino"}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:opacity-30 disabled:pointer-events-none"
       >
         <X className="h-3.5 w-3.5" />

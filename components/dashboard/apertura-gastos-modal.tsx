@@ -4,13 +4,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Plus, Pencil, Trash2, Ban, Inbox } from "lucide-react";
 import { cn, fmtARS } from "@/lib/utils";
 import { notify } from "@/lib/toast";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
-import { validarSumaPorcentajes } from "@/lib/apertura/validaciones";
+import { validarSumaPorcentajes, encontrarDestinoDuplicado } from "@/lib/apertura/validaciones";
 import type { ReglaAperturaDTO } from "@/lib/apertura/types";
 import type { Local } from "@/lib/types/domain";
 import type { TimelineReglaInput } from "@/lib/apertura/timeline-layout";
@@ -156,6 +157,17 @@ export function AperturaGastosModal({
   // Chequeo barato en cliente para no gastar un round-trip que el servidor va
   // a rechazar con 422 igual (la validación autoritativa sigue siendo la suya).
   const destinosCompletos = destinos.every((d) => d.localId !== null);
+  const indiceDuplicado = encontrarDestinoDuplicado(destinos);
+  const hayDuplicado = indiceDuplicado !== null;
+  // Antes de que el usuario elija el primer local, la suma en rojo es ruido
+  // (0% en un formulario vacío es esperable, no un error) — se activa recién
+  // cuando hay algo cargado.
+  const formularioTocado = destinos.some((d) => d.localId !== null);
+  // Máximo de destinos sin superposición por local: o "todo el local" (1 fila)
+  // o cada punto de venta por separado (puntosDeVenta.length filas) — nunca
+  // ambos a la vez, así que el máximo real es el mayor de los dos, no la suma.
+  const totalCombosPosibles = locales.reduce((acc, l) => acc + Math.max(1, l.puntosDeVenta.length), 0);
+  const sinCombosDisponibles = locales.length > 0 && destinos.length >= totalCombosPosibles;
   const reactivaRegla = editando !== null && editando.estado === "inactiva";
 
   async function refetchDependientes() {
@@ -299,7 +311,7 @@ export function AperturaGastosModal({
   return (
     <>
       <Dialog open={conceptoCodigo !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="text-base">Apertura de gastos — {conceptoNombre}</DialogTitle>
           </DialogHeader>
@@ -373,7 +385,7 @@ export function AperturaGastosModal({
           )}
 
           {view === "formulario" && (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-4">
               <AperturaVigenciaSelector value={vigencia} onChange={setVigencia} />
 
               {reactivaRegla && (
@@ -384,6 +396,8 @@ export function AperturaGastosModal({
 
               {reglasParaTimeline.length > 0 && <AperturaTimeline reglas={reglasParaTimeline} />}
 
+              <Separator />
+
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Destinos</span>
@@ -392,54 +406,81 @@ export function AperturaGastosModal({
                     {previewLoading ? "…" : total === null ? "—" : fmtARS(total)}
                   </span>
                 </div>
-                {destinos.map((d, i) => (
-                  <AperturaDestinoRow
-                    key={i}
-                    destino={d}
-                    locales={locales}
-                    total={total}
-                    removable={destinos.length > 1}
-                    onChange={(next) => setDestinos((prev) => prev.map((p, idx) => (idx === i ? next : p)))}
-                    onRemove={() => setDestinos((prev) => prev.filter((_, idx) => idx !== i))}
-                  />
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setDestinos((prev) => [...prev, destinoVacio()])}
-                  className="self-start inline-flex items-center gap-1 h-6 px-2 rounded text-xs text-muted-foreground hover:bg-muted"
+                <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-2">
+                  {destinos.map((d, i) => (
+                    <AperturaDestinoRow
+                      key={i}
+                      destino={d}
+                      locales={locales}
+                      total={total}
+                      otrosDestinos={destinos.filter((_, idx) => idx !== i)}
+                      removable={destinos.length > 1}
+                      onChange={(next) => setDestinos((prev) => prev.map((p, idx) => (idx === i ? next : p)))}
+                      onRemove={() => setDestinos((prev) => prev.filter((_, idx) => idx !== i))}
+                    />
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setDestinos((prev) => [...prev, destinoVacio()])}
+                    disabled={sinCombosDisponibles}
+                    className="self-start inline-flex items-center gap-1 h-6 px-2 rounded text-xs text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    <Plus className="h-3 w-3" /> Agregar destino
+                  </button>
+                  {sinCombosDisponibles && (
+                    <p className="text-xs text-muted-foreground">
+                      No hay más combinaciones de local / punto de venta disponibles.
+                    </p>
+                  )}
+                </div>
+                <p
+                  className={cn(
+                    "text-xs font-medium",
+                    !formularioTocado ? "text-muted-foreground" : sumaValida ? "text-success" : "text-destructive"
+                  )}
                 >
-                  <Plus className="h-3 w-3" /> Agregar destino
-                </button>
-                <p className={cn("text-xs font-medium", sumaValida ? "text-success" : "text-destructive")}>
-                  Suma: {sumaPorcentajes.toFixed(2)}% {sumaValida ? "" : "(debe dar 100%)"}
+                  Suma: {sumaPorcentajes.toFixed(2)}%{formularioTocado && !sumaValida ? " (debe dar 100%)" : ""}
                 </p>
               </div>
 
               {errorGuardar && <p className="text-xs text-destructive">{errorGuardar}</p>}
 
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setView("lista")}
-                  disabled={guardando}
-                  className="h-8 px-3 rounded-md border text-xs hover:bg-muted disabled:opacity-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleGuardar}
-                  disabled={
-                    guardando ||
-                    !sumaValida ||
-                    !destinosCompletos ||
-                    (vigencia.modo === "historico" && !vigencia.confirmarHistorico)
-                  }
-                  className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-1.5"
-                >
-                  {guardando && <Spinner size="sm" className="text-primary-foreground" />}
-                  {reactivaRegla ? "Guardar y reactivar" : editando ? "Guardar cambios" : "Crear regla"}
-                </button>
+              <div className="flex flex-col items-end gap-3 pt-2">
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setView("lista")}
+                    disabled={guardando}
+                    className="h-8 px-3 rounded-md border text-xs hover:bg-muted disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGuardar}
+                    disabled={
+                      guardando ||
+                      !sumaValida ||
+                      !destinosCompletos ||
+                      hayDuplicado ||
+                      (vigencia.modo === "historico" && !vigencia.confirmarHistorico)
+                    }
+                    className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-1.5"
+                  >
+                    {guardando && <Spinner size="sm" className="text-primary-foreground" />}
+                    {reactivaRegla ? "Guardar y reactivar" : editando ? "Guardar cambios" : "Crear regla"}
+                  </button>
+                </div>
+                {!guardando &&
+                  (() => {
+                    const motivos: string[] = [];
+                    if (!destinosCompletos) motivos.push("completá el local de cada destino");
+                    if (hayDuplicado) motivos.push("no repitas el mismo local/punto de venta en dos destinos");
+                    if (vigencia.modo === "historico" && !vigencia.confirmarHistorico) motivos.push("confirmá aplicar a todo el histórico");
+                    return motivos.length > 0 ? (
+                      <p className="text-xs text-muted-foreground/70">Falta: {motivos.join(", ")}.</p>
+                    ) : null;
+                  })()}
               </div>
             </div>
           )}
