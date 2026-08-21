@@ -130,7 +130,7 @@ const SELECT_COMPRA = {
 } as const;
 
 async function conDetalleCompras<T extends { rowId: string }>(
-  client: typeof prisma,
+  client: Pick<typeof prisma, "detalleCompra">,
   compras: T[]
 ): Promise<(T & { tieneDetalleCompras: boolean })[]> {
   const conteo = await client.detalleCompra.groupBy({
@@ -195,7 +195,7 @@ async function main() {
     // Recálculo en vivo — nunca se reusa el plan de arriba, por si algo
     // cambió la base entre el arranque del script y este punto.
     const comprasEnVivo: CompraDbRow[] = await tx.compra.findMany({ select: SELECT_COMPRA });
-    const comprasParaLimpiezaEnVivo = await conDetalleCompras(tx as unknown as typeof prisma, comprasEnVivo);
+    const comprasParaLimpiezaEnVivo = await conDetalleCompras(tx, comprasEnVivo);
     const planEnVivo = planCleanupDuplicados(comprasParaLimpiezaEnVivo);
 
     const resultado = await tx.compra.deleteMany({ where: { rowId: { in: planEnVivo.rowIdABorrar } } });
