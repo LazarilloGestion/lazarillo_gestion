@@ -95,6 +95,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Body inválido" }, { status: 400 });
   }
   const body = parsed.data;
+  const batchId = crypto.randomUUID();
 
   const fileInputs: FileInput[] = body.files ?? [{ file_id: body.file_id!, file_name: body.file_name! }];
   const localId = body.local_id;
@@ -205,6 +206,22 @@ export async function POST(req: NextRequest) {
         report = await runETL(buffer, storagePath, ctx, getEtlClient() as unknown as DbClient);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Error desconocido";
+        try {
+          await prisma.importLog.create({
+            data: {
+              batchId,
+              fileType: null,
+              fileName: file_name,
+              localId,
+              puntoDeVentaId,
+              estado: "error",
+              errorMessage: message,
+              triggeredBy: user.id,
+            },
+          });
+        } catch (logErr) {
+          console.error("[POST /api/etl/drive-import] Falló el registro del ImportLog (camino error), se sigue sin loguear", { userId: user.id, file_name }, logErr);
+        }
         const aperturaParcial = await sincronizarAperturaSiCorresponde(reports);
         if (aperturaParcial.errores.length > 0) {
           console.error("[POST /api/etl/drive-import] apertura.errores (batch parcial)", aperturaParcial.errores);
@@ -213,6 +230,31 @@ export async function POST(req: NextRequest) {
           { error: `Error procesando el archivo: ${message}`, reports, apertura: aperturaParcial },
           { status: 422 }
         );
+      }
+      try {
+        await prisma.importLog.create({
+          data: {
+            batchId,
+            fileType: report.fileType,
+            fileName: file_name,
+            storagePath: report.storagePath,
+            localId,
+            puntoDeVentaId,
+            estado: "ok",
+            totalRows: report.totalRows,
+            created: report.created,
+            updated: report.updated,
+            skipped: report.skipped,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Prisma Json field acepta arrays pero requiere cast
+            errors: (report.errors ?? []) as any,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Prisma Json field acepta undefined directamente
+            skippedRows: (report.skippedRows ?? undefined) as any,
+            durationMs: report.durationMs,
+            triggeredBy: user.id,
+          },
+        });
+      } catch (logErr) {
+        console.error("[POST /api/etl/drive-import] Falló el registro del ImportLog, se sigue sin loguear", { userId: user.id, file_name }, logErr);
       }
       reports.push(report);
     }
