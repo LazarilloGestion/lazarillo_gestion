@@ -109,14 +109,133 @@ export function planCleanupDuplicados(compras: CompraParaLimpieza[]): PlanLimpie
   return { rowIdABorrar, gruposExcluidos };
 }
 
+interface CompraDbRow {
+  rowId: string;
+  codCga: string | null;
+  fecha: Date | null;
+  codigo: string | null;
+  concepto: string | null;
+  comprobante: string | null;
+  detalle: string | null;
+  observac: string | null;
+  importe: { toString(): string } | null;
+  esDistribuido: boolean;
+  localId: number | null;
+}
+
+const SELECT_COMPRA = {
+  rowId: true, codCga: true, fecha: true, codigo: true, concepto: true,
+  comprobante: true, detalle: true, observac: true, importe: true,
+  esDistribuido: true, localId: true,
+} as const;
+
+async function conDetalleCompras<T extends { rowId: string }>(
+  client: typeof prisma,
+  compras: T[]
+): Promise<(T & { tieneDetalleCompras: boolean })[]> {
+  const conteo = await client.detalleCompra.groupBy({
+    by: ["compraId"],
+    where: { compraId: { in: compras.map((c) => c.rowId) } },
+    _count: true,
+  });
+  const rowIdsConDetalle = new Set(
+    conteo.map((d) => d.compraId).filter((id): id is string => id !== null)
+  );
+  return compras.map((c) => ({ ...c, tieneDetalleCompras: rowIdsConDetalle.has(c.rowId) }));
+}
+
+async function exportarDetalle(rowIdABorrar: string[], porRowId: Map<string, CompraDbRow>, archivo: string) {
+  const detalle = rowIdABorrar.map((rowId) => {
+    const c = porRowId.get(rowId)!;
+    return {
+      rowId: c.rowId,
+      importe: c.importe != null ? c.importe.toString() : null,
+      fecha: c.fecha,
+      localId: c.localId,
+    };
+  });
+  const fs = await import("fs");
+  fs.writeFileSync(archivo, JSON.stringify(detalle, null, 2));
+  return archivo;
+}
+
+async function main() {
+  const apply = process.argv.includes("--apply");
+
+  const compras: CompraDbRow[] = await prisma.compra.findMany({ select: SELECT_COMPRA });
+  const comprasParaLimpieza = await conDetalleCompras(prisma, compras);
+  const plan = planCleanupDuplicados(comprasParaLimpieza);
+  const porRowId = new Map(comprasParaLimpieza.map((c) => [c.rowId, c]));
+
+  console.log(`\n=== Plan de limpieza (${apply ? "aplicando" : "dry-run"}) ===`);
+  console.log(`Compras totales: ${compras.length}`);
+  console.log(`Filas a borrar: ${plan.rowIdABorrar.length}`);
+  console.log(`Grupos excluidos (revisar manualmente): ${plan.gruposExcluidos.length}`);
+  for (const g of plan.gruposExcluidos) {
+    console.log(`  - ${g.motivo}: ${g.rowIds.join(", ")}`);
+  }
+  const importeLiberado = plan.rowIdABorrar.reduce((acc, rowId) => {
+    const c = porRowId.get(rowId);
+    return acc + (c?.importe ? Number(c.importe.toString()) : 0);
+  }, 0);
+  console.log(`Importe total que se liberaría: ${importeLiberado.toFixed(2)}`);
+
+  const archivoDryRun = await exportarDetalle(plan.rowIdABorrar, porRowId, `${SCRATCHPAD_DIR}/cleanup-duplicados-dry-run.json`);
+  console.log(`Detalle exportado a ${archivoDryRun}`);
+
+  if (!apply) {
+    console.log("\nDry-run — no se escribió nada en la base. Re-ejecutar con --apply para aplicar.\n");
+    return;
+  }
+
+  console.log("\nAplicando...");
+  const totalAntes = await prisma.compra.count();
+
+  const { cantidadBorrada, porRowIdEnVivo, rowIdABorrarEnVivo } = await prisma.$transaction(async (tx) => {
+    // Recálculo en vivo — nunca se reusa el plan de arriba, por si algo
+    // cambió la base entre el arranque del script y este punto.
+    const comprasEnVivo: CompraDbRow[] = await tx.compra.findMany({ select: SELECT_COMPRA });
+    const comprasParaLimpiezaEnVivo = await conDetalleCompras(tx as unknown as typeof prisma, comprasEnVivo);
+    const planEnVivo = planCleanupDuplicados(comprasParaLimpiezaEnVivo);
+
+    const resultado = await tx.compra.deleteMany({ where: { rowId: { in: planEnVivo.rowIdABorrar } } });
+    if (resultado.count !== planEnVivo.rowIdABorrar.length) {
+      throw new Error(
+        `Verificación falló: se esperaba borrar ${planEnVivo.rowIdABorrar.length} filas, se borraron ${resultado.count}`
+      );
+    }
+
+    return {
+      cantidadBorrada: resultado.count,
+      porRowIdEnVivo: new Map(comprasParaLimpiezaEnVivo.map((c) => [c.rowId, c])),
+      rowIdABorrarEnVivo: planEnVivo.rowIdABorrar,
+    };
+  });
+
+  const archivoAplicado = await exportarDetalle(
+    rowIdABorrarEnVivo,
+    porRowIdEnVivo,
+    `${SCRATCHPAD_DIR}/cleanup-duplicados-aplicado.json`
+  );
+
+  const totalDespues = await prisma.compra.count();
+  console.log(`\n=== Verificación post-limpieza ===`);
+  console.log(`Filas borradas: ${cantidadBorrada}`);
+  console.log(`Compras: ${totalDespues} (antes ${totalAntes}, esperado ${totalAntes - cantidadBorrada})`);
+  console.log(`Detalle de lo borrado exportado a ${archivoAplicado}`);
+
+  if (totalDespues !== totalAntes - cantidadBorrada) {
+    console.error("\n⚠ VERIFICACIÓN FALLÓ — revisar antes de continuar con cualquier otro paso.\n");
+    process.exit(1);
+  }
+
+  console.log("\nLimpieza completada y verificada.\n");
+}
+
 const esEntrypointCli = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (esEntrypointCli) {
   main()
     .catch((e) => { console.error(e); process.exit(1); })
     .finally(() => (prisma as unknown as { $disconnect: () => Promise<void> }).$disconnect());
-}
-
-async function main() {
-  // implementado en Task 2
 }
