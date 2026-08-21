@@ -6,6 +6,6 @@
 -- necesita reproducirlo en su shadow database). No cambia nada en una base
 -- que ya las tiene; en una base nueva, las crea igual que en producción.
 -- Mismo patrón que 20260608000000_add_observac_manual_compras.
-ALTER TABLE "compras" ADD COLUMN IF NOT EXISTS "importeManual" DECIMAL(65,30);
+ALTER TABLE "compras" ADD COLUMN IF NOT EXISTS "importeManual" DECIMAL;
 ALTER TABLE "compras" ADD COLUMN IF NOT EXISTS "fechaManual" TIMESTAMP(3);
 ALTER TABLE "compras" ADD COLUMN IF NOT EXISTS "conceptoCodigoManual" TEXT;

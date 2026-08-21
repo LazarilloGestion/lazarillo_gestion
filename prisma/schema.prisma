@@ -396,5 +396,6 @@ model ImportLog {
 
   @@index([batchId])
   @@index([fileType, creadoEn])
+  @@index([creadoEn])
   @@map("import_logs")
 }

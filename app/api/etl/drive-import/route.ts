@@ -211,8 +211,10 @@ export async function POST(req: NextRequest) {
           await prisma.importLog.create({
             data: {
               batchId,
-              fileType: null,
+              // Recalculado: la detección del loop de validación (línea ~164) no viaja hasta acá.
+              fileType: detectFileType(getExcelHeaders(buffer)),
               fileName: file_name,
+              storagePath,
               localId,
               puntoDeVentaId,
               estado: "error",
@@ -246,8 +248,15 @@ export async function POST(req: NextRequest) {
             created: report.created,
             updated: report.updated,
             skipped: report.skipped,
-            errors: report.errors as unknown as Prisma.InputJsonValue,
-            skippedRows: (report.skippedRows ?? undefined) as unknown as Prisma.InputJsonValue | undefined,
+            // Acotado a 500: un header de columna corrido puede hacer fallar el archivo
+            // entero, generando decenas de miles de errores/filas omitidas — el INSERT
+            // resultante competía con el maxDuration=60 de esta ruta (ver nota arriba
+            // sobre el timeout de 55s ya conocido). Los primeros 500 alcanzan para
+            // diagnosticar el patrón sin ese riesgo.
+            // ETLRowError.rawCodigo es `unknown` (valor crudo de celda xlsx) — no satisface
+            // Prisma.InputJsonValue directamente aunque en la práctica siempre es serializable.
+            errors: report.errors.slice(0, 500) as unknown as Prisma.InputJsonValue,
+            skippedRows: report.skippedRows?.slice(0, 500) as unknown as Prisma.InputJsonValue | undefined,
             durationMs: report.durationMs,
             triggeredBy: user.id,
           },
