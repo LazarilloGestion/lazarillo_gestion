@@ -41,12 +41,23 @@ describe("normalizeRubrosArticulo", () => {
     expect(res.errors[0].message).toMatch(/EXCLUYEINF/);
   });
 
-  it("DISCONT no numérico va a errors", async () => {
+  it("DISCONT no numérico ni booleano va a errors", async () => {
     const db = createMockDb();
     const res = await normalizeRubrosArticulo([baseRow({ DISCONT: "ERROR" })], db);
     expect(res.created).toBe(0);
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0].message).toMatch(/DISCONT/);
+  });
+
+  // El ERP exporta DISCONT (flag "discontinuado") como booleano real, no como decimal
+  // — a pesar de que la columna en Prisma es Decimal? (legado, write-only, nunca se lee
+  // en ningún otro lugar de la app). Detectado en producción 24-ago-2026: el 100% de las
+  // filas de un reimport real fallaban porque el Excel trae DISCONT como `false`/`true`.
+  it("DISCONT booleano (false/true) se acepta y no genera error", async () => {
+    const db = createMockDb();
+    const res = await normalizeRubrosArticulo([baseRow({ DISCONT: false })], db);
+    expect(res.errors).toHaveLength(0);
+    expect(res.created).toBe(1);
   });
 
   it("cuenta created vs updated según si el codigo ya existe en la tabla", async () => {

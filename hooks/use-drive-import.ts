@@ -66,11 +66,23 @@ export function useDriveImport() {
         return { ok: false, records: 0 };
       } else if (json && Array.isArray(json.reports)) {
         const reports = json.reports as ETLReport[];
-        setFileStatuses((s) => ({ ...s, [file.id]: "success" }));
-        setFileReports((s) => ({ ...s, [file.id]: reports }));
-        notificarApertura(json.apertura);
         const records = reports.reduce((s, r) => s + r.created + r.updated, 0);
-        return { ok: true, records };
+        const totalErrors = reports.reduce((s, r) => s + r.errors.length, 0);
+        // Un archivo puede responder 200 con el reporte armado y aun así no haber servido
+        // para nada (todas las filas fallaron validación) — eso no es un éxito, aunque no
+        // haya sido una excepción HTTP. Detectado en producción 24-ago-2026: un archivo con
+        // 72/72 filas en error quedaba marcado como "success" y no frenaba el resto del batch.
+        const sinNingunResultado = totalErrors > 0 && records === 0;
+        setFileStatuses((s) => ({ ...s, [file.id]: sinNingunResultado ? "error" : "success" }));
+        setFileReports((s) => ({ ...s, [file.id]: reports }));
+        if (sinNingunResultado) {
+          setFileErrors((s) => ({
+            ...s,
+            [file.id]: `${totalErrors} fila${totalErrors !== 1 ? "s" : ""} con error, ninguna se pudo procesar`,
+          }));
+        }
+        notificarApertura(json.apertura);
+        return { ok: !sinNingunResultado, records };
       } else {
         setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
         setFileErrors((s) => ({ ...s, [file.id]: "Respuesta inesperada del servidor" }));
