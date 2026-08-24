@@ -55,6 +55,15 @@ function toSerieDeUnAnio(anio: number, totals: YearTotals): MesDatos[] {
   return MONTH_IDXS.map((mes) => ({
     anio,
     mes,
+    // LÍMITE CONOCIDO (I-3, fix wave 24-ago-2026): estos endpoints de pivot arman mapas
+    // dispersos — una clave de mes solo existe si hubo filas que matchearon. El `?? 0` no
+    // distingue "el mes tuvo $0 de verdad" de "no hay dato para este mes" (p.ej. import
+    // pendiente). Bajo el modelo delta viejo esto era bajo riesgo (afectaba una sola celda);
+    // bajo el modelo acumulado actual, un `0` de un mes con dato faltante se arrastra
+    // permanentemente en el acumulado de todos los meses siguientes. Tratarlo como `null` acá
+    // necesitaría además decidir qué significa un ingresos/egresos/ganancia `null` dentro de la
+    // fórmula de `computeDiferenciaCajaAcumulada` — eso es un rediseño con su propio pase de
+    // revisión, fuera de alcance de este fix wave (queda documentado, no resuelto).
     ingresos: totals.ingresosPorMes[mes] ?? 0,
     egresos: totals.egresosPorMes[mes] ?? 0,
     ganancia: totals.gananciaPorMes[mes] ?? 0,
@@ -94,14 +103,19 @@ export function useDiferenciaCaja({ year, localId, pdvId }: Params) {
 
   const isLoading = primerArqueoQuery.isLoading || (necesitaTotales && totalesQueries.some((q) => q.isLoading));
   const isError = primerArqueoQuery.isError || totalesQueries.some((q) => q.isError);
+  // TanStack Query v5: una query puede estar isLoading: false (no pending+fetching) con `data`
+  // todavía undefined — p.ej. una query pausada por estar offline (este repo empaqueta
+  // @ducanh2912/next-pwa, así que offline es un estado real). Sin este chequeo, el cast de más
+  // abajo podría desreferenciar undefined y tirar la pantalla en vez de degradar a "—".
+  const totalesListos = totalesQueries.every((q) => q.data !== undefined);
 
-  if (isLoading || isError || !necesitaTotales) {
+  if (isLoading || isError || !necesitaTotales || !totalesListos) {
     const diferenciaPorMes: Record<number, number | null> = {};
     for (const mes of MONTH_IDXS) diferenciaPorMes[mes] = null;
     return { diferenciaPorMes, isLoading, isError };
   }
 
-  const serie: MesDatos[] = anios.flatMap((anio, idx) => toSerieDeUnAnio(anio, totalesQueries[idx].data as YearTotals));
+  const serie: MesDatos[] = anios.flatMap((anio, idx) => toSerieDeUnAnio(anio, totalesQueries[idx].data));
   const acumulado = computeDiferenciaCajaAcumulada(serie, primerArqueo);
 
   const offsetDelAnioObjetivo = (year - primerArqueo!.anio) * 12;

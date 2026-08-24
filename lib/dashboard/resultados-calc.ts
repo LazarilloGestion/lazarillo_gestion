@@ -27,11 +27,14 @@ export interface MesDatos {
 }
 
 // Diferencia de caja acumulada: arranca en el mes siguiente al primer arqueo cargado
-// (`primerArqueo`), usando el Disponible de ese mes como saldo inicial, y acumula mes a mes
-// como un resumen bancario. Antes o en el mes del primer arqueo, y si no hay ningún arqueo
-// cargado, el resultado es null (nunca 0 — ver Fix_Diferencia_Caja.pdf sección 5.1/CA-04).
-// Un mes sin Disponible propio, una vez pasado el gate, no corta la cadena (CA-03): solo aporta
-// 0 en ese término puntual, pero sigue acumulando.
+// (`primerArqueo`) y acumula, mes a mes, la VARIACIÓN del Disponible en caja respecto del
+// último arqueo conocido (no el saldo crudo — el Disponible es un stock/balance, no un flujo,
+// así que sumarlo directamente reproduce el runaway de la fórmula anterior, ver fix del
+// 24-ago-2026). `referencia` arrastra el último Disponible conocido a través de los meses sin
+// arqueo propio, así la cadena no se corta (CA-03): un mes sin Disponible propio aporta 0 de
+// variación, pero igual suma el término contable de ese mes. Antes o en el mes del primer
+// arqueo, y si no hay ningún arqueo cargado, el resultado es null (nunca 0 — ver
+// Fix_Diferencia_Caja.pdf sección 5.1/CA-04).
 export function computeDiferenciaCajaAcumulada(
   serie: MesDatos[],
   primerArqueo: { anio: number; mes: number } | null,
@@ -42,10 +45,13 @@ export function computeDiferenciaCajaAcumulada(
   const i0 = serie.findIndex((m) => m.anio === primerArqueo.anio && m.mes === primerArqueo.mes);
   if (i0 === -1) return resultado;
 
-  let acc = serie[i0].disponible ?? 0;
+  let referencia = serie[i0].disponible ?? 0;
+  let acc = 0;
   for (let i = i0 + 1; i < serie.length; i++) {
     const m = serie[i];
-    acc += (m.ingresos - m.egresos) - m.ganancia + (m.disponible ?? 0);
+    const deltaDisponible = m.disponible != null ? m.disponible - referencia : 0;
+    if (m.disponible != null) referencia = m.disponible;
+    acc += deltaDisponible - ((m.ingresos - m.egresos) - m.ganancia);
     resultado[i] = acc;
   }
   return resultado;

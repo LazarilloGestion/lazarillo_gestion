@@ -62,7 +62,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
   const queryClient = useQueryClient();
   const flujoCajaKey = ["flujo-caja", year, localId, pdvId];
   const { data: flujoCajaData, isLoading: flujoCajaLoading } = useFetchQuery<FlujoCajaResponse>(flujoCajaKey, buildFlujoCajaUrl(year, localId, pdvId));
-  const { diferenciaPorMes, isLoading: diferenciaLoading } = useDiferenciaCaja({ year, localId, pdvId });
+  const { diferenciaPorMes, isLoading: diferenciaLoading, isError: diferenciaError } = useDiferenciaCaja({ year, localId, pdvId });
 
   const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [draftValue, setDraftValue] = useState("");
@@ -87,6 +87,12 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
       });
       if (!res.ok) throw new Error("Error al guardar");
       await queryClient.invalidateQueries({ queryKey: flujoCajaKey });
+      // Invalida las query keys nuevas de "Diferencia de caja" (I-2): sin esto, cargar el
+      // primer arqueo de la historia deja cacheado primerArqueo: null y la fila entera se queda
+      // en "—" hasta un remount/refetch no relacionado — es la primera interacción esperable de
+      // un cliente con esta feature, tiene que reflejarse de inmediato.
+      await queryClient.invalidateQueries({ queryKey: ["diferencia-caja-primer-arqueo"] });
+      await queryClient.invalidateQueries({ queryKey: ["diferencia-caja-year-totals"] });
       notify.registroActualizado();
       setEditingMonth(null);
     } catch (e) {
@@ -187,6 +193,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
               key={mes}
               base={VALUE_TD}
               className={cn("bg-muted", cardCellClasses("last", "mid"))}
+              title={diferenciaError ? "Error al cargar Diferencia de caja" : undefined}
               text={diferenciaLoading ? "…" : noData ? "—" : fmtARS(diferencia)}
               negative={!noData && diferencia! < 0}
               gray={noData}
