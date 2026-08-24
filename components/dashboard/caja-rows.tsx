@@ -143,7 +143,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
       </tr>
 
       <tr className={cn(isEmpty && "opacity-60")} title={isEmpty ? "Incluye $0 de Ganancia: no hay conceptos configurados en Resultados" : undefined}>
-        <StickyCardCell position="last" bg="bg-muted" className="px-4 py-1.5 whitespace-nowrap font-bold" title="Variación del disponible en caja del mes menos el resultado societario del mes (no acumulado)">
+        <StickyCardCell position="last" bg="bg-muted" className="px-4 py-1.5 whitespace-nowrap font-bold" title="Resultado OP − Ganancia + Disponible en caja, acumulado mes a mes desde el primer arqueo cargado">
           <span className="inline-flex items-center gap-1">
             Diferencia de caja
             <Popover>
@@ -155,7 +155,11 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
               </PopoverTrigger>
               <PopoverContent className="w-80 p-4 text-xs leading-relaxed text-muted-foreground font-normal">
                 <p className="text-[13px] font-semibold text-foreground leading-snug">
-                  Diferencia de caja = variación de la caja − (Resultado OP − Ganancia)
+                  Diferencia de caja (mes) = Resultado OP − Ganancia + Disponible en caja
+                </p>
+                <p className="mt-1.5">
+                  Se acumula mes a mes como un resumen bancario, arrancando en el mes siguiente
+                  al primer arqueo cargado.
                 </p>
                 <div className="mt-3 pt-3 border-t border-border grid grid-cols-[14px_1fr] gap-x-2 gap-y-2.5">
                   <span className="h-5 flex items-center justify-center" aria-hidden>
@@ -169,7 +173,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
                   <span><span className="font-medium text-foreground/80">Positivo (sobra):</span> gastos cargados que no salieron de la caja (deuda).</span>
 
                   <span className="h-5 flex items-center justify-center font-semibold" style={{ color: RESULT_COLORS.noData }} aria-hidden>—</span>
-                  <span><span className="font-medium text-foreground/80">Sin dato:</span> mes de apertura o sin arqueo cargado.</span>
+                  <span><span className="font-medium text-foreground/80">Sin dato:</span> mes anterior o igual al primer arqueo, o directamente sin ningún arqueo cargado.</span>
                 </div>
               </PopoverContent>
             </Popover>
@@ -190,14 +194,19 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
           );
         })}
         {(() => {
-          const valores = months.map((mes) => diferenciaPorMes[mes]).filter((v): v is number => v != null);
-          const total = valores.length > 0 ? valores.reduce((acc, v) => acc + v, 0) : null;
+          // El acumulado ya arrastra el saldo mes a mes — el total anual es el último mes
+          // visible con cálculo válido, no una suma (sumar volvería a contar el arrastre).
+          let total: number | null = null;
+          for (let i = months.length - 1; i >= 0; i--) {
+            const v = diferenciaPorMes[months[i]];
+            if (v != null) { total = v; break; }
+          }
           const noData = diferenciaLoading || total == null;
           return (
             <ValueCell
               base={TOTAL_TD}
               className={cn("bg-muted font-bold", cardCellClasses("last", "mid"))}
-              title="Suma de los meses visibles con arqueo cargado"
+              title="Saldo acumulado al último mes con cálculo válido"
               text={diferenciaLoading ? "…" : noData ? "—" : fmtARS(total)}
               negative={!noData && total! < 0}
               gray={noData}
