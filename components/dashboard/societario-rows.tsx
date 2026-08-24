@@ -98,7 +98,8 @@ export function SocietarioRows({
           {(() => {
             const label = isEmpty ? "—" : pctSobreIngresos(gananciaTotal, ingresosTotal ?? 0);
             const isDash = label === "—";
-            return <span className={cn(isDash && "text-muted-foreground/40")} style={isDash ? undefined : { color: RESULT_COLORS.positive }}>{label}</span>;
+            const color = gananciaTotal < 0 ? RESULT_COLORS.negative : RESULT_COLORS.positive;
+            return <span className={cn(isDash && "text-muted-foreground/40")} style={isDash ? undefined : { color }}>{label}</span>;
           })()}
         </td>
         <td className={cardCellClasses("last", "right")} />

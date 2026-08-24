@@ -272,7 +272,7 @@ export function ResultadosPivotTable() {
                           )}
                           onClick={() => {
                             if (hasValue(prov.values[mes]))
-                              openDetalle({ rowId: prov.rowId });
+                              openDetalle({ rowId: prov.rowId, distribucionId: prov.distribucionId ?? undefined });
                           }}
                         >
                           {fmtARS(prov.values[mes])}
@@ -280,7 +280,7 @@ export function ResultadosPivotTable() {
                       ))}
                       <td
                         className={cn("text-right px-4 py-1.5 tabular-nums text-muted-foreground text-xs cursor-pointer hover:text-foreground", cardCellClasses(rowPosition, "mid"))}
-                        onClick={() => openDetalle({ rowId: prov.rowId })}
+                        onClick={() => openDetalle({ rowId: prov.rowId, distribucionId: prov.distribucionId ?? undefined })}
                       >
                         {fmtARS(prov.rowTotal)}
                       </td>

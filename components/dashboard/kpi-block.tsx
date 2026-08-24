@@ -110,7 +110,7 @@ export function KpiBlock({
               )}
               style={noData ? undefined : { color: res < 0 ? RESULT_COLORS.negative : RESULT_COLORS.positive }}
             >
-              {fmtARS(res || undefined)}
+              {noData ? "—" : fmtARS(res)}
             </td>
           );
         })}
@@ -121,7 +121,7 @@ export function KpiBlock({
               className={cn("text-right px-4 py-1.5 font-bold tabular-nums whitespace-nowrap", cardCellClasses("middle", "mid", { border: bordered }))}
               style={{ color: res < 0 ? RESULT_COLORS.negative : RESULT_COLORS.positive }}
             >
-              {fmtARS(res || undefined)}
+              {fmtARS(res)}
             </td>
           );
         })()}

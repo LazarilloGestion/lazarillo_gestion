@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { notify } from "@/lib/toast";
-import { cn, fmtARS } from "@/lib/utils";
+import { cn, fmtARS, fmtARSDecimal } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { parseMontoARS, RESULT_COLORS } from "@/lib/dashboard/resultados-calc";
 import { buildFlujoCajaUrl } from "@/lib/dashboard/params";
@@ -70,6 +70,11 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
 
   const flujoCajaPorMes = flujoCajaData?.meses ?? {};
   const flujoCajaTotal = months.reduce((acc, mes) => acc + (flujoCajaPorMes[mes] ?? 0), 0);
+  // No usar `flujoCajaTotal` (falsy-zero) para decidir si hay datos: un total
+  // real de $0 (ej. un mes +$500 y otro -$500) es indistinguible de "nada
+  // cargado" si solo se mira el número — hay que chequear si algún mes tiene
+  // una entrada real (hallazgo de code-review, 24-ago-2026).
+  const flujoCajaTieneDatos = months.some((mes) => flujoCajaPorMes[mes] != null);
   const colSpan = months.length + 3; // label + meses + total + % ing
   // Sin local seleccionado, "todos los locales" es una vista agregada de solo lectura —
   // editar acá guardaría un valor ambiguo (localId null) que se suma al resto sin distinguirse.
@@ -132,7 +137,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
               ) : (
                 <div className="flex items-center justify-end gap-1">
                   <span className={cn(value == null && "text-muted-foreground/40")}>
-                    {flujoCajaLoading ? "…" : value != null ? fmtARS(value) : "—"}
+                    {flujoCajaLoading ? "…" : value != null ? fmtARSDecimal(value) : "—"}
                   </span>
                   {canEditFlujoCaja && (
                     <EditTriggerButton
@@ -144,7 +149,9 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
             </td>
           );
         })}
-        <td className={cn(TOTAL_TD, cardCellClasses("middle", "mid"))}>{flujoCajaTotal ? fmtARS(flujoCajaTotal) : "—"}</td>
+        <td className={cn(TOTAL_TD, cardCellClasses("middle", "mid"))}>
+          {flujoCajaLoading ? "…" : flujoCajaTieneDatos ? fmtARSDecimal(flujoCajaTotal) : "—"}
+        </td>
         <td className={cardCellClasses("middle", "right")} />
       </tr>
 
