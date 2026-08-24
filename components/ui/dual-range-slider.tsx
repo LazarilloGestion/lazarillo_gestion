@@ -14,7 +14,14 @@ function DualRangeSlider({
   labelPosition?: "top" | "bottom"
   label?: (value: number | undefined) => React.ReactNode
 }) {
-  const values = Array.isArray(props.value) ? props.value : [props.min, props.max]
+  // Uso no controlado (defaultValue, sin value): antes caía directo a
+  // [min, max] e ignoraba defaultValue, mostrando labels equivocadas en el
+  // primer render (hallazgo de code-review, 24-ago-2026).
+  const values = Array.isArray(props.value)
+    ? props.value
+    : Array.isArray(props.defaultValue)
+      ? props.defaultValue
+      : [props.min, props.max]
 
   return (
     <SliderPrimitive.Root
