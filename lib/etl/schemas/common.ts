@@ -11,14 +11,22 @@ const isBlank = (v: unknown) => v == null || (typeof v === "string" && v.trim() 
 
 /** null si la celda está vacía; string numérico si es válida; error si tiene
  *  contenido pero no parsea (antes se perdía como null en silencio). */
+// .optional() en cada primitivo tolerante: XLSX.utils.sheet_to_json omite la key del
+// objeto por completo cuando una celda está en blanco (no le pone `undefined`). Zod 3
+// aceptaba una key ausente en z.unknown() sin más; Zod 4 (repo en ^4.4.3) la rechaza como
+// "expected nonoptional" salvo que el schema declare .optional() explícitamente —
+// regresión real detectada en producción el 24-ago-2026 (Rubros Artículo/Subrubros
+// Articulo/Proveedores fallando el 100% de las filas en columnas habitualmente vacías).
 export const excelDecimal = z
   .unknown()
+  .optional()
   .refine((v) => isBlank(v) || !isNaN(Number(String(v).trim())), { message: "No es un valor numérico válido" })
   .transform((v) => toDecimalStr(v));
 
 /** Igual que excelDecimal pero para fechas (serial Excel). */
 export const excelDate = z
   .unknown()
+  .optional()
   .refine((v) => isBlank(v) || safeDate(v) !== null, { message: "No es una fecha válida" })
   .transform((v) => safeDate(v));
 
@@ -27,6 +35,7 @@ export const excelDate = z
  *  toDecimalStr (que es específico de columnas monetarias). */
 export const excelInt = z
   .unknown()
+  .optional()
   .refine((v) => isBlank(v) || !isNaN(Number(String(v).trim())), { message: "No es un valor numérico válido" })
   .transform((v) => (isBlank(v) ? null : Number(String(v).trim())));
 
@@ -35,21 +44,22 @@ const BOOL_LIKE = new Set<unknown>([true, false, 0, 1, "0", "1", "true", "false"
 /** Igual que excelDecimal pero para booleanos (IVA, IVA_DIF, etc.). */
 export const excelBool = z
   .unknown()
+  .optional()
   .refine((v) => isBlank(v) || BOOL_LIKE.has(v), { message: "No es un valor booleano válido" })
   .transform((v) => toBool(v));
 
 /** Texto libre: siempre válido, sólo trimea (sin capitalizar). */
-export const excelText = z.unknown().transform((v) => trim(v));
+export const excelText = z.unknown().optional().transform((v) => trim(v));
 
 /** Texto libre normalizado (trim + colapsa espacios + capitaliza) — usado en
  *  campos descriptivos como OBSERVAC, NOMBRE. */
-export const excelNormalizedText = z.unknown().transform((v) => normalizeText(v));
+export const excelNormalizedText = z.unknown().optional().transform((v) => normalizeText(v));
 
 /** Teléfono: normaliza formato pero nunca falla. */
-export const excelPhone = z.unknown().transform((v) => normalizePhone(v));
+export const excelPhone = z.unknown().optional().transform((v) => normalizePhone(v));
 
 /** CUIT: normaliza formato pero nunca falla. */
-export const excelCuit = z.unknown().transform((v) => normalizeCuit(v));
+export const excelCuit = z.unknown().optional().transform((v) => normalizeCuit(v));
 
 /** Campo identificador obligatorio (ej. CODIGO). */
 export const requiredExcelText = z

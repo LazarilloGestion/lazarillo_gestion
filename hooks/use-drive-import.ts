@@ -103,11 +103,20 @@ export function useDriveImport() {
     let foldersBlocked = false;
     let skippedFolders = 0;
     try {
+      let maestrosConErrores = false;
       if (ready.maestros.length > 0) {
         const r = await importAllFiles(ready.maestros);
         totalFiles += r.total;
         totalErrors += r.errors;
         totalRecords += r.records;
+        // Si algún archivo de maestros falló, no seguir con las carpetas transaccionales:
+        // podrían quedar referenciando proveedores/rubros/conceptos que este ciclo debía
+        // crear o actualizar y no llegó a hacerlo.
+        maestrosConErrores = r.errors > 0;
+      }
+      if (maestrosConErrores) {
+        foldersBlocked = true;
+        return;
       }
       if (ready.folders.length > 0) {
         const { data } = await maestrosQuery.refetch();
