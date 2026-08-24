@@ -136,14 +136,25 @@ async function main() {
   }
 
   console.log("\nAplicando...");
-  let actualizadas = 0;
-  for (const { rowIdViejo, rowIdNuevo } of plan) {
-    // Un único UPDATE ya es atómico — no hace falta $transaction. La FK
-    // ON UPDATE CASCADE de detalle_compras_compraId_fkey se encarga de
-    // propagar el nuevo rowId a detalle_compras.compraId a nivel de base.
-    await prisma.compra.update({ where: { rowId: rowIdViejo }, data: { rowId: rowIdNuevo } });
-    actualizadas++;
-  }
+  // Todo el plan en una sola $transaction — cada UPDATE individual ya es
+  // atómico por sí solo (y la FK ON UPDATE CASCADE de
+  // detalle_compras_compraId_fkey propaga el nuevo rowId a
+  // detalle_compras.compraId a nivel de base), pero sin envolver el loop
+  // completo, un fallo a mitad de camino (hiccup de DB, colisión transitoria)
+  // deja la tabla compras a medio migrar sin forma de volver atrás (hallazgo
+  // de code-review, 24-ago-2026). Mismo criterio de timeout generoso que
+  // cleanup-duplicados-compras.ts para un script de un solo uso.
+  const actualizadas = await prisma.$transaction(
+    async (tx) => {
+      let count = 0;
+      for (const { rowIdViejo, rowIdNuevo } of plan) {
+        await tx.compra.update({ where: { rowId: rowIdViejo }, data: { rowId: rowIdNuevo } });
+        count++;
+      }
+      return count;
+    },
+    { timeout: 120000, maxWait: 20000 }
+  );
 
   const totalDespues = await prisma.compra.count();
   const totalDetalleDespues = await prisma.detalleCompra.count();

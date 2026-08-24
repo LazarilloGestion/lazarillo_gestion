@@ -25,7 +25,11 @@ import * as path from "path";
 import { prisma } from "../lib/prisma";
 import { computeCompraRowId, compraIdentityFromDbRecord, canonicalDecimal } from "../lib/etl/normalizers/compra-identity";
 
-const SCRATCHPAD_DIR = "/private/tmp/claude-501/-Users-imanolalvarez-Documents-lazarillo-gestion/40e2565b-fdcf-460c-9387-ff8d7f319ad4/scratchpad";
+// Relativo al repo (gitignored, ver .gitignore) — antes era un path de una
+// sesión efímera de Claude Code que no existe fuera de esa sandbox
+// (hallazgo de code-review, 24-ago-2026). Este módulo corre como ESM bajo
+// tsx (usa import.meta.url más abajo), no hay __dirname disponible.
+const SCRATCHPAD_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "tmp", "cleanup-duplicados-compras");
 
 export interface CompraParaLimpieza {
   rowId: string;
@@ -195,34 +199,54 @@ async function main() {
 
   console.log("\nAplicando...");
 
-  const { cantidadBorrada, totalAntes, totalDespues, porRowIdEnVivo, rowIdABorrarEnVivo, gruposExcluidosEnVivo } = await prisma.$transaction(
-    async (tx) => {
-      // Recálculo en vivo — nunca se reusa el plan de arriba, por si algo
-      // cambió la base entre el arranque del script y este punto.
-      const comprasEnVivo: CompraDbRow[] = await tx.compra.findMany({ select: SELECT_COMPRA });
-      const comprasParaLimpiezaEnVivo = await conDetalleCompras(tx, comprasEnVivo);
-      const planEnVivo = planCleanupDuplicados(comprasParaLimpiezaEnVivo);
+  // Recálculo en vivo del plan completo — nunca se reusa el plan de arriba,
+  // por si algo cambió la base entre el arranque del script y este punto.
+  // Se hace ACÁ, fuera de cualquier $transaction, para no mantener abierto
+  // un full table scan de compras + detalle_compras bajo una transacción de
+  // hasta 120s — eso arriesgaba lock contention contra lecturas/escrituras
+  // concurrentes del dashboard en producción (hallazgo de eficiencia,
+  // code-review 24-ago-2026). La transacción de abajo solo vuelve a
+  // re-verificar las filas candidatas puntuales justo antes de borrar, para
+  // cerrar el hueco de tiempo entre este recálculo y el borrado real.
+  const comprasEnVivo: CompraDbRow[] = await prisma.compra.findMany({ select: SELECT_COMPRA });
+  const comprasParaLimpiezaEnVivo = await conDetalleCompras(prisma, comprasEnVivo);
+  const planEnVivo = planCleanupDuplicados(comprasParaLimpiezaEnVivo);
+  const porRowIdEnVivo = new Map(comprasParaLimpiezaEnVivo.map((c) => [c.rowId, c]));
 
-      // Si el plan en vivo difiere del que se mostró al usuario, abortar
-      if (planEnVivo.rowIdABorrar.length !== plan.rowIdABorrar.length) {
+  // Si el plan en vivo difiere del que se mostró al usuario, abortar
+  if (planEnVivo.rowIdABorrar.length !== plan.rowIdABorrar.length) {
+    throw new Error(
+      `Plan cambió entre el resumen mostrado y la ejecución: ` +
+        `se esperaba borrar ${plan.rowIdABorrar.length} filas, ` +
+        `pero el recálculo en vivo encontró ${planEnVivo.rowIdABorrar.length}`
+    );
+  }
+
+  if (planEnVivo.rowIdABorrar.length === 0) {
+    console.log("\nNo hay nada para borrar — no se declara éxito de limpieza.\n");
+    return;
+  }
+
+  const { cantidadBorrada, totalAntes, totalDespues } = await prisma.$transaction(
+    async (tx) => {
+      // Re-verificación puntual (solo las filas candidatas, no la tabla
+      // entera) justo antes de borrar — cierra el hueco de tiempo entre el
+      // recálculo en vivo de arriba y este DELETE.
+      const candidatasAhora = await tx.compra.findMany({
+        where: { rowId: { in: planEnVivo.rowIdABorrar } },
+        select: { rowId: true, esDistribuido: true },
+      });
+      if (candidatasAhora.length !== planEnVivo.rowIdABorrar.length) {
         throw new Error(
-          `Plan cambió entre el resumen mostrado y la ejecución: ` +
-            `se esperaba borrar ${plan.rowIdABorrar.length} filas, ` +
-            `pero el recálculo en vivo encontró ${planEnVivo.rowIdABorrar.length}`
+          `Verificación falló: ${planEnVivo.rowIdABorrar.length} filas candidatas esperadas, ` +
+            `${candidatasAhora.length} encontradas justo antes de borrar — alguna desapareció entremedio.`
         );
       }
-
-      // Si no hay nada para borrar, no hacer nada
-      if (planEnVivo.rowIdABorrar.length === 0) {
-        const totalAntes = await tx.compra.count();
-        return {
-          cantidadBorrada: 0,
-          totalAntes,
-          totalDespues: totalAntes,
-          porRowIdEnVivo: new Map(),
-          rowIdABorrarEnVivo: [],
-          gruposExcluidosEnVivo: planEnVivo.gruposExcluidos,
-        };
+      const yaDistribuida = candidatasAhora.find((c) => c.esDistribuido);
+      if (yaDistribuida) {
+        throw new Error(
+          `Verificación falló: ${yaDistribuida.rowId} pasó a esDistribuido=true entre el recálculo y el borrado.`
+        );
       }
 
       // Chequear cascadas: no hay que borrar nada que tenga distribucionApertura asociada
@@ -253,26 +277,13 @@ async function main() {
         );
       }
 
-      return {
-        cantidadBorrada: resultado.count,
-        totalAntes,
-        totalDespues,
-        porRowIdEnVivo: new Map(comprasParaLimpiezaEnVivo.map((c) => [c.rowId, c])),
-        rowIdABorrarEnVivo: planEnVivo.rowIdABorrar,
-        gruposExcluidosEnVivo: planEnVivo.gruposExcluidos,
-      };
+      return { cantidadBorrada: resultado.count, totalAntes, totalDespues };
     },
-    { timeout: 120000, maxWait: 20000 }
+    { timeout: 30000, maxWait: 20000 }
   );
 
-  // Si nada fue borrado, reportar explícitamente
-  if (cantidadBorrada === 0) {
-    console.log("\nNo hay nada para borrar — no se declara éxito de limpieza.\n");
-    return;
-  }
-
   const archivoAplicado = await exportarDetalle(
-    rowIdABorrarEnVivo,
+    planEnVivo.rowIdABorrar,
     porRowIdEnVivo,
     `${SCRATCHPAD_DIR}/cleanup-duplicados-aplicado.json`
   );
@@ -280,9 +291,9 @@ async function main() {
   console.log(`\n=== Verificación post-limpieza ===`);
   console.log(`Filas borradas: ${cantidadBorrada}`);
   console.log(`Compras: ${totalDespues} (antes ${totalAntes}, esperado ${totalAntes - cantidadBorrada})`);
-  if (gruposExcluidosEnVivo.length > 0) {
-    console.log(`Grupos excluidos en recálculo en vivo: ${gruposExcluidosEnVivo.length}`);
-    for (const g of gruposExcluidosEnVivo) {
+  if (planEnVivo.gruposExcluidos.length > 0) {
+    console.log(`Grupos excluidos en recálculo en vivo: ${planEnVivo.gruposExcluidos.length}`);
+    for (const g of planEnVivo.gruposExcluidos) {
       console.log(`  - ${g.motivo}: ${g.rowIds.join(", ")}`);
     }
   }

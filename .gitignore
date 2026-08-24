@@ -46,3 +46,4 @@ overrides-backup.json
 rowid-migration-plan.json
 rowid-collisions.json
 backups/
+/tmp/
