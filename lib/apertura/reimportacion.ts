@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { aplicarRegla, revertirCompra } from "./motor";
+import { aplicarRegla, revertirCompras } from "./motor";
 import type { ReglaVigencia } from "./vigencia";
 
 export interface SincronizarTrasImportResultado {
@@ -43,38 +43,52 @@ export async function sincronizarTrasImport(
   const omitidas: string[] = [];
   let comprasRecalculadas = 0;
 
-  for (const rowId of comprasModificadas) {
-    try {
-      // orderBy determinístico: hoy una compra pertenece a una sola regla a
-      // la vez (aplicarRegla solo toma compras con esDistribuido = false), así
-      // que en la práctica hay a lo sumo una fila — el orderBy es una
-      // salvaguarda barata contra ese invariante rompiéndose en el futuro sin
-      // que este `findFirst` dependa de un orden arbitrario de Postgres.
-      const distribucion = await prisma.distribucionApertura.findFirst({
-        where: { compraRowId: rowId },
-        orderBy: { id: "desc" },
-        select: { regla: { select: { id: true, estado: true } } },
-      });
+  if (comprasModificadas.length > 0) {
+    // orderBy determinístico: hoy una compra pertenece a una sola regla a la
+    // vez (aplicarRegla solo toma compras con esDistribuido = false), así que
+    // en la práctica hay a lo sumo una fila por compra — el orderBy es una
+    // salvaguarda barata contra ese invariante rompiéndose en el futuro sin
+    // que el Map de abajo dependa de un orden arbitrario de Postgres.
+    const distribuciones = await prisma.distribucionApertura.findMany({
+      where: { compraRowId: { in: comprasModificadas } },
+      orderBy: { id: "desc" },
+      select: { compraRowId: true, regla: { select: { id: true, estado: true } } },
+    });
+    const distribucionPorRowId = new Map<string, (typeof distribuciones)[number]>();
+    for (const d of distribuciones) {
+      if (!distribucionPorRowId.has(d.compraRowId)) distribucionPorRowId.set(d.compraRowId, d);
+    }
 
+    const aRevertir: string[] = [];
+    for (const rowId of comprasModificadas) {
+      const distribucion = distribucionPorRowId.get(rowId);
       if (distribucion?.regla.estado === "inactiva") {
         omitidas.push(
           `revertirCompra(${rowId}): omitida — cubierta por la regla inactiva #${distribucion.regla.id}, se preserva el historial de distribución`
         );
         continue;
       }
+      aRevertir.push(rowId);
+    }
 
-      await prisma.$transaction(
-        async (tx) => {
-          await revertirCompra(tx, rowId);
-        },
-        // 15s explícito (no el default de Prisma, ~5s) — mismo criterio de
-        // margen que el timeout de aplicarRegla más abajo, aunque esta
-        // operación sea liviana (un DELETE + un UPDATE por rowId).
-        { timeout: 15000 }
-      );
-      comprasRecalculadas++;
-    } catch (err) {
-      errores.push(`revertirCompra(${rowId}): ${err instanceof Error ? err.message : String(err)}`);
+    if (aRevertir.length > 0) {
+      try {
+        // Un DELETE + un UPDATE batcheados para todo `aRevertir` (ver
+        // revertirCompras en motor.ts) en vez de un findFirst + una
+        // $transaction por rowId — se pierde aislamiento de fallos por compra
+        // individual (revierte todo el lote o nada), a cambio de no pagar
+        // cientos/miles de round trips secuenciales bajo el presupuesto de
+        // maxDuration=60 (hallazgo de eficiencia, code-review 24-ago-2026).
+        await prisma.$transaction(
+          async (tx) => {
+            await revertirCompras(tx, aRevertir);
+          },
+          { timeout: 15000 }
+        );
+        comprasRecalculadas = aRevertir.length;
+      } catch (err) {
+        errores.push(`revertirCompras(${aRevertir.length} compras): ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 

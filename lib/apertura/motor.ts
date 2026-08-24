@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { calcularDistribuciones, type DestinoPct } from "./calculo";
 import { resolverVigencia, vigenciaToSql, type ReglaVigencia } from "./vigencia";
+import { encontrarSuperposicion } from "./validaciones";
 
 // Mismo shape que lib/etl/types.ts DbClient, redeclarado localmente para no
 // acoplar lib/apertura/ (dominio de negocio) a lib/etl/ (dominio de import) —
@@ -58,6 +59,55 @@ export async function resolverLocalIdDestinos(
       ? { ...d, localId: localIdPorPdv.get(d.puntoDeVentaId) ?? null }
       : d
   );
+}
+
+// Lanzado dentro del callback de $transaction cuando verificarSinSuperposicion
+// detecta un conflicto — un return de NextResponse ahí adentro commitearía la
+// transacción (sin haber hecho nada) y recién después devolvería el 409, lo
+// cual es incorrecto. Throw + catch afuera fuerza el rollback correctamente.
+// (Fix de review, ronda 1 — hallazgo TOCTOU en el chequeo de superposición.)
+export class SuperposicionError extends Error {
+  constructor(public reglaId: number) {
+    super(`Superposición con la regla existente #${reglaId}`);
+  }
+}
+
+// Chequeo de superposición DENTRO de la transacción — hacerlo antes de abrir
+// la transacción permitía que dos requests concurrentes para el mismo
+// entidadId con vigencias superpuestas pasaran ambos el chequeo (cada uno ve
+// que el otro todavía no commiteó) y terminaran distribuyendo las mismas
+// compras dos veces (fix de review, ronda 1). Compartido entre POST
+// /api/apertura/reglas y PATCH /api/apertura/reglas/[id] — antes esta lógica
+// (y la clase SuperposicionError) estaban copiadas verbatim en los dos route
+// handlers (hallazgo de duplicación, code-review 24-ago-2026).
+export async function verificarSinSuperposicion(
+  prisma: AperturaDbClient,
+  entidadId: string,
+  vigenciaNueva: ReglaVigencia,
+  excluirId?: number
+): Promise<void> {
+  const existentes = await prisma.reglaApertura.findMany({
+    where: {
+      entidadId,
+      nivel: "concepto",
+      estado: "activa",
+      ...(excluirId != null ? { NOT: { id: excluirId } } : {}),
+    },
+    select: { id: true, modo: true, fechaDesde: true, fechaHasta: true, extremosInclusivos: true },
+  });
+  const conflictoId = encontrarSuperposicion(
+    vigenciaNueva,
+    existentes.map((r) => ({
+      id: r.id,
+      modo: r.modo as ReglaVigencia["modo"],
+      fechaDesde: r.fechaDesde,
+      fechaHasta: r.fechaHasta,
+      extremosInclusivos: r.extremosInclusivos,
+    }))
+  );
+  if (conflictoId !== null) {
+    throw new SuperposicionError(conflictoId);
+  }
 }
 
 // Condición WHERE + SELECT compartidos entre aplicarRegla (motor real) y el
@@ -221,5 +271,18 @@ export async function revertirCompra(prisma: AperturaDbClient, rowId: string): P
   await prisma.$executeRaw(Prisma.sql`DELETE FROM distribuciones_apertura WHERE "compraRowId" = ${rowId}`);
   await prisma.$executeRaw(Prisma.sql`
     UPDATE compras SET "esDistribuido" = false, "distribuidoEn" = null WHERE "rowId" = ${rowId}
+  `);
+}
+
+// Misma operación que revertirCompra, pero para muchas compras en 2 statements
+// en vez de uno por rowId — usada por sincronizarTrasImport (reimportacion.ts)
+// para no pagar N findFirst + N $transaction secuenciales por cada compra
+// modificada del batch (riesgo de timeout con maxDuration=60, ver comentario
+// de sincronizarTrasImport). Mismo patrón ANY($1) que ya usa revertirRegla.
+export async function revertirCompras(prisma: AperturaDbClient, rowIds: string[]): Promise<void> {
+  if (rowIds.length === 0) return;
+  await prisma.$executeRaw(Prisma.sql`DELETE FROM distribuciones_apertura WHERE "compraRowId" = ANY(${rowIds}::text[])`);
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE compras SET "esDistribuido" = false, "distribuidoEn" = null WHERE "rowId" = ANY(${rowIds}::text[])
   `);
 }

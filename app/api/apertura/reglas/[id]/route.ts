@@ -2,23 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { patchReglaSchema } from "@/lib/apertura/schemas";
-import { encontrarSuperposicion } from "@/lib/apertura/validaciones";
-import { aplicarRegla, revertirRegla, resolverLocalIdDestinos } from "@/lib/apertura/motor";
+import { aplicarRegla, revertirRegla, resolverLocalIdDestinos, verificarSinSuperposicion, SuperposicionError } from "@/lib/apertura/motor";
 import type { ReglaVigencia } from "@/lib/apertura/vigencia";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-// Lanzado dentro del callback de $transaction cuando se detecta superposición
-// de vigencia — un return de NextResponse ahí adentro commitearía la
-// transacción (sin haber hecho nada) y recién después devolvería el 409, lo
-// cual es incorrecto. Throw + catch afuera fuerza el rollback correctamente.
-// (Fix de review, ronda 1 — hallazgo TOCTOU en el chequeo de superposición.)
-class SuperposicionError extends Error {
-  constructor(public reglaId: number) {
-    super(`Superposición con la regla existente #${reglaId}`);
-  }
-}
 
 function parseId(idRaw: string): number | null {
   const id = Number(idRaw);
@@ -64,30 +52,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const { regla, comprasAfectadas } = await prisma.$transaction(
       async (tx) => {
-        // Chequeo de superposición DENTRO de la transacción — hacerlo antes
-        // de abrir la transacción permitía que dos requests concurrentes
-        // (ej. dos ediciones/creaciones para el mismo entidadId con vigencias
-        // superpuestas) pasaran ambos el chequeo (cada uno ve que el otro
-        // todavía no commiteó) y terminaran distribuyendo las mismas compras
-        // dos veces. (Fix de review, ronda 1.) Se mantiene el filtro
-        // NOT: { id } para excluir la regla que se está editando.
-        const otras = await tx.reglaApertura.findMany({
-          where: { entidadId: existente.entidadId, nivel: "concepto", estado: "activa", NOT: { id } },
-          select: { id: true, modo: true, fechaDesde: true, fechaHasta: true, extremosInclusivos: true },
-        });
-        const conflictoId = encontrarSuperposicion(
-          vigenciaNueva,
-          otras.map((r) => ({
-            id: r.id,
-            modo: r.modo as ReglaVigencia["modo"],
-            fechaDesde: r.fechaDesde,
-            fechaHasta: r.fechaHasta,
-            extremosInclusivos: r.extremosInclusivos,
-          }))
-        );
-        if (conflictoId !== null) {
-          throw new SuperposicionError(conflictoId);
-        }
+        // excluirId = id de esta misma regla, para no chocar contra su propia
+        // vigencia vieja mientras se recalcula.
+        await verificarSinSuperposicion(tx, existente.entidadId, vigenciaNueva, id);
 
         await revertirRegla(tx, id);
         await tx.destinoRegla.deleteMany({ where: { reglaId: id } });
