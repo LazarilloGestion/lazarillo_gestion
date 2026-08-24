@@ -105,6 +105,14 @@ export function buildFlujoCajaUrl(year: number, localId?: number, pdvId?: number
   return `/api/dashboard/flujo-caja?${sp.toString()}`;
 }
 
+export function buildPrimerArqueoUrl(localId?: number, pdvId?: number): string {
+  const sp = new URLSearchParams();
+  if (localId != null) sp.set("localId", String(localId));
+  if (pdvId != null) sp.set("puntoDeVentaId", String(pdvId));
+  const qs = sp.toString();
+  return `/api/dashboard/flujo-caja/primer-arqueo${qs ? `?${qs}` : ""}`;
+}
+
 export function buildVentasDetalleUrl(filter: VentasDetalleFilter): string {
   const params = new URLSearchParams({ year: String(filter.year) });
   if (filter.localId) params.set("localId", String(filter.localId));
