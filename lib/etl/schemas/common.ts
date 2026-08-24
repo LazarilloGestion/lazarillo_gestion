@@ -23,6 +23,30 @@ export const excelDecimal = z
   .refine((v) => isBlank(v) || !isNaN(Number(String(v).trim())), { message: "No es un valor numérico válido" })
   .transform((v) => toDecimalStr(v));
 
+const BOOL_LIKE_DECIMAL = new Set<unknown>([true, false, "true", "false"]);
+
+/** Igual que excelDecimal, pero además tolera booleano real (true/false o
+ *  "true"/"false"), convertido a "1"/"0" — para columnas Decimal legacy que
+ *  el ERP a veces exporta como boolean en vez de número (caso real: DISCONT
+ *  en rubros-articulo.ts, detectado en producción 24-ago-2026). excelDecimal
+ *  a secas se deja intacto — este primitivo es opt-in, no afecta a las 11+
+ *  columnas que ya usan excelDecimal (fix generalizado, code-review
+ *  24-ago-2026: el fix original era local a DISCONT y no cubría la próxima
+ *  columna Decimal que el ERP mande como boolean). */
+export const excelDecimalOrBool = z
+  .unknown()
+  .optional()
+  .refine(
+    (v) => isBlank(v) || BOOL_LIKE_DECIMAL.has(v) || !isNaN(Number(String(v).trim())),
+    { message: "No es un valor numérico ni booleano válido" }
+  )
+  .transform((v) => {
+    if (isBlank(v)) return null;
+    if (v === true || v === "true") return "1";
+    if (v === false || v === "false") return "0";
+    return toDecimalStr(v);
+  });
+
 /** Igual que excelDecimal pero para fechas (serial Excel). */
 export const excelDate = z
   .unknown()

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import {
   excelDecimal,
+  excelDecimalOrBool,
   excelDate,
   excelInt,
   excelBool,
@@ -93,6 +94,45 @@ describe("helpers tolerantes — key presente sigue funcionando igual que antes"
   it("excelText trimea sin capitalizar", () => {
     const r = z.object({ FIELD: excelText }).safeParse({ FIELD: "  hola mundo  " });
     expect(r.success && r.data.FIELD).toBe("hola mundo");
+  });
+});
+
+// Generalización del fix de DISCONT (rubros-articulo.ts): antes era un
+// schema local a ese único campo, ahora es un primitivo compartido para que
+// la próxima columna Decimal legacy que el ERP mande como boolean no repita
+// el mismo bug (hallazgo de code-review, 24-ago-2026).
+describe("excelDecimalOrBool", () => {
+  it("acepta key ausente y da null", () => {
+    const r = z.object({ FIELD: excelDecimalOrBool }).safeParse({});
+    expect(r.success).toBe(true);
+    expect(r.success && r.data.FIELD).toBeNull();
+  });
+
+  it("acepta boolean real true/false y los convierte a '1'/'0'", () => {
+    const rTrue = z.object({ FIELD: excelDecimalOrBool }).safeParse({ FIELD: true });
+    expect(rTrue.success && rTrue.data.FIELD).toBe("1");
+    const rFalse = z.object({ FIELD: excelDecimalOrBool }).safeParse({ FIELD: false });
+    expect(rFalse.success && rFalse.data.FIELD).toBe("0");
+  });
+
+  it("acepta 'true'/'false' como string y los convierte a '1'/'0'", () => {
+    const r = z.object({ FIELD: excelDecimalOrBool }).safeParse({ FIELD: "true" });
+    expect(r.success && r.data.FIELD).toBe("1");
+  });
+
+  it("sigue aceptando un valor numérico normal, igual que excelDecimal", () => {
+    const r = z.object({ FIELD: excelDecimalOrBool }).safeParse({ FIELD: "123.45" });
+    expect(r.success && r.data.FIELD).toBe("123.45");
+  });
+
+  it("basura no numérica ni booleana sigue fallando", () => {
+    const r = z.object({ FIELD: excelDecimalOrBool }).safeParse({ FIELD: "ERROR" });
+    expect(r.success).toBe(false);
+  });
+
+  it("excelDecimal (sin el OrBool) sigue rechazando boolean — no se relajó para las demás columnas", () => {
+    const r = z.object({ FIELD: excelDecimal }).safeParse({ FIELD: true });
+    expect(r.success).toBe(false);
   });
 });
 
