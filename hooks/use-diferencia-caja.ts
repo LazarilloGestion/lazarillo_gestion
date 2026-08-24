@@ -1,20 +1,17 @@
 "use client";
 import { useQueries } from "@tanstack/react-query";
-import { buildDashboardUrl, buildVentasPivotUrl, buildFlujoCajaUrl } from "@/lib/dashboard/params";
+import { buildDashboardUrl, buildVentasPivotUrl, buildFlujoCajaUrl, buildPrimerArqueoUrl } from "@/lib/dashboard/params";
 import { MONTH_IDXS } from "@/lib/dashboard/constants";
-import { diferenciaCajaMensual } from "@/lib/dashboard/resultados-calc";
+import { computeDiferenciaCajaAcumulada, type MesDatos } from "@/lib/dashboard/resultados-calc";
 import type { PivotData } from "@/lib/dashboard/types";
-
-// Primer año con datos operables en el sistema — enero de este año no tiene diciembre anterior
-// para arrastrar, así que no calcula Diferencia (va en "—"). Vive acá (no en
-// lib/dashboard/constants.ts, compartido con Compras/Ventas) porque esta pantalla es la única que
-// necesita el mes anterior entre años; el selector de años de dashboard-filters.tsx/filters-drawer.tsx
-// tiene su propio límite hardcodeado por separado.
-const FIRST_DATA_YEAR = 2025;
 
 interface FlujoCajaResponse {
   anio: number;
   meses: Record<number, number | null>;
+}
+
+interface PrimerArqueoResponse {
+  primerArqueo: { anio: number; mes: number } | null;
 }
 
 interface YearTotals {
@@ -54,55 +51,63 @@ async function fetchYearTotals(year: number, localId?: number, pdvId?: number): 
   };
 }
 
-async function fetchDiciembreAnterior(year: number, localId?: number, pdvId?: number): Promise<number | null> {
-  const flujo = await fetchJson<FlujoCajaResponse>(buildFlujoCajaUrl(year - 1, localId, pdvId));
-  return flujo.meses[12] ?? null;
+function toSerieDeUnAnio(anio: number, totals: YearTotals): MesDatos[] {
+  return MONTH_IDXS.map((mes) => ({
+    anio,
+    mes,
+    ingresos: totals.ingresosPorMes[mes] ?? 0,
+    egresos: totals.egresosPorMes[mes] ?? 0,
+    ganancia: totals.gananciaPorMes[mes] ?? 0,
+    disponible: totals.disponiblePorMes[mes] ?? null,
+  }));
 }
 
-// Diferencia de caja por mes de `year` (modelo mensual independiente, no acumulado — ver
-// diferenciaCajaMensual). Enero arrastra el disponible de diciembre del año anterior.
+// Diferencia de caja acumulada (ver Fix_Diferencia_Caja.pdf y
+// docs/superpowers/specs/2026-08-24-fix-diferencia-caja-design.md): arranca en el mes siguiente
+// al primer arqueo cargado, acumulando como un resumen bancario. Si el primer arqueo está en un
+// año anterior a `year`, se trae la serie continua desde ese año para no perder el arrastre.
 export function useDiferenciaCaja({ year, localId, pdvId }: Params) {
-  const necesitaDiciembreAnterior = year > FIRST_DATA_YEAR;
-
-  const queries = useQueries({
+  const primerArqueoQuery = useQueries({
     queries: [
       {
-        queryKey: ["diferencia-caja-year-totals", year, localId, pdvId],
-        queryFn: () => fetchYearTotals(year, localId, pdvId),
+        queryKey: ["diferencia-caja-primer-arqueo", localId, pdvId],
+        queryFn: () => fetchJson<PrimerArqueoResponse>(buildPrimerArqueoUrl(localId, pdvId)),
         staleTime: 30_000,
-      },
-      {
-        queryKey: ["diferencia-caja-diciembre-anterior", year, localId, pdvId],
-        queryFn: () => fetchDiciembreAnterior(year, localId, pdvId),
-        staleTime: 30_000,
-        enabled: necesitaDiciembreAnterior,
       },
     ],
+  })[0];
+
+  const primerArqueo = primerArqueoQuery.data?.primerArqueo ?? null;
+  const necesitaTotales = !primerArqueoQuery.isLoading && !primerArqueoQuery.isError && primerArqueo != null && primerArqueo.anio <= year;
+
+  const anios: number[] = necesitaTotales
+    ? Array.from({ length: year - primerArqueo!.anio + 1 }, (_, i) => primerArqueo!.anio + i)
+    : [];
+
+  const totalesQueries = useQueries({
+    queries: anios.map((anio) => ({
+      queryKey: ["diferencia-caja-year-totals", anio, localId, pdvId],
+      queryFn: () => fetchYearTotals(anio, localId, pdvId),
+      staleTime: 30_000,
+    })),
   });
 
-  const [totalsQuery, diciembreAnteriorQuery] = queries;
-  const isLoading = totalsQuery.isLoading || (necesitaDiciembreAnterior && diciembreAnteriorQuery.isLoading);
-  // Si falla la query de diciembre anterior, solo enero se queda sin dato (ver más abajo,
-  // diciembreAnterior cae a null → diferenciaCajaMensual devuelve null para enero) — no hace
-  // falta tirar abajo los otros 11 meses, que no dependen de esa query.
-  const isError = totalsQuery.isError;
+  const isLoading = primerArqueoQuery.isLoading || (necesitaTotales && totalesQueries.some((q) => q.isLoading));
+  const isError = primerArqueoQuery.isError || totalesQueries.some((q) => q.isError);
 
-  if (!totalsQuery.data || isError) {
-    return { diferenciaPorMes: {} as Record<number, number | null>, isLoading, isError };
+  if (isLoading || isError || !necesitaTotales) {
+    const diferenciaPorMes: Record<number, number | null> = {};
+    for (const mes of MONTH_IDXS) diferenciaPorMes[mes] = null;
+    return { diferenciaPorMes, isLoading, isError };
   }
 
-  const totals = totalsQuery.data;
-  const diciembreAnterior = necesitaDiciembreAnterior ? diciembreAnteriorQuery.data ?? null : null;
+  const serie: MesDatos[] = anios.flatMap((anio, idx) => toSerieDeUnAnio(anio, totalesQueries[idx].data as YearTotals));
+  const acumulado = computeDiferenciaCajaAcumulada(serie, primerArqueo);
 
+  const offsetDelAnioObjetivo = (year - primerArqueo!.anio) * 12;
   const diferenciaPorMes: Record<number, number | null> = {};
   for (const mes of MONTH_IDXS) {
-    const disponibleMesAnterior = mes === 1 ? diciembreAnterior : totals.disponiblePorMes[mes - 1];
-    diferenciaPorMes[mes] = diferenciaCajaMensual(
-      totals.disponiblePorMes[mes],
-      disponibleMesAnterior,
-      (totals.ingresosPorMes[mes] ?? 0) - (totals.egresosPorMes[mes] ?? 0),
-      totals.gananciaPorMes[mes],
-    );
+    diferenciaPorMes[mes] = acumulado[offsetDelAnioObjetivo + (mes - 1)];
   }
 
   return { diferenciaPorMes, isLoading, isError };
