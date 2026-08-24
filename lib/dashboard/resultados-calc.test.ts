@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   parseMontoARS,
   pctSobreIngresos,
-  diferenciaCajaMensual,
+  computeDiferenciaCajaAcumulada,
+  type MesDatos,
   heatmapFill,
   heatmapFillZeroAnchored,
   heatmapTextZeroAnchored,
@@ -57,34 +58,68 @@ describe("pctSobreIngresos", () => {
   });
 });
 
-describe("diferenciaCajaMensual", () => {
-  it("null si falta el disponible del mes actual", () => {
-    expect(diferenciaCajaMensual(null, 100, 50, 20)).toBeNull();
+describe("computeDiferenciaCajaAcumulada", () => {
+  // Serie de ejemplo: primer arqueo cargado en septiembre (mes 9). CA-01 a CA-03 del PDF.
+  const serieBase: MesDatos[] = [
+    { anio: 2026, mes: 7, ingresos: 100, egresos: 40, ganancia: 20, disponible: null },  // jul
+    { anio: 2026, mes: 8, ingresos: 100, egresos: 40, ganancia: 20, disponible: null },  // ago
+    { anio: 2026, mes: 9, ingresos: 100, egresos: 40, ganancia: 20, disponible: 500 },   // sep — primer arqueo
+    { anio: 2026, mes: 10, ingresos: 120, egresos: 50, ganancia: 30, disponible: null }, // oct — sin arqueo propio
+    { anio: 2026, mes: 11, ingresos: 110, egresos: 45, ganancia: 25, disponible: 600 },  // nov
+  ];
+  const primerArqueoSep = { anio: 2026, mes: 9 };
+
+  it("CA-01 — sin ningún arqueo, primerArqueo null, todo el resultado es null", () => {
+    const resultado = computeDiferenciaCajaAcumulada(serieBase, null);
+    expect(resultado).toEqual([null, null, null, null, null]);
   });
 
-  it("null si falta el disponible del mes anterior", () => {
-    expect(diferenciaCajaMensual(100, undefined, 50, 20)).toBeNull();
+  it("CA-02 — julio, agosto y septiembre (mes del primer arqueo inclusive) dan null", () => {
+    const resultado = computeDiferenciaCajaAcumulada(serieBase, primerArqueoSep);
+    expect(resultado[0]).toBeNull(); // jul
+    expect(resultado[1]).toBeNull(); // ago
+    expect(resultado[2]).toBeNull(); // sep, mes del primer arqueo
   });
 
-  it("resultadoOP y ganancia undefined se tratan como 0", () => {
-    expect(diferenciaCajaMensual(150, 100, undefined, undefined)).toBe(50);
+  it("CA-02 — octubre (mes siguiente al primer arqueo) da el primer valor calculado", () => {
+    const resultado = computeDiferenciaCajaAcumulada(serieBase, primerArqueoSep);
+    // saldoInicial = disponible[sep] = 500
+    // oct: (120-50) - 30 + (disponible ?? 0) = 70 - 30 + 0 = 40; acumulado = 500 + 40 = 540
+    expect(resultado[3]).toBe(540);
   });
 
-  it("calcula ΔCaja menos (Resultado OP - Ganancia)", () => {
-    // ΔCaja = 150-100 = 50; Resultado OP - Ganancia = 30-10 = 20; Diferencia = 50-20 = 30
-    expect(diferenciaCajaMensual(150, 100, 30, 10)).toBe(30);
+  it("CA-03 — octubre sin disponible propio no corta la cadena: noviembre sigue acumulando sobre octubre", () => {
+    const resultado = computeDiferenciaCajaAcumulada(serieBase, primerArqueoSep);
+    // nov: (110-45) - 25 + 600 = 65 - 25 + 600 = 640; acumulado = 540 (oct) + 640 = 1180
+    expect(resultado[4]).toBe(1180);
   });
 
-  it("resultado negativo cuando el gasto societario supera la variación de caja", () => {
-    expect(diferenciaCajaMensual(100, 150, 30, 10)).toBe(-70);
+  it("CA-04 — los meses sin cálculo válido son null, nunca 0", () => {
+    const resultado = computeDiferenciaCajaAcumulada(serieBase, primerArqueoSep);
+    expect(resultado[0]).not.toBe(0);
+    expect(resultado[0]).toBeNull();
   });
 
-  it("fixture real del PDF — feb 2026: disponible 9.297.875/5.670.649, resultado OP 7.876.831, ganancia 3.737.455", () => {
-    expect(diferenciaCajaMensual(9_297_875, 5_670_649, 7_876_831, 3_737_455)).toBe(-512_150);
+  it("caso cross-año — primer arqueo en el año anterior al último año de la serie, el acumulado sigue de corrido", () => {
+    const serieCrossAnio: MesDatos[] = [
+      { anio: 2025, mes: 11, ingresos: 100, egresos: 40, ganancia: 20, disponible: null },
+      { anio: 2025, mes: 12, ingresos: 100, egresos: 40, ganancia: 20, disponible: 1000 }, // primer arqueo
+      { anio: 2026, mes: 1, ingresos: 120, egresos: 50, ganancia: 30, disponible: null },
+      { anio: 2026, mes: 2, ingresos: 110, egresos: 45, ganancia: 25, disponible: 900 },
+    ];
+    const primerArqueoDic2025 = { anio: 2025, mes: 12 };
+    const resultado = computeDiferenciaCajaAcumulada(serieCrossAnio, primerArqueoDic2025);
+    expect(resultado[0]).toBeNull(); // nov 2025
+    expect(resultado[1]).toBeNull(); // dic 2025, mes del primer arqueo
+    // ene 2026: saldoInicial 1000 + [(120-50)-30+0] = 1000 + 40 = 1040
+    expect(resultado[2]).toBe(1040);
+    // feb 2026: 1040 + [(110-45)-25+900] = 1040 + 940 = 1980
+    expect(resultado[3]).toBe(1980);
   });
 
-  it("fixture real del PDF — ene 2026 con arrastre de diciembre 2025: disponible 5.670.649/1.181.305, resultado OP 5.443.199, ganancia 3.817.903", () => {
-    expect(diferenciaCajaMensual(5_670_649, 1_181_305, 5_443_199, 3_817_903)).toBe(2_864_048);
+  it("primerArqueo posterior al último mes de la serie (rango mal armado por el caller) da todo null", () => {
+    const resultado = computeDiferenciaCajaAcumulada(serieBase, { anio: 2027, mes: 1 });
+    expect(resultado).toEqual([null, null, null, null, null]);
   });
 });
 

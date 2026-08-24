@@ -17,18 +17,38 @@ export function pctSobreIngresos(numerador: number, denominador: number): string
   return denominador > 0 ? `${((numerador / denominador) * 100).toFixed(1)}%` : "—";
 }
 
-// Diferencia de caja de un mes independiente (no acumulada): variación de la caja menos el
-// resultado societario del mes. null si falta el arqueo (Disponible en caja) del mes actual o
-// del mes anterior — sin los dos extremos no hay ΔCaja para comparar, ese mes va en "—", nunca $0.
-export function diferenciaCajaMensual(
-  disponibleMes: number | null | undefined,
-  disponibleMesAnterior: number | null | undefined,
-  resultadoOP: number | null | undefined,
-  ganancia: number | null | undefined,
-): number | null {
-  if (disponibleMes == null || disponibleMesAnterior == null) return null;
-  const deltaCaja = disponibleMes - disponibleMesAnterior;
-  return deltaCaja - ((resultadoOP ?? 0) - (ganancia ?? 0));
+export interface MesDatos {
+  anio: number;
+  mes: number;
+  ingresos: number;
+  egresos: number;
+  ganancia: number;
+  disponible: number | null;
+}
+
+// Diferencia de caja acumulada: arranca en el mes siguiente al primer arqueo cargado
+// (`primerArqueo`), usando el Disponible de ese mes como saldo inicial, y acumula mes a mes
+// como un resumen bancario. Antes o en el mes del primer arqueo, y si no hay ningún arqueo
+// cargado, el resultado es null (nunca 0 — ver Fix_Diferencia_Caja.pdf sección 5.1/CA-04).
+// Un mes sin Disponible propio, una vez pasado el gate, no corta la cadena (CA-03): solo aporta
+// 0 en ese término puntual, pero sigue acumulando.
+export function computeDiferenciaCajaAcumulada(
+  serie: MesDatos[],
+  primerArqueo: { anio: number; mes: number } | null,
+): (number | null)[] {
+  const resultado: (number | null)[] = serie.map(() => null);
+  if (primerArqueo == null) return resultado;
+
+  const i0 = serie.findIndex((m) => m.anio === primerArqueo.anio && m.mes === primerArqueo.mes);
+  if (i0 === -1) return resultado;
+
+  let acc = serie[i0].disponible ?? 0;
+  for (let i = i0 + 1; i < serie.length; i++) {
+    const m = serie[i];
+    acc += (m.ingresos - m.egresos) - m.ganancia + (m.disponible ?? 0);
+    resultado[i] = acc;
+  }
+  return resultado;
 }
 
 // Paleta única de la pantalla Resultados — un solo tono por color, reusado tanto para fondos
