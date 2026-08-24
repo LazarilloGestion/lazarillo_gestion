@@ -1,11 +1,18 @@
 "use client";
 import { calcularSegmentosTimeline, type TimelineReglaInput, type TimelineSegmento } from "@/lib/apertura/timeline-layout";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 const ESTADO_CLASES: Record<TimelineReglaInput["estado"], string> = {
   activa: "bg-success/70",
   inactiva: "bg-muted-foreground/30",
   nueva: "bg-primary",
+};
+
+const ESTADO_BORDE_CLASES: Record<TimelineReglaInput["estado"], string> = {
+  activa: "border-success",
+  inactiva: "border-muted-foreground/50",
+  nueva: "border-primary",
 };
 
 function maskFor(seg: TimelineSegmento): string | undefined {
@@ -34,21 +41,25 @@ export function AperturaTimeline({ reglas }: { reglas: TimelineReglaInput[] }) {
         const mask = maskFor(seg);
         return (
           <div key={String(seg.id)} className="flex items-center gap-2">
-            <div className="relative h-5 flex-1 rounded-full bg-muted/50 overflow-hidden">
+            <div className="relative h-5 flex-1 rounded-full bg-secondary overflow-visible">
               {/* Marcas en los extremos: dan referencia visual de "acá empieza / termina el eje". */}
               <div className="absolute inset-y-0 left-0 w-px bg-border" />
               <div className="absolute inset-y-0 right-0 w-px bg-border" />
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div
-                    className={ESTADO_CLASES[seg.estado] + " absolute inset-y-0 rounded-full"}
-                    style={{
-                      left: `${seg.leftPct}%`,
-                      width: `${seg.widthPct}%`,
-                      maskImage: mask,
-                      WebkitMaskImage: mask,
-                    }}
-                  />
+                  <div className="absolute inset-y-0" style={{ left: `${seg.leftPct}%`, width: `${seg.widthPct}%` }}>
+                    <div
+                      className={cn(ESTADO_CLASES[seg.estado], "absolute inset-0 rounded-full overflow-hidden")}
+                      style={{ maskImage: mask, WebkitMaskImage: mask }}
+                    />
+                    {/* Manijas decorativas, mismo estilo que el thumb de DualRangeSlider: solo se muestran donde el segmento no sigue fuera del eje visible. */}
+                    {!seg.fadeInicio && (
+                      <div className={cn("absolute inset-y-0 left-0 my-auto h-3.5 w-3.5 -translate-x-1/2 rounded-full border-2 bg-background", ESTADO_BORDE_CLASES[seg.estado])} />
+                    )}
+                    {!seg.fadeFin && (
+                      <div className={cn("absolute inset-y-0 right-0 my-auto h-3.5 w-3.5 translate-x-1/2 rounded-full border-2 bg-background", ESTADO_BORDE_CLASES[seg.estado])} />
+                    )}
+                  </div>
                 </TooltipTrigger>
                 <TooltipContent>{seg.label}</TooltipContent>
               </Tooltip>
