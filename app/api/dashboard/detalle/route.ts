@@ -75,6 +75,51 @@ function reshapeDetalle(r: DetalleSqlRow) {
   };
 }
 
+// SELECT + JOINs compartidos entre la lista (WHERE dinámico, con el join
+// cc_ef/rc_ef extra para filtrar por concepto/rubro efectivo) y el lookup
+// puntual por distribucionId — antes esta forma se armaba a mano una tercera
+// vez ahí, con su propio query anidado de Prisma en vez de reusar la vista
+// v_compras_distribuidas + reshapeDetalle (hallazgo de code-review,
+// 24-ago-2026): un campo nuevo tenía que agregarse en 3 lugares para no
+// desincronizarse.
+const DETALLE_SELECT_JOIN = Prisma.sql`
+  SELECT
+    c."rowId",
+    c."distribucionId",
+    (c."distribucionId" IS NOT NULL) AS "esDistribuido",
+    c.fecha,
+    c."fechaManual",
+    c.importe,
+    c."importeManual",
+    c."conceptoCodigoManual",
+    c.concepto,
+    c.detalle,
+    c.observac,
+    c."observacManual",
+    c.proveedor AS "proveedorTexto",
+    p.id                AS "proveedorId",
+    p.nombre            AS "proveedorNombre",
+    p.razon             AS "proveedorRazon",
+    l.nombre            AS "localNombre",
+    pdv.nombre          AS "pdvNombre",
+    cc.codigo           AS "conceptoCajaCodigo",
+    cc.nombre           AS "conceptoCajaNombre",
+    rc.nombre           AS "conceptoCajaRubroNombre",
+    ccm.codigo          AS "conceptoCajaManualCodigo",
+    ccm.nombre          AS "conceptoCajaManualNombre",
+    rcm.nombre          AS "conceptoCajaManualRubroNombre"
+  FROM v_compras_distribuidas c
+  LEFT JOIN proveedores p            ON c."proveedorId" = p.id
+  LEFT JOIN locales l                ON c."localId" = l.id
+  LEFT JOIN puntos_de_venta pdv      ON c."puntoDeVentaId" = pdv.id
+  -- Concepto original y manual POR SEPARADO — para mostrar los dos objetos
+  -- anidados que CompraDetalle espera (conceptoCaja / conceptoCajaManual).
+  LEFT JOIN conceptos_caja cc           ON c."conceptoCodigo" = cc.codigo
+  LEFT JOIN rubros_concepto_caja rc     ON cc."codRga" = rc.codigo
+  LEFT JOIN conceptos_caja ccm          ON c."conceptoCodigoManual" = ccm.codigo
+  LEFT JOIN rubros_concepto_caja rcm    ON ccm."codRga" = rcm.codigo
+`;
+
 export async function GET(request: NextRequest) {
   const denied = await requireAuth();
   if (denied) return denied;
@@ -97,65 +142,17 @@ export async function GET(request: NextRequest) {
     // siempre devolvía la compra sin distribuir (fix Fase C, ver diseño
     // sección 4 "Resolución brainstorming Fase C").
     if (distribucionId !== undefined) {
-      const distribucion = await prisma.distribucionApertura.findFirst({
-        where: { id: distribucionId, compraRowId: rowId },
-        select: {
-          id: true,
-          importeCalculado: true,
-          destino: {
-            select: {
-              local: { select: { nombre: true } },
-              puntoDeVenta: { select: { nombre: true } },
-            },
-          },
-          compra: {
-            select: {
-              rowId: true,
-              fecha: true,
-              fechaManual: true,
-              conceptoCodigoManual: true,
-              concepto: true,
-              detalle: true,
-              observac: true,
-              observacManual: true,
-              proveedor: true,
-              proveedorRef: { select: { id: true, nombre: true, razon: true } },
-              conceptoCaja: { select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } } },
-              conceptoCajaManual: { select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } } },
-            },
-          },
-        },
-      });
-      if (!distribucion) return NextResponse.json({ data: [] });
-      const { compra } = distribucion;
-      return NextResponse.json({
-        data: [
-          {
-            rowId: compra.rowId,
-            distribucionId: distribucion.id,
-            esDistribuido: true,
-            fecha: compra.fecha,
-            // importeManual siempre null acá: el override ya se usó como
-            // base del cálculo (diseño sección 5), importeCalculado ES el
-            // importe efectivo de esta porción — aplicarlo de nuevo sería
-            // doble aplicación.
-            importe: distribucion.importeCalculado,
-            importeManual: null,
-            fechaManual: compra.fechaManual,
-            conceptoCodigoManual: compra.conceptoCodigoManual,
-            concepto: compra.concepto,
-            detalle: compra.detalle,
-            observac: compra.observac,
-            observacManual: compra.observacManual,
-            proveedor: compra.proveedor,
-            proveedorRef: compra.proveedorRef,
-            local: distribucion.destino.local,
-            puntoDeVenta: distribucion.destino.puntoDeVenta,
-            conceptoCaja: compra.conceptoCaja,
-            conceptoCajaManual: compra.conceptoCajaManual,
-          },
-        ],
-      });
+      // Mismo SELECT/JOIN que la lista de abajo, vía v_compras_distribuidas
+      // (que ya arma importe/local/puntoDeVenta del destino para la fila
+      // distribuida) — antes esta rama armaba el objeto a mano con su propio
+      // query anidado de Prisma, una forma que podía desincronizarse de
+      // reshapeDetalle (hallazgo de code-review, 24-ago-2026).
+      const rows = await prisma.$queryRaw<DetalleSqlRow[]>(Prisma.sql`
+        ${DETALLE_SELECT_JOIN}
+        WHERE c."rowId" = ${rowId} AND c."distribucionId" = ${distribucionId}
+        LIMIT 1
+      `);
+      return NextResponse.json({ data: rows.map(reshapeDetalle) });
     }
 
     // (b) Sin distribucionId: comportamiento original intacto, usado por
@@ -231,44 +228,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const rows = await prisma.$queryRaw<DetalleSqlRow[]>(Prisma.sql`
-      SELECT
-        c."rowId",
-        c."distribucionId",
-        (c."distribucionId" IS NOT NULL) AS "esDistribuido",
-        c.fecha,
-        c."fechaManual",
-        c.importe,
-        c."importeManual",
-        c."conceptoCodigoManual",
-        c.concepto,
-        c.detalle,
-        c.observac,
-        c."observacManual",
-        c.proveedor AS "proveedorTexto",
-        p.id                AS "proveedorId",
-        p.nombre            AS "proveedorNombre",
-        p.razon             AS "proveedorRazon",
-        l.nombre            AS "localNombre",
-        pdv.nombre          AS "pdvNombre",
-        cc.codigo           AS "conceptoCajaCodigo",
-        cc.nombre           AS "conceptoCajaNombre",
-        rc.nombre           AS "conceptoCajaRubroNombre",
-        ccm.codigo          AS "conceptoCajaManualCodigo",
-        ccm.nombre          AS "conceptoCajaManualNombre",
-        rcm.nombre          AS "conceptoCajaManualRubroNombre"
-      FROM v_compras_distribuidas c
-      LEFT JOIN proveedores p            ON c."proveedorId" = p.id
-      LEFT JOIN locales l                ON c."localId" = l.id
-      LEFT JOIN puntos_de_venta pdv      ON c."puntoDeVentaId" = pdv.id
+      ${DETALLE_SELECT_JOIN}
       -- Concepto/rubro EFECTIVO — solo para filtrar (mismo criterio que pivot).
       LEFT JOIN conceptos_caja cc_ef        ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc_ef.codigo
       LEFT JOIN rubros_concepto_caja rc_ef  ON cc_ef."codRga" = rc_ef.codigo
-      -- Concepto original y manual POR SEPARADO — para mostrar los dos objetos
-      -- anidados que CompraDetalle espera (conceptoCaja / conceptoCajaManual).
-      LEFT JOIN conceptos_caja cc           ON c."conceptoCodigo" = cc.codigo
-      LEFT JOIN rubros_concepto_caja rc     ON cc."codRga" = rc.codigo
-      LEFT JOIN conceptos_caja ccm          ON c."conceptoCodigoManual" = ccm.codigo
-      LEFT JOIN rubros_concepto_caja rcm    ON ccm."codRga" = rcm.codigo
       WHERE ${where}
       ORDER BY c.fecha ASC
       LIMIT 2000

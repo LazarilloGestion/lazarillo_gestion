@@ -1,5 +1,6 @@
 "use client";
 import { useQueries } from "@tanstack/react-query";
+import { useFetchQuery, FETCH_QUERY_RETRY } from "@/hooks/use-fetch-query";
 import { buildDashboardUrl, buildVentasPivotUrl, buildFlujoCajaUrl, buildPrimerArqueoUrl } from "@/lib/dashboard/params";
 import { MONTH_IDXS } from "@/lib/dashboard/constants";
 import { computeDiferenciaCajaAcumulada, type MesDatos } from "@/lib/dashboard/resultados-calc";
@@ -76,15 +77,15 @@ function toSerieDeUnAnio(anio: number, totals: YearTotals): MesDatos[] {
 // al primer arqueo cargado, acumulando como un resumen bancario. Si el primer arqueo está en un
 // año anterior a `year`, se trae la serie continua desde ese año para no perder el arrastre.
 export function useDiferenciaCaja({ year, localId, pdvId }: Params) {
-  const primerArqueoQuery = useQueries({
-    queries: [
-      {
-        queryKey: ["diferencia-caja-primer-arqueo", localId, pdvId],
-        queryFn: () => fetchJson<PrimerArqueoResponse>(buildPrimerArqueoUrl(localId, pdvId)),
-        staleTime: 30_000,
-      },
-    ],
-  })[0];
+  // Query única y estática (no dinámica como totalesQueries más abajo) —
+  // useFetchQuery en vez de useQueries([...])[0], y de paso hereda retry
+  // (antes esta query no tenía, ver FETCH_QUERY_RETRY) (hallazgo de
+  // code-review, 24-ago-2026).
+  const primerArqueoQuery = useFetchQuery<PrimerArqueoResponse>(
+    ["diferencia-caja-primer-arqueo", localId, pdvId],
+    buildPrimerArqueoUrl(localId, pdvId),
+    { staleTime: 30_000 }
+  );
 
   const primerArqueo = primerArqueoQuery.data?.primerArqueo ?? null;
   const necesitaTotales = !primerArqueoQuery.isLoading && !primerArqueoQuery.isError && primerArqueo != null && primerArqueo.anio <= year;
@@ -93,11 +94,17 @@ export function useDiferenciaCaja({ year, localId, pdvId }: Params) {
     ? Array.from({ length: year - primerArqueo!.anio + 1 }, (_, i) => primerArqueo!.anio + i)
     : [];
 
+  // useQueries a propósito acá (a diferencia de primerArqueoQuery arriba): la
+  // cantidad de queries es dinámica, una por año del rango. queryFn propio
+  // (no useFetchQuery) porque agrega 4 endpoints en una sola forma — se le
+  // suma igual FETCH_QUERY_RETRY para no perder la resiliencia a fallas
+  // transitorias que el resto de los hooks de fetch del dashboard sí tienen.
   const totalesQueries = useQueries({
     queries: anios.map((anio) => ({
       queryKey: ["diferencia-caja-year-totals", anio, localId, pdvId],
       queryFn: () => fetchYearTotals(anio, localId, pdvId),
       staleTime: 30_000,
+      ...FETCH_QUERY_RETRY,
     })),
   });
 
