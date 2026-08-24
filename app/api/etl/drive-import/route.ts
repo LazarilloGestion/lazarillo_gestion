@@ -18,6 +18,35 @@ import { rateLimit } from "@/lib/rate-limit";
 import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
 
 const TRANSACTIONAL_TYPES = new Set(["compras", "detalleCompras", "ventas"]);
+const MAESTRO_FILE_TYPES = [
+  "rubrosArticulo", "subrubrosArticulo", "rubrosConceptoCaja", "conceptosCaja", "articulos", "proveedores",
+] as const;
+
+// Un maestro "sin resolver" es el último import de ese tipo que terminó en
+// estado='error' (excepción de runETL) O que igual logueó estado='ok' pero
+// con filas rechazadas (errors.length > 0) — el ETL no aborta un archivo por
+// errores fila a fila, así que un maestro con, digamos, 5 de 100 proveedores
+// rechazados por Zod queda en 'ok' aunque esos 5 nunca se hayan actualizado.
+// Server-side y por tipo de maestro (no por sesión de cliente): vale sin
+// importar quién dispara el import de transaccionales — reload a mitad de
+// ciclo, retry de solo la carpeta transaccional, o un script futuro (gap
+// real detectado en code-review, 24-ago-2026 — antes esto solo se chequeaba
+// en el estado del hook de React, y solo para archivos 100% fallidos).
+async function maestrosConErrorSinResolver(): Promise<string[]> {
+  const ultimos = await Promise.all(
+    MAESTRO_FILE_TYPES.map((fileType) =>
+      prisma.importLog.findFirst({
+        where: { fileType },
+        orderBy: { creadoEn: "desc" },
+        select: { fileType: true, estado: true, errors: true },
+      })
+    )
+  );
+  return ultimos
+    .filter((log): log is NonNullable<typeof log> => log != null)
+    .filter((log) => log.estado === "error" || (Array.isArray(log.errors) && log.errors.length > 0))
+    .map((log) => log.fileType!);
+}
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -137,6 +166,15 @@ export async function POST(req: NextRequest) {
         { status: 422 }
       );
     }
+    const maestrosConError = await maestrosConErrorSinResolver();
+    if (maestrosConError.length > 0) {
+      return NextResponse.json(
+        {
+          error: `El último import de estos maestros tuvo errores sin resolver: ${maestrosConError.join(", ")}. Corregilo antes de importar archivos transaccionales.`,
+        },
+        { status: 422 }
+      );
+    }
   }
 
   try {
@@ -145,6 +183,7 @@ export async function POST(req: NextRequest) {
     // Descargar todos los archivos en paralelo
     const downloaded = await Promise.all(
       fileInputs.map(async (f) => ({
+        file_id: f.file_id,
         file_name: f.file_name,
         buffer: await downloadDriveFile(accessToken, f.file_id),
       }))
@@ -172,7 +211,13 @@ export async function POST(req: NextRequest) {
     const ctx: ETLContext = { localId, puntoDeVentaId };
     const now = new Date();
     const date = now.toISOString().slice(0, 10);
-    const reports: ETLReport[] = [];
+    // fileId/fileName viajan junto a cada report para que el cliente pueda
+    // batchear un POST por carpeta (en vez de uno por archivo) y aun así
+    // actualizar el status individual de cada archivo en la UI — antes la
+    // respuesta solo devolvía ETLReport[] sin ninguna forma de correlacionar
+    // cada resultado con el archivo que lo generó (hallazgo de eficiencia,
+    // code-review 24-ago-2026).
+    const results: { fileId: string; fileName: string; report: ETLReport }[] = [];
 
     const [localRecord, pdvRecord] = await Promise.all([
       localId != null ? prisma.local.findUnique({ where: { id: localId }, select: { nombre: true } }) : null,
@@ -181,7 +226,7 @@ export async function POST(req: NextRequest) {
     const localSlug = localId != null ? (localRecord ? slugify(localRecord.nombre) : String(localId)) : null;
     const pdvSlug = puntoDeVentaId != null ? (pdvRecord ? slugify(pdvRecord.nombre) : String(puntoDeVentaId)) : null;
 
-    for (const { file_name, buffer } of sorted) {
+    for (const { file_id, file_name, buffer } of sorted) {
 
       // Archivar en Storage (best-effort)
       const time = new Date().toTimeString().slice(0, 8).replace(/:/g, "-");
@@ -225,12 +270,18 @@ export async function POST(req: NextRequest) {
         } catch (logErr) {
           console.error("[POST /api/etl/drive-import] Falló el registro del ImportLog (camino error), se sigue sin loguear", { userId: user.id, file_name }, logErr);
         }
-        const aperturaParcial = await sincronizarAperturaSiCorresponde(reports);
+        const aperturaParcial = await sincronizarAperturaSiCorresponde(results.map((r) => r.report));
         if (aperturaParcial.errores.length > 0) {
           console.error("[POST /api/etl/drive-import] apertura.errores (batch parcial)", aperturaParcial.errores);
         }
         return NextResponse.json(
-          { error: `Error procesando el archivo: ${message}`, reports, apertura: aperturaParcial },
+          {
+            error: `Error procesando el archivo: ${message}`,
+            results,
+            failedFileId: file_id,
+            failedFileName: file_name,
+            apertura: aperturaParcial,
+          },
           { status: 422 }
         );
       }
@@ -264,18 +315,18 @@ export async function POST(req: NextRequest) {
       } catch (logErr) {
         console.error("[POST /api/etl/drive-import] Falló el registro del ImportLog, se sigue sin loguear", { userId: user.id, file_name }, logErr);
       }
-      reports.push(report);
+      results.push({ fileId: file_id, fileName: file_name, report });
     }
 
     // Link detalle_compras → compras post-batch
     await linkDetalleCompras(getEtlClient() as unknown as DbClient, localId);
 
-    const apertura = await sincronizarAperturaSiCorresponde(reports);
+    const apertura = await sincronizarAperturaSiCorresponde(results.map((r) => r.report));
     if (apertura.errores.length > 0) {
       console.error("[POST /api/etl/drive-import] apertura.errores", apertura.errores);
     }
 
-    return NextResponse.json({ reports, apertura });
+    return NextResponse.json({ results, apertura });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error desconocido";
     return NextResponse.json({ error: msg }, { status: 500 });

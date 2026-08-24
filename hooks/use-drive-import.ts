@@ -45,66 +45,127 @@ export function useDriveImport() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [anyImporting]);
 
-  async function importOneFile(file: DriveFile, localId?: number, puntoDeVentaId?: number): Promise<{ ok: boolean; records: number }> {
-    setFileStatuses((s) => ({ ...s, [file.id]: "importing" }));
+  // Un solo POST con files[] para todo el lote, en vez de uno por archivo —
+  // linkDetalleCompras/sincronizarAperturaSiCorresponde en el servidor corren
+  // una vez por carpeta en vez de una vez por archivo (hallazgo de
+  // eficiencia, code-review 24-ago-2026). La API devuelve `results` con
+  // fileId por entrada para poder actualizar el status individual de cada
+  // archivo igual que antes, aunque vayan en un solo request.
+  //
+  // Nota: el servidor corta el batch entero ante el primer archivo que tira
+  // excepción (mismo comportamiento que ya tenía /api/etl/drive-import para
+  // files[] antes de este cambio) — los archivos del lote que quedaron detrás
+  // del que falló no llegan a intentarse en este request, y quedan marcados
+  // como tal (no como "success" ni "idle"). Antes, al mandar un POST por
+  // archivo, un archivo roto no le impedía al resto del lote intentarse.
+  async function importFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number): Promise<{ errors: number; total: number; records: number }> {
+    if (files.length === 0) return { errors: 0, total: 0, records: 0 };
+
+    setFileStatuses((s) => {
+      const n = { ...s };
+      for (const f of files) n[f.id] = "importing";
+      return n;
+    });
+
+    const finalStatuses: FileStates = {};
+    const finalErrors: FileErrors = {};
+    const finalReports: Record<string, ETLReport> = {};
+    let errors = 0;
+    let records = 0;
+
     try {
       const res = await fetch("/api/etl/drive-import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          file_id: file.id,
-          file_name: file.name,
+          files: files.map((f) => ({ file_id: f.id, file_name: f.name })),
           local_id: localId,
           punto_de_venta_id: puntoDeVentaId,
         }),
       });
       const json = await res.json();
-      if (!res.ok) {
-        setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
-        setFileErrors((s) => ({ ...s, [file.id]: json.error ?? "Error" }));
-        notificarApertura(json.apertura);
-        return { ok: false, records: 0 };
-      } else if (json && Array.isArray(json.reports)) {
-        const reports = json.reports as ETLReport[];
-        const records = reports.reduce((s, r) => s + r.created + r.updated, 0);
-        const totalErrors = reports.reduce((s, r) => s + r.errors.length, 0);
-        // Un archivo puede responder 200 con el reporte armado y aun así no haber servido
-        // para nada (todas las filas fallaron validación) — eso no es un éxito, aunque no
-        // haya sido una excepción HTTP. Detectado en producción 24-ago-2026: un archivo con
-        // 72/72 filas en error quedaba marcado como "success" y no frenaba el resto del batch.
-        const sinNingunResultado = totalErrors > 0 && records === 0;
-        setFileStatuses((s) => ({ ...s, [file.id]: sinNingunResultado ? "error" : "success" }));
-        setFileReports((s) => ({ ...s, [file.id]: reports }));
+      notificarApertura(json.apertura);
+
+      const results = Array.isArray(json.results)
+        ? (json.results as { fileId: string; fileName: string; report: ETLReport }[])
+        : [];
+
+      for (const { fileId, report } of results) {
+        const totalErrors = report.errors.length;
+        const procesadas = report.created + report.updated;
+        // Un archivo puede responder 200 con el reporte armado y aun así no haber
+        // servido para nada (todas las filas fallaron validación) — eso no es un
+        // éxito, aunque no haya sido una excepción HTTP. Detectado en producción
+        // 24-ago-2026: un archivo con 72/72 filas en error quedaba marcado como
+        // "success" y no frenaba el resto del batch.
+        const sinNingunResultado = totalErrors > 0 && procesadas === 0;
+        finalStatuses[fileId] = sinNingunResultado ? "error" : "success";
+        finalReports[fileId] = report;
         if (sinNingunResultado) {
-          setFileErrors((s) => ({
-            ...s,
-            [file.id]: `${totalErrors} fila${totalErrors !== 1 ? "s" : ""} con error, ninguna se pudo procesar`,
-          }));
+          errors++;
+          finalErrors[fileId] = `${totalErrors} fila${totalErrors !== 1 ? "s" : ""} con error, ninguna se pudo procesar`;
+        } else {
+          records += procesadas;
         }
-        notificarApertura(json.apertura);
-        return { ok: !sinNingunResultado, records };
+      }
+
+      if (!res.ok) {
+        const mensaje = typeof json.error === "string" ? json.error : "Error";
+        const failedFileId = typeof json.failedFileId === "string" ? json.failedFileId : null;
+        if (failedFileId && finalStatuses[failedFileId] === undefined) {
+          finalStatuses[failedFileId] = "error";
+          finalErrors[failedFileId] = mensaje;
+          errors++;
+        }
+        for (const f of files) {
+          if (finalStatuses[f.id] !== undefined) continue;
+          finalStatuses[f.id] = "error";
+          finalErrors[f.id] = "No se llegó a procesar: otro archivo del mismo lote falló antes.";
+          errors++;
+        }
       } else {
-        setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
-        setFileErrors((s) => ({ ...s, [file.id]: "Respuesta inesperada del servidor" }));
-        return { ok: false, records: 0 };
+        for (const f of files) {
+          if (finalStatuses[f.id] !== undefined) continue;
+          finalStatuses[f.id] = "error";
+          finalErrors[f.id] = "Respuesta inesperada del servidor";
+          errors++;
+        }
       }
     } catch {
-      setFileStatuses((s) => ({ ...s, [file.id]: "error" }));
-      setFileErrors((s) => ({ ...s, [file.id]: "Error de red" }));
-      return { ok: false, records: 0 };
+      for (const f of files) {
+        finalStatuses[f.id] = "error";
+        finalErrors[f.id] = "Error de red";
+      }
+      errors = files.length;
     }
+
+    setFileStatuses((s) => ({ ...s, ...finalStatuses }));
+    setFileReports((s) => {
+      const n = { ...s };
+      for (const [fileId, report] of Object.entries(finalReports)) n[fileId] = [report];
+      return n;
+    });
+    setFileErrors((s) => {
+      const n = { ...s };
+      for (const [fileId, msg] of Object.entries(finalErrors)) n[fileId] = msg;
+      for (const [fileId, status] of Object.entries(finalStatuses)) {
+        if (status === "success") delete n[fileId];
+      }
+      return n;
+    });
+
+    return { errors, total: files.length, records };
+  }
+
+  async function importOneFile(file: DriveFile, localId?: number, puntoDeVentaId?: number): Promise<{ ok: boolean; records: number }> {
+    const { errors, records } = await importFiles([file], localId, puntoDeVentaId);
+    return { ok: errors === 0, records };
   }
 
   async function importAllFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number): Promise<{ errors: number; total: number; records: number }> {
-    let errors = 0;
-    let records = 0;
-    for (const file of files) {
-      const result = await importOneFile(file, localId, puntoDeVentaId);
-      if (!result.ok) errors++;
-      records += result.records;
-    }
+    const result = await importFiles(files, localId, puntoDeVentaId);
     maestrosQuery.refetch().catch((err) => console.error("[importar] no se pudo refrescar maestros-status tras el import", err));
-    return { errors, total: files.length, records };
+    return result;
   }
 
   async function importarTodo(ready: { maestros: DriveFile[]; folders: { files: DriveFile[]; localId: number | null; puntoDeVentaId: number | null }[] }) {
