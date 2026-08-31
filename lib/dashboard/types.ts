@@ -1,6 +1,11 @@
 // Tipo compartido para valores Decimal de Prisma ($queryRaw devuelve Decimal objects)
 export type DecimalLike = { toString(): string } | number | string;
 
+export type ComposicionMes = {
+  total: number;
+  destinos: { nombre: string; pct: number; importe: number }[];
+};
+
 // Shape de la respuesta de GET /api/config/rubros-dashboard — usado por RubrosConfigModal.
 export type RubroVisibilidad = {
   codigo: string;
@@ -36,6 +41,7 @@ export type PivotConceptoRow = {
   values: Record<number, number>;
   rowTotal: number;
   children: PivotProveedorRow[];
+  composicion?: Record<number, ComposicionMes>;
 };
 
 export type PivotRubroRow = {
