@@ -34,6 +34,8 @@ export async function GET(request: NextRequest) {
     const rows = await prisma.flujoCajaManual.findMany({
       where: {
         anio,
+        // un $0 es "sin dato", no ancla el cálculo — ver spec 2026-08-31
+        monto: { not: 0 },
         ...(localId !== undefined ? { localId } : {}),
         ...(puntoDeVentaId !== undefined ? { puntoDeVentaId } : {}),
       },

@@ -186,7 +186,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
                   <span><span className="font-medium text-foreground/80">Positivo (sobra):</span> gastos cargados que no salieron de la caja (deuda).</span>
 
                   <span className="h-5 flex items-center justify-center font-semibold" style={{ color: RESULT_COLORS.noData }} aria-hidden>—</span>
-                  <span><span className="font-medium text-foreground/80">Sin dato:</span> mes anterior o igual al primer arqueo, o directamente sin ningún arqueo cargado.</span>
+                  <span><span className="font-medium text-foreground/80">Sin dato:</span> mes anterior o igual al primer arqueo, un mes con arqueo en $0, o directamente sin ningún arqueo cargado.</span>
                 </div>
               </PopoverContent>
             </Popover>
