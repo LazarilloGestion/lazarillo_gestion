@@ -251,3 +251,12 @@ flag `esArqueoValido` — YAGNI, la ausencia de fila ya alcanza.
 - Si Diego más adelante necesita registrar una caja genuinamente en $0 como un hecho contable,
   esto vuelve a ser una pregunta de diseño (haría falta el `monto` nullable o el flag) — hoy,
   por decisión suya, no es un caso real.
+- **Límite conocido (hallazgo de la revisión final, 31-ago-2026): el filtro `monto !== 0` es
+  por fila, pero la vista agregada multi-local suma después.** Si un mes tuviera dos arqueos
+  reales de signo opuesto en distintos locales (local A `+500`, local B `-500`), el agregado da
+  `0`, y ahí `caja-rows.tsx` lo muestra como "$ 0,00" mientras `computeDiferenciaCajaAcumulada`
+  lo trata como "sin arqueo" (no arrastra la referencia). Es inalcanzable hoy: un arqueo
+  negativo no puede existir para un arqueo físico de caja, y el índice único
+  `NULLS NOT DISTINCT` impide dos filas para el mismo `(local, pdv, anio, mes)`. Si en el futuro
+  se permiten montos negativos, cerrar esto (rechazar negativos en `putSchema`, o distinguir
+  "0 agregado" de "sin fila" en la serie) pasa a ser necesario.
