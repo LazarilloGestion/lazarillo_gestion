@@ -13,6 +13,7 @@
  *   npx tsx scripts/limpiar-flujo-caja-cero.ts --apply     # aplica el borrado
  */
 
+import { fileURLToPath } from "url";
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
@@ -62,11 +63,23 @@ async function main() {
     DELETE FROM "flujo_caja_manual" WHERE "monto" = 0
   `);
   console.log(`\nBorradas ${borradas} filas.`);
+
+  const quedan = await prisma.$queryRaw<{ n: bigint }[]>(Prisma.sql`
+    SELECT count(*) AS n FROM "flujo_caja_manual" WHERE "monto" = 0
+  `);
+  if (Number(quedan[0].n) !== 0) {
+    throw new Error(`Post-borrado: todavía quedan ${quedan[0].n} filas con monto = 0`);
+  }
+  console.log("Verificado: 0 filas con monto = 0.");
 }
 
-main()
-  .catch((err) => {
-    console.error(err);
-    process.exitCode = 1;
-  })
-  .finally(() => prisma.$disconnect());
+const esEntrypointCli = process.argv[1] === fileURLToPath(import.meta.url);
+
+if (esEntrypointCli) {
+  main()
+    .catch((err) => {
+      console.error(err);
+      process.exitCode = 1;
+    })
+    .finally(() => prisma.$disconnect());
+}

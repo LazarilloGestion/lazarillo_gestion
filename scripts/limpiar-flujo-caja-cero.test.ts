@@ -18,4 +18,12 @@ describe("resumirFilasCero", () => {
     expect(salida).toContain("2025-06");
     expect(salida).toContain("pdv 10");
   });
+
+  it("filas sin pdv / sin local muestran el guion", () => {
+    const salida = resumirFilasCero([
+      { localId: null, puntoDeVentaId: null, anio: 2025, mes: 6 },
+    ]);
+    expect(salida).toContain("local —");
+    expect(salida).toContain("pdv —");
+  });
 });
