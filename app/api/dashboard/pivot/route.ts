@@ -43,7 +43,20 @@ export async function GET(request: NextRequest) {
   const conditions = buildPivotConditions({ year, tableAlias: "c", localId, pdvId, months, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, filterRubrosOcultos: true, visibilidadCol });
   const where = Prisma.join(conditions, " AND ");
 
-  const rows = await prisma.$queryRaw<SqlRow[]>(Prisma.sql`
+  // La composición del tooltip SIEMPRE muestra el reparto completo, aunque el
+  // dashboard tenga un filtro de local/PDV activo (spec §1.1 y §8). En la rama
+  // distribuida de `v_compras_distribuidas`, `c."localId"` / `c."puntoDeVentaId"`
+  // son el local/PDV DESTINO, no el origen de la compra: filtrar la composición
+  // por esos predicados dejaría una lista de destinos parcial contra el total
+  // "100%" (importe original) que sigue completo. Por eso se reconstruyen las
+  // condiciones omitiendo localId/pdvId (los únicos predicados de origen que
+  // agrega buildPivotConditions, ambos bajo `if (localId)` / `if (pdvId)`) y se
+  // conservan el resto (año, meses, rubro, concepto, proveedor, observación,
+  // visibilidad) que sí acotan legítimamente qué conceptos/filas se muestran.
+  const conditionsComposicion = buildPivotConditions({ year, tableAlias: "c", localId: undefined, pdvId: undefined, months, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, filterRubrosOcultos: true, visibilidadCol });
+  const whereComposicion = Prisma.join(conditionsComposicion, " AND ");
+
+  const rowsQuery = prisma.$queryRaw<SqlRow[]>(Prisma.sql`
     SELECT
       COALESCE(rc.codigo, '__sin_rubro')                                  AS rubro_codigo,
       COALESCE(rc.nombre, 'Sin Rubro')                                   AS rubro_nombre,
@@ -69,11 +82,12 @@ export async function GET(request: NextRequest) {
 
   // Composición para el tooltip de conceptos aperturados: descompone el importe
   // efectivo por destino (concepto efectivo + mes + destino). Solo la rama
-  // distribuida de la vista (`c."distribucionId" IS NOT NULL`). Reusa el mismo
-  // `${where}` que el query principal, por lo que necesita el mismo set de
-  // LEFT JOIN (cc / rc / p) para que resuelvan sus predicados de rubro,
+  // distribuida de la vista (`c."distribucionId" IS NOT NULL`). Usa
+  // `${whereComposicion}` (sin el filtro de local/PDV del dashboard — ver
+  // comentario arriba), por lo que necesita el mismo set de LEFT JOIN
+  // (cc / rc / p) que el query principal para resolver sus predicados de rubro,
   // concepto y proveedor.
-  const composicionDestinos = await prisma.$queryRaw<ComposicionSqlRow[]>(Prisma.sql`
+  const composicionDestinosQuery = prisma.$queryRaw<ComposicionSqlRow[]>(Prisma.sql`
     SELECT
       COALESCE(cc.codigo, '__sin_concepto')                        AS concepto_codigo,
       EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int  AS mes,
@@ -88,7 +102,7 @@ export async function GET(request: NextRequest) {
     LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
     LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
     LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
-    WHERE c."distribucionId" IS NOT NULL AND ${where}
+    WHERE c."distribucionId" IS NOT NULL AND ${whereComposicion}
     GROUP BY concepto_codigo, mes, destino_nombre, da.porcentaje
   `);
 
@@ -96,7 +110,7 @@ export async function GET(request: NextRequest) {
   // compra: en el fan-out de la vista `importeOriginal` se repite en cada fila
   // de destino, así que primero un SELECT DISTINCT por (concepto, mes, compra)
   // y recién después el SUM.
-  const composicionOriginales = await prisma.$queryRaw<ComposicionOriginalRow[]>(Prisma.sql`
+  const composicionOriginalesQuery = prisma.$queryRaw<ComposicionOriginalRow[]>(Prisma.sql`
     SELECT concepto_codigo, mes, SUM(importe_original) AS importe_original
     FROM (
       SELECT DISTINCT
@@ -109,10 +123,19 @@ export async function GET(request: NextRequest) {
       LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
       LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
       LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
-      WHERE c."distribucionId" IS NOT NULL AND ${where}
+      WHERE c."distribucionId" IS NOT NULL AND ${whereComposicion}
     ) dedup
     GROUP BY concepto_codigo, mes
   `);
+
+  // Los tres queries son independientes entre sí y `prisma` es un cliente
+  // pooleado — se corren en paralelo para no triplicar la latencia de cada
+  // carga del dashboard.
+  const [rows, composicionDestinos, composicionOriginales] = await Promise.all([
+    rowsQuery,
+    composicionDestinosQuery,
+    composicionOriginalesQuery,
+  ]);
 
   const composicion = buildComposicion(composicionDestinos, composicionOriginales);
 
