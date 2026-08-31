@@ -75,6 +75,21 @@ export async function PUT(request: NextRequest) {
   const { localId, puntoDeVentaId, anio, mes, monto } = parsed.data;
 
   try {
+    // Un monto en 0 significa "sin dato" (ver spec 2026-08-31): se borra la fila en vez de
+    // guardar un $0 que después no se puede limpiar. Borrar una fila inexistente es no-op.
+    // IS NOT DISTINCT FROM para matchear con localId/puntoDeVentaId en null, consistente con el
+    // índice único NULLS NOT DISTINCT (migración 20260723000100).
+    if (monto === 0) {
+      await prisma.$executeRaw(Prisma.sql`
+        DELETE FROM "flujo_caja_manual"
+        WHERE "localId" IS NOT DISTINCT FROM ${localId ?? null}
+          AND "puntoDeVentaId" IS NOT DISTINCT FROM ${puntoDeVentaId ?? null}
+          AND "anio" = ${anio}
+          AND "mes" = ${mes}
+      `);
+      return NextResponse.json({ ok: true });
+    }
+
     // Prisma no permite null en el lookup de una unique key compuesta (limitación del cliente,
     // no de la DB), y acá localId/puntoDeVentaId son nullable — se resuelve con upsert nativo de
     // Postgres. El índice único subyacente es NULLS NOT DISTINCT (migración 20260723000100),
