@@ -4,12 +4,18 @@ import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { parseDashboardParams } from "@/lib/dashboard/params";
 import { buildPivotConditions } from "@/lib/dashboard/query-builders";
+import {
+  buildComposicion,
+  type ComposicionSqlRow,
+  type ComposicionOriginalRow,
+} from "@/lib/dashboard/apertura-composicion";
 import type {
   PivotData,
   PivotRubroRow,
   PivotConceptoRow,
   PivotProveedorRow,
   SqlRow,
+  ComposicionMes,
 } from "@/lib/dashboard/types";
 
 export const dynamic = "force-dynamic";
@@ -61,14 +67,66 @@ export async function GET(request: NextRequest) {
     ORDER BY rubro_nombre NULLS LAST, concepto_nombre NULLS LAST, COALESCE(c."fechaManual", c.fecha) NULLS LAST, proveedor_nombre NULLS LAST
   `);
 
-  return NextResponse.json(buildPivotData(rows));
+  // Composición para el tooltip de conceptos aperturados: descompone el importe
+  // efectivo por destino (concepto efectivo + mes + destino). Solo la rama
+  // distribuida de la vista (`c."distribucionId" IS NOT NULL`). Reusa el mismo
+  // `${where}` que el query principal, por lo que necesita el mismo set de
+  // LEFT JOIN (cc / rc / p) para que resuelvan sus predicados de rubro,
+  // concepto y proveedor.
+  const composicionDestinos = await prisma.$queryRaw<ComposicionSqlRow[]>(Prisma.sql`
+    SELECT
+      COALESCE(cc.codigo, '__sin_concepto')                        AS concepto_codigo,
+      EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int  AS mes,
+      COALESCE(pv.nombre, l.nombre, 'Sin destino')                 AS destino_nombre,
+      da.porcentaje                                                AS pct,
+      SUM(da."importeCalculado")                                   AS importe_calculado
+    FROM v_compras_distribuidas c
+    JOIN distribuciones_apertura da  ON da.id = c."distribucionId"
+    JOIN destinos_regla dr           ON dr.id = da."destinoId"
+    LEFT JOIN locales l              ON l.id = dr."localId"
+    LEFT JOIN puntos_de_venta pv     ON pv.id = dr."puntoDeVentaId"
+    LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
+    LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
+    LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
+    WHERE c."distribucionId" IS NOT NULL AND ${where}
+    GROUP BY concepto_codigo, mes, destino_nombre, da.porcentaje
+  `);
+
+  // Total "100%" del tooltip = importe original de la compra, deduplicado por
+  // compra: en el fan-out de la vista `importeOriginal` se repite en cada fila
+  // de destino, así que primero un SELECT DISTINCT por (concepto, mes, compra)
+  // y recién después el SUM.
+  const composicionOriginales = await prisma.$queryRaw<ComposicionOriginalRow[]>(Prisma.sql`
+    SELECT concepto_codigo, mes, SUM(importe_original) AS importe_original
+    FROM (
+      SELECT DISTINCT
+        COALESCE(cc.codigo, '__sin_concepto')                       AS concepto_codigo,
+        EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int AS mes,
+        da."compraRowId",
+        da."importeOriginal"                                        AS importe_original
+      FROM v_compras_distribuidas c
+      JOIN distribuciones_apertura da  ON da.id = c."distribucionId"
+      LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
+      LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
+      LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
+      WHERE c."distribucionId" IS NOT NULL AND ${where}
+    ) dedup
+    GROUP BY concepto_codigo, mes
+  `);
+
+  const composicion = buildComposicion(composicionDestinos, composicionOriginales);
+
+  return NextResponse.json(buildPivotData(rows, composicion));
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-function buildPivotData(sqlRows: SqlRow[]): PivotData {
+function buildPivotData(
+  sqlRows: SqlRow[],
+  composicion: Record<string, Record<number, ComposicionMes>>,
+): PivotData {
   const rubroMap = new Map<string, PivotRubroRow>();
   const conceptoMap = new Map<string, PivotConceptoRow>();
 
@@ -118,6 +176,7 @@ function buildPivotData(sqlRows: SqlRow[]): PivotData {
         values: {},
         rowTotal: 0,
         children: [],
+        composicion: composicion[concepto_codigo],
       };
       conceptoMap.set(concKey, concepto);
       rubro.children.push(concepto);
