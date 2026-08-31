@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, requireAuthUser } from "@/lib/auth/require-auth";
 import { crearReglaSchema } from "@/lib/apertura/schemas";
-import { aplicarRegla, resolverLocalIdDestinos, verificarSinSuperposicion, SuperposicionError } from "@/lib/apertura/motor";
+import { aplicarRegla, resolverLocalIdDestinos, resolverLocalIdOrigen, verificarSinSuperposicion, SuperposicionError } from "@/lib/apertura/motor";
 import type { ReglaVigencia } from "@/lib/apertura/vigencia";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,8 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Datos inválidos", issues: parsed.error.issues }, { status: 422 });
   }
-  const { entidadId, modo, fechaDesde, fechaHasta, extremosInclusivos, destinos } = parsed.data;
+  const { entidadId, modo, fechaDesde, fechaHasta, extremosInclusivos, origenLocalId, origenPuntoDeVentaId, destinos } =
+    parsed.data;
 
   const vigenciaNueva: ReglaVigencia = {
     modo,
@@ -43,7 +44,20 @@ export async function POST(request: NextRequest) {
   try {
     const { regla, comprasAfectadas } = await prisma.$transaction(
       async (tx) => {
-        await verificarSinSuperposicion(tx, entidadId, vigenciaNueva);
+        // Si vino solo puntoDeVentaId, completa origenLocalId antes de chequear
+        // superposición y persistir — el filtro del motor usa origenLocalId
+        // para el caso "todo el local".
+        const origen = await resolverLocalIdOrigen(tx, {
+          origenLocalId: origenLocalId ?? null,
+          origenPuntoDeVentaId: origenPuntoDeVentaId ?? null,
+        });
+
+        // verificarSinSuperposicion usa el shape { localId, puntoDeVentaId },
+        // distinto del { origenLocalId, origenPuntoDeVentaId } del resto del motor.
+        await verificarSinSuperposicion(tx, entidadId, vigenciaNueva, {
+          localId: origen.origenLocalId,
+          puntoDeVentaId: origen.origenPuntoDeVentaId,
+        });
 
         const destinosResueltos = await resolverLocalIdDestinos(
           tx,
@@ -58,6 +72,8 @@ export async function POST(request: NextRequest) {
           data: {
             nivel: "concepto",
             entidadId,
+            origenLocalId: origen.origenLocalId,
+            origenPuntoDeVentaId: origen.origenPuntoDeVentaId,
             modo,
             fechaDesde: vigenciaNueva.fechaDesde,
             fechaHasta: vigenciaNueva.fechaHasta,
@@ -78,6 +94,7 @@ export async function POST(request: NextRequest) {
           reglaId: regla.id,
           entidadId,
           vigencia: vigenciaNueva,
+          origen: { origenLocalId: origen.origenLocalId, origenPuntoDeVentaId: origen.origenPuntoDeVentaId },
           // Number(x.toString()), no Number(x) directo — mismo patrón que pivot usa.
           destinos: regla.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
         });

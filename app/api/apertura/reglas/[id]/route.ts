@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { patchReglaSchema } from "@/lib/apertura/schemas";
-import { aplicarRegla, revertirRegla, resolverLocalIdDestinos, verificarSinSuperposicion, SuperposicionError } from "@/lib/apertura/motor";
+import { aplicarRegla, revertirRegla, resolverLocalIdDestinos, resolverLocalIdOrigen, verificarSinSuperposicion, SuperposicionError } from "@/lib/apertura/motor";
 import type { ReglaVigencia } from "@/lib/apertura/vigencia";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +41,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // período de la regla, incluyendo históricos ("lo que manda es la fecha de
   // la regla siempre"). Se implementa como revertir + reaplicar completo —
   // más simple y correcto que un diff parcial, resultado final idéntico.
-  const { modo, fechaDesde, fechaHasta, extremosInclusivos, destinos } = parsed.data;
+  const { modo, fechaDesde, fechaHasta, extremosInclusivos, origenLocalId, origenPuntoDeVentaId, destinos } = parsed.data;
   const vigenciaNueva: ReglaVigencia = {
     modo,
     fechaDesde: fechaDesde ? new Date(fechaDesde) : null,
@@ -52,9 +52,24 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const { regla, comprasAfectadas } = await prisma.$transaction(
       async (tx) => {
+        // Si vino solo puntoDeVentaId, completa origenLocalId antes de chequear
+        // superposición y persistir — el filtro del motor usa origenLocalId
+        // para el caso "todo el local".
+        const origen = await resolverLocalIdOrigen(tx, {
+          origenLocalId: origenLocalId ?? null,
+          origenPuntoDeVentaId: origenPuntoDeVentaId ?? null,
+        });
+
         // excluirId = id de esta misma regla, para no chocar contra su propia
-        // vigencia vieja mientras se recalcula.
-        await verificarSinSuperposicion(tx, existente.entidadId, vigenciaNueva, id);
+        // vigencia vieja mientras se recalcula. verificarSinSuperposicion usa el
+        // shape { localId, puntoDeVentaId }, distinto del resto del motor.
+        await verificarSinSuperposicion(
+          tx,
+          existente.entidadId,
+          vigenciaNueva,
+          { localId: origen.origenLocalId, puntoDeVentaId: origen.origenPuntoDeVentaId },
+          id
+        );
 
         await revertirRegla(tx, id);
         await tx.destinoRegla.deleteMany({ where: { reglaId: id } });
@@ -71,6 +86,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         const regla = await tx.reglaApertura.update({
           where: { id },
           data: {
+            origenLocalId: origen.origenLocalId,
+            origenPuntoDeVentaId: origen.origenPuntoDeVentaId,
             modo,
             fechaDesde: vigenciaNueva.fechaDesde,
             fechaHasta: vigenciaNueva.fechaHasta,
@@ -97,6 +114,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           reglaId: regla.id,
           entidadId: existente.entidadId,
           vigencia: vigenciaNueva,
+          origen: { origenLocalId: origen.origenLocalId, origenPuntoDeVentaId: origen.origenPuntoDeVentaId },
           // Number(x.toString()), no Number(x) directo — mismo patrón que pivot usa.
           destinos: regla.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
         });
