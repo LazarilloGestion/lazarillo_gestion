@@ -274,6 +274,11 @@ export async function aplicarReglaACompra(
   prisma: AperturaDbClient,
   input: { reglaId: number; rowId: string; importeBase: number; destinos: DestinoPct[] }
 ): Promise<void> {
+  // Sin destinos no hay nada que distribuir y `Prisma.join([])` tiraría — mismo
+  // guard que el hermano aplicarRegla hace con `filas.length === 0`. Solo
+  // alcanzable con una regla malformada, pero es defensa barata.
+  if (input.destinos.length === 0) return;
+
   const importeBase = Math.round(input.importeBase * 100) / 100;
   const distribuciones = calcularDistribuciones(importeBase, input.destinos);
   const porcentajePorDestino = new Map(input.destinos.map((d) => [d.id, d.porcentaje]));

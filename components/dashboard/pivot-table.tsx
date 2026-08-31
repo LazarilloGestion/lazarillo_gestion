@@ -254,7 +254,7 @@ export function PivotTable() {
                           <TooltipContent className="text-xs">
                             <div className="font-medium">100% · {fmtARS(comp.total)}</div>
                             {comp.destinos.map((d, i) => (
-                              <div key={i} className="text-muted-foreground">
+                              <div key={i} className="text-background/70">
                                 {d.pct}% {d.nombre} {fmtARS(d.importe)}
                               </div>
                             ))}
