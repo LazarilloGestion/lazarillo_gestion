@@ -265,6 +265,37 @@ export async function aplicarRegla(
   return { comprasAfectadas: compras.length };
 }
 
+// Distribuye UNA sola compra según una regla ya resuelta — hermano acotado de
+// aplicarRegla, usado por reevaluarCompra (lib/apertura/reevaluacion.ts) tras
+// una edición manual. No corre el WHERE de condicionComprasElegibles: el
+// caller ya decidió que esta compra concreta cae en la regla. Siempre dentro
+// de $transaction (igual que el resto del motor).
+export async function aplicarReglaACompra(
+  prisma: AperturaDbClient,
+  input: { reglaId: number; rowId: string; importeBase: number; destinos: DestinoPct[] }
+): Promise<void> {
+  const importeBase = Math.round(input.importeBase * 100) / 100;
+  const distribuciones = calcularDistribuciones(importeBase, input.destinos);
+  const porcentajePorDestino = new Map(input.destinos.map((d) => [d.id, d.porcentaje]));
+
+  const filas = distribuciones.map(
+    (d) => Prisma.sql`(
+      ${input.rowId}, ${input.reglaId}, ${d.destinoId},
+      ${importeBase}::numeric, ${porcentajePorDestino.get(d.destinoId)}::numeric,
+      ${d.importeCalculado}::numeric
+    )`
+  );
+
+  await prisma.$executeRaw(Prisma.sql`
+    INSERT INTO distribuciones_apertura
+      ("compraRowId", "reglaId", "destinoId", "importeOriginal", porcentaje, "importeCalculado")
+    VALUES ${Prisma.join(filas)}
+  `);
+  await prisma.$executeRaw(Prisma.sql`
+    UPDATE compras SET "esDistribuido" = true, "distribuidoEn" = now() WHERE "rowId" = ${input.rowId}
+  `);
+}
+
 // Revierte todas las distribuciones de una regla: borra sus filas de
 // distribuciones_apertura y recalcula esDistribuido en las compras afectadas
 // según si les queda alguna OTRA distribución — más robusto que asumir que no

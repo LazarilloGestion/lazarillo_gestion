@@ -63,4 +63,11 @@ describe("calcularDistribuciones", () => {
     const result = calcularDistribuciones(750, [{ id: 1, porcentaje: 100 }]);
     expect(result).toEqual([{ destinoId: 1, importeCalculado: 750 }]);
   });
+
+  it("una sola compra: la suma de distribuciones es exactamente el importe base (invariante spec)", () => {
+    const destinos = [{ id: 1, porcentaje: 70 }, { id: 2, porcentaje: 10 }, { id: 3, porcentaje: 10 }, { id: 4, porcentaje: 10 }];
+    const dist = calcularDistribuciones(105704.01, destinos);
+    const suma = dist.reduce((acc, d) => acc + d.importeCalculado, 0);
+    expect(Math.round(suma * 100) / 100).toBe(105704.01);
+  });
 });
