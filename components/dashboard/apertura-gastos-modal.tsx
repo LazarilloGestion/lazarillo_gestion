@@ -17,6 +17,7 @@ import type { Local } from "@/lib/types/domain";
 import type { TimelineReglaInput } from "@/lib/apertura/timeline-layout";
 import { AperturaVigenciaSelector, type VigenciaFormState } from "./apertura-vigencia-selector";
 import { AperturaDestinoRow, type DestinoFormState } from "./apertura-destino-row";
+import { AperturaOrigenSelector, type OrigenFormState } from "./apertura-origen-selector";
 import { AperturaTimeline } from "./apertura-timeline";
 
 const VIGENCIA_VACIA: VigenciaFormState = {
@@ -30,6 +31,8 @@ const VIGENCIA_VACIA: VigenciaFormState = {
 function destinoVacio(): DestinoFormState {
   return { localId: null, puntoDeVentaId: null, porcentaje: 0 };
 }
+
+const ORIGEN_VACIO: OrigenFormState = { localId: null, puntoDeVentaId: null };
 
 function reglaAFormulario(regla: ReglaAperturaDTO): { vigencia: VigenciaFormState; destinos: DestinoFormState[] } {
   return {
@@ -75,6 +78,7 @@ export function AperturaGastosModal({
   const [editando, setEditando] = useState<ReglaAperturaDTO | null>(null);
   const [vigencia, setVigencia] = useState<VigenciaFormState>(VIGENCIA_VACIA);
   const [destinos, setDestinos] = useState<DestinoFormState[]>([destinoVacio(), destinoVacio()]);
+  const [origen, setOrigen] = useState<OrigenFormState>(ORIGEN_VACIO);
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
   const [reglaAEliminar, setReglaAEliminar] = useState<ReglaAperturaDTO | null>(null);
@@ -89,8 +93,25 @@ export function AperturaGastosModal({
   const { data: localesData } = useFetchQuery<Local[]>(["locales"], "/api/locales");
   const locales = localesData ?? [];
 
+  // Nombres legibles para la línea de origen de cada card. Vive dentro del
+  // componente porque depende de `locales` (lista remota).
+  function resumenOrigen(regla: ReglaAperturaDTO): string {
+    const local = locales.find((l) => l.id === regla.origenLocalId);
+    if (regla.origenPuntoDeVentaId != null) {
+      const pv = local?.puntosDeVenta.find((p) => p.id === regla.origenPuntoDeVentaId);
+      return `Origen: ${pv?.nombre ?? "PDV"}`;
+    }
+    return `Origen: ${local?.nombre ?? "Local"} (todo el local)`;
+  }
+
+  // El origen queda "completo" con solo el local elegido — el punto de venta es
+  // opcional ("todo el local"). El backend (validarOrigen) exige al menos uno de
+  // los dos, así que sin local no hay preview ni guardado posible.
+  const origenCompleto = origen.localId != null;
+
   const vigenciaCompletaParaPreview =
     conceptoCodigo != null &&
+    origenCompleto &&
     (vigencia.modo === "historico" ||
       (vigencia.modo === "entre_fechas" && vigencia.fechaDesde !== "" && vigencia.fechaHasta !== "") ||
       (vigencia.modo === "desde_adelante" && vigencia.fechaDesde !== "") ||
@@ -103,6 +124,8 @@ export function AperturaGastosModal({
     ? `/api/apertura/reglas/preview-total?${new URLSearchParams({
         entidadId: conceptoCodigo!,
         ...(editando ? { reglaId: String(editando.id) } : {}),
+        ...(origen.localId != null ? { origenLocalId: String(origen.localId) } : {}),
+        ...(origen.puntoDeVentaId != null ? { origenPuntoDeVentaId: String(origen.puntoDeVentaId) } : {}),
         modo: vigencia.modo,
         ...(vigencia.fechaDesde ? { fechaDesde: fechaISOConHora(vigencia.fechaDesde)! } : {}),
         ...(vigencia.fechaHasta ? { fechaHasta: fechaISOConHora(vigencia.fechaHasta)! } : {}),
@@ -113,7 +136,7 @@ export function AperturaGastosModal({
   const { data: previewData, isLoading: previewLoading } = useFetchQuery<{ total: number }>(
     // editando?.id en la key: crear y editar consultan totales distintos para
     // la misma vigencia, no pueden compartir entrada de caché.
-    ["apertura-preview-total", conceptoCodigo, editando?.id ?? null, vigencia.modo, vigencia.fechaDesde, vigencia.fechaHasta, vigencia.extremosInclusivos],
+    ["apertura-preview-total", conceptoCodigo, editando?.id ?? null, origen.localId, origen.puntoDeVentaId, vigencia.modo, vigencia.fechaDesde, vigencia.fechaHasta, vigencia.extremosInclusivos],
     previewUrl,
     { staleTime: 10_000 }
   );
@@ -139,6 +162,7 @@ export function AperturaGastosModal({
     setEditando(null);
     setVigencia(VIGENCIA_VACIA);
     setDestinos([destinoVacio(), destinoVacio()]);
+    setOrigen(ORIGEN_VACIO);
     setErrorGuardar(null);
     setView("formulario");
   }
@@ -148,6 +172,7 @@ export function AperturaGastosModal({
     setEditando(regla);
     setVigencia(v);
     setDestinos(d);
+    setOrigen({ localId: regla.origenLocalId, puntoDeVentaId: regla.origenPuntoDeVentaId });
     setErrorGuardar(null);
     setView("formulario");
   }
@@ -200,6 +225,8 @@ export function AperturaGastosModal({
       const usaFechaHasta = vigencia.modo === "entre_fechas" || vigencia.modo === "desde_atras";
 
       const cuerpoComun = {
+        origenLocalId: origen.localId,
+        origenPuntoDeVentaId: origen.puntoDeVentaId,
         modo: vigencia.modo,
         fechaDesde: usaFechaDesde ? fechaISOConHora(vigencia.fechaDesde) : null,
         fechaHasta: usaFechaHasta ? fechaISOConHora(vigencia.fechaHasta) : null,
@@ -342,6 +369,7 @@ export function AperturaGastosModal({
                         </span>
                       </div>
                       <span className="text-xs text-muted-foreground truncate">{resumenVigencia(regla)}</span>
+                      <span className="text-xs text-muted-foreground truncate">{resumenOrigen(regla)}</span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
@@ -386,6 +414,8 @@ export function AperturaGastosModal({
 
           {view === "formulario" && (
             <div className="flex flex-col gap-4">
+              <AperturaOrigenSelector value={origen} locales={locales} onChange={setOrigen} />
+
               <AperturaVigenciaSelector value={vigencia} onChange={setVigencia} />
 
               {reactivaRegla && (
@@ -460,6 +490,7 @@ export function AperturaGastosModal({
                     onClick={handleGuardar}
                     disabled={
                       guardando ||
+                      !origenCompleto ||
                       !sumaValida ||
                       !destinosCompletos ||
                       hayDuplicado ||
@@ -474,6 +505,7 @@ export function AperturaGastosModal({
                 {!guardando &&
                   (() => {
                     const motivos: string[] = [];
+                    if (!origenCompleto) motivos.push("elegí el origen de la regla");
                     if (!destinosCompletos) motivos.push("completá el local de cada destino");
                     if (hayDuplicado) motivos.push("no repitas el mismo local/punto de venta en dos destinos");
                     if (vigencia.modo === "historico" && !vigencia.confirmarHistorico) motivos.push("confirmá aplicar a todo el histórico");
