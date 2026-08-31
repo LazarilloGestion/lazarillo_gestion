@@ -32,6 +32,27 @@ export function resolverVigencia(regla: ReglaVigencia): VigenciaCondicion {
   }
 }
 
+// Puro — versión en memoria de vigenciaToSql, para decidir si UNA compra
+// concreta cae en la ventana de una regla (lib/apertura/reevaluacion.ts).
+// vigenciaToSql sigue siendo la fuente para el filtrado masivo en SQL; esta
+// función replica la MISMA semántica de extremos para el caso puntual.
+export function fechaEnVigencia(fecha: Date, regla: ReglaVigencia): boolean {
+  const cond = resolverVigencia(regla);
+  const t = fecha.getTime();
+  switch (cond.tipo) {
+    case "historico":
+      return true;
+    case "entre_fechas":
+      return cond.inclusivo
+        ? t >= cond.desde.getTime() && t <= cond.hasta.getTime()
+        : t > cond.desde.getTime() && t < cond.hasta.getTime();
+    case "desde_adelante":
+      return cond.inclusivo ? t >= cond.desde.getTime() : t > cond.desde.getTime();
+    case "desde_atras":
+      return cond.inclusivo ? t <= cond.hasta.getTime() : t < cond.hasta.getTime();
+  }
+}
+
 // Glue a Prisma.Sql — no testeado unitariamente (sin DB para verificar que el
 // SQL generado es correcto de punta a punta), la lógica de negocio ya está
 // cubierta por los tests de resolverVigencia(). fechaCol es la expresión SQL

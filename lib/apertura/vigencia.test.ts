@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolverVigencia, type ReglaVigencia } from "./vigencia";
+import { resolverVigencia, fechaEnVigencia, type ReglaVigencia } from "./vigencia";
 
 describe("resolverVigencia", () => {
   it("historico: no requiere fechas, siempre matchea", () => {
@@ -54,5 +54,33 @@ describe("resolverVigencia", () => {
   it("desde_atras sin fechaHasta: lanza error", () => {
     const regla: ReglaVigencia = { modo: "desde_atras", fechaDesde: null, fechaHasta: null, extremosInclusivos: true };
     expect(() => resolverVigencia(regla)).toThrow(/fechaHasta/);
+  });
+});
+
+describe("fechaEnVigencia", () => {
+  const entreEneEne: ReglaVigencia = {
+    modo: "entre_fechas", extremosInclusivos: true,
+    fechaDesde: new Date("2026-01-01"), fechaHasta: new Date("2026-01-31"),
+  };
+  it("historico: cualquier fecha", () => {
+    expect(fechaEnVigencia(new Date("1999-05-05"), { modo: "historico", fechaDesde: null, fechaHasta: null, extremosInclusivos: true })).toBe(true);
+  });
+  it("entre_fechas inclusivo: dentro true, fuera false, borde true", () => {
+    expect(fechaEnVigencia(new Date("2026-01-15"), entreEneEne)).toBe(true);
+    expect(fechaEnVigencia(new Date("2026-02-01"), entreEneEne)).toBe(false);
+    expect(fechaEnVigencia(new Date("2026-01-31"), entreEneEne)).toBe(true);
+  });
+  it("entre_fechas exclusivo: borde false", () => {
+    expect(fechaEnVigencia(new Date("2026-01-31"), { ...entreEneEne, extremosInclusivos: false })).toBe(false);
+  });
+  it("desde_adelante: fechas >= desde", () => {
+    const v: ReglaVigencia = { modo: "desde_adelante", extremosInclusivos: true, fechaDesde: new Date("2026-06-01"), fechaHasta: null };
+    expect(fechaEnVigencia(new Date("2026-06-01"), v)).toBe(true);
+    expect(fechaEnVigencia(new Date("2026-05-31"), v)).toBe(false);
+  });
+  it("desde_atras: fechas <= hasta", () => {
+    const v: ReglaVigencia = { modo: "desde_atras", extremosInclusivos: true, fechaDesde: null, fechaHasta: new Date("2026-06-30") };
+    expect(fechaEnVigencia(new Date("2026-06-30"), v)).toBe(true);
+    expect(fechaEnVigencia(new Date("2026-07-01"), v)).toBe(false);
   });
 });
