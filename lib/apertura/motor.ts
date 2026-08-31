@@ -22,6 +22,7 @@ interface AplicarReglaInput {
   entidadId: string;
   vigencia: ReglaVigencia;
   destinos: DestinoPct[];
+  origen: { origenLocalId: number | null; origenPuntoDeVentaId: number | null };
 }
 
 interface DestinoInput {
@@ -59,6 +60,22 @@ export async function resolverLocalIdDestinos(
       ? { ...d, localId: localIdPorPdv.get(d.puntoDeVentaId) ?? null }
       : d
   );
+}
+
+// Igual que resolverLocalIdDestinos pero para el ORIGEN único de una regla:
+// si vino solo puntoDeVentaId, completa el localId (PuntoDeVenta.localId es
+// NOT NULL) antes de persistir — el filtro del motor y el índice usan
+// origenLocalId para el caso "todo el local".
+export async function resolverLocalIdOrigen(
+  prisma: AperturaDbClient,
+  origen: { origenLocalId: number | null; origenPuntoDeVentaId: number | null }
+): Promise<{ origenLocalId: number | null; origenPuntoDeVentaId: number | null }> {
+  if (origen.origenLocalId != null || origen.origenPuntoDeVentaId == null) return origen;
+  const pdv = await prisma.puntoDeVenta.findUnique({
+    where: { id: origen.origenPuntoDeVentaId },
+    select: { localId: true },
+  });
+  return { ...origen, origenLocalId: pdv?.localId ?? null };
 }
 
 // Lanzado dentro del callback de $transaction cuando verificarSinSuperposicion
@@ -128,6 +145,7 @@ export async function verificarSinSuperposicion(
 export function condicionComprasElegibles(
   entidadId: string,
   vigenciaSql: Prisma.Sql,
+  origen: { origenLocalId: number | null; origenPuntoDeVentaId: number | null },
   reglaEnEdicionId?: number | null
 ): Prisma.Sql {
   const filtroDistribuido =
@@ -138,12 +156,20 @@ export function condicionComprasElegibles(
         ))`
       : Prisma.sql`c."esDistribuido" = false`;
 
+  // Origen: PDV puntual → solo ese PDV; solo local → todo el local. Una compra
+  // sin localId/puntoDeVentaId nunca matchea (spec sección 4.1).
+  const filtroOrigen =
+    origen.origenPuntoDeVentaId != null
+      ? Prisma.sql`c."puntoDeVentaId" = ${origen.origenPuntoDeVentaId}`
+      : Prisma.sql`c."localId" = ${origen.origenLocalId}`;
+
   return Prisma.sql`
     SELECT c."rowId", COALESCE(c."importeManual", c.importe) AS "importeBase"
     FROM compras c
     WHERE COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = ${entidadId}
       AND c."esBloqueado" = false
       AND ${filtroDistribuido}
+      AND ${filtroOrigen}
       AND COALESCE(c."importeManual", c.importe) IS NOT NULL
       AND (${vigenciaSql})
   `;
@@ -168,7 +194,7 @@ export async function aplicarRegla(
   const vigenciaSql = vigenciaToSql(cond, fechaEfectiva);
 
   const compras = await prisma.$queryRaw<{ rowId: string; importeBase: Prisma.Decimal }[]>(
-    condicionComprasElegibles(input.entidadId, vigenciaSql)
+    condicionComprasElegibles(input.entidadId, vigenciaSql, input.origen)
   );
 
   if (compras.length === 0) return { comprasAfectadas: 0 };
