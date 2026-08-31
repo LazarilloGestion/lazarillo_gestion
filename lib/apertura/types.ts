@@ -17,6 +17,8 @@ export interface ReglaAperturaDTO {
   id: number;
   nivel: string;
   entidadId: string;
+  origenLocalId: number | null;
+  origenPuntoDeVentaId: number | null;
   modo: ModoVigenciaApi;
   fechaDesde: string | null;
   fechaHasta: string | null;

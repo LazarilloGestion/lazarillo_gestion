@@ -112,6 +112,7 @@ export async function sincronizarTrasImport(
             reglaId: regla.id,
             entidadId: regla.entidadId,
             vigencia,
+            origen: { origenLocalId: regla.origenLocalId, origenPuntoDeVentaId: regla.origenPuntoDeVentaId },
             destinos: regla.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
           });
         },
