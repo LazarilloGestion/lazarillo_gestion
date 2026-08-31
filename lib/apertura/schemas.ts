@@ -22,8 +22,28 @@ export const camposVigenciaFecha = {
   extremosInclusivos: z.boolean().default(true),
 };
 
+// Origen (local/PDV) — al menos uno seteado, misma semántica que destinoSchema.
+export const camposOrigen = {
+  origenLocalId: z.number().int().positive().nullable().optional(),
+  origenPuntoDeVentaId: z.number().int().positive().nullable().optional(),
+};
+
+function validarOrigen(
+  data: { origenLocalId?: number | null; origenPuntoDeVentaId?: number | null },
+  ctx: z.RefinementCtx
+) {
+  if (data.origenLocalId == null && data.origenPuntoDeVentaId == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "La regla requiere un origen: origenLocalId o origenPuntoDeVentaId",
+      path: ["origenLocalId"],
+    });
+  }
+}
+
 const camposVigencia = {
   ...camposVigenciaFecha,
+  ...camposOrigen,
   destinos: z.array(destinoSchema).min(1),
   confirmarHistorico: z.boolean().optional(),
 };
@@ -59,6 +79,8 @@ function validarCuerpoRegla(
     fechaHasta?: string | null;
     destinos: { localId?: number | null; puntoDeVentaId?: number | null; porcentaje: number }[];
     confirmarHistorico?: boolean;
+    origenLocalId?: number | null;
+    origenPuntoDeVentaId?: number | null;
   },
   ctx: z.RefinementCtx
 ) {
@@ -88,6 +110,7 @@ function validarCuerpoRegla(
       path: ["confirmarHistorico"],
     });
   }
+  validarOrigen(data, ctx);
 }
 
 export const crearReglaSchema = z
@@ -127,8 +150,13 @@ export const previewTotalQuerySchema = z
   .object({
     entidadId: z.string().min(1).max(50),
     reglaId: z.coerce.number().int().positive().optional(),
+    origenLocalId: z.coerce.number().int().positive().nullable().optional(),
+    origenPuntoDeVentaId: z.coerce.number().int().positive().nullable().optional(),
     ...camposVigenciaFecha,
   })
-  .superRefine(validarFechasPorModo);
+  .superRefine((data, ctx) => {
+    validarFechasPorModo(data, ctx);
+    validarOrigen(data, ctx);
+  });
 
 export type PreviewTotalQuery = z.infer<typeof previewTotalQuerySchema>;

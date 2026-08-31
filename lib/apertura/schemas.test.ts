@@ -6,6 +6,8 @@ const destinosOk = [
   { localId: 2, porcentaje: 40 },
 ];
 
+const baseWithOrigen = { origenLocalId: 1 };
+
 describe("crearReglaSchema", () => {
   it("acepta un cuerpo válido en modo entre_fechas", () => {
     const result = crearReglaSchema.safeParse({
@@ -15,6 +17,7 @@ describe("crearReglaSchema", () => {
       fechaHasta: "2026-01-31T00:00:00Z",
       extremosInclusivos: true,
       destinos: destinosOk,
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(true);
   });
@@ -25,6 +28,7 @@ describe("crearReglaSchema", () => {
       modo: "historico",
       confirmarHistorico: true,
       destinos: [{ localId: 1, porcentaje: 60 }, { localId: 2, porcentaje: 30 }],
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(false);
   });
@@ -34,6 +38,7 @@ describe("crearReglaSchema", () => {
       entidadId: "17",
       modo: "historico",
       destinos: destinosOk,
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(false);
   });
@@ -44,6 +49,7 @@ describe("crearReglaSchema", () => {
       modo: "historico",
       confirmarHistorico: true,
       destinos: destinosOk,
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(true);
   });
@@ -54,6 +60,7 @@ describe("crearReglaSchema", () => {
       modo: "entre_fechas",
       fechaDesde: "2026-01-01T00:00:00Z",
       destinos: destinosOk,
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(false);
   });
@@ -63,6 +70,7 @@ describe("crearReglaSchema", () => {
       entidadId: "17",
       modo: "desde_adelante",
       destinos: destinosOk,
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(false);
   });
@@ -73,6 +81,7 @@ describe("crearReglaSchema", () => {
       modo: "historico",
       confirmarHistorico: true,
       destinos: [{ porcentaje: 100 }],
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(false);
   });
@@ -83,6 +92,7 @@ describe("crearReglaSchema", () => {
       modo: "historico",
       confirmarHistorico: true,
       destinos: [],
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(false);
   });
@@ -93,6 +103,7 @@ describe("crearReglaSchema", () => {
       modo: "historico",
       confirmarHistorico: true,
       destinos: destinosOk,
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(false);
   });
@@ -106,6 +117,7 @@ describe("crearReglaSchema", () => {
         { localId: 1, puntoDeVentaId: 5, porcentaje: 50 },
         { localId: 1, puntoDeVentaId: 5, porcentaje: 50 },
       ],
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(false);
   });
@@ -119,6 +131,7 @@ describe("crearReglaSchema", () => {
         { localId: 1, puntoDeVentaId: 5, porcentaje: 50 },
         { localId: 1, porcentaje: 50 },
       ],
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(false);
   });
@@ -136,6 +149,7 @@ describe("patchReglaSchema", () => {
       modo: "desde_adelante",
       fechaDesde: "2026-03-01T00:00:00Z",
       destinos: destinosOk,
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(true);
   });
@@ -146,6 +160,7 @@ describe("patchReglaSchema", () => {
       modo: "desde_adelante",
       fechaDesde: "2026-03-01T00:00:00Z",
       destinos: [{ localId: 1, porcentaje: 50 }],
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(false);
   });
@@ -163,7 +178,7 @@ describe("patchReglaSchema", () => {
 
 describe("previewTotalQuerySchema", () => {
   it("acepta modo historico con solo entidadId (sin confirmarHistorico — no aplica al preview)", () => {
-    const result = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "historico" });
+    const result = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "historico", ...baseWithOrigen });
     expect(result.success).toBe(true);
   });
 
@@ -173,22 +188,50 @@ describe("previewTotalQuerySchema", () => {
       modo: "entre_fechas",
       fechaDesde: "2026-01-01T00:00:00Z",
       fechaHasta: "2026-01-31T00:00:00Z",
+      ...baseWithOrigen,
     });
     expect(result.success).toBe(true);
   });
 
   it("rechaza desde_adelante sin fechaDesde", () => {
-    const result = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "desde_adelante" });
+    const result = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "desde_adelante", ...baseWithOrigen });
     expect(result.success).toBe(false);
   });
 
   it("rechaza desde_atras sin fechaHasta", () => {
-    const result = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "desde_atras" });
+    const result = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "desde_atras", ...baseWithOrigen });
     expect(result.success).toBe(false);
   });
 
   it("rechaza entidadId vacío", () => {
-    const result = previewTotalQuerySchema.safeParse({ entidadId: "", modo: "historico" });
+    const result = previewTotalQuerySchema.safeParse({ entidadId: "", modo: "historico", ...baseWithOrigen });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("origen de la regla", () => {
+  const base = {
+    entidadId: "17", modo: "historico" as const, confirmarHistorico: true,
+    destinos: [{ localId: 1, porcentaje: 60 }, { localId: 2, porcentaje: 40 }],
+  };
+  it("acepta origen con solo origenLocalId", () => {
+    expect(crearReglaSchema.safeParse({ ...base, origenLocalId: 1 }).success).toBe(true);
+  });
+  it("acepta origen con origenPuntoDeVentaId", () => {
+    expect(crearReglaSchema.safeParse({ ...base, origenPuntoDeVentaId: 10 }).success).toBe(true);
+  });
+  it("rechaza cuerpo sin ningún campo de origen", () => {
+    expect(crearReglaSchema.safeParse(base).success).toBe(false);
+  });
+  it("rechaza origen con ambos campos en null", () => {
+    expect(crearReglaSchema.safeParse({ ...base, origenLocalId: null, origenPuntoDeVentaId: null }).success).toBe(false);
+  });
+  it("previewTotalQuerySchema coerce origenLocalId de string", () => {
+    const r = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "historico", origenLocalId: "3" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.origenLocalId).toBe(3);
+  });
+  it("previewTotalQuerySchema rechaza sin origen", () => {
+    expect(previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "historico" }).success).toBe(false);
   });
 });
