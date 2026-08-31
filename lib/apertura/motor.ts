@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { calcularDistribuciones, type DestinoPct } from "./calculo";
 import { resolverVigencia, vigenciaToSql, type ReglaVigencia } from "./vigencia";
-import { encontrarSuperposicion } from "./validaciones";
+import { encontrarSuperposicion, origenesSuperpuestos } from "./validaciones";
 
 // Mismo shape que lib/etl/types.ts DbClient, redeclarado localmente para no
 // acoplar lib/apertura/ (dominio de negocio) a lib/etl/ (dominio de import) —
@@ -101,6 +101,7 @@ export async function verificarSinSuperposicion(
   prisma: AperturaDbClient,
   entidadId: string,
   vigenciaNueva: ReglaVigencia,
+  origenNuevo: { localId: number | null; puntoDeVentaId: number | null },
   excluirId?: number
 ): Promise<void> {
   const existentes = await prisma.reglaApertura.findMany({
@@ -110,11 +111,25 @@ export async function verificarSinSuperposicion(
       estado: "activa",
       ...(excluirId != null ? { NOT: { id: excluirId } } : {}),
     },
-    select: { id: true, modo: true, fechaDesde: true, fechaHasta: true, extremosInclusivos: true },
+    select: {
+      id: true, modo: true, fechaDesde: true, fechaHasta: true, extremosInclusivos: true,
+      origenLocalId: true, origenPuntoDeVentaId: true,
+    },
   });
+
+  // Solo chocan las reglas cuyo ORIGEN compite por la misma plata que el
+  // nuevo — dos reglas del mismo concepto para PDV distintos pueden coexistir
+  // con fechas solapadas (spec sección 5).
+  const conOrigenSolapado = existentes.filter((r) =>
+    origenesSuperpuestos(
+      { localId: origenNuevo.localId, puntoDeVentaId: origenNuevo.puntoDeVentaId },
+      { localId: r.origenLocalId, puntoDeVentaId: r.origenPuntoDeVentaId }
+    )
+  );
+
   const conflictoId = encontrarSuperposicion(
     vigenciaNueva,
-    existentes.map((r) => ({
+    conOrigenSolapado.map((r) => ({
       id: r.id,
       modo: r.modo as ReglaVigencia["modo"],
       fechaDesde: r.fechaDesde,
