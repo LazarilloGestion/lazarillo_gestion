@@ -3,7 +3,7 @@ import { useState, useMemo, useCallback } from "react";
 import { notify } from "@/lib/toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
-import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare, Pencil } from "lucide-react";
+import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -24,6 +24,8 @@ import {
 } from "./edit-row-controls";
 import { CompraLineasModal } from "./compra-lineas-modal";
 import { DetalleModalShell } from "./detalle-modal-shell";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 
 export interface ColDef {
   label: string;
@@ -42,6 +44,15 @@ type RubroOption = { codigo: string; nombre: string };
 
 type EditState = {
   rowId: string;
+  // Una compra distribuida se abre en N filas de fan-out con el mismo rowId
+  // (v_compras_distribuidas) — distribucionId desambigua cuál fila está en
+  // edición para que el formulario no aparezca en las N a la vez.
+  distribucionId: number | null;
+  // La fila de fan-out solo trae su porción del importe (importeCalculado del
+  // destino), no el importe de la compra base — con esto el guardado omite
+  // importeManual para no pisar la compra base con una fracción, y el input de
+  // importe queda bloqueado en edición.
+  esDistribuida: boolean;
   importeManual: string;
   fechaManual: string;
   conceptoCodigoManual: string;
@@ -202,7 +213,7 @@ function ComprasRow({
   saving: boolean;
   onOpenLineas: (rowId: string, detalle: string | null) => void;
 }) {
-  const isEditing = editing?.rowId === item.rowId;
+  const isEditing = editing?.rowId === item.rowId && editing.distribucionId === item.distribucionId;
   const effectiveFecha = item.fechaManual ?? item.fecha;
   const effectiveImporte = item.importeManual ?? item.importe;
   const effectiveConcepto = item.conceptoCajaManual ?? item.conceptoCaja;
@@ -270,13 +281,33 @@ function ComprasRow({
           />
         </td>
         <td className="px-2 py-1.5 text-right">
-          <Input
-            type="number"
-            step="0.01"
-            className="h-7 text-xs w-28 text-right"
-            value={editing!.importeManual}
-            onChange={e => onEdit({ ...editing!, importeManual: e.target.value })}
-          />
+          {editing!.esDistribuida ? (
+            // El importe de una compra distribuida se maneja desde la regla de
+            // apertura (reparto por porcentaje), no editándolo acá — esta fila
+            // solo conoce su fracción.
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-block">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    disabled
+                    className="h-7 text-xs w-28 text-right"
+                    value={editing!.importeManual}
+                  />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>El importe de una compra distribuida se ajusta desde la regla de apertura, no acá.</TooltipContent>
+            </Tooltip>
+          ) : (
+            <Input
+              type="number"
+              step="0.01"
+              className="h-7 text-xs w-28 text-right"
+              value={editing!.importeManual}
+              onChange={e => onEdit({ ...editing!, importeManual: e.target.value })}
+            />
+          )}
         </td>
         <td className="px-2 py-1.5">
           <EditActionButtons onSave={() => onSave(editing!)} onCancel={onCancel} saving={saving} />
@@ -325,31 +356,31 @@ function ComprasRow({
         {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
       </td>
       <td className="px-2 py-1.5">
-        {item.distribucionId == null && !item.esDistribuido ? (
-          <EditTriggerButton
-            onClick={() => {
-              const initialConcepto = item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "";
-              const initialRubro = conceptoOptions.find(o => o.codigo === initialConcepto)?.rubroCodigo ?? SIN_RUBRO_CODE;
-              onEdit({
-                rowId: String(item.rowId),
-                importeManual: toEditString(item.importeManual ?? item.importe),
-                fechaManual: toDateInputValue(item.fechaManual ?? item.fecha),
-                conceptoCodigoManual: initialConcepto,
-                observacManual: item.observacManual ?? "",
-                rubroFiltro: initialRubro,
-              });
-            }}
-          />
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground/30 cursor-default">
-                <Pencil className="h-3 w-3" />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Esta compra está distribuida por una regla de apertura de gastos — editá o revertí la regla en vez de editar la compra.</TooltipContent>
-          </Tooltip>
-        )}
+        {/* La edición ya está habilitada también para compras distribuidas: el
+            PATCH apunta siempre a la compra base (item.rowId) y dispara la
+            reevaluación de apertura. El importe queda bloqueado en el
+            formulario (se reparte por regla), el resto de los campos sí se
+            editan. "Ver líneas" sigue aparte y deshabilitado para distribuidas. */}
+        <EditTriggerButton
+          onClick={() => {
+            const esDistribuida = item.esDistribuido || item.distribucionId != null;
+            const initialConcepto = item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "";
+            const initialRubro = conceptoOptions.find(o => o.codigo === initialConcepto)?.rubroCodigo ?? SIN_RUBRO_CODE;
+            onEdit({
+              rowId: String(item.rowId),
+              distribucionId: item.distribucionId,
+              esDistribuida,
+              // En una fila de fan-out `item.importe` es solo la porción del
+              // destino — no se prellena para no dar a entender que ese es el
+              // importe editable de la compra base.
+              importeManual: esDistribuida ? "" : toEditString(item.importeManual ?? item.importe),
+              fechaManual: toDateInputValue(item.fechaManual ?? item.fecha),
+              conceptoCodigoManual: initialConcepto,
+              observacManual: item.observacManual ?? "",
+              rubroFiltro: initialRubro,
+            });
+          }}
+        />
       </td>
     </tr>
   );
@@ -357,17 +388,22 @@ function ComprasRow({
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
-// Distingue "el PATCH respondió con un error accionable" (ej. el guard 409 de
-// compra distribuida) de cualquier otro fallo (red, refetch) — solo el primero
-// muestra su mensaje real al usuario, ver handleSave.
+// Distingue "el PATCH respondió con un error accionable" (ej. un 4xx del
+// servidor con mensaje) de cualquier otro fallo (red, refetch) — solo el
+// primero muestra su mensaje real al usuario, ver guardarConfirmado.
 class GuardError extends Error {}
 
 export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter | null; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const { reglas: reglasApertura } = useReglasApertura();
   const [editing, setEditing] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [selectedLineas, setSelectedLineas] = useState<{ rowId: string; detalle: string | null } | null>(null);
+  // Guardado pendiente de confirmación del usuario: la edición dispara un
+  // recálculo de apertura (compra distribuida o concepto nuevo con regla
+  // activa) y se le pide OK antes de mandar el PATCH.
+  const [pendienteConfirmacion, setPendienteConfirmacion] = useState<EditState | null>(null);
 
   // Retain last non-null filter so queryKey (and cached data) stay stable during close animation
   const [stableFilter, setStableFilter] = useState(filter);
@@ -402,12 +438,17 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     [suggestions]
   );
 
-  const handleSave = useCallback(async (state: EditState) => {
+  const guardarConfirmado = useCallback(async (state: EditState) => {
     setSaving(true);
     setSaveError(null);
     try {
       const requestBody = {
-        importeManual:        state.importeManual !== "" ? parseFloat(state.importeManual) : null,
+        // En una compra distribuida el importe se reparte por regla — no se
+        // manda importeManual para no pisar la compra base con la fracción de
+        // un destino (el input queda bloqueado en el formulario).
+        ...(state.esDistribuida
+          ? {}
+          : { importeManual: state.importeManual !== "" ? parseFloat(state.importeManual) : null }),
         fechaManual:          state.fechaManual !== "" ? new Date(state.fechaManual + "T12:00:00Z").toISOString() : null,
         conceptoCodigoManual: state.conceptoCodigoManual !== "" ? state.conceptoCodigoManual : null,
         observacManual:       state.observacManual !== "" ? state.observacManual : null,
@@ -440,6 +481,10 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
       await Promise.all([
         queryClient.refetchQueries({ queryKey }),
         queryClient.refetchQueries({ queryKey: ["pivot"] }),
+        // La reevaluación de apertura puede haber creado/revertido
+        // distribuciones — el badge de "regla activa" y la línea de tiempo
+        // leen de ["apertura-reglas"].
+        queryClient.invalidateQueries({ queryKey: ["apertura-reglas"] }),
       ]);
     } catch (err) {
       console.error("[compras-detalle-modal] guardado OK pero falló el refetch posterior", err);
@@ -448,6 +493,21 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     notify.registroActualizado();
     setSaving(false);
   }, [queryClient, queryKey]);
+
+  // Decide si el guardado necesita confirmación: compra distribuida (se
+  // recalcula el reparto) o concepto nuevo con una regla de apertura activa
+  // (el guardado va a distribuir la compra).
+  const handleSave = useCallback((state: EditState) => {
+    const conceptoNuevo = state.conceptoCodigoManual;
+    const requiereConfirmacion =
+      state.esDistribuida ||
+      (!!conceptoNuevo && reglasApertura.some((r) => r.estado === "activa" && r.entidadId === conceptoNuevo));
+    if (requiereConfirmacion) {
+      setPendienteConfirmacion(state);
+    } else {
+      void guardarConfirmado(state);
+    }
+  }, [reglasApertura, guardarConfirmado]);
 
   const searchFields = useCallback((item: CompraDetalle) => [
     item.proveedor,
@@ -485,10 +545,10 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
           // distribucionId ?? rowId: una compra distribuida en N destinos
           // genera N objetos CompraDetalle con el mismo rowId (fan-out de
           // v_compras_distribuidas) — sin esto, React ve keys duplicadas.
-          // isEditing (más abajo, sin cambios) sigue comparando por rowId sin
-          // riesgo: el trigger de edición está deshabilitado en toda fila con
-          // distribucionId != null (Step 3), así que `editing` nunca se
-          // setea desde una fila cuyo rowId está duplicado en esta lista.
+          // Ahora que la edición también está habilitada para distribuidas,
+          // isEditing compara rowId + distribucionId (ver ComprasRow) para que
+          // el formulario aparezca solo en la fila que el usuario abrió, no en
+          // las N que comparten rowId.
           <ComprasRow
             key={item.distribucionId != null ? `d-${item.distribucionId}` : item.rowId}
             item={item}
@@ -508,6 +568,21 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         compraId={selectedLineas?.rowId ?? null}
         comprobante={selectedLineas?.detalle ?? null}
         onClose={() => setSelectedLineas(null)}
+      />
+      <ConfirmDialog
+        open={pendienteConfirmacion !== null}
+        // Cancelar solo cierra el diálogo: la fila queda en edición y no se
+        // manda ningún PATCH.
+        onOpenChange={(open) => { if (!open) setPendienteConfirmacion(null); }}
+        title="Recalcular apertura de gastos"
+        description="Esto va a recalcular la apertura de este registro según las reglas de apertura vigentes. ¿Confirmás?"
+        confirmLabel="Confirmar y guardar"
+        confirming={saving}
+        onConfirm={() => {
+          const state = pendienteConfirmacion;
+          setPendienteConfirmacion(null);
+          if (state) void guardarConfirmado(state);
+        }}
       />
     </>
   );
