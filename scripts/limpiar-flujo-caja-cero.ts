@@ -59,9 +59,22 @@ async function main() {
 
   if (rows.length === 0) return;
 
-  const borradas = await prisma.$executeRaw(Prisma.sql`
-    DELETE FROM "flujo_caja_manual" WHERE "monto" = 0
-  `);
+  // Borra exactamente las filas que el dry-run reportó (por su tupla única), no un
+  // DELETE table-wide — así "lo que se aprobó" y "lo que se borró" son lo mismo por
+  // construcción. El AND "monto" = 0 es un seguro extra por si una fila cambió entremedio.
+  const counts = await prisma.$transaction(
+    rows.map((r) =>
+      prisma.$executeRaw(Prisma.sql`
+        DELETE FROM "flujo_caja_manual"
+        WHERE "localId" IS NOT DISTINCT FROM ${r.localId}
+          AND "puntoDeVentaId" IS NOT DISTINCT FROM ${r.puntoDeVentaId}
+          AND "anio" = ${r.anio}
+          AND "mes" = ${r.mes}
+          AND "monto" = 0
+      `),
+    ),
+  );
+  const borradas = counts.reduce((a, b) => a + b, 0);
   console.log(`\nBorradas ${borradas} filas.`);
 
   const quedan = await prisma.$queryRaw<{ n: bigint }[]>(Prisma.sql`

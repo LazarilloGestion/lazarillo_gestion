@@ -52,9 +52,9 @@ export function computeDiferenciaCajaAcumulada(
     const m = serie[i];
     // Un disponible en 0 es "sin arqueo ese mes" (ver spec 2026-08-31), igual que null:
     // no aporta variación y no pisa la referencia del último arqueo conocido.
-    const tieneArqueo = m.disponible != null && m.disponible !== 0;
-    const deltaDisponible = tieneArqueo ? m.disponible! - referencia : 0;
-    if (tieneArqueo) referencia = m.disponible!;
+    const arqueo = m.disponible !== 0 ? m.disponible : null;
+    const deltaDisponible = arqueo != null ? arqueo - referencia : 0;
+    if (arqueo != null) referencia = arqueo;
     acc += deltaDisponible - ((m.ingresos - m.egresos) - m.ganancia);
     resultado[i] = acc;
   }

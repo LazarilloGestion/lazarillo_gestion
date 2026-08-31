@@ -149,14 +149,14 @@ describe("computeDiferenciaCajaAcumulada", () => {
       { anio: 2025, mes: 7, ingresos: 100, egresos: 40, ganancia: 20, disponible: 0 },   // jul
       { anio: 2025, mes: 8, ingresos: 100, egresos: 40, ganancia: 20, disponible: 0 },   // ago
       { anio: 2025, mes: 9, ingresos: 100, egresos: 40, ganancia: 20, disponible: 500 }, // sep — primer arqueo real
-      { anio: 2025, mes: 10, ingresos: 120, egresos: 50, ganancia: 30, disponible: null }, // oct
+      { anio: 2025, mes: 10, ingresos: 120, egresos: 50, ganancia: 30, disponible: 0 }, // oct — otra fila fantasma, la visita el loop
     ];
     const resultado = computeDiferenciaCajaAcumulada(serie, { anio: 2025, mes: 9 });
     expect(resultado[0]).toBeNull(); // jun
     expect(resultado[1]).toBeNull(); // jul
     expect(resultado[2]).toBeNull(); // ago
     expect(resultado[3]).toBeNull(); // sep, mes del primer arqueo
-    // oct: primer valor calculado. referencia = disponible[sep] = 500, oct sin arqueo -> delta 0
+    // oct con disponible 0 -> tratado como sin arqueo (0 ≡ null). referencia = disponible[sep] = 500, delta 0
     // contribución = 0 - ((120-50)-30) = -40
     expect(resultado[4]).toBe(-40);
   });
