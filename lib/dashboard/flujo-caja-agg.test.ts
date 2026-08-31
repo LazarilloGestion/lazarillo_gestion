@@ -79,4 +79,21 @@ describe("aggregateFlujoCajaPorMes", () => {
     );
     expect(meses[9]).toBeNull();
   });
+
+  it("nivel local presente que neteo a 0 (ej. +500 y -500) le gana al PDV: devuelve 0, no cae al PDV", () => {
+    const rows: FlujoCajaRow[] = [
+      { localId: 1, puntoDeVentaId: null, mes: 5, monto: 500 },
+      { localId: 1, puntoDeVentaId: null, mes: 5, monto: -500 },
+      { localId: 1, puntoDeVentaId: 10, mes: 5, monto: 200 },
+    ];
+    const result = aggregateFlujoCajaPorMes(rows);
+    expect(result[5]).toBe(0);
+  });
+
+  it("un monto negativo es un arqueo válido, no se filtra como 'sin dato'", () => {
+    const meses = aggregateFlujoCajaPorMes(
+      [{ localId: 2, puntoDeVentaId: null, mes: 4, monto: -300 }],
+    );
+    expect(meses[4]).toBe(-300);
+  });
 });
