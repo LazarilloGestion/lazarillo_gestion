@@ -69,6 +69,27 @@ export function destinosSuperpuestos(a: DestinoBasico, b: DestinoBasico): boolea
   return a.puntoDeVentaId === b.puntoDeVentaId;
 }
 
+// Alias semántico: dos ORÍGENES compiten por la misma plata bajo la misma
+// regla que dos destinos — mismo local y (mismo PDV puntual, o al menos uno
+// es "todo el local"). Se reexpone con nombre propio para que los callers de
+// superposición de reglas (motor.verificarSinSuperposicion) y el indicador
+// del dashboard lean la intención sin depender del nombre "destino".
+export function origenesSuperpuestos(a: DestinoBasico, b: DestinoBasico): boolean {
+  return destinosSuperpuestos(a, b);
+}
+
+// ¿Una compra ubicada en `ubicacion` cae bajo el `origen` de una regla?
+// origen con puntoDeVentaId → solo ese PDV; origen solo con localId → todo el
+// local. Una compra sin localId (dato de ubicación ausente) no la alcanza
+// ninguna regla — no hay forma de saber su origen (ver spec sección 4.1).
+export function origenAlcanza(
+  origen: DestinoBasico,
+  ubicacion: { localId: number | null; puntoDeVentaId: number | null }
+): boolean {
+  if (origen.puntoDeVentaId != null) return ubicacion.puntoDeVentaId === origen.puntoDeVentaId;
+  return ubicacion.localId != null && ubicacion.localId === origen.localId;
+}
+
 // Devuelve el índice de la primera fila que se superpone con una fila
 // anterior (ver destinosSuperpuestos), o null si no hay ninguna superposición.
 export function encontrarDestinoDuplicado(destinos: DestinoBasico[]): number | null {

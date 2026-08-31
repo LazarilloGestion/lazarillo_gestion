@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validarSumaPorcentajes, encontrarSuperposicion, encontrarDestinoDuplicado } from "./validaciones";
+import { validarSumaPorcentajes, encontrarSuperposicion, encontrarDestinoDuplicado, origenesSuperpuestos, origenAlcanza } from "./validaciones";
 import type { ReglaVigencia } from "./vigencia";
 
 describe("validarSumaPorcentajes", () => {
@@ -154,5 +154,34 @@ describe("encontrarDestinoDuplicado", () => {
 
   it("sin destinos: no hay duplicado", () => {
     expect(encontrarDestinoDuplicado([])).toBeNull();
+  });
+});
+
+describe("origenesSuperpuestos", () => {
+  it("mismo PDV puntual del mismo local: compiten", () => {
+    expect(origenesSuperpuestos({ localId: 1, puntoDeVentaId: 10 }, { localId: 1, puntoDeVentaId: 10 })).toBe(true);
+  });
+  it("PDV puntual vs 'todo el local' del mismo local: compiten", () => {
+    expect(origenesSuperpuestos({ localId: 1, puntoDeVentaId: 10 }, { localId: 1, puntoDeVentaId: null })).toBe(true);
+  });
+  it("PDV distintos del mismo local: no compiten", () => {
+    expect(origenesSuperpuestos({ localId: 1, puntoDeVentaId: 10 }, { localId: 1, puntoDeVentaId: 20 })).toBe(false);
+  });
+  it("locales distintos: no compiten", () => {
+    expect(origenesSuperpuestos({ localId: 1, puntoDeVentaId: null }, { localId: 2, puntoDeVentaId: null })).toBe(false);
+  });
+});
+
+describe("origenAlcanza", () => {
+  it("origen = PDV puntual: alcanza solo a las compras de ese PDV", () => {
+    expect(origenAlcanza({ localId: 1, puntoDeVentaId: 10 }, { localId: 1, puntoDeVentaId: 10 })).toBe(true);
+    expect(origenAlcanza({ localId: 1, puntoDeVentaId: 10 }, { localId: 1, puntoDeVentaId: 20 })).toBe(false);
+  });
+  it("origen = todo el local: alcanza a cualquier compra de ese local", () => {
+    expect(origenAlcanza({ localId: 1, puntoDeVentaId: null }, { localId: 1, puntoDeVentaId: 20 })).toBe(true);
+    expect(origenAlcanza({ localId: 1, puntoDeVentaId: null }, { localId: 2, puntoDeVentaId: 99 })).toBe(false);
+  });
+  it("compra sin local asignado: no la alcanza ningún origen", () => {
+    expect(origenAlcanza({ localId: 1, puntoDeVentaId: null }, { localId: null, puntoDeVentaId: null })).toBe(false);
   });
 });
