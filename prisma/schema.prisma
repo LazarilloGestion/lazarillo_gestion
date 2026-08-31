@@ -18,6 +18,7 @@ model Local {
   detallesCompra  DetalleCompra[]
   flujoCajaManual FlujoCajaManual[]
   destinosRegla   DestinoRegla[]
+  reglasOrigen    ReglaApertura[]  @relation("reglaOrigenLocal")
 
   @@map("locales")
 }
@@ -32,6 +33,7 @@ model PuntoDeVenta {
   ventas          Venta[]
   flujoCajaManual FlujoCajaManual[]
   destinosRegla   DestinoRegla[]
+  reglasOrigen    ReglaApertura[]   @relation("reglaOrigenPdv")
 
   @@unique([nombre, localId])
   @@map("puntos_de_venta")
@@ -313,6 +315,13 @@ model ReglaApertura {
   nivel     String // 'concepto' en v1; 'proveedor' | 'registro' reservados para versiones futuras
   entidadId String // código de ConceptoCaja en v1
 
+  // Origen: local/PDV desde el que se creó la regla. Misma semántica que
+  // destinos_regla — origenPuntoDeVentaId seteado => ese PDV puntual; solo
+  // origenLocalId => todo el local. La regla solo aplica a compras de su
+  // origen (spec 2026-08-31, "Reglas de un PDV no se replican a otro").
+  origenLocalId        Int?
+  origenPuntoDeVentaId Int?
+
   modo               String // 'historico' | 'entre_fechas' | 'desde_adelante' | 'desde_atras'
   fechaDesde         DateTime?
   fechaHasta         DateTime?
@@ -322,10 +331,13 @@ model ReglaApertura {
   creadoPor String?
   creadoEn  DateTime @default(now())
 
+  origenLocal        Local?        @relation("reglaOrigenLocal", fields: [origenLocalId], references: [id])
+  origenPuntoDeVenta PuntoDeVenta? @relation("reglaOrigenPdv", fields: [origenPuntoDeVentaId], references: [id])
+
   destinos       DestinoRegla[]
   distribuciones DistribucionApertura[]
 
-  @@index([entidadId, nivel])
+  @@index([entidadId, nivel, origenLocalId, origenPuntoDeVentaId])
   @@map("reglas_apertura")
 }
 
