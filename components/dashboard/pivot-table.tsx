@@ -9,6 +9,8 @@ import { MONTHS } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
+import { origenAlcanza } from "@/lib/apertura/validaciones";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
 import { EditedDot } from "./edit-row-controls";
@@ -28,10 +30,22 @@ export function PivotTable() {
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
   const [aperturaConcepto, setAperturaConcepto] = useState<{ codigo: string; nombre: string } | null>(null);
   const { reglas } = useReglasApertura();
-  const conceptosConReglaActiva = useMemo(
-    () => new Set(reglas.filter((r) => r.estado === "activa").map((r) => r.entidadId)),
-    [reglas]
-  );
+  // Step 2: indicador sensible al filtro local/PDV.
+  // Considera solo reglas cuyo origen cae dentro del filtro seleccionado.
+  const conceptosConReglaActiva = useMemo(() => {
+    const activas = reglas.filter((r) => r.estado === "activa");
+    const alcanzaFiltro = (r: (typeof activas)[number]) => {
+      if (pdvId == null && localId == null) return true;
+      if (pdvId != null) {
+        return origenAlcanza(
+          { localId: r.origenLocalId, puntoDeVentaId: r.origenPuntoDeVentaId },
+          { localId: localId ?? r.origenLocalId, puntoDeVentaId: pdvId }
+        );
+      }
+      return r.origenLocalId === localId; // solo local seleccionado
+    };
+    return new Set(activas.filter(alcanzaFiltro).map((r) => r.entidadId));
+  }, [reglas, localId, pdvId]);
 
   const { data, isLoading, error, ventasData, ventasLoading } = useOperacionKpis({
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
@@ -214,22 +228,40 @@ export function PivotTable() {
                         </button>
                       </div>
                     </td>
-                    {months.map((mes) => (
-                      <td
-                        key={mes}
-                        className={cn(
-                          "text-right px-3 py-2 tabular-nums text-muted-foreground",
-                          hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
-                        )}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (hasValue(concepto.values[mes]))
-                            openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo });
-                        }}
-                      >
-                        {fmtARS(concepto.values[mes])}
-                      </td>
-                    ))}
+                    {months.map((mes) => {
+                      // Step 3: tooltip de composición cuando hay reglas aplicadas a este concepto/mes.
+                      const comp = concepto.composicion?.[mes];
+                      const cell = (
+                        <td
+                          key={mes}
+                          className={cn(
+                            "text-right px-3 py-2 tabular-nums text-muted-foreground",
+                            hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
+                          )}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (hasValue(concepto.values[mes]))
+                              openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo });
+                          }}
+                        >
+                          {fmtARS(concepto.values[mes])}
+                        </td>
+                      );
+                      if (!comp) return cell;
+                      return (
+                        <Tooltip key={mes}>
+                          <TooltipTrigger asChild>{cell}</TooltipTrigger>
+                          <TooltipContent className="text-xs">
+                            <div className="font-medium">100% · {fmtARS(comp.total)}</div>
+                            {comp.destinos.map((d, i) => (
+                              <div key={i} className="text-muted-foreground">
+                                {d.pct}% {d.nombre} {fmtARS(d.importe)}
+                              </div>
+                            ))}
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
                     <td
                       className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
                       onClick={(e) => {

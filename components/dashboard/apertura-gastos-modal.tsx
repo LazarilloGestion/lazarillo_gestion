@@ -11,7 +11,7 @@ import { cn, fmtARS } from "@/lib/utils";
 import { notify } from "@/lib/toast";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
-import { validarSumaPorcentajes, encontrarDestinoDuplicado } from "@/lib/apertura/validaciones";
+import { validarSumaPorcentajes, encontrarDestinoDuplicado, origenesSuperpuestos } from "@/lib/apertura/validaciones";
 import type { ReglaAperturaDTO } from "@/lib/apertura/types";
 import type { Local } from "@/lib/types/domain";
 import type { TimelineReglaInput } from "@/lib/apertura/timeline-layout";
@@ -315,6 +315,16 @@ export function AperturaGastosModal({
   const reglasParaTimeline: TimelineReglaInput[] = [
     ...reglasDelConcepto
       .filter((r) => editando === null || r.id !== editando.id)
+      // Solo tiene sentido comparar timelines de reglas cuyo origen compite por
+      // la misma plata que el del formulario. Sin origen elegido todavía
+      // (origen.localId == null), se muestran todas.
+      .filter((r) =>
+        origen.localId == null ||
+        origenesSuperpuestos(
+          { localId: origen.localId, puntoDeVentaId: origen.puntoDeVentaId },
+          { localId: r.origenLocalId, puntoDeVentaId: r.origenPuntoDeVentaId }
+        )
+      )
       .map((r) => ({
         id: r.id,
         estado: r.estado,
