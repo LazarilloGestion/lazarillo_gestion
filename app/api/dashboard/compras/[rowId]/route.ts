@@ -64,7 +64,7 @@ export async function PATCH(
         : { reevaluada: false, distribuidaAhora: false };
 
       return { updated, reeval };
-    });
+    }, { timeout: 55000 }); // alineado con maxDuration (mismo criterio que los endpoints de reglas)
 
     return NextResponse.json({ ...result.updated, ...result.reeval });
   } catch (err) {
