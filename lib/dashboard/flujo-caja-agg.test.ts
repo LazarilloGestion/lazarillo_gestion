@@ -46,12 +46,37 @@ describe("aggregateFlujoCajaPorMes", () => {
     expect(result[6]).toBe(800);
   });
 
-  it("nivel local con monto 0 explícito le gana al PDV no-cero (?? no ||: el 0 explícito cuenta)", () => {
+  it("nivel local con monto 0 se ignora; si hay PDV con valor, se usa (monto 0 es sin dato)", () => {
     const rows: FlujoCajaRow[] = [
       { localId: 1, puntoDeVentaId: null, mes: 5, monto: 0 },
       { localId: 1, puntoDeVentaId: 10, mes: 5, monto: 200 },
     ];
     const result = aggregateFlujoCajaPorMes(rows);
-    expect(result[5]).toBe(0);
+    expect(result[5]).toBe(200);
+  });
+
+  it("una fila con monto 0 no cuenta como dato: el mes queda en null", () => {
+    const meses = aggregateFlujoCajaPorMes(
+      [{ localId: 2, puntoDeVentaId: null, mes: 6, monto: 0 }],
+    );
+    expect(meses[6]).toBeNull();
+  });
+
+  it("mismo mes con una fila en 0 y otra con valor real: agrega solo la real", () => {
+    const meses = aggregateFlujoCajaPorMes(
+      [
+        { localId: 2, puntoDeVentaId: 10, mes: 9, monto: 0 },
+        { localId: 2, puntoDeVentaId: 11, mes: 9, monto: 1000 },
+      ],
+    );
+    expect(meses[9]).toBe(1000);
+  });
+
+  it("con puntoDeVentaId puntual, una fila en 0 tampoco cuenta", () => {
+    const meses = aggregateFlujoCajaPorMes(
+      [{ localId: 2, puntoDeVentaId: 10, mes: 9, monto: 0 }],
+      10,
+    );
+    expect(meses[9]).toBeNull();
   });
 });
