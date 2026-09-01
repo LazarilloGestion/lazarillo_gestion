@@ -83,7 +83,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
   // "Sin arqueo" se expresa dejando la celda vacía (borra la fila), no
   // escribiendo 0. Un 0 tipeado no se guarda — ver spec 2026-08-31.
   const draftEsCeroExplicito = montoNoGuardable(draftValue);
-  const CERO_NO_GUARDABLE = "Un arqueo en $0 no es un dato. Dejá la celda vacía si no hubo arqueo.";
+  const CERO_NO_GUARDABLE = "$0 no es un arqueo — dejá la celda vacía.";
 
   async function handleSaveFlujoCaja(mes: number) {
     if (draftEsCeroExplicito) {
