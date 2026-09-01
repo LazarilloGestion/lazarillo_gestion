@@ -141,6 +141,39 @@ describe("computeDiferenciaCajaAcumulada", () => {
     // acumulado = 2.864.048 + (-512.150) = 2.351.898
     expect(resultado[2]).toBe(2_351_898);
   });
+
+  it("un disponible en 0 se trata como sin arqueo, no como un arqueo real de cero", () => {
+    // jun/jul/ago con disponible 0 (filas fantasma), sep primer arqueo real.
+    const serie: MesDatos[] = [
+      { anio: 2025, mes: 6, ingresos: 100, egresos: 40, ganancia: 20, disponible: 0 },   // jun
+      { anio: 2025, mes: 7, ingresos: 100, egresos: 40, ganancia: 20, disponible: 0 },   // jul
+      { anio: 2025, mes: 8, ingresos: 100, egresos: 40, ganancia: 20, disponible: 0 },   // ago
+      { anio: 2025, mes: 9, ingresos: 100, egresos: 40, ganancia: 20, disponible: 500 }, // sep — primer arqueo real
+      { anio: 2025, mes: 10, ingresos: 120, egresos: 50, ganancia: 30, disponible: 0 }, // oct — otra fila fantasma, la visita el loop
+    ];
+    const resultado = computeDiferenciaCajaAcumulada(serie, { anio: 2025, mes: 9 });
+    expect(resultado[0]).toBeNull(); // jun
+    expect(resultado[1]).toBeNull(); // jul
+    expect(resultado[2]).toBeNull(); // ago
+    expect(resultado[3]).toBeNull(); // sep, mes del primer arqueo
+    // oct con disponible 0 -> tratado como sin arqueo (0 ≡ null). referencia = disponible[sep] = 500, delta 0
+    // contribución = 0 - ((120-50)-30) = -40
+    expect(resultado[4]).toBe(-40);
+  });
+
+  it("un disponible en 0 entre dos arqueos válidos no resetea la referencia", () => {
+    // sep=500, oct=0 (fila fantasma), nov=600. La variación de nov se mide contra sep (500), no contra 0.
+    const serie: MesDatos[] = [
+      { anio: 2025, mes: 9, ingresos: 100, egresos: 40, ganancia: 20, disponible: 500 },  // sep — primer arqueo
+      { anio: 2025, mes: 10, ingresos: 100, egresos: 40, ganancia: 20, disponible: 0 },   // oct — fila fantasma
+      { anio: 2025, mes: 11, ingresos: 110, egresos: 45, ganancia: 25, disponible: 600 }, // nov
+    ];
+    const resultado = computeDiferenciaCajaAcumulada(serie, { anio: 2025, mes: 9 });
+    // oct: disponible 0 -> tratado como sin arqueo, delta 0. contribución = 0 - ((100-40)-20) = -40. acc = -40
+    expect(resultado[1]).toBe(-40);
+    // nov: disponible 600, delta contra referencia 500 = 100. contribución = 100 - ((110-45)-25) = 60. acc = -40 + 60 = 20
+    expect(resultado[2]).toBe(20);
+  });
 });
 
 describe("heatmapFill", () => {

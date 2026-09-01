@@ -32,9 +32,10 @@ export interface MesDatos {
 // así que sumarlo directamente reproduce el runaway de la fórmula anterior, ver fix del
 // 24-ago-2026). `referencia` arrastra el último Disponible conocido a través de los meses sin
 // arqueo propio, así la cadena no se corta (CA-03): un mes sin Disponible propio aporta 0 de
-// variación, pero igual suma el término contable de ese mes. Antes o en el mes del primer
-// arqueo, y si no hay ningún arqueo cargado, el resultado es null (nunca 0 — ver
-// Fix_Diferencia_Caja.pdf sección 5.1/CA-04).
+// variación, pero igual suma el término contable de ese mes. Un Disponible de null o 0 se trata
+// como "sin arqueo ese mes" (ver spec 2026-08-31) — no aporta variación y no pisa la referencia
+// del último arqueo conocido. Antes o en el mes del primer arqueo, y si no hay ningún arqueo
+// cargado, el resultado es null (nunca 0 — ver Fix_Diferencia_Caja.pdf sección 5.1/CA-04).
 export function computeDiferenciaCajaAcumulada(
   serie: MesDatos[],
   primerArqueo: { anio: number; mes: number } | null,
@@ -49,8 +50,11 @@ export function computeDiferenciaCajaAcumulada(
   let acc = 0;
   for (let i = i0 + 1; i < serie.length; i++) {
     const m = serie[i];
-    const deltaDisponible = m.disponible != null ? m.disponible - referencia : 0;
-    if (m.disponible != null) referencia = m.disponible;
+    // Un disponible en 0 es "sin arqueo ese mes" (ver spec 2026-08-31), igual que null:
+    // no aporta variación y no pisa la referencia del último arqueo conocido.
+    const arqueo = m.disponible !== 0 ? m.disponible : null;
+    const deltaDisponible = arqueo != null ? arqueo - referencia : 0;
+    if (arqueo != null) referencia = arqueo;
     acc += deltaDisponible - ((m.ingresos - m.egresos) - m.ganancia);
     resultado[i] = acc;
   }

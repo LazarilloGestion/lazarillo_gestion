@@ -16,6 +16,10 @@ export function aggregateFlujoCajaPorMes(
   rows: FlujoCajaRow[],
   puntoDeVentaId?: number,
 ): Record<number, number | null> {
+  // Un monto en 0 es "sin dato", no un arqueo (ver spec 2026-08-31). Se descarta acá para que
+  // un mes cuyas únicas filas son 0 quede en null y la celda muestre "—", no "$ 0,00".
+  rows = rows.filter((r) => r.monto !== 0);
+
   const meses: Record<number, number | null> = {};
   for (let m = 1; m <= 12; m++) meses[m] = null;
 
