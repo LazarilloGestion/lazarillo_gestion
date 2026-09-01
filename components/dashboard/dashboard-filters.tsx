@@ -17,6 +17,7 @@ import { RubrosConfigModal } from "@/components/dashboard/rubros-config-modal";
 import { MonthFilterDrawer } from "@/components/dashboard/month-filter-drawer";
 import { FiltersDrawer } from "@/components/dashboard/filters-drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAnioRange } from "@/hooks/use-anio-range";
 import type { Local } from "@/lib/types/domain";
 
 const PALETTE_PARAM_LABELS: Record<string, string> = {
@@ -33,10 +34,6 @@ const PALETTE_PARAM_COLORS: Record<string, { label: string; bg: string; border: 
   observacionQuery: { label: "text-cat-observacion",  bg: "bg-cat-observacion/8",  border: "border-cat-observacion/25" },
 };
 
-const CURRENT_YEAR = new Date().getFullYear();
-const YEARS = Array.from({ length: CURRENT_YEAR - 2024 }, (_, i) => CURRENT_YEAR - i);
-const MIN_YEAR = YEARS[YEARS.length - 1];
-const MAX_YEAR = YEARS[0];
 const MONTH_LABELS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
 export function DashboardFilters() {
@@ -59,6 +56,8 @@ export function DashboardFilters() {
 
   const { data: localesData, isLoading: localesLoading } = useFetchQuery<Local[]>(["locales"], "/api/locales");
   const locales = localesData ?? [];
+
+  const { minYear, maxYear } = useAnioRange(localId, pdvId);
 
   useEffect(() => {
     if (isVentas) return;
@@ -110,7 +109,7 @@ export function DashboardFilters() {
           <CalendarDays className="w-4 h-4 shrink-0" />
           <button
             onClick={() => setYear(year - 1)}
-            disabled={year <= MIN_YEAR}
+            disabled={minYear === undefined || year <= minYear}
             aria-label="Año anterior"
             className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shrink-0 disabled:opacity-40 disabled:hover:text-muted-foreground disabled:hover:border-zinc-200 dark:disabled:hover:border-zinc-700 disabled:cursor-not-allowed"
           >
@@ -121,7 +120,7 @@ export function DashboardFilters() {
           </span>
           <button
             onClick={() => setYear(year + 1)}
-            disabled={year >= MAX_YEAR}
+            disabled={maxYear === undefined || year >= maxYear}
             aria-label="Año siguiente"
             className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shrink-0 disabled:opacity-40 disabled:hover:text-muted-foreground disabled:hover:border-zinc-200 dark:disabled:hover:border-zinc-700 disabled:cursor-not-allowed"
           >
