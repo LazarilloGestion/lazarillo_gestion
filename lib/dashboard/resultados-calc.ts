@@ -13,6 +13,16 @@ export function parseMontoARS(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// ¿El usuario tipeó un cero explícito? Un arqueo en $0 no es un dato de caja
+// válido (ver spec 2026-08-31-arqueo-cero-no-es-dato): "sin arqueo" se expresa
+// dejando la celda vacía, no escribiendo 0. La celda vacía NO cuenta acá — el
+// vacío borra la fila y es el camino válido. Guarda de UI: el server igual
+// trata `monto: 0` como "borrar", pero acá bloqueamos el 0 tipeado para que no
+// se guarde en silencio y desaparezca.
+export function montoNoGuardable(raw: string): boolean {
+  return raw.trim() !== "" && parseMontoARS(raw) === 0;
+}
+
 export function pctSobreIngresos(numerador: number, denominador: number): string {
   return denominador > 0 ? `${((numerador / denominador) * 100).toFixed(1)}%` : "—";
 }

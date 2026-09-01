@@ -5,7 +5,7 @@ import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { notify } from "@/lib/toast";
 import { cn, fmtARS, fmtARSDecimal } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
-import { parseMontoARS, RESULT_COLORS } from "@/lib/dashboard/resultados-calc";
+import { parseMontoARS, montoNoGuardable, RESULT_COLORS } from "@/lib/dashboard/resultados-calc";
 import { buildFlujoCajaUrl } from "@/lib/dashboard/params";
 import { useDiferenciaCaja } from "@/hooks/use-diferencia-caja";
 import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
@@ -80,7 +80,16 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
   // editar acá guardaría un valor ambiguo (localId null) que se suma al resto sin distinguirse.
   const canEditFlujoCaja = localId != null;
 
+  // "Sin arqueo" se expresa dejando la celda vacía (borra la fila), no
+  // escribiendo 0. Un 0 tipeado no se guarda — ver spec 2026-08-31.
+  const draftEsCeroExplicito = montoNoGuardable(draftValue);
+  const CERO_NO_GUARDABLE = "Un arqueo en $0 no es un dato. Dejá la celda vacía si no hubo arqueo.";
+
   async function handleSaveFlujoCaja(mes: number) {
+    if (draftEsCeroExplicito) {
+      notify.arqueoCeroInvalido();
+      return;
+    }
     const monto = parseMontoARS(draftValue);
     if (monto === null) return;
     setSaving(true);
@@ -122,17 +131,34 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
           return (
             <td key={mes} className={cn(VALUE_TD, cardCellClasses("middle", "mid"))}>
               {isEditing ? (
-                <div className="flex items-center justify-end gap-1">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    autoFocus
-                    aria-label={`Disponible en caja ${MONTHS[mes - 1]}`}
-                    value={draftValue}
-                    onChange={(e) => setDraftValue(e.target.value)}
-                    className="h-6 w-20 rounded border border-input bg-background px-1 text-right text-xs tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                  <EditActionButtons onSave={() => handleSaveFlujoCaja(mes)} onCancel={() => setEditingMonth(null)} saving={saving} />
+                <div className="flex flex-col items-end gap-0.5">
+                  <div className="flex items-center justify-end gap-1">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      autoFocus
+                      aria-label={`Disponible en caja ${MONTHS[mes - 1]}`}
+                      value={draftValue}
+                      onChange={(e) => setDraftValue(e.target.value)}
+                      aria-invalid={draftEsCeroExplicito}
+                      className={cn(
+                        "h-6 w-20 rounded border bg-background px-1 text-right text-xs tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        draftEsCeroExplicito ? "border-destructive" : "border-input"
+                      )}
+                    />
+                    <EditActionButtons
+                      onSave={() => handleSaveFlujoCaja(mes)}
+                      onCancel={() => setEditingMonth(null)}
+                      saving={saving}
+                      saveDisabled={draftEsCeroExplicito}
+                      saveDisabledTitle={CERO_NO_GUARDABLE}
+                    />
+                  </div>
+                  {draftEsCeroExplicito && (
+                    <span className="text-[10px] leading-tight text-destructive text-right max-w-[10rem]">
+                      {CERO_NO_GUARDABLE}
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center justify-end gap-1">

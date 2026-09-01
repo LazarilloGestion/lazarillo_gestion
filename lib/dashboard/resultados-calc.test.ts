@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parseMontoARS,
+  montoNoGuardable,
   pctSobreIngresos,
   computeDiferenciaCajaAcumulada,
   type MesDatos,
@@ -41,6 +42,29 @@ describe("parseMontoARS", () => {
 
   it("punto sin coma se interpreta como decimal, no como miles (ambigüedad resuelta a favor del comportamiento previo)", () => {
     expect(parseMontoARS("1.234")).toBe(1.234);
+  });
+});
+
+describe("montoNoGuardable", () => {
+  it("celda vacía NO es no-guardable — el vacío borra la fila, es válido", () => {
+    expect(montoNoGuardable("")).toBe(false);
+    expect(montoNoGuardable("   ")).toBe(false);
+  });
+
+  it("cero explícito es no-guardable", () => {
+    expect(montoNoGuardable("0")).toBe(true);
+    expect(montoNoGuardable("0,00")).toBe(true);
+    expect(montoNoGuardable("  0  ")).toBe(true);
+    expect(montoNoGuardable("-0")).toBe(true);
+  });
+
+  it("un monto real es guardable", () => {
+    expect(montoNoGuardable("1000")).toBe(false);
+    expect(montoNoGuardable("1.234,56")).toBe(false);
+  });
+
+  it("texto no numérico no es no-guardable (lo bloquea parseMontoARS -> null aparte)", () => {
+    expect(montoNoGuardable("abc")).toBe(false);
   });
 });
 

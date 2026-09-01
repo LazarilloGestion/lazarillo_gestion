@@ -5,16 +5,22 @@ export function EditActionButtons({
   onSave,
   onCancel,
   saving,
+  saveDisabled = false,
+  saveDisabledTitle,
 }: {
   onSave: () => void;
   onCancel: () => void;
   saving: boolean;
+  /** Deshabilita solo el botón de guardar (Cancelar sigue disponible). */
+  saveDisabled?: boolean;
+  saveDisabledTitle?: string;
 }) {
   return (
     <div className="flex items-center gap-1">
       <button
         onClick={onSave}
-        disabled={saving}
+        disabled={saving || saveDisabled}
+        title={saveDisabled ? saveDisabledTitle : undefined}
         className="flex h-6 w-6 items-center justify-center rounded text-success hover:bg-success/10 disabled:opacity-40"
       >
         <Check className="h-3.5 w-3.5" />

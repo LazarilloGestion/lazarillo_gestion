@@ -5,6 +5,11 @@ export const notify = {
 
   errorGuardar: () => toast.error("No se pudo guardar. Intentá de nuevo."),
 
+  arqueoCeroInvalido: () =>
+    toast.warning("Un arqueo en $0 no es un dato", {
+      description: "Dejá la celda vacía si no hubo arqueo ese mes.",
+    }),
+
   errorActualizar: (nombre: string) =>
     toast.error(`No se pudo actualizar ${nombre}. Intentá de nuevo.`),
 
