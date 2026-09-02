@@ -11,14 +11,12 @@ import { cn, fmtARS } from "@/lib/utils";
 import { notify } from "@/lib/toast";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
-import { validarSumaPorcentajes, encontrarDestinoDuplicado, origenesSuperpuestos } from "@/lib/apertura/validaciones";
+import { validarSumaPorcentajes, encontrarDestinoDuplicado } from "@/lib/apertura/validaciones";
 import type { ReglaAperturaDTO } from "@/lib/apertura/types";
 import type { Local } from "@/lib/types/domain";
-import type { TimelineReglaInput } from "@/lib/apertura/timeline-layout";
 import { AperturaVigenciaSelector, type VigenciaFormState } from "./apertura-vigencia-selector";
 import { AperturaDestinoRow, type DestinoFormState } from "./apertura-destino-row";
 import { AperturaOrigenSelector, type OrigenFormState } from "./apertura-origen-selector";
-import { AperturaTimeline } from "./apertura-timeline";
 
 const VIGENCIA_VACIA: VigenciaFormState = {
   modo: "historico",
@@ -218,9 +216,7 @@ export function AperturaGastosModal({
     try {
       // Solo se mandan las fechas que el modo usa: una fecha vieja que quedó
       // en el formulario tras cambiar de modo el backend la ignora, pero se
-      // persiste igual en la regla y después deforma el eje de la línea de
-      // tiempo (calcularSegmentosTimeline lee fechaDesde/fechaHasta de TODAS
-      // las reglas del concepto).
+      // persistiría igual en la regla si la mandáramos.
       const usaFechaDesde = vigencia.modo === "entre_fechas" || vigencia.modo === "desde_adelante";
       const usaFechaHasta = vigencia.modo === "entre_fechas" || vigencia.modo === "desde_atras";
 
@@ -312,39 +308,6 @@ export function AperturaGastosModal({
     }
   }
 
-  const reglasParaTimeline: TimelineReglaInput[] = [
-    ...reglasDelConcepto
-      .filter((r) => editando === null || r.id !== editando.id)
-      // Solo tiene sentido comparar timelines de reglas cuyo origen compite por
-      // la misma plata que el del formulario. Sin origen elegido todavía
-      // (origen.localId == null), se muestran todas.
-      .filter((r) =>
-        origen.localId == null ||
-        origenesSuperpuestos(
-          { localId: origen.localId, puntoDeVentaId: origen.puntoDeVentaId },
-          { localId: r.origenLocalId, puntoDeVentaId: r.origenPuntoDeVentaId }
-        )
-      )
-      .map((r) => ({
-        id: r.id,
-        estado: r.estado,
-        modo: r.modo,
-        fechaDesde: r.fechaDesde ? new Date(r.fechaDesde) : null,
-        fechaHasta: r.fechaHasta ? new Date(r.fechaHasta) : null,
-      })),
-    ...(view === "formulario"
-      ? [
-          {
-            id: "nueva" as const,
-            estado: "nueva" as const,
-            modo: vigencia.modo,
-            fechaDesde: vigencia.fechaDesde ? new Date(vigencia.fechaDesde) : null,
-            fechaHasta: vigencia.fechaHasta ? new Date(vigencia.fechaHasta) : null,
-          },
-        ]
-      : []),
-  ];
-
   return (
     <>
       <Dialog open={conceptoCodigo !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -433,8 +396,6 @@ export function AperturaGastosModal({
                   Esta regla está inactiva: guardar la reactivará y volverá a distribuir las compras del período.
                 </p>
               )}
-
-              {reglasParaTimeline.length > 0 && <AperturaTimeline reglas={reglasParaTimeline} />}
 
               <Separator />
 
