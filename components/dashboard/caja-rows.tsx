@@ -101,12 +101,10 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
       });
       if (!res.ok) throw new Error("Error al guardar");
       await queryClient.invalidateQueries({ queryKey: flujoCajaKey });
-      // Invalida las query keys nuevas de "Diferencia de caja" (I-2): sin esto, cargar el
-      // primer arqueo de la historia deja cacheado primerArqueo: null y la fila entera se queda
-      // en "—" hasta un remount/refetch no relacionado — es la primera interacción esperable de
-      // un cliente con esta feature, tiene que reflejarse de inmediato.
-      await queryClient.invalidateQueries({ queryKey: ["diferencia-caja-primer-arqueo"] });
-      await queryClient.invalidateQueries({ queryKey: ["diferencia-caja-year-totals"] });
+      // Invalida "Diferencia de caja" (I-2): cargar el primer arqueo de la historia cambia el
+      // resultado de todos los meses; sin esto la fila se queda en "—" hasta un refetch no
+      // relacionado. La key nueva es un solo prefijo (endpoint único, ver spec 2026-09-09).
+      await queryClient.invalidateQueries({ queryKey: ["diferencia-caja"] });
       notify.registroActualizado();
       setEditingMonth(null);
     } catch (e) {

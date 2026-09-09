@@ -112,14 +112,6 @@ export function buildDiferenciaCajaUrl(year: number, localId?: number, pdvId?: n
   return `/api/dashboard/diferencia-caja?${sp.toString()}`;
 }
 
-export function buildPrimerArqueoUrl(localId?: number, pdvId?: number): string {
-  const sp = new URLSearchParams();
-  if (localId != null) sp.set("localId", String(localId));
-  if (pdvId != null) sp.set("puntoDeVentaId", String(pdvId));
-  const qs = sp.toString();
-  return `/api/dashboard/flujo-caja/primer-arqueo${qs ? `?${qs}` : ""}`;
-}
-
 export function buildRangoAniosUrl(localId?: number, pdvId?: number): string {
   const sp = new URLSearchParams();
   if (localId != null) sp.set("localId", String(localId));
