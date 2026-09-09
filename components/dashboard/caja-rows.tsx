@@ -10,6 +10,7 @@ import { buildFlujoCajaUrl } from "@/lib/dashboard/params";
 import { useDiferenciaCaja } from "@/hooks/use-diferencia-caja";
 import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Spinner } from "@/components/ui/spinner";
 import { EditActionButtons, EditTriggerButton, toEditString } from "./edit-row-controls";
 import { SectionDivider } from "./section-divider";
 import { StickyCardCell } from "./sticky-card-cell";
@@ -28,6 +29,7 @@ function ValueCell({
   text,
   negative,
   gray,
+  loading = false,
   base = VALUE_TD,
   className,
   title,
@@ -35,6 +37,7 @@ function ValueCell({
   text: string;
   negative: boolean;
   gray: boolean;
+  loading?: boolean;
   base?: string;
   className?: string;
   title?: string;
@@ -45,7 +48,7 @@ function ValueCell({
       className={cn(base, className)}
       style={{ color: gray ? RESULT_COLORS.noData : negative ? RESULT_COLORS.negative : RESULT_COLORS.positive }}
     >
-      {text}
+      {loading ? <Spinner size="sm" className="inline-block align-middle" /> : text}
     </td>
   );
 }
@@ -161,7 +164,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
               ) : (
                 <div className="flex items-center justify-end gap-1">
                   <span className={cn(value == null && "text-muted-foreground/40")}>
-                    {flujoCajaLoading ? "…" : value != null ? fmtARSDecimal(value) : "—"}
+                    {flujoCajaLoading ? <Spinner size="sm" className="inline-block align-middle" /> : value != null ? fmtARSDecimal(value) : "—"}
                   </span>
                   {canEditFlujoCaja && (
                     <EditTriggerButton
@@ -174,7 +177,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
           );
         })}
         <td className={cn(TOTAL_TD, cardCellClasses("middle", "mid"))}>
-          {flujoCajaLoading ? "…" : flujoCajaTieneDatos ? fmtARSDecimal(flujoCajaTotal) : "—"}
+          {flujoCajaLoading ? <Spinner size="sm" className="inline-block align-middle" /> : flujoCajaTieneDatos ? fmtARSDecimal(flujoCajaTotal) : "—"}
         </td>
         <td className={cardCellClasses("middle", "right")} />
       </tr>
@@ -196,7 +199,8 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
                 </p>
                 <p className="mt-1.5">
                   Se acumula mes a mes como un resumen bancario, arrancando en el mes siguiente
-                  al primer arqueo cargado.
+                  al primer arqueo cargado. Solo los meses con Disponible en caja cargado muestran
+                  un valor; el resto queda en “—”.
                 </p>
                 <div className="mt-3 pt-3 border-t border-border grid grid-cols-[14px_1fr] gap-x-2 gap-y-2.5">
                   <span className="h-5 flex items-center justify-center" aria-hidden>
@@ -210,7 +214,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
                   <span><span className="font-medium text-foreground/80">Positivo (sobra):</span> gastos cargados que no salieron de la caja (deuda).</span>
 
                   <span className="h-5 flex items-center justify-center font-semibold" style={{ color: RESULT_COLORS.noData }} aria-hidden>—</span>
-                  <span><span className="font-medium text-foreground/80">Sin dato:</span> mes anterior o igual al primer arqueo, un mes con arqueo en $0, o directamente sin ningún arqueo cargado.</span>
+                  <span><span className="font-medium text-foreground/80">Sin dato:</span> mes anterior o igual al primer arqueo, o cualquier mes sin un arqueo cargado (un arqueo en $0 cuenta como sin dato).</span>
                 </div>
               </PopoverContent>
             </Popover>
@@ -218,35 +222,37 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
         </StickyCardCell>
         {months.map((mes) => {
           const diferencia = diferenciaPorMes[mes];
-          const noData = diferenciaLoading || diferencia == null;
+          const noData = !diferenciaLoading && diferencia == null;
           return (
             <ValueCell
               key={mes}
               base={VALUE_TD}
               className={cn("bg-muted", cardCellClasses("last", "mid"))}
               title={diferenciaError ? "Error al cargar Diferencia de caja" : undefined}
-              text={diferenciaLoading ? "…" : noData ? "—" : fmtARS(diferencia)}
-              negative={!noData && diferencia! < 0}
+              loading={diferenciaLoading}
+              text={diferencia == null ? "—" : fmtARS(diferencia)}
+              negative={diferencia != null && diferencia < 0}
               gray={noData}
             />
           );
         })}
         {(() => {
           // El acumulado ya arrastra el saldo mes a mes — el total anual es el último mes
-          // visible con cálculo válido, no una suma (sumar volvería a contar el arrastre).
+          // visible con cálculo válido (con la regla nueva: el último mes con arqueo cargado).
           let total: number | null = null;
           for (let i = months.length - 1; i >= 0; i--) {
             const v = diferenciaPorMes[months[i]];
             if (v != null) { total = v; break; }
           }
-          const noData = diferenciaLoading || total == null;
+          const noData = !diferenciaLoading && total == null;
           return (
             <ValueCell
               base={TOTAL_TD}
               className={cn("bg-muted font-bold", cardCellClasses("last", "mid"))}
-              title="Saldo acumulado al último mes con cálculo válido"
-              text={diferenciaLoading ? "…" : noData ? "—" : fmtARS(total)}
-              negative={!noData && total! < 0}
+              title="Saldo acumulado al último mes con arqueo cargado"
+              loading={diferenciaLoading}
+              text={total == null ? "—" : fmtARS(total)}
+              negative={total != null && total < 0}
               gray={noData}
             />
           );
