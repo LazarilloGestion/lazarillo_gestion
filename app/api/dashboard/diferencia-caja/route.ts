@@ -20,6 +20,14 @@ const getQuerySchema = z.object({
   puntoDeVentaId: z.coerce.number().int().optional(),
 });
 
+// Respuesta "sin datos": los 12 meses en null. Se usa tanto para el año fuera de rango
+// como para el caso sin ningún arqueo.
+function diferenciaVacia(): Record<number, number | null> {
+  const vacio: Record<number, number | null> = {};
+  for (const mes of MONTH_IDXS) vacio[mes] = null;
+  return vacio;
+}
+
 interface MesSumRow {
   mes: number;
   total: Prisma.Decimal | string | number | null;
@@ -127,13 +135,20 @@ export async function GET(request: NextRequest) {
   }
   const { year, localId, puntoDeVentaId } = parsed.data;
 
+  // Guarda de fan-out: `anios` va de `primerArqueo.anio` a `year` y dispara 4 queries por año.
+  // Un `year` disparatado (ej. `?year=20255`) expandiría el loop a miles de iteraciones y
+  // agotaría el pool de Prisma. Fuera de rango razonable → 200 con los 12 meses en null
+  // (mismo criterio que el path sin arqueo y que `parseDashboardParams`, que clampea a 2000..2100),
+  // nunca 400 (spec §3.1).
+  if (year < 2000 || year > new Date().getFullYear() + 1) {
+    return NextResponse.json({ diferenciaPorMes: diferenciaVacia() });
+  }
+
   try {
     const primerArqueo = await findPrimerArqueo({ localId, puntoDeVentaId });
 
     if (primerArqueo == null || primerArqueo.anio > year) {
-      const vacio: Record<number, number | null> = {};
-      for (const mes of MONTH_IDXS) vacio[mes] = null;
-      return NextResponse.json({ diferenciaPorMes: vacio });
+      return NextResponse.json({ diferenciaPorMes: diferenciaVacia() });
     }
 
     const anios: number[] = [];
