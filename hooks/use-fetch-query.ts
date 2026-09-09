@@ -1,11 +1,10 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 
-// Compartido con hooks que arman su propio queryFn en vez de un fetch de una
-// sola URL (ej. use-diferencia-caja.ts agregando varios endpoints) — para que
-// no pierdan silenciosamente la resiliencia a fallas transitorias que
-// useFetchQuery sí da (hallazgo de code-review, 24-ago-2026).
-export const FETCH_QUERY_RETRY = {
+// Config de retry/backoff que useFetchQuery aplica a toda query: 2 reintentos con
+// backoff exponencial (1s, 2s, 4s...) topeado a 30s, para no perder en silencio la
+// resiliencia a fallas transitorias de red (hallazgo de code-review, 24-ago-2026).
+const FETCH_QUERY_RETRY = {
   retry: 2,
   retryDelay: (i: number) => Math.min(1000 * 2 ** i, 30_000),
 } as const;

@@ -74,6 +74,20 @@ describe("buildDiferenciaCajaSerie", () => {
     expect(out[2]).toBe(-180);
   });
 
+  it("un 0 acumulado legítimo en un mes con arqueo se muestra como 0, no como null", () => {
+    // ene arqueo 1000 (primer arqueo). feb arqueo 1000, sin ingresos/egresos/ganancia:
+    // deltaDisponible = 0, término contable = 0 → acc = 0 exacto.
+    const out = buildDiferenciaCajaSerie({
+      year: 2025,
+      primerArqueo: { anio: 2025, mes: 1 },
+      totalesPorAnio: {
+        2025: totales({ disponible: { 1: 1000, 2: 1000 } }),
+      },
+    });
+    expect(out[1]).toBeNull(); // ene, mes del primer arqueo
+    expect(out[2]).toBe(0);    // feb: acumulado exactamente 0, NO null
+  });
+
   it("año faltante en totalesPorAnio se trata como año vacío (no rompe)", () => {
     const out = buildDiferenciaCajaSerie({
       year: 2026,

@@ -135,11 +135,11 @@ export async function GET(request: NextRequest) {
   }
   const { year, localId, puntoDeVentaId } = parsed.data;
 
-  // Guarda de fan-out: `anios` va de `primerArqueo.anio` a `year` y dispara 4 queries por año.
-  // Un `year` disparatado (ej. `?year=20255`) expandiría el loop a miles de iteraciones y
-  // agotaría el pool de Prisma. Fuera de rango razonable → 200 con los 12 meses en null
-  // (mismo criterio que el path sin arqueo y que `parseDashboardParams`, que clampea a 2000..2100),
-  // nunca 400 (spec §3.1).
+  // Guarda de fan-out: cada año en [primerArqueo.anio .. year] cuesta 4 queries concurrentes
+  // (Promise.all: sumVentasPorMes + 2× sumComprasPorMes + disponiblePorMes). Un `year` sin acotar
+  // (ej. un `?year=20255` tipeado mal) expandiría el rango a miles de años × 4 queries y agotaría
+  // el pool de Prisma. Fuera de rango → misma forma que el path sin arqueo (200 con los 12 meses
+  // en null), nunca 400 (spec §3.1). El piso 2000 es un límite bajo el cual no hay datos reales.
   if (year < 2000 || year > new Date().getFullYear() + 1) {
     return NextResponse.json({ diferenciaPorMes: diferenciaVacia() });
   }
