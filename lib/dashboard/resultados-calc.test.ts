@@ -105,18 +105,16 @@ describe("computeDiferenciaCajaAcumulada", () => {
     expect(resultado[2]).toBeNull(); // sep, mes del primer arqueo
   });
 
-  it("CA-02 — octubre (mes siguiente al primer arqueo) da el primer valor calculado", () => {
+  it("octubre sin arqueo propio → null (no se muestra el acumulado en meses sin arqueo)", () => {
     const resultado = computeDiferenciaCajaAcumulada(serieBase, primerArqueoSep);
-    // referencia = disponible[sep] = 500
-    // oct: disponible null -> deltaDisponible = 0, referencia sigue en 500
-    // contribución = 0 - ((120-50)-30) = 0 - 40 = -40; acumulado = -40
-    expect(resultado[3]).toBe(-40);
+    // oct tiene disponible: null → celda vacía, aunque el acumulador ya corre por detrás.
+    expect(resultado[3]).toBeNull();
   });
 
-  it("CA-03 — octubre sin disponible propio no corta la cadena: noviembre sigue acumulando sobre octubre", () => {
+  it("noviembre con arqueo propio → el acumulado arrastra el término contable de octubre (continuidad de CA-03 intacta)", () => {
     const resultado = computeDiferenciaCajaAcumulada(serieBase, primerArqueoSep);
-    // nov: disponible 600 -> deltaDisponible = 600 - 500 = 100, referencia pasa a 600
-    // contribución = 100 - ((110-45)-25) = 100 - 40 = 60; acumulado = -40 + 60 = 20
+    // oct: sin arqueo, no se muestra, pero acc += 0 - ((120-50)-30) = -40
+    // nov: arqueo 600, delta = 600 - 500 = 100; acc += 100 - ((110-45)-25) = +60 → acc = 20
     expect(resultado[4]).toBe(20);
   });
 
@@ -137,11 +135,10 @@ describe("computeDiferenciaCajaAcumulada", () => {
     const resultado = computeDiferenciaCajaAcumulada(serieCrossAnio, primerArqueoDic2025);
     expect(resultado[0]).toBeNull(); // nov 2025
     expect(resultado[1]).toBeNull(); // dic 2025, mes del primer arqueo
-    // ene 2026: disponible null -> deltaDisponible = 0
-    // contribución = 0 - ((120-50)-30) = 0 - 40 = -40; acumulado = -40
-    expect(resultado[2]).toBe(-40);
-    // feb 2026: disponible 900 -> deltaDisponible = 900 - 1000 = -100, referencia pasa a 900
-    // contribución = -100 - ((110-45)-25) = -100 - 40 = -140; acumulado = -40 + (-140) = -180
+    // ene 2026: disponible null → celda vacía (el acumulador sigue por detrás)
+    expect(resultado[2]).toBeNull();
+    // feb 2026: disponible 900 → delta = 900 - 1000 = -100, referencia pasa a 900
+    // contribución = -100 - ((110-45)-25) = -140; acumulado = -40 + (-140) = -180
     expect(resultado[3]).toBe(-180);
   });
 
@@ -180,9 +177,8 @@ describe("computeDiferenciaCajaAcumulada", () => {
     expect(resultado[1]).toBeNull(); // jul
     expect(resultado[2]).toBeNull(); // ago
     expect(resultado[3]).toBeNull(); // sep, mes del primer arqueo
-    // oct con disponible 0 -> tratado como sin arqueo (0 ≡ null). referencia = disponible[sep] = 500, delta 0
-    // contribución = 0 - ((120-50)-30) = -40
-    expect(resultado[4]).toBe(-40);
+    // oct con disponible 0 → tratado como sin arqueo (0 ≡ null): celda vacía.
+    expect(resultado[4]).toBeNull();
   });
 
   it("un disponible en 0 entre dos arqueos válidos no resetea la referencia", () => {
@@ -193,10 +189,28 @@ describe("computeDiferenciaCajaAcumulada", () => {
       { anio: 2025, mes: 11, ingresos: 110, egresos: 45, ganancia: 25, disponible: 600 }, // nov
     ];
     const resultado = computeDiferenciaCajaAcumulada(serie, { anio: 2025, mes: 9 });
-    // oct: disponible 0 -> tratado como sin arqueo, delta 0. contribución = 0 - ((100-40)-20) = -40. acc = -40
-    expect(resultado[1]).toBe(-40);
+    // oct: disponible 0 → sin arqueo, celda vacía. Por detrás: acc = 0 - ((100-40)-20) = -40
+    expect(resultado[1]).toBeNull();
     // nov: disponible 600, delta contra referencia 500 = 100. contribución = 100 - ((110-45)-25) = 60. acc = -40 + 60 = 20
     expect(resultado[2]).toBe(20);
+  });
+
+  it("gap de varios meses sin arqueo: todos null, el arqueo posterior reconcilia contra el último arqueo real", () => {
+    const serie: MesDatos[] = [
+      { anio: 2025, mes: 1, ingresos: 100, egresos: 40, ganancia: 20, disponible: 1000 }, // ene — primer arqueo
+      { anio: 2025, mes: 2, ingresos: 100, egresos: 40, ganancia: 20, disponible: null }, // feb — sin arqueo
+      { anio: 2025, mes: 3, ingresos: 100, egresos: 40, ganancia: 20, disponible: null }, // mar — sin arqueo
+      { anio: 2025, mes: 4, ingresos: 100, egresos: 40, ganancia: 20, disponible: null }, // abr — sin arqueo
+      { anio: 2025, mes: 5, ingresos: 200, egresos: 50, ganancia: 30, disponible: 1300 }, // may — arqueo
+    ];
+    const resultado = computeDiferenciaCajaAcumulada(serie, { anio: 2025, mes: 1 });
+    expect(resultado[0]).toBeNull(); // ene, mes del primer arqueo
+    expect(resultado[1]).toBeNull(); // feb
+    expect(resultado[2]).toBeNull(); // mar
+    expect(resultado[3]).toBeNull(); // abr
+    // feb/mar/abr: acc += 0 - ((100-40)-20) = -40 cada uno → -120
+    // may: delta = 1300 - 1000 = 300; acc += 300 - ((200-50)-30) = 300 - 120 = +180 → -120 + 180 = 60
+    expect(resultado[4]).toBe(60);
   });
 });
 

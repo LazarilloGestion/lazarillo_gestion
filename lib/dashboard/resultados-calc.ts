@@ -36,16 +36,23 @@ export interface MesDatos {
   disponible: number | null;
 }
 
-// Diferencia de caja acumulada: arranca en el mes siguiente al primer arqueo cargado
-// (`primerArqueo`) y acumula, mes a mes, la VARIACIÓN del Disponible en caja respecto del
-// último arqueo conocido (no el saldo crudo — el Disponible es un stock/balance, no un flujo,
-// así que sumarlo directamente reproduce el runaway de la fórmula anterior, ver fix del
-// 24-ago-2026). `referencia` arrastra el último Disponible conocido a través de los meses sin
-// arqueo propio, así la cadena no se corta (CA-03): un mes sin Disponible propio aporta 0 de
-// variación, pero igual suma el término contable de ese mes. Un Disponible de null o 0 se trata
-// como "sin arqueo ese mes" (ver spec 2026-08-31) — no aporta variación y no pisa la referencia
-// del último arqueo conocido. Antes o en el mes del primer arqueo, y si no hay ningún arqueo
-// cargado, el resultado es null (nunca 0 — ver Fix_Diferencia_Caja.pdf sección 5.1/CA-04).
+// Diferencia de caja acumulada. El acumulador arranca en el mes siguiente al primer arqueo
+// cargado (`primerArqueo`) y suma, mes a mes, la VARIACIÓN del Disponible en caja respecto del
+// último arqueo conocido, menos el término contable del mes ((ingresos - egresos) - ganancia).
+// El Disponible es un stock/balance, no un flujo: sumar el saldo crudo reproduce el runaway del
+// 13-ago (ver fix del 24-ago-2026), por eso se acumula la variación. `referencia` arrastra el
+// último Disponible conocido a través de los meses sin arqueo propio. Un Disponible null o 0 se
+// trata como "sin arqueo ese mes" (ver spec 2026-08-31): no aporta variación ni pisa la referencia.
+//
+// DISPLAY (cambio 2026-09-09, ver spec 2026-09-09-diferencia-caja-gate-por-arqueo-y-endpoint-unico):
+// una celda solo muestra un valor si ESE mes tiene un arqueo real cargado. Un mes sin arqueo
+// devuelve null aunque el acumulador ya tenga un valor corriente — revierte la parte de DISPLAY
+// de CA-03 del spec del 24-ago (que mostraba el acumulado en todos los meses posteriores al primer
+// arqueo). La CONTINUIDAD de CA-03 se preserva: un arqueo posterior reconcilia contra el último
+// arqueo real, arrastrando el término contable de los meses intermedios.
+//
+// Antes o en el mes del primer arqueo, y si no hay ningún arqueo cargado, el resultado es null
+// (nunca 0 — ver Fix_Diferencia_Caja.pdf sección 5.1/CA-04).
 export function computeDiferenciaCajaAcumulada(
   serie: MesDatos[],
   primerArqueo: { anio: number; mes: number } | null,
@@ -66,7 +73,9 @@ export function computeDiferenciaCajaAcumulada(
     const deltaDisponible = arqueo != null ? arqueo - referencia : 0;
     if (arqueo != null) referencia = arqueo;
     acc += deltaDisponible - ((m.ingresos - m.egresos) - m.ganancia);
-    resultado[i] = acc;
+    // Solo se MUESTRA el acumulado en meses con arqueo real cargado (ver spec 2026-09-09).
+    // `acc` y `referencia` ya se actualizaron arriba: la continuidad no se corta.
+    resultado[i] = arqueo != null ? acc : null;
   }
   return resultado;
 }
