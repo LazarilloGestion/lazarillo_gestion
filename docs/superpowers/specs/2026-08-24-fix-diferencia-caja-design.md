@@ -203,6 +203,12 @@ de los `fetchYearTotals` fallaron.
 | CA-04 — celda vacía vs. cero | Función pura devuelve `null` (no `0`) fuera de rango; UI ya renderiza `null` como `—` (sin cambios en ese punto) |
 | CA-05 — cambio de período recalcula | Hook recalcula `primerArqueo`/`años`/serie en cada cambio de `year` (React Query re-ejecuta con la key nueva) |
 
+> **Actualización 2026-09-09:** la parte de *display* de CA-03 fue revertida por
+> `2026-09-09-diferencia-caja-gate-por-arqueo-y-endpoint-unico.md`. Un mes sin arqueo
+> cargado ahora muestra "—", no el acumulado corriente. La *continuidad* de CA-03 (el
+> acumulador no se corta en meses sin arqueo) se mantiene: un arqueo posterior sigue
+> reconciliando contra el anterior.
+
 ## 6. Riesgos / notas
 
 - Dato financiero visible al cliente — cualquier discrepancia en la fórmula o el gate se nota
