@@ -105,6 +105,13 @@ export function buildFlujoCajaUrl(year: number, localId?: number, pdvId?: number
   return `/api/dashboard/flujo-caja?${sp.toString()}`;
 }
 
+export function buildDiferenciaCajaUrl(year: number, localId?: number, pdvId?: number): string {
+  const sp = new URLSearchParams({ year: String(year) });
+  if (localId != null) sp.set("localId", String(localId));
+  if (pdvId != null) sp.set("puntoDeVentaId", String(pdvId));
+  return `/api/dashboard/diferencia-caja?${sp.toString()}`;
+}
+
 export function buildPrimerArqueoUrl(localId?: number, pdvId?: number): string {
   const sp = new URLSearchParams();
   if (localId != null) sp.set("localId", String(localId));
