@@ -31,6 +31,13 @@ function destinoVacio(): DestinoFormState {
   return { localId: null, puntoDeVentaId: null, porcentaje: 0 };
 }
 
+// Una regla nueva arranca con un único destino al 100%: el caso más común es
+// aperturar a un solo local y así se guarda sin tocar el %. Al agregar un
+// segundo destino (entra en 0%) el usuario rebalancea a mano.
+function destinosIniciales(): DestinoFormState[] {
+  return [{ ...destinoVacio(), porcentaje: 100 }];
+}
+
 function reglaAFormulario(regla: ReglaAperturaDTO): { vigencia: VigenciaFormState; destinos: DestinoFormState[] } {
   return {
     vigencia: {
@@ -80,7 +87,7 @@ export function AperturaGastosModal({
   const [view, setView] = useState<"lista" | "formulario">("lista");
   const [editando, setEditando] = useState<ReglaAperturaDTO | null>(null);
   const [vigencia, setVigencia] = useState<VigenciaFormState>(VIGENCIA_VACIA);
-  const [destinos, setDestinos] = useState<DestinoFormState[]>([destinoVacio(), destinoVacio()]);
+  const [destinos, setDestinos] = useState<DestinoFormState[]>(destinosIniciales);
   const [origen, setOrigen] = useState<OrigenFormState>({ localId: origenLocalId, puntoDeVentaId: origenPdvId });
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
@@ -159,7 +166,7 @@ export function AperturaGastosModal({
   function abrirFormularioNuevo() {
     setEditando(null);
     setVigencia(VIGENCIA_VACIA);
-    setDestinos([destinoVacio(), destinoVacio()]);
+    setDestinos(destinosIniciales());
     setOrigen({ localId: origenLocalId, puntoDeVentaId: origenPdvId });
     setErrorGuardar(null);
     setView("formulario");
