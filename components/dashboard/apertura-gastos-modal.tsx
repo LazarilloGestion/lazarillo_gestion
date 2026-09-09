@@ -17,6 +17,7 @@ import type { Local } from "@/lib/types/domain";
 import { AperturaVigenciaSelector, type VigenciaFormState } from "./apertura-vigencia-selector";
 import { AperturaDestinoRow, type DestinoFormState } from "./apertura-destino-row";
 import { AperturaOrigenSelector, type OrigenFormState } from "./apertura-origen-selector";
+import { describirOrigen } from "@/lib/apertura/descripcion-origen";
 
 const VIGENCIA_VACIA: VigenciaFormState = {
   modo: "historico",
@@ -29,8 +30,6 @@ const VIGENCIA_VACIA: VigenciaFormState = {
 function destinoVacio(): DestinoFormState {
   return { localId: null, puntoDeVentaId: null, porcentaje: 0 };
 }
-
-const ORIGEN_VACIO: OrigenFormState = { localId: null, puntoDeVentaId: null };
 
 function reglaAFormulario(regla: ReglaAperturaDTO): { vigencia: VigenciaFormState; destinos: DestinoFormState[] } {
   return {
@@ -65,10 +64,16 @@ function resumenVigencia(regla: ReglaAperturaDTO): string {
 export function AperturaGastosModal({
   conceptoCodigo,
   conceptoNombre,
+  origenLocalId,
+  origenPdvId,
   onClose,
 }: {
   conceptoCodigo: string | null;
   conceptoNombre: string;
+  // Origen de una regla nueva: viene fijo del filtro del dashboard, no se edita
+  // desde el modal. Al editar una regla existente sí se usa el selector.
+  origenLocalId: number | null;
+  origenPdvId: number | null;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -76,7 +81,7 @@ export function AperturaGastosModal({
   const [editando, setEditando] = useState<ReglaAperturaDTO | null>(null);
   const [vigencia, setVigencia] = useState<VigenciaFormState>(VIGENCIA_VACIA);
   const [destinos, setDestinos] = useState<DestinoFormState[]>([destinoVacio(), destinoVacio()]);
-  const [origen, setOrigen] = useState<OrigenFormState>(ORIGEN_VACIO);
+  const [origen, setOrigen] = useState<OrigenFormState>({ localId: origenLocalId, puntoDeVentaId: origenPdvId });
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
   const [reglaAEliminar, setReglaAEliminar] = useState<ReglaAperturaDTO | null>(null);
@@ -94,12 +99,7 @@ export function AperturaGastosModal({
   // Nombres legibles para la línea de origen de cada card. Vive dentro del
   // componente porque depende de `locales` (lista remota).
   function resumenOrigen(regla: ReglaAperturaDTO): string {
-    const local = locales.find((l) => l.id === regla.origenLocalId);
-    if (regla.origenPuntoDeVentaId != null) {
-      const pv = local?.puntosDeVenta.find((p) => p.id === regla.origenPuntoDeVentaId);
-      return `Origen: ${pv?.nombre ?? "PDV"}`;
-    }
-    return `Origen: ${local?.nombre ?? "Local"} (todo el local)`;
+    return `Origen: ${describirOrigen(locales, regla.origenLocalId, regla.origenPuntoDeVentaId)}`;
   }
 
   // El origen queda "completo" con solo el local elegido — el punto de venta es
@@ -160,7 +160,7 @@ export function AperturaGastosModal({
     setEditando(null);
     setVigencia(VIGENCIA_VACIA);
     setDestinos([destinoVacio(), destinoVacio()]);
-    setOrigen(ORIGEN_VACIO);
+    setOrigen({ localId: origenLocalId, puntoDeVentaId: origenPdvId });
     setErrorGuardar(null);
     setView("formulario");
   }
@@ -387,7 +387,14 @@ export function AperturaGastosModal({
 
           {view === "formulario" && (
             <div className="flex flex-col gap-4">
-              <AperturaOrigenSelector value={origen} locales={locales} onChange={setOrigen} />
+              {editando ? (
+                <AperturaOrigenSelector value={origen} locales={locales} onChange={setOrigen} />
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-muted-foreground">Origen de la regla</span>
+                  <p className="text-sm">{describirOrigen(locales, origen.localId, origen.puntoDeVentaId)}</p>
+                </div>
+              )}
 
               <AperturaVigenciaSelector value={vigencia} onChange={setVigencia} />
 

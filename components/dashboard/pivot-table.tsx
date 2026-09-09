@@ -210,22 +210,24 @@ export function PivotTable() {
                         >
                           {concepto.nombre}
                         </ExpandableButton>
-                        <button
-                          type="button"
-                          title="Apertura de gastos"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setAperturaConcepto({ codigo: concepto.conceptoCodigo, nombre: concepto.nombre });
-                          }}
-                          className={cn(
-                            "shrink-0 flex h-5 w-5 items-center justify-center rounded hover:bg-muted transition-colors",
-                            conceptosConReglaActiva.has(concepto.conceptoCodigo)
-                              ? "text-primary"
-                              : "text-muted-foreground/40 hover:text-muted-foreground"
-                          )}
-                        >
-                          <Split className="w-3 h-3" />
-                        </button>
+                        {localId != null && (
+                          <button
+                            type="button"
+                            title="Apertura de gastos"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAperturaConcepto({ codigo: concepto.conceptoCodigo, nombre: concepto.nombre });
+                            }}
+                            className={cn(
+                              "shrink-0 flex h-5 w-5 items-center justify-center rounded hover:bg-muted transition-colors",
+                              conceptosConReglaActiva.has(concepto.conceptoCodigo)
+                                ? "text-primary"
+                                : "text-muted-foreground/40 hover:text-muted-foreground"
+                            )}
+                          >
+                            <Split className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
                     </td>
                     {months.map((mes) => {
@@ -363,6 +365,8 @@ export function PivotTable() {
       <AperturaGastosModal
         conceptoCodigo={aperturaConcepto?.codigo ?? null}
         conceptoNombre={aperturaConcepto?.nombre ?? ""}
+        origenLocalId={localId ?? null}
+        origenPdvId={pdvId ?? null}
         onClose={() => setAperturaConcepto(null)}
       />
 
