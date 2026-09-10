@@ -15,8 +15,8 @@ const LOCALES: Local[] = [
 ];
 
 describe("describirOrigen", () => {
-  it("PDV puntual: devuelve el nombre del punto de venta", () => {
-    expect(describirOrigen(LOCALES, 1, 10)).toBe("Caja 1");
+  it("PDV puntual: nombre calificado por el local (Local — PDV)", () => {
+    expect(describirOrigen(LOCALES, 1, 10)).toBe("Ramos Mejía — Caja 1");
   });
 
   it("sin PDV: devuelve el local entero", () => {

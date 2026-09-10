@@ -91,7 +91,12 @@ export async function GET(request: NextRequest) {
     SELECT
       COALESCE(cc.codigo, '__sin_concepto')                        AS concepto_codigo,
       EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int  AS mes,
-      COALESCE(pv.nombre, l.nombre, 'Sin destino')                 AS destino_nombre,
+      -- PDV calificado por su local ("Local — PDV"): los nombres de PDV se
+      -- repiten entre locales, el PDV a secas es ambiguo (ver describirOrigen).
+      CASE
+        WHEN pv.nombre IS NOT NULL THEN COALESCE(l.nombre || ' — ', '') || pv.nombre
+        ELSE COALESCE(l.nombre, 'Sin destino')
+      END                                                         AS destino_nombre,
       da.porcentaje                                                AS pct,
       SUM(da."importeCalculado")                                   AS importe_calculado
     FROM v_compras_distribuidas c
