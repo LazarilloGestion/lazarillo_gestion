@@ -60,6 +60,55 @@ export type PivotData = {
   grandTotal: number;
 };
 
+// --- Pivot row types "por proveedor" (Proveedor → Concepto → línea) ---
+// Tipos paralelos a PivotRubroRow/PivotConceptoRow/PivotProveedorRow de
+// arriba, no reutilizados: forzar otro significado en `rubroCodigo` (p. ej.
+// guardar ahí un proveedorId) sería confuso. Es la 2ª repetición de este
+// patrón de árbol de 3 niveles — si aparece una 3ª forma de agrupar, ahí sí
+// vale la pena generalizar (ver docs/superpowers/specs/2026-09-11-vista-compras-por-proveedor-design.md §3.1).
+
+export type PivotLineaRow = {
+  readonly level: 2;
+  readonly id: string;
+  readonly rowId: string;
+  readonly distribucionId: number | null;
+  readonly conceptoCodigo: string;
+  readonly fecha: string | null;
+  readonly observac: string | null;
+  readonly importe: number;
+  readonly hasManualOverride: boolean;
+  values: Record<number, number>;
+  rowTotal: number;
+};
+
+export type PivotConceptoSubRow = {
+  readonly level: 1;
+  readonly id: string;
+  readonly nombre: string;
+  readonly conceptoCodigo: string;
+  readonly rubroCodigo: string;
+  values: Record<number, number>;
+  rowTotal: number;
+  children: PivotLineaRow[];
+  composicion?: Record<number, ComposicionMes>;
+};
+
+export type PivotProveedorTopRow = {
+  readonly level: 0;
+  readonly id: string;
+  readonly nombre: string;
+  readonly proveedorId: number | null;
+  values: Record<number, number>;
+  rowTotal: number;
+  children: PivotConceptoSubRow[];
+};
+
+export type PivotDataPorProveedor = {
+  rows: PivotProveedorTopRow[];
+  columnTotals: Record<number, number>;
+  grandTotal: number;
+};
+
 // --- Filtros de detalle ---
 
 type BaseDashboardFilter = {

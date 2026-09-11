@@ -19,3 +19,9 @@ export const SIN_COBRO_NOMBRE  = "Sin Cobro";
 // Única fuente de verdad — no redeclarar este union en otros archivos.
 export const VISIBILIDAD_FIELDS = ["visibleEnDashboard", "visibleEnResultados"] as const;
 export type VisibilidadField = typeof VISIBILIDAD_FIELDS[number];
+
+// Clave sintética para agrupar compras sin proveedor asignado en el árbol
+// "por proveedor" — análoga a SIN_RUBRO_CODE/SIN_CONCEPTO_CODE de arriba,
+// pero el id de proveedor es numérico (FK nullable), no un código de texto,
+// así que no hay valor numérico "mágico" que reusar como con rubro/concepto.
+export const SIN_PROVEEDOR_KEY = "__sin_proveedor";
