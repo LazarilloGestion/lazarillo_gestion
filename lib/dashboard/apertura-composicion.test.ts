@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildComposicion } from "./apertura-composicion";
+import { buildComposicion, buildComposicionPorProveedor } from "./apertura-composicion";
 
 describe("buildComposicion", () => {
   it("agrupa por concepto+mes y arma la lista de destinos con pct e importe", () => {
@@ -31,5 +31,39 @@ describe("buildComposicion", () => {
       []
     );
     expect(result["9"][2].total).toBe(0);
+  });
+});
+
+describe("buildComposicionPorProveedor", () => {
+  it("agrupa por concepto+proveedor+mes, sin mezclar proveedores", () => {
+    const destinoRows = [
+      { concepto_codigo: "17", proveedor_id: 1, mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 700 },
+      { concepto_codigo: "17", proveedor_id: 2, mes: 5, destino_nombre: "Actual", pct: 50, importe_calculado: 500 },
+    ];
+    const originalRows = [
+      { concepto_codigo: "17", proveedor_id: 1, mes: 5, importe_original: 1000 },
+      { concepto_codigo: "17", proveedor_id: 2, mes: 5, importe_original: 1000 },
+    ];
+    const result = buildComposicionPorProveedor(destinoRows, originalRows);
+
+    expect(result["17|1"][5].total).toBe(1000);
+    expect(result["17|1"][5].destinos).toEqual([{ nombre: "Actual", pct: 70, importe: 700 }]);
+    expect(result["17|2"][5].destinos).toEqual([{ nombre: "Actual", pct: 50, importe: 500 }]);
+  });
+
+  it("proveedor_id null usa la clave __sin_proveedor", () => {
+    const result = buildComposicionPorProveedor(
+      [{ concepto_codigo: "3", proveedor_id: null, mes: 1, destino_nombre: "X", pct: 100, importe_calculado: 500 }],
+      [{ concepto_codigo: "3", proveedor_id: null, mes: 1, importe_original: 500 }]
+    );
+    expect(result["3|__sin_proveedor"][1].total).toBe(500);
+  });
+
+  it("no afecta a buildComposicion existente (sigue agrupando solo por concepto)", () => {
+    const result = buildComposicion(
+      [{ concepto_codigo: "17", mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 700 }],
+      [{ concepto_codigo: "17", mes: 5, importe_original: 1000 }]
+    );
+    expect(result["17"][5].total).toBe(1000);
   });
 });
