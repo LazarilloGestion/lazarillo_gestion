@@ -4,12 +4,12 @@ import { buildComposicion, buildComposicionPorProveedor } from "./apertura-compo
 describe("buildComposicion", () => {
   it("agrupa por concepto+mes y arma la lista de destinos con pct e importe", () => {
     const destinoRows = [
-      { concepto_codigo: "17", mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 73993 },
-      { concepto_codigo: "17", mes: 5, destino_nombre: "Canchas Ramos", pct: 10, importe_calculado: 10570 },
-      { concepto_codigo: "17", mes: 5, destino_nombre: "Canchas SJ", pct: 10, importe_calculado: 10570 },
-      { concepto_codigo: "17", mes: 5, destino_nombre: "Descartado", pct: 10, importe_calculado: 10571 },
+      { concepto_codigo: "17", proveedor_id: 1, mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 73993 },
+      { concepto_codigo: "17", proveedor_id: 1, mes: 5, destino_nombre: "Canchas Ramos", pct: 10, importe_calculado: 10570 },
+      { concepto_codigo: "17", proveedor_id: 1, mes: 5, destino_nombre: "Canchas SJ", pct: 10, importe_calculado: 10570 },
+      { concepto_codigo: "17", proveedor_id: 1, mes: 5, destino_nombre: "Descartado", pct: 10, importe_calculado: 10571 },
     ];
-    const originalRows = [{ concepto_codigo: "17", mes: 5, importe_original: 105704 }];
+    const originalRows = [{ concepto_codigo: "17", proveedor_id: 1, mes: 5, importe_original: 105704 }];
     const result = buildComposicion(destinoRows, originalRows);
     expect(result["17"][5].total).toBe(105704);
     expect(result["17"][5].destinos).toHaveLength(4);
@@ -18,8 +18,8 @@ describe("buildComposicion", () => {
 
   it("convierte Decimal-like (string) a number", () => {
     const result = buildComposicion(
-      [{ concepto_codigo: "3", mes: 1, destino_nombre: "X", pct: "50.00", importe_calculado: "1000.00" }],
-      [{ concepto_codigo: "3", mes: 1, importe_original: "2000.00" }]
+      [{ concepto_codigo: "3", proveedor_id: 1, mes: 1, destino_nombre: "X", pct: "50.00", importe_calculado: "1000.00" }],
+      [{ concepto_codigo: "3", proveedor_id: 1, mes: 1, importe_original: "2000.00" }]
     );
     expect(result["3"][1].destinos[0]).toEqual({ nombre: "X", pct: 50, importe: 1000 });
     expect(result["3"][1].total).toBe(2000);
@@ -27,7 +27,7 @@ describe("buildComposicion", () => {
 
   it("concepto+mes sin fila de original: total 0 (no rompe)", () => {
     const result = buildComposicion(
-      [{ concepto_codigo: "9", mes: 2, destino_nombre: "X", pct: 100, importe_calculado: 5 }],
+      [{ concepto_codigo: "9", proveedor_id: 1, mes: 2, destino_nombre: "X", pct: 100, importe_calculado: 5 }],
       []
     );
     expect(result["9"][2].total).toBe(0);
@@ -61,8 +61,8 @@ describe("buildComposicionPorProveedor", () => {
 
   it("no afecta a buildComposicion existente (sigue agrupando solo por concepto)", () => {
     const result = buildComposicion(
-      [{ concepto_codigo: "17", mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 700 }],
-      [{ concepto_codigo: "17", mes: 5, importe_original: 1000 }]
+      [{ concepto_codigo: "17", proveedor_id: 1, mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 700 }],
+      [{ concepto_codigo: "17", proveedor_id: 1, mes: 5, importe_original: 1000 }]
     );
     expect(result["17"][5].total).toBe(1000);
   });
