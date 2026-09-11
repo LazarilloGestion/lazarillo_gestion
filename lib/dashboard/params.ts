@@ -1,6 +1,7 @@
 import type { DetalleFilter, VentasDetalleFilter } from "./types";
 
 export type Vista = "compras" | "resultados";
+export type AgrupacionCompras = "concepto" | "proveedor";
 
 export interface DashboardParams {
   year: number;
@@ -12,6 +13,7 @@ export interface DashboardParams {
   observacionQuery?: string;
   months?: number[];
   vista?: Vista;
+  agrupacion?: AgrupacionCompras;
 }
 
 export interface VentasDashboardParams {
@@ -37,6 +39,10 @@ function parseVista(s: string | null): Vista | undefined {
   return s === "resultados" ? "resultados" : undefined;
 }
 
+function parseAgrupacion(s: string | null): AgrupacionCompras | undefined {
+  return s === "proveedor" ? "proveedor" : undefined;
+}
+
 export function parseDashboardParams(sp: URLSearchParams): DashboardParams {
   const raw = Number(sp.get("year"));
   const year = Number.isInteger(raw) && raw >= 2000 && raw <= 2100 ? raw : new Date().getFullYear();
@@ -50,6 +56,7 @@ export function parseDashboardParams(sp: URLSearchParams): DashboardParams {
     observacionQuery: sp.get("observacionQuery")?.slice(0, 256) ?? undefined,
     months: parseMonths(sp.get("months")),
     vista: parseVista(sp.get("vista")),
+    agrupacion: parseAgrupacion(sp.get("agrupacion")),
   };
 }
 
@@ -74,6 +81,7 @@ export function buildDashboardUrl(base: string, params: DashboardParams): string
   if (params.observacionQuery) sp.set("observacionQuery", params.observacionQuery);
   if (params.months?.length) sp.set("months", params.months.join(","));
   if (params.vista) sp.set("vista", params.vista);
+  if (params.agrupacion) sp.set("agrupacion", params.agrupacion);
   return `${base}?${sp.toString()}`;
 }
 
