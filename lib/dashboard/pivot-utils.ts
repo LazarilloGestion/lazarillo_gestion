@@ -1,4 +1,7 @@
-import type { DecimalLike, PivotData, PivotRubroRow, PivotConceptoRow, PivotProveedorRow } from "./types";
+import type {
+  DecimalLike, PivotData, PivotRubroRow, PivotConceptoRow, PivotProveedorRow,
+  PivotDataPorProveedor, PivotProveedorTopRow, PivotConceptoSubRow, PivotLineaRow,
+} from "./types";
 
 export function toNumber(v: DecimalLike): number {
   return typeof v === "object" && v !== null ? Number(v.toString()) : Number(v);
@@ -18,7 +21,10 @@ export type FlatRow =
 export type SortCol = number | "total";
 export type SortDir = "asc" | "desc";
 
-function getValue(row: PivotRubroRow | PivotConceptoRow | PivotProveedorRow, col: SortCol): number {
+function getValue(
+  row: PivotRubroRow | PivotConceptoRow | PivotProveedorRow | PivotProveedorTopRow | PivotConceptoSubRow | PivotLineaRow,
+  col: SortCol
+): number {
   return col === "total" ? row.rowTotal : (row.values[col as number] ?? 0);
 }
 
@@ -63,6 +69,53 @@ export function flattenRows(
       if (maxDepth < 3 || !expanded.has(concepto.id)) continue;
       for (const prov of concepto.children) {
         result.push({ type: "proveedor", data: prov });
+      }
+    }
+  }
+  return result;
+}
+
+/** Ordena el árbol "por proveedor" — misma lógica que sortPivotRows, sobre los tipos nuevos. */
+export function sortPivotRowsPorProveedor(
+  rows: PivotProveedorTopRow[],
+  col: SortCol,
+  dir: SortDir
+): PivotProveedorTopRow[] {
+  const factor = dir === "desc" ? -1 : 1;
+  return [...rows]
+    .sort((a, b) => factor * (getValue(a, col) - getValue(b, col)))
+    .map((proveedor) => ({
+      ...proveedor,
+      children: [...proveedor.children]
+        .sort((a, b) => factor * (getValue(a, col) - getValue(b, col)))
+        .map((concepto) => ({
+          ...concepto,
+          children: [...concepto.children].sort(
+            (a, b) => factor * (getValue(a, col) - getValue(b, col))
+          ),
+        })),
+    }));
+}
+
+export type FlatRowPorProveedor =
+  | { type: "proveedorTop"; data: PivotProveedorTopRow }
+  | { type: "conceptoSub"; data: PivotConceptoSubRow }
+  | { type: "linea"; data: PivotLineaRow };
+
+/** Aplana el árbol "por proveedor" respetando expansión — siempre 3 niveles (no hay variante maxDepth como en Ventas). */
+export function flattenRowsPorProveedor(
+  pivotData: PivotDataPorProveedor,
+  expanded: Set<string>
+): FlatRowPorProveedor[] {
+  const result: FlatRowPorProveedor[] = [];
+  for (const proveedor of pivotData.rows) {
+    result.push({ type: "proveedorTop", data: proveedor });
+    if (!expanded.has(proveedor.id)) continue;
+    for (const concepto of proveedor.children) {
+      result.push({ type: "conceptoSub", data: concepto });
+      if (!expanded.has(concepto.id)) continue;
+      for (const linea of concepto.children) {
+        result.push({ type: "linea", data: linea });
       }
     }
   }
