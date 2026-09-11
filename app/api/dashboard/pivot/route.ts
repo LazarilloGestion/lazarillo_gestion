@@ -6,9 +6,11 @@ import { parseDashboardParams } from "@/lib/dashboard/params";
 import { buildPivotConditions } from "@/lib/dashboard/query-builders";
 import {
   buildComposicion,
+  buildComposicionPorProveedor,
   type ComposicionSqlRow,
   type ComposicionOriginalRow,
 } from "@/lib/dashboard/apertura-composicion";
+import { buildPivotDataByProveedor } from "@/lib/dashboard/pivot-por-proveedor";
 import type {
   PivotData,
   PivotRubroRow,
@@ -36,7 +38,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid numeric parameter" }, { status: 400 });
   }
 
-  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months, vista } = params;
+  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months, vista, agrupacion } = params;
   const visibilidadCol = vista === "resultados" ? "visibleEnResultados" : "visibleEnDashboard";
 
   try {
@@ -97,6 +99,7 @@ export async function GET(request: NextRequest) {
         WHEN pv.nombre IS NOT NULL THEN COALESCE(l.nombre || ' — ', '') || pv.nombre
         ELSE COALESCE(l.nombre, 'Sin destino')
       END                                                         AS destino_nombre,
+      p.id                                                          AS proveedor_id,
       da.porcentaje                                                AS pct,
       SUM(da."importeCalculado")                                   AS importe_calculado
     FROM v_compras_distribuidas c
@@ -108,7 +111,7 @@ export async function GET(request: NextRequest) {
     LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
     LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
     WHERE c."distribucionId" IS NOT NULL AND ${whereComposicion}
-    GROUP BY concepto_codigo, mes, destino_nombre, da.porcentaje
+    GROUP BY concepto_codigo, proveedor_id, mes, destino_nombre, da.porcentaje
   `);
 
   // Total "100%" del tooltip = importe original de la compra, deduplicado por
@@ -116,10 +119,11 @@ export async function GET(request: NextRequest) {
   // de destino, así que primero un SELECT DISTINCT por (concepto, mes, compra)
   // y recién después el SUM.
   const composicionOriginalesQuery = prisma.$queryRaw<ComposicionOriginalRow[]>(Prisma.sql`
-    SELECT concepto_codigo, mes, SUM(importe_original) AS importe_original
+    SELECT concepto_codigo, proveedor_id, mes, SUM(importe_original) AS importe_original
     FROM (
       SELECT DISTINCT
         COALESCE(cc.codigo, '__sin_concepto')                       AS concepto_codigo,
+        p.id                                                          AS proveedor_id,
         EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int AS mes,
         da."compraRowId",
         da."importeOriginal"                                        AS importe_original
@@ -130,7 +134,7 @@ export async function GET(request: NextRequest) {
       LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
       WHERE c."distribucionId" IS NOT NULL AND ${whereComposicion}
     ) dedup
-    GROUP BY concepto_codigo, mes
+    GROUP BY concepto_codigo, proveedor_id, mes
   `);
 
   // Los tres queries son independientes entre sí y `prisma` es un cliente
@@ -142,8 +146,12 @@ export async function GET(request: NextRequest) {
     composicionOriginalesQuery,
   ]);
 
-  const composicion = buildComposicion(composicionDestinos, composicionOriginales);
+  if (agrupacion === "proveedor") {
+    const composicionPorProveedor = buildComposicionPorProveedor(composicionDestinos, composicionOriginales);
+    return NextResponse.json(buildPivotDataByProveedor(rows, composicionPorProveedor));
+  }
 
+  const composicion = buildComposicion(composicionDestinos, composicionOriginales);
   return NextResponse.json(buildPivotData(rows, composicion));
   } catch (err) {
     console.error(err);
