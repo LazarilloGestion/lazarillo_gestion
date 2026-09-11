@@ -32,6 +32,17 @@ describe("buildComposicion", () => {
     );
     expect(result["9"][2].total).toBe(0);
   });
+
+  it("fusiona destinos con mismo nombre+pct cuando la SQL llega particionada por proveedor, sumando el importe", () => {
+    const destinoRows = [
+      { concepto_codigo: "17", proveedor_id: 1, mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 40000 },
+      { concepto_codigo: "17", proveedor_id: 2, mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 33993 },
+    ];
+    const originalRows = [{ concepto_codigo: "17", proveedor_id: null, mes: 5, importe_original: 105704 }];
+    const result = buildComposicion(destinoRows, originalRows);
+    expect(result["17"][5].destinos).toHaveLength(1);
+    expect(result["17"][5].destinos[0]).toEqual({ nombre: "Actual", pct: 70, importe: 73993 });
+  });
 });
 
 describe("buildComposicionPorProveedor", () => {

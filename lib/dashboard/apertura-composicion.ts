@@ -41,11 +41,19 @@ export function buildComposicion(
     ensure(row.concepto_codigo, row.mes).total += toNum(row.importe_original);
   }
   for (const row of destinoRows) {
-    ensure(row.concepto_codigo, row.mes).destinos.push({
-      nombre: row.destino_nombre,
-      pct: toNum(row.pct),
-      importe: toNum(row.importe_calculado),
-    });
+    const bucket = ensure(row.concepto_codigo, row.mes);
+    const pct = toNum(row.pct);
+    const importe = toNum(row.importe_calculado);
+    // La SQL ahora particiona estas filas también por proveedor_id (para poder
+    // alimentar buildComposicionPorProveedor) — acá se vuelven a fusionar por
+    // (nombre, pct) para reproducir exactamente el agrupamiento que la propia
+    // query hacía antes de esa partición (GROUP BY ..., destino_nombre, da.porcentaje).
+    const existente = bucket.destinos.find((d) => d.nombre === row.destino_nombre && d.pct === pct);
+    if (existente) {
+      existente.importe += importe;
+    } else {
+      bucket.destinos.push({ nombre: row.destino_nombre, pct, importe });
+    }
   }
   return out;
 }
