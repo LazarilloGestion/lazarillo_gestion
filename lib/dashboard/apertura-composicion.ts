@@ -81,6 +81,12 @@ export function buildComposicionPorProveedor(
   for (const row of originalRows) {
     ensure(row.concepto_codigo, row.proveedor_id, row.mes).total += toNum(row.importe_original);
   }
+  // A diferencia de buildComposicion, acá no hace falta fusionar: la clave del
+  // bucket ya incluye proveedor_id, que junto con (destino_nombre, porcentaje)
+  // coincide exactamente con el GROUP BY de la SQL (concepto_codigo,
+  // proveedor_id, mes, destino_nombre, da.porcentaje) — dos filas del mismo
+  // bucket nunca pueden compartir (nombre, pct). Si ese GROUP BY cambia,
+  // revisar este supuesto.
   for (const row of destinoRows) {
     ensure(row.concepto_codigo, row.proveedor_id, row.mes).destinos.push({
       nombre: row.destino_nombre,

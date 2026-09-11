@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildPivotDataByProveedor } from "./pivot-por-proveedor";
+import { SIN_PROVEEDOR_NOMBRE } from "./constants";
 import type { SqlRow } from "./types";
 
 function row(overrides: Partial<SqlRow>): SqlRow {
@@ -44,13 +45,17 @@ describe("buildPivotDataByProveedor", () => {
     expect(data.grandTotal).toBe(150);
   });
 
-  it("proveedor null usa la clave __sin_proveedor sin romper", () => {
+  it("proveedor null usa la clave __sin_proveedor y muestra el label sentinela sin importar el texto crudo del ERP", () => {
+    // La SQL real cae a c.proveedor (texto crudo, no vinculado) en esta columna
+    // cuando proveedor_id es null, antes de llegar al literal 'Sin Proveedor' —
+    // este fixture reproduce ese caso realista en vez de uno que ya trae el label limpio.
     const rows: SqlRow[] = [
-      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "CARNICERIA LOPEZ SRL", row_id: "x1", total: 10 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
     expect(data.rows[0].proveedorId).toBeNull();
     expect(data.rows[0].id).toBe("__sin_proveedor");
+    expect(data.rows[0].nombre).toBe(SIN_PROVEEDOR_NOMBRE);
   });
 
   it("adjunta la composición correspondiente a cada concepto+proveedor", () => {

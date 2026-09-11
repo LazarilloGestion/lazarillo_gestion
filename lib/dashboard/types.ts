@@ -87,6 +87,7 @@ export type PivotConceptoSubRow = {
   readonly nombre: string;
   readonly conceptoCodigo: string;
   readonly rubroCodigo: string;
+  readonly proveedorId: number | null;
   values: Record<number, number>;
   rowTotal: number;
   children: PivotLineaRow[];

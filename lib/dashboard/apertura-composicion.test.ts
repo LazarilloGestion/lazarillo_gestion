@@ -77,4 +77,22 @@ describe("buildComposicionPorProveedor", () => {
     );
     expect(result["17"][5].total).toBe(1000);
   });
+
+  it("NO fusiona dos destinos distintos del mismo bucket (concepto+proveedor+mes) aunque compartan pct", () => {
+    // Mirror del test de fusión de buildComposicion: acá el bucket ya incluye
+    // proveedor_id, así que (destino_nombre, pct) siempre es único dentro del
+    // bucket — dos filas nunca deberían colapsar en una sola entrada.
+    const destinoRows = [
+      { concepto_codigo: "17", proveedor_id: 1, mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 700 },
+      { concepto_codigo: "17", proveedor_id: 1, mes: 5, destino_nombre: "Canchas Ramos", pct: 70, importe_calculado: 300 },
+    ];
+    const originalRows = [{ concepto_codigo: "17", proveedor_id: 1, mes: 5, importe_original: 1000 }];
+    const result = buildComposicionPorProveedor(destinoRows, originalRows);
+
+    expect(result["17|1"][5].destinos).toHaveLength(2);
+    expect(result["17|1"][5].destinos).toEqual([
+      { nombre: "Actual", pct: 70, importe: 700 },
+      { nombre: "Canchas Ramos", pct: 70, importe: 300 },
+    ]);
+  });
 });

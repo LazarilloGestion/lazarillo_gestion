@@ -1,4 +1,4 @@
-import { SIN_PROVEEDOR_KEY } from "./constants";
+import { SIN_PROVEEDOR_KEY, SIN_PROVEEDOR_NOMBRE } from "./constants";
 import type {
   SqlRow,
   ComposicionMes,
@@ -44,7 +44,7 @@ export function buildPivotDataByProveedor(
       proveedorMap.set(provKey, {
         level: 0,
         id: provKey,
-        nombre: proveedor_nombre,
+        nombre: proveedor_id != null ? proveedor_nombre : SIN_PROVEEDOR_NOMBRE,
         proveedorId: proveedor_id,
         values: {},
         rowTotal: 0,
@@ -60,6 +60,7 @@ export function buildPivotDataByProveedor(
         nombre: concepto_nombre,
         conceptoCodigo: concepto_codigo,
         rubroCodigo: rubro_codigo,
+        proveedorId: proveedor_id,
         values: {},
         rowTotal: 0,
         children: [],

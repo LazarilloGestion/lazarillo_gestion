@@ -25,3 +25,10 @@ export type VisibilidadField = typeof VISIBILIDAD_FIELDS[number];
 // pero el id de proveedor es numérico (FK nullable), no un código de texto,
 // así que no hay valor numérico "mágico" que reusar como con rubro/concepto.
 export const SIN_PROVEEDOR_KEY = "__sin_proveedor";
+
+// Label a mostrar para el bucket "sin proveedor" del árbol por proveedor —
+// distinto de SIN_PROVEEDOR_KEY (clave de agrupación): la SQL de
+// /api/dashboard/pivot cae a c.proveedor (texto crudo del ERP de un proveedor
+// SIN vincular) antes de llegar al literal 'Sin Proveedor' cuando proveedor_id
+// es null, así que no se puede confiar en proveedor_nombre para este caso.
+export const SIN_PROVEEDOR_NOMBRE = "Sin Proveedor";

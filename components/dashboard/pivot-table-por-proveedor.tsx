@@ -4,7 +4,7 @@ import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
 import { usePivotScreenDataPorProveedor } from "@/hooks/use-pivot-screen-data-por-proveedor";
 import { ExpandableButton } from "@/components/ui/expandable-button";
 import { ChevronDown, ChevronUp, Split } from "lucide-react";
-import { cn, fmtARS } from "@/lib/utils";
+import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
@@ -147,7 +147,7 @@ export function PivotTableByProveedor() {
                   <tr key={proveedor.id} className="border-b font-semibold" onContextMenu={collapseAll}>
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
                       <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(proveedor.id)}>
-                        {proveedor.nombre}
+                        {normalize(proveedor.nombre)}
                       </ExpandableButton>
                     </td>
                     {months.map((mes) => (
@@ -188,6 +188,9 @@ export function PivotTableByProveedor() {
               if (item.type === "conceptoSub") {
                 const concepto = item.data as PivotConceptoSubRow;
                 const isExpanded = expanded.has(concepto.id);
+                // Sin proveedor vinculado no se puede armar el filtro {proveedorId, conceptoCodigo}
+                // que este drill-down necesita — mismo criterio que puedeDrillDown en la fila de proveedor.
+                const puedeDrillDownConcepto = concepto.proveedorId != null;
                 return (
                   <tr key={concepto.id} className="border-b hover:bg-accent/40 transition-colors" onContextMenu={collapseConceptos}>
                     <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -228,12 +231,12 @@ export function PivotTableByProveedor() {
                           key={mes}
                           className={cn(
                             "text-right px-3 py-2 tabular-nums text-muted-foreground",
-                            hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
+                            puedeDrillDownConcepto && hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
                           )}
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (hasValue(concepto.values[mes]))
-                              openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo });
+                            if (puedeDrillDownConcepto && hasValue(concepto.values[mes]))
+                              openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo, proveedorId: concepto.proveedorId! });
                           }}
                         >
                           {fmtARS(concepto.values[mes])}
@@ -255,10 +258,14 @@ export function PivotTableByProveedor() {
                       );
                     })}
                     <td
-                      className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
+                      className={cn(
+                        "text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm",
+                        puedeDrillDownConcepto && "cursor-pointer hover:text-foreground"
+                      )}
                       onClick={(e) => {
                         e.stopPropagation();
-                        openDetalle({ conceptoCodigo: concepto.conceptoCodigo });
+                        if (puedeDrillDownConcepto)
+                          openDetalle({ conceptoCodigo: concepto.conceptoCodigo, proveedorId: concepto.proveedorId! });
                       }}
                     >
                       {fmtARS(concepto.rowTotal)}
