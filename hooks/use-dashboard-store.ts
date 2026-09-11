@@ -5,6 +5,7 @@ import { persist } from "zustand/middleware";
 import { MONTH_IDXS } from "@/lib/dashboard/constants";
 import { writeFiltersCookie } from "@/lib/dashboard/filters-cookie";
 import type { SortCol, SortDir } from "@/lib/dashboard/pivot-utils";
+import type { AgrupacionCompras } from "@/lib/dashboard/params";
 
 type Tab = "compras" | "ventas" | "resultados";
 
@@ -36,6 +37,8 @@ type DashboardStore = {
   setTab: (tab: Tab) => void;
   setLocalId: (id: number | undefined) => void;
   setPdvId: (id: number | undefined) => void;
+  agrupacionCompras: AgrupacionCompras;
+  setAgrupacionCompras: (a: AgrupacionCompras) => void;
 
   // search (not persisted)
   rubroCodigo: string | undefined;
@@ -107,6 +110,8 @@ const useDashboardStore = create<DashboardStore>()(
       setTab: (tab) => set({ tab }),
       setLocalId: (id) => set({ localId: id, pdvId: undefined }),
       setPdvId: (id) => set({ pdvId: id }),
+      agrupacionCompras: "concepto" as AgrupacionCompras,
+      setAgrupacionCompras: (a) => set({ agrupacionCompras: a }),
 
       // search
       rubroCodigo: undefined,
@@ -172,6 +177,7 @@ const useDashboardStore = create<DashboardStore>()(
         tab: s.tab,
         localId: s.localId,
         pdvId: s.pdvId,
+        agrupacionCompras: s.agrupacionCompras,
       }),
     }
   )
@@ -228,6 +234,7 @@ export function useDashboard() {
     // navigation
     year: s.year, tab: s.tab, localId: s.localId, pdvId: s.pdvId,
     setYear: s.setYear, setTab: s.setTab, setLocalId: s.setLocalId, setPdvId: s.setPdvId,
+    agrupacionCompras: s.agrupacionCompras, setAgrupacionCompras: s.setAgrupacionCompras,
     // search
     rubroCodigo: s.rubroCodigo, conceptoCodigo: s.conceptoCodigo,
     proveedorId: s.proveedorId, observacionQuery: s.observacionQuery, searchLabel: s.searchLabel,
