@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
 import { usePivotScreenDataPorProveedor } from "@/hooks/use-pivot-screen-data-por-proveedor";
 import { ExpandableButton } from "@/components/ui/expandable-button";
-import { ChevronDown, ChevronUp, Split } from "lucide-react";
+import { ChevronDown, ChevronUp, Split, Users } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
@@ -23,7 +23,7 @@ export function PivotTableByProveedor() {
   const {
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
     months, activeMonths, sortCol, sortDir, handleSortClick,
-    rubroConfigVersion,
+    rubroConfigVersion, agrupacionCompras, setAgrupacionCompras,
   } = useDashboard();
 
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
@@ -88,7 +88,33 @@ export function PivotTableByProveedor() {
             />
             <tr className="bg-muted border-b">
               <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
-                Proveedor / Concepto
+                <div className="flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 p-0.5 w-fit">
+                  <button
+                    onClick={() => setAgrupacionCompras("concepto")}
+                    aria-pressed={agrupacionCompras === "concepto"}
+                    className={cn(
+                      "h-7 px-2.5 rounded-md text-xs font-medium transition-all",
+                      agrupacionCompras === "concepto"
+                        ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Concepto
+                  </button>
+                  <button
+                    onClick={() => setAgrupacionCompras("proveedor")}
+                    aria-pressed={agrupacionCompras === "proveedor"}
+                    className={cn(
+                      "h-7 px-2.5 rounded-md text-xs font-medium transition-all inline-flex items-center gap-1",
+                      agrupacionCompras === "proveedor"
+                        ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    <Users className="w-3 h-3" />
+                    Proveedor
+                  </button>
+                </div>
               </th>
               {months.map((idx) => (
                 <th key={idx} className="sticky top-0 z-20 bg-muted text-right px-3 py-3 font-medium min-w-[90px] whitespace-nowrap">

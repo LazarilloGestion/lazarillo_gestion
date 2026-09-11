@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
-import { CalendarDays, Building2, Store, Search, X, Filter, ChevronLeft, ChevronRight, Users } from "lucide-react";
+import { CalendarDays, Building2, Store, Search, X, Filter, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -43,7 +43,6 @@ export function DashboardFilters() {
     selectedMonths, toggleMonth, clearMonths,
     activeSearchParam: activeParam, searchLabel,
     clearSearch,
-    agrupacionCompras, setAgrupacionCompras,
   } = useDashboard();
 
   const isVentas = tab === "ventas";
@@ -165,36 +164,6 @@ export function DashboardFilters() {
                 ))}
               </SelectContent>
             </Select>
-          </div>
-        )}
-
-        {tab === "compras" && (
-          <div className="flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 p-0.5">
-            <button
-              onClick={() => setAgrupacionCompras("concepto")}
-              aria-pressed={agrupacionCompras === "concepto"}
-              className={cn(
-                "h-7 px-2.5 rounded-md text-xs font-medium transition-all",
-                agrupacionCompras === "concepto"
-                  ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Concepto
-            </button>
-            <button
-              onClick={() => setAgrupacionCompras("proveedor")}
-              aria-pressed={agrupacionCompras === "proveedor"}
-              className={cn(
-                "h-7 px-2.5 rounded-md text-xs font-medium transition-all inline-flex items-center gap-1",
-                agrupacionCompras === "proveedor"
-                  ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Users className="w-3 h-3" />
-              Proveedor
-            </button>
           </div>
         )}
 
