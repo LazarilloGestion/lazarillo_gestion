@@ -150,11 +150,15 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Escribir los tests que fallan**
 
-Agregar al final de `lib/dashboard/apertura-composicion.test.ts` (antes del cierre del `describe` existente, como un `describe` nuevo):
+Cambiar la línea de import existente al tope de `lib/dashboard/apertura-composicion.test.ts` (`import { buildComposicion } from "./apertura-composicion";`) por:
 
 ```ts
 import { buildComposicion, buildComposicionPorProveedor } from "./apertura-composicion";
+```
 
+No agregar una segunda línea de `import` — se extiende la existente. Luego, agregar al final del archivo (después del `describe("buildComposicion", ...)` existente, que no se toca) un `describe` nuevo:
+
+```ts
 describe("buildComposicionPorProveedor", () => {
   it("agrupa por concepto+proveedor+mes, sin mezclar proveedores", () => {
     const destinoRows = [
@@ -1341,7 +1345,7 @@ import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
 import { usePivotScreenDataPorProveedor } from "@/hooks/use-pivot-screen-data-por-proveedor";
 import { ExpandableButton } from "@/components/ui/expandable-button";
 import { ChevronDown, ChevronUp, Split } from "lucide-react";
-import { cn, fmtARS, normalize } from "@/lib/utils";
+import { cn, fmtARS } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
@@ -1610,7 +1614,7 @@ export function PivotTableByProveedor() {
               const linea = item.data;
               const labelParts = [
                 linea.fecha ? `${linea.fecha.slice(8, 10)}/${linea.fecha.slice(5, 7)}` : null,
-                linea.observac ? normalize(linea.observac) : null,
+                linea.observac || null,
                 fmtARS(linea.importe),
               ].filter(Boolean);
               return (
