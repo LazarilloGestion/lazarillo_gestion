@@ -177,6 +177,7 @@ const useDashboardStore = create<DashboardStore>()(
         tab: s.tab,
         localId: s.localId,
         pdvId: s.pdvId,
+        agrupacionCompras: s.agrupacionCompras,
       }),
     }
   )
