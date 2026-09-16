@@ -137,3 +137,12 @@
     @apply font-sans;
   }
 }
+
+/* Cero parpadeo del panel de filtros del dashboard: antes de que React
+   hidrate, el script de app/layout.tsx ya dejó data-filters-open en <html>
+   con el valor real de localStorage. */
+html[data-filters-open="false"] [data-slot="dashboard-filters-panel"] {
+  height: 0;
+  opacity: 0;
+  overflow: hidden;
+}

@@ -1,18 +1,13 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { DashboardContent } from "@/components/dashboard/dashboard-content";
-import { FILTERS_COOKIE } from "@/lib/dashboard/filters-cookie";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export const metadata: Metadata = {
   title: "Panel de Gestión | Lazarillo Gestión",
 };
 
-export default async function DashboardPage() {
-  // Preferencia de la sección título+filtros: se lee en SSR para evitar flash.
-  const cookieStore = await cookies();
-  const defaultOpen = cookieStore.get(FILTERS_COOKIE)?.value !== "0";
-  return <DashboardContent defaultOpen={defaultOpen} />;
+export default function DashboardPage() {
+  return <DashboardContent />;
 }
 
 export function FiltersSkeleton() {
