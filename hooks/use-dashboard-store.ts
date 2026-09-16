@@ -3,9 +3,12 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { MONTH_IDXS } from "@/lib/dashboard/constants";
-import { writeFiltersCookie } from "@/lib/dashboard/filters-cookie";
+import { readPersistedField } from "@/lib/dashboard/persisted-sync-read";
+import { pick } from "@/lib/pick";
 import type { SortCol, SortDir } from "@/lib/dashboard/pivot-utils";
 import type { AgrupacionCompras } from "@/lib/dashboard/params";
+
+const DASHBOARD_STORE_KEY = "dashboard:state";
 
 type Tab = "compras" | "ventas" | "resultados";
 
@@ -39,6 +42,8 @@ type DashboardStore = {
   setPdvId: (id: number | undefined) => void;
   agrupacionCompras: AgrupacionCompras;
   setAgrupacionCompras: (a: AgrupacionCompras) => void;
+  sidebarOpen: boolean;
+  setSidebarOpen: (open: boolean) => void;
 
   // search (not persisted)
   rubroCodigo: string | undefined;
@@ -76,6 +81,14 @@ const EMPTY_FILTERS: SearchFilters = {
   observacionQuery: undefined,
   searchLabel: undefined,
 };
+
+// Única lista de campos persistidos: agregar una key acá alcanza para que
+// persista — no hay un segundo lugar que se pueda olvidar (bug real que ya
+// ocurrió con agrupacionCompras, ver commit fed696b).
+const PERSISTED_FIELD_KEYS = [
+  "stored", "sortCol", "sortDir", "year", "tab", "localId", "pdvId",
+  "agrupacionCompras", "showFilters", "sidebarOpen",
+] as const satisfies readonly (keyof DashboardStore)[];
 
 const useDashboardStore = create<DashboardStore>()(
   persist(
@@ -157,28 +170,21 @@ const useDashboardStore = create<DashboardStore>()(
       resultadosVisibleCount: 0,
       setResultadosVisibleCount: (n) => set({ resultadosVisibleCount: n }),
 
-      // panel colapsable
-      showFilters: true,
-      toggleFilters: () => {
-        const next = !get().showFilters;
-        writeFiltersCookie(next);
-        set({ showFilters: next });
-      },
+      // panel colapsable — seedeado sincrónicamente desde localStorage (ver
+      // readPersistedField) para que el primer render de cliente ya arranque
+      // con el valor real, sin esperar a un efecto post-mount.
+      showFilters: readPersistedField(DASHBOARD_STORE_KEY, "showFilters", true),
+      toggleFilters: () => set((s) => ({ showFilters: !s.showFilters })),
       setShowFilters: (open) => set({ showFilters: open }),
+
+      // sidebar de la app (colapsado/expandido) — mismo criterio que showFilters.
+      sidebarOpen: readPersistedField(DASHBOARD_STORE_KEY, "sidebarOpen", true),
+      setSidebarOpen: (open) => set({ sidebarOpen: open }),
     }),
     {
-      name: "dashboard:state",
+      name: DASHBOARD_STORE_KEY,
       skipHydration: true,
-      partialize: (s) => ({
-        stored: s.stored,
-        sortCol: s.sortCol,
-        sortDir: s.sortDir,
-        year: s.year,
-        tab: s.tab,
-        localId: s.localId,
-        pdvId: s.pdvId,
-        agrupacionCompras: s.agrupacionCompras,
-      }),
+      partialize: (s) => pick(s, PERSISTED_FIELD_KEYS),
     }
   )
 );
@@ -189,6 +195,13 @@ export function useFiltersPanel() {
   const toggleFilters = useDashboardStore((s) => s.toggleFilters);
   const setShowFilters = useDashboardStore((s) => s.setShowFilters);
   return { showFilters, toggleFilters, setShowFilters };
+}
+
+// Selector liviano para el sidebar de la app (suscribe solo a sidebarOpen).
+export function useSidebarPersisted() {
+  const sidebarOpen = useDashboardStore((s) => s.sidebarOpen);
+  const setSidebarOpen = useDashboardStore((s) => s.setSidebarOpen);
+  return { sidebarOpen, setSidebarOpen };
 }
 
 let rehydrated = false;
