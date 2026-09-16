@@ -80,6 +80,38 @@ export function computeDiferenciaCajaAcumulada(
   return resultado;
 }
 
+// Diferencia de caja POR MES (spec 2026-09-16, reemplaza el acumulado como valor principal).
+// Cada mes con arqueo es independiente: valor = (arqueo - referencia) - término contable DEL MES
+// ACTUAL únicamente. `referencia` (último arqueo real conocido) se arrastra igual que en
+// computeDiferenciaCajaAcumulada — mismo criterio de "$0/null = sin dato" (spec 2026-08-31).
+//
+// Decisión confirmada 2026-09-16: en un hueco de 2+ meses sin arqueo, el término contable que se
+// resta al cerrar el hueco es SOLO el del mes que cierra, no la suma de los meses ocultos — lectura
+// literal de la fórmula del PDF. Esto difiere del modelo acumulado (que sí arrastra el término
+// contable de los meses ocultos, ver computeDiferenciaCajaAcumulada arriba); es una decisión de
+// negocio, no un bug — ver spec 2026-09-16-diferencia-caja-por-mes-design.md §1.3.
+export function computeDiferenciaCajaPorMes(
+  serie: MesDatos[],
+  primerArqueo: { anio: number; mes: number } | null,
+): (number | null)[] {
+  const resultado: (number | null)[] = serie.map(() => null);
+  if (primerArqueo == null) return resultado;
+
+  const i0 = serie.findIndex((m) => m.anio === primerArqueo.anio && m.mes === primerArqueo.mes);
+  if (i0 === -1) return resultado;
+
+  let referencia = serie[i0].disponible ?? 0;
+  for (let i = i0 + 1; i < serie.length; i++) {
+    const m = serie[i];
+    const arqueo = m.disponible !== 0 ? m.disponible : null;
+    if (arqueo == null) continue; // sin arqueo este mes: referencia y resultado[i] no se tocan
+    const deltaDisponible = arqueo - referencia;
+    referencia = arqueo;
+    resultado[i] = deltaDisponible - ((m.ingresos - m.egresos) - m.ganancia);
+  }
+  return resultado;
+}
+
 // Paleta única de la pantalla Resultados — un solo tono por color, reusado tanto para fondos
 // (con texto blanco encima, ver FILL_BAND) como para texto plano (Diferencia de caja,
 // Societario, % Rentabilidad). El ámbar es amarillo puro (R=G, B=0 → hue 60°, 100% saturado) sin
