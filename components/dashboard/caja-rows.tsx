@@ -5,7 +5,7 @@ import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { notify } from "@/lib/toast";
 import { cn, fmtARS, fmtARSDecimal } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
-import { parseMontoARS, montoNoGuardable, RESULT_COLORS } from "@/lib/dashboard/resultados-calc";
+import { parseMontoARS, montoNoGuardable, RESULT_COLORS, sumarDiferenciaCajaVisible } from "@/lib/dashboard/resultados-calc";
 import { buildFlujoCajaUrl } from "@/lib/dashboard/params";
 import { useDiferenciaCaja } from "@/hooks/use-diferencia-caja";
 import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
@@ -183,7 +183,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
       </tr>
 
       <tr className={cn(isEmpty && "opacity-60")} title={isEmpty ? "Incluye $0 de Ganancia: no hay conceptos configurados en Resultados" : undefined}>
-        <StickyCardCell position="last" bg="bg-muted" className="px-4 py-1.5 whitespace-nowrap font-bold" title="(Arqueo del mes - Arqueo del mes anterior) - (Resultado OP - Ganancia), por mes">
+        <StickyCardCell position="last" bg="bg-muted" className="px-4 py-1.5 whitespace-nowrap font-bold" title="(Arqueo del mes − Arqueo del mes anterior) − (Resultado OP − Ganancia), por mes">
           <span className="inline-flex items-center gap-1">
             Diferencia de caja
             <Popover>
@@ -195,12 +195,12 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
               </PopoverTrigger>
               <PopoverContent className="w-80 p-4 text-xs leading-relaxed text-muted-foreground font-normal">
                 <p className="text-[13px] font-semibold text-foreground leading-snug">
-                  Diferencia de caja (mes) = (Arqueo del mes - Arqueo del mes anterior) - (Resultado OP - Ganancia)
+                  Diferencia de caja (mes) = (Arqueo del mes − Arqueo del mes anterior) − (Resultado OP − Ganancia)
                 </p>
                 <p className="mt-1.5">
-                  Cada mes es independiente. &quot;Mes anterior&quot; es el último con Disponible en caja
+                  Cada mes es independiente. “Mes anterior” es el último con Disponible en caja
                   cargado (compara contra diciembre del año anterior si hace falta). Solo los meses
-                  con Disponible en caja cargado muestran un valor; el resto queda en “—“. Pasá el
+                  con Disponible en caja cargado muestran un valor; el resto queda en “—”. Pasá el
                   mouse sobre un mes para ver el acumulado desde el primer arqueo.
                 </p>
                 <div className="mt-3 pt-3 border-t border-border grid grid-cols-[14px_1fr] gap-x-2 gap-y-2.5">
@@ -222,7 +222,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
           </span>
         </StickyCardCell>
         {months.map((mes) => {
-          const { valor: diferencia, acumulado } = diferenciaPorMes[mes];
+          const { valor: diferencia, acumulado } = diferenciaPorMes[mes] ?? { valor: null, acumulado: null };
           const noData = !diferenciaLoading && diferencia == null;
           const title = diferenciaError
             ? "Error al cargar Diferencia de caja"
@@ -245,11 +245,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
         {(() => {
           // Total anual = suma de los meses visibles (spec 2026-09-16 §1.4) — cada mes ya es
           // independiente, no tiene sentido mostrar "el último acumulado" como antes.
-          let total: number | null = null;
-          for (const mes of months) {
-            const v = diferenciaPorMes[mes].valor;
-            if (v != null) total = (total ?? 0) + v;
-          }
+          const total = sumarDiferenciaCajaVisible(months.map((mes) => diferenciaPorMes[mes].valor));
           const noData = !diferenciaLoading && total == null;
           return (
             <ValueCell

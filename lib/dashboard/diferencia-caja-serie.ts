@@ -26,6 +26,11 @@ export interface DiferenciaCajaMes {
 // de compras/ventas arman mapas dispersos — una clave de mes existe solo si hubo filas que
 // matchearon. El `?? 0` no distingue "el mes tuvo $0 de verdad" de "no hay dato para este mes"
 // (p. ej. import pendiente). Decisión pospuesta explícitamente (2026-09-09), documentada no resuelta.
+// Bajo el modelo por mes (spec 2026-09-16): un mes con arqueo pero con un import pendiente/faltante
+// calcula su término contable como 0 y muestra un valor que en realidad es solo el delta de
+// Disponible (potencialmente engañoso) — pero, a diferencia del modelo acumulado anterior, el error
+// queda CONFINADO a la celda de ese mes, no contamina en silencio el acumulado corriente de los
+// meses siguientes.
 function toSerieDeUnAnio(anio: number, totals: TotalesAnio): MesDatos[] {
   return MONTH_IDXS.map((mes) => ({
     anio,

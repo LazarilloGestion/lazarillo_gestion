@@ -112,6 +112,17 @@ export function computeDiferenciaCajaPorMes(
   return resultado;
 }
 
+// Suma los valores mensuales visibles de Diferencia de caja para el total anual (spec 2026-09-16
+// §1.4). Arranca en null (sin datos) y se vuelve un número en cuanto aparece el primer mes con
+// valor — así un total real de $0 (ej. +500 y -500) no se confunde con "ningún mes cargado".
+export function sumarDiferenciaCajaVisible(valores: (number | null)[]): number | null {
+  let total: number | null = null;
+  for (const v of valores) {
+    if (v != null) total = (total ?? 0) + v;
+  }
+  return total;
+}
+
 // Paleta única de la pantalla Resultados — un solo tono por color, reusado tanto para fondos
 // (con texto blanco encima, ver FILL_BAND) como para texto plano (Diferencia de caja,
 // Societario, % Rentabilidad). El ámbar es amarillo puro (R=G, B=0 → hue 60°, 100% saturado) sin

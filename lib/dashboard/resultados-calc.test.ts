@@ -5,6 +5,7 @@ import {
   pctSobreIngresos,
   computeDiferenciaCajaAcumulada,
   computeDiferenciaCajaPorMes,
+  sumarDiferenciaCajaVisible,
   type MesDatos,
   heatmapFill,
   heatmapFillZeroAnchored,
@@ -315,10 +316,14 @@ describe("computeDiferenciaCajaPorMes", () => {
     expect(resultado[4]).toBe(180);
   });
 
-  it("fixture real de San Justo (PDF Correccion_diferencia_caja_por_mes, sep-2025 → jul-2026) — reproduce exacto la fila \"Por mes\"", () => {
+  it("valores esperados del PDF (Correccion_diferencia_caja_por_mes, San Justo sep-2025 → jul-2026) — serie sintética con inputs despejados hacia atrás desde esos valores, NO son datos reales de producción", () => {
     // Serie construida para producir exactamente los valores "Por mes" del PDF: ingresos=500.000,
     // egresos=0, ganancia=0 todos los meses (término contable constante = 500.000) y `disponible`
     // despejado de la fórmula para que cada delta - término dé el valor esperado del PDF.
+    // Los `disponible` de acá abajo están despejados hacia atrás para calzar con los 10 valores
+    // esperados del PDF (artefacto de construcción, no datos reales de arqueo) — fija el
+    // comportamiento esperado de la fórmula para regresión, pero no la valida contra producción;
+    // esa validación es la pasada visual manual pendiente contra el Dashboard real.
     const serie: MesDatos[] = [
       { anio: 2025, mes: 9, ingresos: 0, egresos: 0, ganancia: 0, disponible: 0 },              // sep — primer arqueo
       { anio: 2025, mes: 10, ingresos: 500_000, egresos: 0, ganancia: 0, disponible: -4_571_746 },
@@ -346,11 +351,28 @@ describe("computeDiferenciaCajaPorMes", () => {
     expect(resultado[9]).toBe(5_530_045);     // jun
     expect(resultado[10]).toBe(-4_596_884);   // jul — faltante real de $4,6M (recuadro rojo del PDF)
 
-    // Auto-consistencia: la suma de "por mes" debe coincidir con el último valor de
-    // computeDiferenciaCajaAcumulada sobre la misma serie (fila "Acumulado" del PDF, Jul26 = 7.571.571).
+    // Pin del acumulado final del PDF (fila "Acumulado", jul-26) — no es una auto-consistencia
+    // algebraica (eso sería vacío para una serie sin huecos), es el valor real que trae el PDF.
     const acumulado = computeDiferenciaCajaAcumulada(serie, primerArqueo);
-    const sumaPorMes = resultado.reduce((acc: number, v) => acc + (v ?? 0), 0);
-    expect(sumaPorMes).toBe(acumulado[10]);
+    expect(acumulado[10]).toBe(7_571_571);
+  });
+});
+
+describe("sumarDiferenciaCajaVisible", () => {
+  it("todos los meses en null → total null (sin dato)", () => {
+    expect(sumarDiferenciaCajaVisible([null, null, null])).toBeNull();
+  });
+
+  it("un real $0 total (meses +500 y -500) da 0, no null — no se confunde con 'sin dato'", () => {
+    expect(sumarDiferenciaCajaVisible([500, null, -500, null])).toBe(0);
+  });
+
+  it("suma normal de varios meses con valor, ignorando los null", () => {
+    expect(sumarDiferenciaCajaVisible([100, null, 200, null, -50])).toBe(250);
+  });
+
+  it("un solo mes con valor real (incluso 0) da ese valor, no null", () => {
+    expect(sumarDiferenciaCajaVisible([null, null, 0, null])).toBe(0);
   });
 });
 
