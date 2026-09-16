@@ -16,7 +16,7 @@ El usuario pidió explícitamente evitar que convivan varios métodos distintos 
 Un solo patrón de persistencia de estado de UI para el dashboard, que:
 - Elimine la cookie y el SSR-read de `showFilters`.
 - Resuelva de forma definitiva la persistencia del sidebar (colapsado/expandido).
-- Generalice la técnica de script bloqueante del tema a cualquier campo "chrome" que necesite cero parpadeo (tema, sidebar, filtros).
+- Generalice la técnica de script bloqueante del tema a los campos "chrome" que necesitan cero parpadeo (tema y filtros vía un único script en `<head>`; el sidebar vía un mecanismo dedicado que reutiliza los atributos propios de shadcn — ver Arquitectura, punto 3, con la justificación técnica de por qué no puede compartir el script de `<head>`).
 - Haga estructuralmente imposible el bug de "campo persistido a medias" que ya ocurrió con `agrupacionCompras`.
 - No introduzca dependencias nuevas ni un segundo mecanismo de estado (Context API crudo) — todo sobre zustand, que ya es el mecanismo aprobado en el stack (CLAUDE.md sección 8) para estado de UI/cliente.
 
@@ -54,15 +54,15 @@ y `partialize: (s) => pick(s, PERSISTED_FIELD_KEYS)`, usando un helper `pick` ge
 
 El tema **no** se mueve a este store: es un concern app-wide (afecta todo `app/layout.tsx`, no solo `/dashboard`), mientras que `useDashboardStore` es conceptualmente dashboard-scoped. Meterlo ahí violaría SRP. Se mantiene como pieza independiente (ver punto 2), construida con la misma utilidad genérica.
 
-### 2. Generador único de script bootstrap para campos "chrome"
+### 2. Generador único de script bootstrap para campos "chrome" de nivel `<html>`
 
 Nuevo módulo `lib/ui-persistence/bootstrap-script.ts`:
 
 ```ts
 type ChromeFieldConfig = {
   storageKey: string;       // clave de localStorage
-  statePath?: string;       // ej: "state.sidebarOpen" si storageKey guarda un blob JSON (zustand persist)
-  htmlAttr: string;         // ej: "data-sidebar-state"
+  statePath?: string;       // ej: "state.showFilters" si storageKey guarda un blob JSON (zustand persist)
+  htmlAttr: string;         // ej: "data-filters-open"
   serialize: (rawValue: unknown) => string; // mapea el valor leído al string del atributo
   defaultAttrValue: string; // valor a usar si no hay nada en storage o el parseo falla
 };
@@ -77,41 +77,57 @@ La función genera un único string de IIFE que, para cada `ChromeFieldConfig`, 
 ```ts
 const bootstrapScript = buildBootstrapScript([
   { storageKey: "theme", htmlAttr: "class", serialize: v => v === "dark" ? "dark" : "", defaultAttrValue: "" },
-  { storageKey: "dashboard:state", statePath: "state.sidebarOpen", htmlAttr: "data-sidebar-state", serialize: v => v === false ? "collapsed" : "expanded", defaultAttrValue: "expanded" },
   { storageKey: "dashboard:state", statePath: "state.showFilters", htmlAttr: "data-filters-open", serialize: v => String(v !== false), defaultAttrValue: "true" },
 ]);
 ```
 
-Reemplaza el `<script dangerouslySetInnerHTML>` hardcodeado actual (que solo cubre tema) por este generado, en el mismo lugar y mismo momento de ejecución.
+Reemplaza el `<script dangerouslySetInnerHTML>` hardcodeado actual (que solo cubre tema) por este generado, en el mismo lugar y mismo momento de ejecución. **El sidebar queda fuera de este script** — ver punto 3, tiene un mecanismo dedicado por razones técnicas concretas.
 
-### 3. Hook compartido para handoff de campos chrome
+### 3. Mecanismo dedicado para el sidebar (no pasa por `<html>` + CSS override)
 
-Nuevo hook `usePersistedChromeField<T>(selector, setter)` en `hooks/use-persisted-chrome-field.ts`, que reemplaza:
-- el patrón seed-then-handoff manual de `components/dashboard/dashboard-content.tsx` (hoy atado a la prop `defaultOpen` que venía de SSR/cookie),
-- la lógica que se hubiera necesitado para el sidebar (diseñada en la sesión anterior y descartada antes de mergear).
+Investigación concreta (leyendo `components/ui/sidebar.tsx`): el colapso visual del sidebar no es un solo elemento — son **13 selectores Tailwind distintos** (`group-data-[collapsible=icon]:...`) repartidos en el primitivo de shadcn (ancho del gap, ancho del container, ocultar labels de grupo, ocultar badges, ocultar submenús, padding de botones, etc.), todos leyendo el atributo `data-collapsible` de un div que shadcn gestiona internamente (`data-slot="sidebar"`). Un override CSS genérico (`html[data-sidebar-state=...] [data-slot=...]`) obligaría a duplicar los 13 selectores a mano y mantenerlos sincronizados para siempre con un componente de terceros — fragil y, si queda incompleto, visualmente peor que el flash actual (ej: ancho correcto pero texto sin ocultar).
 
-Comportamiento: en el primer render de cliente, lee el mismo storage que ya leyó el script bootstrap (mismo `storageKey`/`statePath`) para arrancar de acuerdo con lo que el CSS pre-paint ya mostró — nunca hay desacuerdo entre el primer pintado y el primer render de React. Expone un setter que actualiza el store de zustand (que persiste solo) y, en el mismo tick, actualiza el atributo del DOM correspondiente — así una interacción del usuario después de hidratar seguir siendo instantánea y coherente con el CSS.
+En cambio, el sidebar reutiliza el **mismo contrato de atributos que shadcn ya usa** (`data-state`, `data-collapsible`), evitando duplicar nada de su CSS:
 
-`components/dashboard/dashboard-content.tsx` y el sidebar (`app/(shell)/layout.tsx`, pasando a `SidebarProvider` controlado) usan este mismo hook — una sola implementación para los dos casos, no dos variantes ad hoc.
+- `SidebarProvider` (`components/ui/sidebar.tsx`) cambia su estado interno de `useState(defaultOpen)` a un lazy initializer que lee `localStorage` sincrónicamente en el primer render del cliente:
+  ```ts
+  const [_open, _setOpen] = React.useState(() => {
+    if (typeof window === "undefined") return defaultOpen;
+    try {
+      const raw = JSON.parse(localStorage.getItem("dashboard:state") ?? "{}");
+      return typeof raw?.state?.sidebarOpen === "boolean" ? raw.state.sidebarOpen : defaultOpen;
+    } catch {
+      return defaultOpen;
+    }
+  });
+  ```
+  En servidor, `window` no existe → usa `defaultOpen` (coincide con el HTML que manda el servidor). En el primer render del cliente (durante la hidratación), ya lee el valor real — no hace falta ningún efecto posterior ni "seed" en dos fases.
+- El div que shadcn marca con `data-slot="sidebar"` (línea ~211) gana `suppressHydrationWarning` — la misma técnica que ya usa `app/layout.tsx` para el `<html>` del tema: le dice a React "no compares ni corrijas este atributo puntual contra lo que mandó el servidor", porque sabemos que difiere a propósito.
+- Falta cubrir la ventana **antes** de que cargue el JS (el HTML crudo del servidor, con el sidebar expandido por default, es visible apenas el browser parsea el HTML — antes de que React exista). Para eso, un script inline se coloca en `app/(shell)/layout.tsx` **inmediatamente después del `<AppSidebar>` renderizado por el servidor** (no en `<head>`, porque ese div todavía no existe cuando el `<head>` se ejecuta): busca el nodo `[data-slot="sidebar"]` ya presente en el HTML y le setea `data-state`/`data-collapsible` con el mismo criterio que el lazy initializer de arriba, antes de que el browser pinte. Al ser un script síncrono y bloqueante, corre antes de que el navegador presente ese frame.
 
-### 4. CSS de override
+Con esto, el 100% del CSS existente de shadcn (`group-data-[collapsible=icon]:...`) sigue funcionando sin tocarlo ni duplicar un solo selector.
 
-`app/globals.css` gana las reglas (generalizando la que ya existía en el intento descartado de sidebar):
+### 4. Hook compartido para el resto de los campos "chrome" (`showFilters`)
+
+Nuevo hook `usePersistedChromeField<T>(key, defaultValue)` en `hooks/use-persisted-chrome-field.ts`, con el mismo lazy-initializer del punto 3 (lee `localStorage` sincrónicamente en el primer render del cliente, default en servidor) generalizado a cualquier campo del store. Reemplaza el patrón seed-then-handoff de dos fases que usa hoy `components/dashboard/dashboard-content.tsx` (ya no hace falta: al no depender de una prop SSR, no hay dos fases, el valor correcto está disponible desde el primer render de cliente).
+
+El elemento cuyo estilo depende de este valor (el `motion.div` del panel de filtros) también gana `suppressHydrationWarning`, y `app/globals.css` gana una única regla de CSS para tapar la ventana pre-JS (generada por el script del punto 2, vía `data-filters-open` en `<html>`):
 
 ```css
-html[data-sidebar-state="collapsed"] [data-slot="sidebar-..."] { /* ... */ !important; }
 html[data-filters-open="false"] [data-slot="dashboard-filters-panel"] { height: 0; opacity: 0; overflow: hidden; }
 ```
 
-Estas reglas solo importan para el instante entre el primer paint y el momento en que React/framer-motion toman control (el hook del punto 3 asegura que ambos arranquen de acuerdo, así que no hay pelea de estilos ni animación espuria al cargar).
+A diferencia del sidebar, acá **sí** alcanza con una sola regla porque es un único elemento propio de esta app (no un árbol de selectores de un primitivo de terceros).
+
+El setter que expone el hook actualiza el store de zustand (que persiste solo vía `PERSISTED_FIELD_KEYS`) — no hace falta escribir el atributo del DOM manualmente en cada set, porque una vez hidratado, React ya controla ese elemento de punta a punta (el atributo `data-filters-open` en `<html>` solo importaba para la ventana pre-JS, no para interacciones posteriores).
 
 ## Retiro de mecanismos viejos
 
 - Se borra `lib/dashboard/filters-cookie.ts` completo.
 - `app/(shell)/dashboard/page.tsx` deja de leer cookies; vuelve a ser un Server Component simple sin `cookies()`.
-- `components/dashboard/dashboard-content.tsx` deja de recibir `defaultOpen` como prop; usa el hook del punto 3 directamente.
-- `components/ui/sidebar.tsx`: se elimina el `document.cookie` write ligado a `SIDEBAR_COOKIE_NAME` (mecanismo propio de shadcn, no coordinado con el resto de la app).
-- `app/(shell)/layout.tsx`: `SidebarProvider` pasa a modo controlado (`open`/`onOpenChange` desde el store vía el hook del punto 3) en vez de uncontrolled con `useState` interno.
+- `components/dashboard/dashboard-content.tsx` deja de recibir `defaultOpen` como prop; usa el hook del punto 4 directamente.
+- `components/ui/sidebar.tsx`: se elimina el `document.cookie` write ligado a `SIDEBAR_COOKIE_NAME` (línea 85 hoy) — ya no hace falta, el lazy initializer + script inline del punto 3 reemplazan por completo ese mecanismo. `SIDEBAR_COOKIE_NAME` y `SIDEBAR_COOKIE_MAX_AGE` se borran.
+- `app/(shell)/layout.tsx`: `SidebarProvider` pasa a modo controlado (`open`/`onOpenChange` desde `useDashboardStore`) en vez de uncontrolled con `useState` interno; se agrega el script inline del punto 3 justo después de `<AppSidebar>`.
 
 ## Grupo "datos" (sin cambio de comportamiento)
 
@@ -126,11 +142,12 @@ Estas reglas solo importan para el instante entre el primer paint y el momento e
 
 - Unit tests (vitest) para `buildBootstrapScript`: dado un manifiesto, genera el script esperado; casos límite (JSON corrupto, clave ausente, `statePath` que no existe) caen al default sin explotar.
 - Unit tests para el `partialize` derivado de `PERSISTED_FIELD_KEYS`: agregar una key nueva a la constante alcanza para que se persista (test de regresión directo del bug ya ocurrido con `agrupacionCompras`).
-- Unit tests para `usePersistedChromeField` (si es testeable de forma aislada; si no, se cubre por los tests de integración de los componentes que lo usan).
-- Verificación manual en browser (responsabilidad del usuario, sin acceso a browser en este entorno): reload con sidebar colapsado, con filtros ocultos, y con tema oscuro — sin parpadeo en ninguno de los tres casos, individualmente y combinados.
+- Unit tests para el lazy initializer de `SidebarProvider` y para `usePersistedChromeField`: dado un `localStorage` con valor guardado, JSON corrupto, o vacío, devuelven el valor esperado o el default — aislables sin DOM real (mock de `window`/`localStorage`).
+- Verificación manual en browser (responsabilidad del usuario, sin acceso a browser en este entorno): reload con sidebar colapsado, con filtros ocultos, y con tema oscuro — sin parpadeo en ninguno de los tres casos, individualmente y combinados; además, togglear cada uno después de cargada la página y confirmar que la animación/transición sigue funcionando con normalidad (no debe quedar "pisada" por ningún resabio del mecanismo pre-hidratación).
 - `npx tsc --noEmit`, `npm run lint`, `npx vitest run`, `npm run build` antes de cerrar cualquier tarea del plan derivado.
 
 ## Riesgos conocidos
 
-- La interacción entre el override CSS y las animaciones de framer-motion (sidebar y filtros) es la parte más delicada del diseño — ya se navegó una vez en la sesión anterior para el caso del sidebar aisladamente; acá se generaliza a dos campos a la vez. El plan de implementación debe incluir una tarea específica de verificación manual de este punto antes de dar la migración por cerrada.
-- Cambiar `SidebarProvider` a modo controlado es un cambio de comportamiento sobre un primitivo de terceros (shadcn) — debe revisarse que no rompa combinaciones de teclado/gestos que el primitivo maneja internamente en modo uncontrolled.
+- El script inline que corrige los atributos del sidebar debe ejecutarse después de que ese nodo específico exista en el HTML pero antes de que el navegador lo pinte — el plan debe incluir una tarea de verificación manual explícita de que no hay ningún frame intermedio visible (probado con CPU throttling en devtools, ya que en localhost la carga es demasiado rápida para notar un flash a ojo).
+- Cambiar `SidebarProvider` a modo controlado es un cambio de comportamiento sobre un primitivo de terceros (shadcn) — debe revisarse que no rompa el atajo de teclado (`Cmd/Ctrl+B`) ni el comportamiento en mobile (`openMobile`, que no se toca y sigue uncontrolled).
+- `suppressHydrationWarning` oculta advertencias legítimas de mismatch en ese nodo puntual — si en el futuro alguien agrega al mismo div otro atributo que sí deba coincidir entre servidor y cliente, esa discrepancia real quedaría silenciada también. Mitigación: comentario en el código señalando exactamente qué atributos son intencionalmente divergentes.
