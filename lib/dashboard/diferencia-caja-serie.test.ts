@@ -17,22 +17,22 @@ function totales(over: Partial<{
 }
 
 describe("buildDiferenciaCajaSerie", () => {
-  it("sin primer arqueo → los 12 meses en null", () => {
+  it("sin primer arqueo → los 12 meses en { valor: null, acumulado: null }", () => {
     const out = buildDiferenciaCajaSerie({ year: 2025, primerArqueo: null, totalesPorAnio: {} });
     expect(Object.keys(out)).toHaveLength(12);
-    expect(Object.values(out).every((v) => v === null)).toBe(true);
+    expect(Object.values(out).every((v) => v.valor === null && v.acumulado === null)).toBe(true);
   });
 
-  it("primer arqueo en un año posterior al pedido → los 12 meses en null", () => {
+  it("primer arqueo en un año posterior al pedido → los 12 meses vacíos", () => {
     const out = buildDiferenciaCajaSerie({
       year: 2024,
       primerArqueo: { anio: 2025, mes: 3 },
       totalesPorAnio: {},
     });
-    expect(Object.values(out).every((v) => v === null)).toBe(true);
+    expect(Object.values(out).every((v) => v.valor === null && v.acumulado === null)).toBe(true);
   });
 
-  it("un solo año: meses <= primer arqueo en null, mes con arqueo posterior con valor", () => {
+  it("un solo año: meses <= primer arqueo vacíos, mes con arqueo posterior con valor y acumulado", () => {
     const out = buildDiferenciaCajaSerie({
       year: 2025,
       primerArqueo: { anio: 2025, mes: 3 },
@@ -45,12 +45,13 @@ describe("buildDiferenciaCajaSerie", () => {
         }),
       },
     });
-    expect(out[1]).toBeNull();
-    expect(out[2]).toBeNull();
-    expect(out[3]).toBeNull(); // mes del primer arqueo
-    // abr: delta = 600 - 500 = 100; contable = (120-50)-30 = 40; acc = 100 - 40 = 60
-    expect(out[4]).toBe(60);
-    expect(out[5]).toBeNull(); // sin datos → sin arqueo → null
+    expect(out[1].valor).toBeNull();
+    expect(out[2].valor).toBeNull();
+    expect(out[3].valor).toBeNull(); // mes del primer arqueo
+    // abr: delta = 600 - 500 = 100; contable = (120-50)-30 = 40; valor = 100 - 40 = 60
+    expect(out[4].valor).toBe(60);
+    expect(out[4].acumulado).toBe(60); // sin huecos previos, valor y acumulado coinciden
+    expect(out[5].valor).toBeNull(); // sin datos → sin arqueo → null
   });
 
   it("cross-año: primer arqueo en 2025, se pide 2026 → recorta al año pedido con el offset correcto", () => {
@@ -68,15 +69,15 @@ describe("buildDiferenciaCajaSerie", () => {
       },
     });
     // ene 2026: sin arqueo propio → null
-    expect(out[1]).toBeNull();
-    // feb 2026: delta = 900 - 1000 = -100; contable ene = (120-50)-30 = 40; contable feb = (110-45)-25 = 40
-    // acc ene = 0 - 40 = -40; acc feb = -40 + (-100 - 40) = -180
-    expect(out[2]).toBe(-180);
+    expect(out[1].valor).toBeNull();
+    // feb 2026: referencia sigue en 1000 (ene no la tocó). delta = 900 - 1000 = -100.
+    // término feb = (110-45)-25 = 40. valor = -100 - 40 = -140.
+    expect(out[2].valor).toBe(-140);
+    // acumulado (computeDiferenciaCajaAcumulada, sin cambios): acc ene = -40, acc feb = -180.
+    expect(out[2].acumulado).toBe(-180);
   });
 
-  it("un 0 acumulado legítimo en un mes con arqueo se muestra como 0, no como null", () => {
-    // ene arqueo 1000 (primer arqueo). feb arqueo 1000, sin ingresos/egresos/ganancia:
-    // deltaDisponible = 0, término contable = 0 → acc = 0 exacto.
+  it("un 0 de valor legítimo en un mes con arqueo se muestra como 0, no como null", () => {
     const out = buildDiferenciaCajaSerie({
       year: 2025,
       primerArqueo: { anio: 2025, mes: 1 },
@@ -84,8 +85,9 @@ describe("buildDiferenciaCajaSerie", () => {
         2025: totales({ disponible: { 1: 1000, 2: 1000 } }),
       },
     });
-    expect(out[1]).toBeNull(); // ene, mes del primer arqueo
-    expect(out[2]).toBe(0);    // feb: acumulado exactamente 0, NO null
+    expect(out[1].valor).toBeNull(); // ene, mes del primer arqueo
+    expect(out[2].valor).toBe(0);    // feb: valor exactamente 0, NO null
+    expect(out[2].acumulado).toBe(0);
   });
 
   it("año faltante en totalesPorAnio se trata como año vacío (no rompe)", () => {
@@ -95,6 +97,28 @@ describe("buildDiferenciaCajaSerie", () => {
       totalesPorAnio: { 2025: totales({ disponible: { 1: 1000 } }) }, // falta 2026
     });
     expect(Object.keys(out)).toHaveLength(12);
-    expect(out[1]).toBeNull();
+    expect(out[1].valor).toBeNull();
+  });
+
+  it("hueco multi-mes: el valor por mes diverge del acumulado, ambos se calculan sobre la misma serie", () => {
+    const out = buildDiferenciaCajaSerie({
+      year: 2025,
+      primerArqueo: { anio: 2025, mes: 1 },
+      totalesPorAnio: {
+        2025: totales({
+          ingresos: { 1: 100, 2: 100, 3: 100, 4: 100, 5: 200 },
+          egresos: { 1: 40, 2: 40, 3: 40, 4: 40, 5: 50 },
+          ganancia: { 1: 20, 2: 20, 3: 20, 4: 20, 5: 30 },
+          disponible: { 1: 1000, 5: 1300 }, // feb/mar/abr sin arqueo
+        }),
+      },
+    });
+    expect(out[2].valor).toBeNull();
+    expect(out[3].valor).toBeNull();
+    expect(out[4].valor).toBeNull();
+    // may: referencia sigue en 1000. delta = 1300-1000=300. término = (200-50)-30=120. valor=180.
+    expect(out[5].valor).toBe(180);
+    // acumulado (sin cambios): arrastra el término de feb/mar/abr → 60 (ver resultados-calc.test.ts).
+    expect(out[5].acumulado).toBe(60);
   });
 });
