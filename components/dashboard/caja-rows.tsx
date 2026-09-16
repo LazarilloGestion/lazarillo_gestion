@@ -183,7 +183,7 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
       </tr>
 
       <tr className={cn(isEmpty && "opacity-60")} title={isEmpty ? "Incluye $0 de Ganancia: no hay conceptos configurados en Resultados" : undefined}>
-        <StickyCardCell position="last" bg="bg-muted" className="px-4 py-1.5 whitespace-nowrap font-bold" title="Resultado OP − Ganancia + Disponible en caja, acumulado mes a mes desde el primer arqueo cargado">
+        <StickyCardCell position="last" bg="bg-muted" className="px-4 py-1.5 whitespace-nowrap font-bold" title="(Arqueo del mes - Arqueo del mes anterior) - (Resultado OP - Ganancia), por mes">
           <span className="inline-flex items-center gap-1">
             Diferencia de caja
             <Popover>
@@ -195,12 +195,13 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
               </PopoverTrigger>
               <PopoverContent className="w-80 p-4 text-xs leading-relaxed text-muted-foreground font-normal">
                 <p className="text-[13px] font-semibold text-foreground leading-snug">
-                  Diferencia de caja (mes) = Resultado OP − Ganancia + Disponible en caja
+                  Diferencia de caja (mes) = (Arqueo del mes - Arqueo del mes anterior) - (Resultado OP - Ganancia)
                 </p>
                 <p className="mt-1.5">
-                  Se acumula mes a mes como un resumen bancario, arrancando en el mes siguiente
-                  al primer arqueo cargado. Solo los meses con Disponible en caja cargado muestran
-                  un valor; el resto queda en “—”.
+                  Cada mes es independiente. &quot;Mes anterior&quot; es el último con Disponible en caja
+                  cargado (compara contra diciembre del año anterior si hace falta). Solo los meses
+                  con Disponible en caja cargado muestran un valor; el resto queda en “—“. Pasá el
+                  mouse sobre un mes para ver el acumulado desde el primer arqueo.
                 </p>
                 <div className="mt-3 pt-3 border-t border-border grid grid-cols-[14px_1fr] gap-x-2 gap-y-2.5">
                   <span className="h-5 flex items-center justify-center" aria-hidden>
@@ -221,14 +222,19 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
           </span>
         </StickyCardCell>
         {months.map((mes) => {
-          const diferencia = diferenciaPorMes[mes];
+          const { valor: diferencia, acumulado } = diferenciaPorMes[mes];
           const noData = !diferenciaLoading && diferencia == null;
+          const title = diferenciaError
+            ? "Error al cargar Diferencia de caja"
+            : diferencia != null
+              ? `Acumulado desde el primer arqueo: ${fmtARS(acumulado)}`
+              : undefined;
           return (
             <ValueCell
               key={mes}
               base={VALUE_TD}
               className={cn("bg-muted", cardCellClasses("last", "mid"))}
-              title={diferenciaError ? "Error al cargar Diferencia de caja" : undefined}
+              title={title}
               loading={diferenciaLoading}
               text={diferencia == null ? "—" : fmtARS(diferencia)}
               negative={diferencia != null && diferencia < 0}
@@ -237,19 +243,19 @@ export function CajaRows({ year, localId, pdvId, months, isEmpty }: CajaRowsProp
           );
         })}
         {(() => {
-          // El acumulado ya arrastra el saldo mes a mes — el total anual es el último mes
-          // visible con cálculo válido (con la regla nueva: el último mes con arqueo cargado).
+          // Total anual = suma de los meses visibles (spec 2026-09-16 §1.4) — cada mes ya es
+          // independiente, no tiene sentido mostrar "el último acumulado" como antes.
           let total: number | null = null;
-          for (let i = months.length - 1; i >= 0; i--) {
-            const v = diferenciaPorMes[months[i]];
-            if (v != null) { total = v; break; }
+          for (const mes of months) {
+            const v = diferenciaPorMes[mes].valor;
+            if (v != null) total = (total ?? 0) + v;
           }
           const noData = !diferenciaLoading && total == null;
           return (
             <ValueCell
               base={TOTAL_TD}
               className={cn("bg-muted font-bold", cardCellClasses("last", "mid"))}
-              title="Saldo acumulado al último mes con arqueo cargado"
+              title="Suma de los meses con arqueo cargado"
               loading={diferenciaLoading}
               text={total == null ? "—" : fmtARS(total)}
               negative={total != null && total < 0}
