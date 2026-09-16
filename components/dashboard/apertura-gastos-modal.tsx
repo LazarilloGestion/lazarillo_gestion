@@ -31,11 +31,17 @@ function destinoVacio(): DestinoFormState {
   return { localId: null, puntoDeVentaId: null, porcentaje: 0 };
 }
 
-// Una regla nueva arranca con un único destino al 100%: el caso más común es
-// aperturar a un solo local y así se guarda sin tocar el %. Al agregar un
-// segundo destino (entra en 0%) el usuario rebalancea a mano.
-function destinosIniciales(): DestinoFormState[] {
-  return [{ ...destinoVacio(), porcentaje: 100 }];
+// Una regla nueva arranca con un único destino al 100%, precargado con el
+// mismo local/PDV que el origen: el caso más común es aperturar dentro del
+// mismo local y así se guarda sin tocar nada más que el local/PDV real si
+// difiere. Al agregar un destino siguiente, restanteDePorcentaje() completa
+// el % que falta para no arrancar en 0%.
+function destinosIniciales(origenLocalId: number | null, origenPdvId: number | null): DestinoFormState[] {
+  return [{ localId: origenLocalId, puntoDeVentaId: origenPdvId, porcentaje: 100 }];
+}
+
+function restanteDePorcentaje(destinos: DestinoFormState[]): number {
+  return Math.max(0, 100 - destinos.reduce((acc, d) => acc + d.porcentaje, 0));
 }
 
 function reglaAFormulario(regla: ReglaAperturaDTO): { vigencia: VigenciaFormState; destinos: DestinoFormState[] } {
@@ -87,7 +93,7 @@ export function AperturaGastosModal({
   const [view, setView] = useState<"lista" | "formulario">("lista");
   const [editando, setEditando] = useState<ReglaAperturaDTO | null>(null);
   const [vigencia, setVigencia] = useState<VigenciaFormState>(VIGENCIA_VACIA);
-  const [destinos, setDestinos] = useState<DestinoFormState[]>(destinosIniciales);
+  const [destinos, setDestinos] = useState<DestinoFormState[]>(() => destinosIniciales(origenLocalId, origenPdvId));
   const [origen, setOrigen] = useState<OrigenFormState>({ localId: origenLocalId, puntoDeVentaId: origenPdvId });
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
@@ -166,7 +172,7 @@ export function AperturaGastosModal({
   function abrirFormularioNuevo() {
     setEditando(null);
     setVigencia(VIGENCIA_VACIA);
-    setDestinos(destinosIniciales());
+    setDestinos(destinosIniciales(origenLocalId, origenPdvId));
     setOrigen({ localId: origenLocalId, puntoDeVentaId: origenPdvId });
     setErrorGuardar(null);
     setView("formulario");
@@ -436,7 +442,9 @@ export function AperturaGastosModal({
                   ))}
                   <button
                     type="button"
-                    onClick={() => setDestinos((prev) => [...prev, destinoVacio()])}
+                    onClick={() =>
+                      setDestinos((prev) => [...prev, { ...destinoVacio(), porcentaje: restanteDePorcentaje(prev) }])
+                    }
                     disabled={sinCombosDisponibles}
                     className="self-start inline-flex items-center gap-1 h-6 px-2 rounded text-xs text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
                   >

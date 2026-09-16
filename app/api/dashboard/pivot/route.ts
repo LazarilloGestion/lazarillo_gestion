@@ -55,7 +55,19 @@ export async function GET(request: NextRequest) {
   // agrega buildPivotConditions, ambos bajo `if (localId)` / `if (pdvId)`) y se
   // conservan el resto (año, meses, rubro, concepto, proveedor, observación,
   // visibilidad) que sí acotan legítimamente qué conceptos/filas se muestran.
+  //
+  // Pero tirar localId/pdvId por completo también tira el único scoping por
+  // NEGOCIO de origen que había — y conceptoCodigo puede colisionar entre
+  // negocios (ver docs Alta Nuñez-Comercio), así que sin ese scoping la
+  // composición terminaba sumando compras de otro negocio con el mismo
+  // código de concepto y mes. Se filtra en cambio por
+  // `"localIdOrigen"`/`"puntoDeVentaIdOrigen"` (el local/PDV real donde se
+  // cargó la compra, agregados a la vista en la migración
+  // 20260916131712_v_compras_distribuidas_origen) para acotar por negocio de
+  // origen sin volver a acotar por destino.
   const conditionsComposicion = buildPivotConditions({ year, tableAlias: "c", localId: undefined, pdvId: undefined, months, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, filterRubrosOcultos: true, visibilidadCol });
+  if (localId) conditionsComposicion.push(Prisma.sql`c."localIdOrigen" = ${localId}`);
+  if (pdvId) conditionsComposicion.push(Prisma.sql`c."puntoDeVentaIdOrigen" = ${pdvId}`);
   const whereComposicion = Prisma.join(conditionsComposicion, " AND ");
 
   const rowsQuery = prisma.$queryRaw<SqlRow[]>(Prisma.sql`
