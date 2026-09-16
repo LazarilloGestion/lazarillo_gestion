@@ -72,16 +72,20 @@ export function buildBootstrapScript(fields: ChromeFieldConfig[]): string;
 
 La función genera un único string de IIFE que, para cada `ChromeFieldConfig`, hace `try { ...leer y parsear... } catch { usar default }` (nunca un catch vacío silencioso — ver CLAUDE.md sección 2: ante fallo de parseo cae a un default explícito, no se traga el error sin criterio) y aplica el atributo/clase correspondiente sobre `document.documentElement` antes del primer paint.
 
-`app/layout.tsx` pasa a usar:
+`app/layout.tsx` agrega un **segundo** script generado por `buildBootstrapScript` para `showFilters`, dejando el script existente del tema **sin tocar**: el del tema tiene una rama extra (`matchMedia('(prefers-color-scheme: dark)')`) para detectar la preferencia del sistema operativo en la primera visita, algo que el generador genérico no contempla y que no vale la pena generalizar para un único caso (YAGNI) — forzarlo hubiera sido una regresión silenciosa (perder la detección de tema del SO). El tema sigue con su script propio; `showFilters` y (ver punto 3) el sidebar usan el generador nuevo. Ambos scripts conviven en `<head>`.
 
 ```ts
-const bootstrapScript = buildBootstrapScript([
-  { storageKey: "theme", htmlAttr: "class", serialize: v => v === "dark" ? "dark" : "", defaultAttrValue: "" },
-  { storageKey: "dashboard:state", statePath: "state.showFilters", htmlAttr: "data-filters-open", serialize: v => String(v !== false), defaultAttrValue: "true" },
+const filtersBootstrapScript = buildBootstrapScript([
+  {
+    storageKey: "dashboard:state",
+    statePath: "state.showFilters",
+    target: "documentElement",
+    attrs: [{ name: "data-filters-open", map: { false: "false" }, default: "true" }],
+  },
 ]);
 ```
 
-Reemplaza el `<script dangerouslySetInnerHTML>` hardcodeado actual (que solo cubre tema) por este generado, en el mismo lugar y mismo momento de ejecución. **El sidebar queda fuera de este script** — ver punto 3, tiene un mecanismo dedicado por razones técnicas concretas.
+**El sidebar queda fuera de este script** — ver punto 3, tiene un target distinto (no `<html>`) por razones técnicas concretas.
 
 ### 3. Mecanismo dedicado para el sidebar (no pasa por `<html>` + CSS override)
 
