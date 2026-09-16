@@ -349,7 +349,7 @@ describe("computeDiferenciaCajaPorMes", () => {
     // Auto-consistencia: la suma de "por mes" debe coincidir con el último valor de
     // computeDiferenciaCajaAcumulada sobre la misma serie (fila "Acumulado" del PDF, Jul26 = 7.571.571).
     const acumulado = computeDiferenciaCajaAcumulada(serie, primerArqueo);
-    const sumaPorMes = resultado.reduce((acc, v) => acc + (v ?? 0), 0);
+    const sumaPorMes = resultado.reduce((acc: number, v) => acc + (v ?? 0), 0);
     expect(sumaPorMes).toBe(acumulado[10]);
   });
 });
