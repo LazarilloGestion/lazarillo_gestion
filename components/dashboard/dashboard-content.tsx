@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { DashboardFilters } from "@/components/dashboard/dashboard-filters";
 import { DashboardTabContent } from "@/components/dashboard/dashboard-tab-content";
@@ -12,6 +12,15 @@ export function DashboardContent() {
   const { showFilters } = useFiltersPanel();
   const [clipping, setClipping] = useState(!showFilters);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // El atributo data-filters-open solo debe existir durante la ventana
+  // pre-hidratación (lo pone el bootstrap script para el override CSS de
+  // abajo). Si queda después de montar, gana por especificidad sobre el
+  // overflow-hidden que maneja `clipping` y el panel nunca puede reabrirse
+  // visualmente tras cerrarse.
+  useEffect(() => {
+    document.documentElement.removeAttribute("data-filters-open");
+  }, []);
 
   return (
     <div className="flex flex-col h-full p-4 md:p-6">

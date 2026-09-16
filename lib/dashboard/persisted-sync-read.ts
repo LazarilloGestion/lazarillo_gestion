@@ -7,7 +7,12 @@
 type StorageLike = Pick<Storage, "getItem">;
 
 function defaultStorage(): StorageLike | undefined {
-  return typeof window === "undefined" ? undefined : window.localStorage;
+  if (typeof window === "undefined") return undefined;
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined; // storage bloqueado (modo privado, política de la organización, etc.)
+  }
 }
 
 export function readPersistedField<T>(

@@ -1,5 +1,4 @@
 "use client";
-import { useEffect } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { MONTH_IDXS } from "@/lib/dashboard/constants";
@@ -68,7 +67,7 @@ type DashboardStore = {
   resultadosVisibleCount: number;
   setResultadosVisibleCount: (n: number) => void;
 
-  // panel colapsable (persistido vía cookie, leída en SSR — ver filters-cookie.ts)
+  // panel colapsable — ver showFilters más abajo (seedeado sincrónicamente desde localStorage)
   showFilters: boolean;
   toggleFilters: () => void;
   setShowFilters: (open: boolean) => void;
@@ -85,12 +84,12 @@ const EMPTY_FILTERS: SearchFilters = {
 // Única lista de campos persistidos: agregar una key acá alcanza para que
 // persista — no hay un segundo lugar que se pueda olvidar (bug real que ya
 // ocurrió con agrupacionCompras, ver commit fed696b).
-const PERSISTED_FIELD_KEYS = [
+export const PERSISTED_FIELD_KEYS = [
   "stored", "sortCol", "sortDir", "year", "tab", "localId", "pdvId",
   "agrupacionCompras", "showFilters", "sidebarOpen",
 ] as const satisfies readonly (keyof DashboardStore)[];
 
-const useDashboardStore = create<DashboardStore>()(
+export const useDashboardStore = create<DashboardStore>()(
   persist(
     (set, get) => ({
       // months
@@ -189,12 +188,20 @@ const useDashboardStore = create<DashboardStore>()(
   )
 );
 
+// Rehidrata en cuanto el módulo se evalúa en cliente — no en un efecto de
+// React, que solo corre después de montar un componente (y solo el que lo
+// llama). Con skipHydration:true, cualquier set() antes de esto persistiría
+// los defaults hardcodeados por encima de lo ya guardado (bug real: el
+// toggle del sidebar en /importar pisaba year/tab/sortCol/etc.).
+if (typeof window !== "undefined") {
+  useDashboardStore.persist.rehydrate();
+}
+
 // Selector liviano para el botón del header (suscribe solo a showFilters).
 export function useFiltersPanel() {
   const showFilters = useDashboardStore((s) => s.showFilters);
   const toggleFilters = useDashboardStore((s) => s.toggleFilters);
-  const setShowFilters = useDashboardStore((s) => s.setShowFilters);
-  return { showFilters, toggleFilters, setShowFilters };
+  return { showFilters, toggleFilters };
 }
 
 // Selector liviano para el sidebar de la app (suscribe solo a sidebarOpen).
@@ -204,16 +211,7 @@ export function useSidebarPersisted() {
   return { sidebarOpen, setSidebarOpen };
 }
 
-let rehydrated = false;
-
 export function useDashboard() {
-  useEffect(() => {
-    if (!rehydrated) {
-      rehydrated = true;
-      useDashboardStore.persist.rehydrate();
-    }
-  }, []);
-
   const s = useDashboardStore();
 
   const months =

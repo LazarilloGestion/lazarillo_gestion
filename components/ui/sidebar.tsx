@@ -210,6 +210,9 @@ function Sidebar({
       data-variant={variant}
       data-side={side}
       data-slot="sidebar"
+      // data-state/data-collapsible se corrigen antes de hidratar vía un script
+      // inline en app/(shell)/layout.tsx (busca [data-slot="sidebar"]) — el mismatch
+      // contra el HTML del servidor es intencional, no un bug.
       suppressHydrationWarning
     >
       {/* This is what handles the sidebar gap on desktop */}

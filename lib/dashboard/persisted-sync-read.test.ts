@@ -29,4 +29,13 @@ describe("readPersistedField", () => {
   it("sin storage (undefined) devuelve el default", () => {
     expect(readPersistedField("dashboard:state", "sidebarOpen", true, undefined)).toBe(true);
   });
+
+  it("devuelve el default si storage.getItem tira (ej. SecurityError con storage bloqueado), sin explotar", () => {
+    const storage: Pick<Storage, "getItem"> = {
+      getItem: () => {
+        throw new Error("SecurityError: storage bloqueado");
+      },
+    };
+    expect(readPersistedField("dashboard:state", "sidebarOpen", true, storage)).toBe(true);
+  });
 });
