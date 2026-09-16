@@ -15,6 +15,12 @@ export function DashboardFiltersToggle() {
       <button
         onClick={toggleFilters}
         title={showFilters ? "Ocultar panel" : "Mostrar panel"}
+        // showFilters se seedea sincrónicamente desde localStorage en el cliente
+        // (ver hooks/use-dashboard-store.ts) — el servidor siempre renderiza con
+        // el default del módulo, así que este title puede legítimamente diferir
+        // entre SSR y el primer render de cliente. Mismo criterio que el
+        // suppressHydrationWarning de dashboard-content.tsx.
+        suppressHydrationWarning
         className="h-8 w-8 flex items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
       >
         <SlidersHorizontal className="h-4 w-4" />
