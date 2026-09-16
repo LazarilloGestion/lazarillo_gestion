@@ -8,7 +8,7 @@ import { aggregateFlujoCajaPorMes } from "@/lib/dashboard/flujo-caja-agg";
 import { toNumber } from "@/lib/dashboard/pivot-utils";
 import { MONTH_IDXS, type VisibilidadField } from "@/lib/dashboard/constants";
 import { findPrimerArqueo } from "@/lib/dashboard/primer-arqueo";
-import { buildDiferenciaCajaSerie, type TotalesAnio } from "@/lib/dashboard/diferencia-caja-serie";
+import { buildDiferenciaCajaSerie, type TotalesAnio, type DiferenciaCajaMes } from "@/lib/dashboard/diferencia-caja-serie";
 
 export const dynamic = "force-dynamic";
 
@@ -20,11 +20,11 @@ const getQuerySchema = z.object({
   puntoDeVentaId: z.coerce.number().int().optional(),
 });
 
-// Respuesta "sin datos": los 12 meses en null. Se usa tanto para el año fuera de rango
+// Respuesta "sin datos": los 12 meses vacíos. Se usa tanto para el año fuera de rango
 // como para el caso sin ningún arqueo.
-function diferenciaVacia(): Record<number, number | null> {
-  const vacio: Record<number, number | null> = {};
-  for (const mes of MONTH_IDXS) vacio[mes] = null;
+function diferenciaVacia(): Record<number, DiferenciaCajaMes> {
+  const vacio: Record<number, DiferenciaCajaMes> = {};
+  for (const mes of MONTH_IDXS) vacio[mes] = { valor: null, acumulado: null };
   return vacio;
 }
 
