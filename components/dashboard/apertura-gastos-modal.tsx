@@ -13,6 +13,7 @@ import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { validarSumaPorcentajes, encontrarDestinoDuplicado } from "@/lib/apertura/validaciones";
 import type { ReglaAperturaDTO } from "@/lib/apertura/types";
+import type { NivelRegla } from "@/lib/apertura/schemas";
 import type { Local } from "@/lib/types/domain";
 import { AperturaVigenciaSelector, type VigenciaFormState } from "./apertura-vigencia-selector";
 import { AperturaDestinoRow, type DestinoFormState } from "./apertura-destino-row";
@@ -25,6 +26,18 @@ const VIGENCIA_VACIA: VigenciaFormState = {
   fechaHasta: "",
   extremosInclusivos: true,
   confirmarHistorico: false,
+};
+
+// nivel "registro" nunca tiene vigencia propia — apunta a una sola compra
+// puntual, aplica siempre. Se modela como "histórico completo" ya confirmado,
+// sin exponer la sección de vigencia en el formulario (ver más abajo, oculta
+// para este nivel).
+const VIGENCIA_REGISTRO: VigenciaFormState = {
+  modo: "historico",
+  fechaDesde: "",
+  fechaHasta: "",
+  extremosInclusivos: true,
+  confirmarHistorico: true,
 };
 
 function destinoVacio(): DestinoFormState {
@@ -75,14 +88,16 @@ function resumenVigencia(regla: ReglaAperturaDTO): string {
 }
 
 export function AperturaGastosModal({
-  conceptoCodigo,
-  conceptoNombre,
+  nivel,
+  entidadId,
+  entidadNombre,
   origenLocalId,
   origenPdvId,
   onClose,
 }: {
-  conceptoCodigo: string | null;
-  conceptoNombre: string;
+  nivel: NivelRegla;
+  entidadId: string | null;
+  entidadNombre: string;
   // Origen de una regla nueva: viene fijo del filtro del dashboard, no se edita
   // desde el modal. Al editar una regla existente sí se usa el selector.
   origenLocalId: number | null;
@@ -101,9 +116,9 @@ export function AperturaGastosModal({
   const [eliminando, setEliminando] = useState(false);
 
   const { reglas: todasLasReglas, isLoading: reglasLoading, error: reglasError } = useReglasApertura();
-  const reglasDelConcepto = useMemo(
-    () => todasLasReglas.filter((r) => r.nivel === "concepto" && r.entidadId === conceptoCodigo).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)),
-    [todasLasReglas, conceptoCodigo]
+  const reglasDeLaEntidad = useMemo(
+    () => todasLasReglas.filter((r) => r.nivel === nivel && r.entidadId === entidadId).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)),
+    [todasLasReglas, nivel, entidadId]
   );
 
   const { data: localesData } = useFetchQuery<Local[]>(["locales"], "/api/locales");
@@ -121,7 +136,7 @@ export function AperturaGastosModal({
   const origenCompleto = origen.localId != null;
 
   const vigenciaCompletaParaPreview =
-    conceptoCodigo != null &&
+    entidadId != null &&
     origenCompleto &&
     (vigencia.modo === "historico" ||
       (vigencia.modo === "entre_fechas" && vigencia.fechaDesde !== "" && vigencia.fechaHasta !== "") ||
@@ -133,7 +148,8 @@ export function AperturaGastosModal({
   // preview muestra $0 justo para la plata de la que trata la regla.
   const previewUrl = vigenciaCompletaParaPreview
     ? `/api/apertura/reglas/preview-total?${new URLSearchParams({
-        entidadId: conceptoCodigo!,
+        nivel,
+        entidadId: entidadId!,
         ...(editando ? { reglaId: String(editando.id) } : {}),
         ...(origen.localId != null ? { origenLocalId: String(origen.localId) } : {}),
         ...(origen.puntoDeVentaId != null ? { origenPuntoDeVentaId: String(origen.puntoDeVentaId) } : {}),
@@ -146,8 +162,10 @@ export function AperturaGastosModal({
 
   const { data: previewData, isLoading: previewLoading } = useFetchQuery<{ total: number }>(
     // editando?.id en la key: crear y editar consultan totales distintos para
-    // la misma vigencia, no pueden compartir entrada de caché.
-    ["apertura-preview-total", conceptoCodigo, editando?.id ?? null, origen.localId, origen.puntoDeVentaId, vigencia.modo, vigencia.fechaDesde, vigencia.fechaHasta, vigencia.extremosInclusivos],
+    // la misma vigencia, no pueden compartir entrada de caché. nivel también
+    // entra en la key: el mismo entidadId puede colisionar numéricamente entre
+    // niveles (ej. código de concepto "48" vs proveedorId 48).
+    ["apertura-preview-total", nivel, entidadId, editando?.id ?? null, origen.localId, origen.puntoDeVentaId, vigencia.modo, vigencia.fechaDesde, vigencia.fechaHasta, vigencia.extremosInclusivos],
     previewUrl,
     { staleTime: 10_000 }
   );
@@ -155,14 +173,14 @@ export function AperturaGastosModal({
   // dato real tanto en el agregado como en el $ de cada destino.
   const total = previewUrl !== null && !previewLoading ? previewData?.total ?? null : null;
 
-  // Reset de estado local al cerrarse el modal (conceptoCodigo -> null) —
+  // Reset de estado local al cerrarse el modal (entidadId -> null) —
   // ajuste durante el render en vez de useEffect (evita la cascada de
   // renders que dispara react-hooks/set-state-in-effect; mismo patrón que
   // React docs recomienda para "resetear estado cuando cambia una prop").
-  const [prevConceptoCodigo, setPrevConceptoCodigo] = useState(conceptoCodigo);
-  if (conceptoCodigo !== prevConceptoCodigo) {
-    setPrevConceptoCodigo(conceptoCodigo);
-    if (conceptoCodigo === null) {
+  const [prevEntidadId, setPrevEntidadId] = useState(entidadId);
+  if (entidadId !== prevEntidadId) {
+    setPrevEntidadId(entidadId);
+    if (entidadId === null) {
       setView("lista");
       setEditando(null);
       setErrorGuardar(null);
@@ -171,7 +189,7 @@ export function AperturaGastosModal({
 
   function abrirFormularioNuevo() {
     setEditando(null);
-    setVigencia(VIGENCIA_VACIA);
+    setVigencia(nivel === "registro" ? VIGENCIA_REGISTRO : VIGENCIA_VACIA);
     setDestinos(destinosIniciales(origenLocalId, origenPdvId));
     setOrigen({ localId: origenLocalId, puntoDeVentaId: origenPdvId });
     setErrorGuardar(null);
@@ -222,7 +240,7 @@ export function AperturaGastosModal({
   }
 
   async function handleGuardar() {
-    if (conceptoCodigo === null) return;
+    if (entidadId === null) return;
     setGuardando(true);
     setErrorGuardar(null);
     let guardadoOk = false;
@@ -253,13 +271,13 @@ export function AperturaGastosModal({
         : await fetch("/api/apertura/reglas", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ entidadId: conceptoCodigo, ...cuerpoComun }),
+            body: JSON.stringify({ nivel, entidadId, ...cuerpoComun }),
           });
 
       if (!res.ok) {
         const payload = await res.json().catch(() => null);
         if (res.status === 409) {
-          setErrorGuardar(payload?.error ?? "Esta vigencia se superpone con otra regla activa del mismo concepto.");
+          setErrorGuardar(payload?.error ?? "Esta vigencia se superpone con otra regla activa de la misma entidad.");
         } else if (res.status === 422) {
           setErrorGuardar(payload?.issues?.[0]?.message ?? "Datos inválidos.");
         } else {
@@ -301,7 +319,7 @@ export function AperturaGastosModal({
       await refetchDependientes();
       notify.registroActualizado();
     } catch {
-      notify.errorActualizar(conceptoNombre);
+      notify.errorActualizar(entidadNombre);
     }
   }
 
@@ -315,7 +333,7 @@ export function AperturaGastosModal({
       notify.registroActualizado();
       setReglaAEliminar(null);
     } catch {
-      notify.errorActualizar(conceptoNombre);
+      notify.errorActualizar(entidadNombre);
     } finally {
       setEliminando(false);
     }
@@ -323,10 +341,10 @@ export function AperturaGastosModal({
 
   return (
     <>
-      <Dialog open={conceptoCodigo !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <Dialog open={entidadId !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle className="text-base">Apertura de gastos — {conceptoNombre}</DialogTitle>
+            <DialogTitle className="text-base">Apertura de gastos — {entidadNombre}</DialogTitle>
           </DialogHeader>
 
           {view === "lista" && (
@@ -337,13 +355,13 @@ export function AperturaGastosModal({
                 <div className="py-8 text-center text-sm text-destructive">
                   Error: {reglasError.message}
                 </div>
-              ) : reglasDelConcepto.length === 0 ? (
+              ) : reglasDeLaEntidad.length === 0 ? (
                 <div className="py-4 flex flex-col items-center gap-2 text-sm text-muted-foreground">
                   <Inbox className="w-8 h-8 opacity-40" />
-                  Este concepto todavía no tiene reglas de apertura.
+                  Todavía no hay reglas de apertura para esto.
                 </div>
               ) : (
-                reglasDelConcepto.map((regla) => (
+                reglasDeLaEntidad.map((regla) => (
                   <div key={regla.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
                     <div className="flex flex-col gap-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -409,7 +427,9 @@ export function AperturaGastosModal({
                 </div>
               )}
 
-              <AperturaVigenciaSelector value={vigencia} onChange={setVigencia} />
+              {nivel !== "registro" && (
+                <AperturaVigenciaSelector value={vigencia} onChange={setVigencia} />
+              )}
 
               {reactivaRegla && (
                 <p className="text-xs text-muted-foreground">
