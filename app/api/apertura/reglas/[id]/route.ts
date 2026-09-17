@@ -65,6 +65,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         // shape { localId, puntoDeVentaId }, distinto del resto del motor.
         await verificarSinSuperposicion(
           tx,
+          existente.nivel,
           existente.entidadId,
           vigenciaNueva,
           { localId: origen.origenLocalId, puntoDeVentaId: origen.origenPuntoDeVentaId },
@@ -112,6 +113,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
         const resultado = await aplicarRegla(tx, {
           reglaId: regla.id,
+          nivel: existente.nivel,
           entidadId: existente.entidadId,
           vigencia: vigenciaNueva,
           origen: { origenLocalId: origen.origenLocalId, origenPuntoDeVentaId: origen.origenPuntoDeVentaId },

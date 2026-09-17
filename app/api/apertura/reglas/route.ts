@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Datos inválidos", issues: parsed.error.issues }, { status: 422 });
   }
-  const { entidadId, modo, fechaDesde, fechaHasta, extremosInclusivos, origenLocalId, origenPuntoDeVentaId, destinos } =
+  const { nivel, entidadId, modo, fechaDesde, fechaHasta, extremosInclusivos, origenLocalId, origenPuntoDeVentaId, destinos } =
     parsed.data;
 
   const vigenciaNueva: ReglaVigencia = {
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
 
         // verificarSinSuperposicion usa el shape { localId, puntoDeVentaId },
         // distinto del { origenLocalId, origenPuntoDeVentaId } del resto del motor.
-        await verificarSinSuperposicion(tx, entidadId, vigenciaNueva, {
+        await verificarSinSuperposicion(tx, nivel, entidadId, vigenciaNueva, {
           localId: origen.origenLocalId,
           puntoDeVentaId: origen.origenPuntoDeVentaId,
         });
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
         const regla = await tx.reglaApertura.create({
           data: {
-            nivel: "concepto",
+            nivel,
             entidadId,
             origenLocalId: origen.origenLocalId,
             origenPuntoDeVentaId: origen.origenPuntoDeVentaId,
@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
 
         const resultado = await aplicarRegla(tx, {
           reglaId: regla.id,
+          nivel,
           entidadId,
           vigencia: vigenciaNueva,
           origen: { origenLocalId: origen.origenLocalId, origenPuntoDeVentaId: origen.origenPuntoDeVentaId },

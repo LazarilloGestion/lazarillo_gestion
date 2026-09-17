@@ -123,6 +123,7 @@ export class SuperposicionError extends Error {
 // handlers (hallazgo de duplicación, code-review 24-ago-2026).
 export async function verificarSinSuperposicion(
   prisma: AperturaDbClient,
+  nivel: string,
   entidadId: string,
   vigenciaNueva: ReglaVigencia,
   origenNuevo: { localId: number | null; puntoDeVentaId: number | null },
@@ -131,7 +132,7 @@ export async function verificarSinSuperposicion(
   const existentes = await prisma.reglaApertura.findMany({
     where: {
       entidadId,
-      nivel: "concepto",
+      nivel,
       estado: "activa",
       ...(excluirId != null ? { NOT: { id: excluirId } } : {}),
     },
