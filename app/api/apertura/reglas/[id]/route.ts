@@ -171,6 +171,9 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     // Cascada: una regla de menor prioridad puede tener que reclamar las
     // compras que se acaban de liberar (ver Task 4 del plan de motor).
     const { errores: erroresCascada } = await reaplicarReglasActivas(prisma);
+    if (erroresCascada.length > 0) {
+      console.error("[DELETE /api/apertura/reglas/[id]] errores en la cascada de reaplicación", erroresCascada);
+    }
 
     return NextResponse.json({ ok: true, comprasRevertidas, erroresCascada });
   } catch (err) {
