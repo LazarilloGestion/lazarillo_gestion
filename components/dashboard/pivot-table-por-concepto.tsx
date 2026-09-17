@@ -15,6 +15,7 @@ import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
 import { EditedDot } from "./edit-row-controls";
 import type { PivotRubroRow, PivotConceptoRow } from "@/lib/dashboard/types";
+import type { NivelRegla } from "@/lib/apertura/schemas";
 import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 import { AperturaGastosModal } from "./apertura-gastos-modal";
@@ -28,12 +29,14 @@ export function PivotTableByConcepto() {
   } = useDashboard();
 
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
-  const [aperturaConcepto, setAperturaConcepto] = useState<{ codigo: string; nombre: string } | null>(null);
+  const [apertura, setApertura] = useState<{ nivel: NivelRegla; entidadId: string; entidadNombre: string } | null>(null);
   const { reglas } = useReglasApertura();
-  // Step 2: indicador sensible al filtro local/PDV.
-  // Considera solo reglas cuyo origen cae dentro del filtro seleccionado.
-  const conceptosConReglaActiva = useMemo(() => {
-    const activas = reglas.filter((r) => r.estado === "activa" && r.nivel === "concepto");
+  // Un solo pase sobre las reglas activas alcanzables por el filtro actual,
+  // separado por nivel — este árbol solo necesita concepto y registro (no
+  // proveedor: acá no hay una fila de proveedor donde mostrar ese ícono, ver
+  // PivotTableByProveedor para el nivel proveedor).
+  const reglasActivasPorNivel = useMemo(() => {
+    const activas = reglas.filter((r) => r.estado === "activa");
     const alcanzaFiltro = (r: (typeof activas)[number]) => {
       if (pdvId == null && localId == null) return true;
       if (pdvId != null) {
@@ -42,9 +45,13 @@ export function PivotTableByConcepto() {
           { localId: localId ?? r.origenLocalId, puntoDeVentaId: pdvId }
         );
       }
-      return r.origenLocalId === localId; // solo local seleccionado
+      return r.origenLocalId === localId;
     };
-    return new Set(activas.filter(alcanzaFiltro).map((r) => r.entidadId));
+    const alcanzadas = activas.filter(alcanzaFiltro);
+    return {
+      concepto: new Set(alcanzadas.filter((r) => r.nivel === "concepto").map((r) => r.entidadId)),
+      registro: new Set(alcanzadas.filter((r) => r.nivel === "registro").map((r) => r.entidadId)),
+    };
   }, [reglas, localId, pdvId]);
 
   const { data, isLoading, error, ventasData, ventasLoading } = useOperacionKpis({
@@ -242,11 +249,11 @@ export function PivotTableByConcepto() {
                             title="Apertura de gastos"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setAperturaConcepto({ codigo: concepto.conceptoCodigo, nombre: concepto.nombre });
+                              setApertura({ nivel: "concepto", entidadId: concepto.conceptoCodigo, entidadNombre: concepto.nombre });
                             }}
                             className={cn(
                               "shrink-0 flex h-5 w-5 items-center justify-center rounded hover:bg-muted transition-colors",
-                              conceptosConReglaActiva.has(concepto.conceptoCodigo)
+                              reglasActivasPorNivel.concepto.has(concepto.conceptoCodigo)
                                 ? "text-primary"
                                 : "text-muted-foreground/40 hover:text-muted-foreground"
                             )}
@@ -313,11 +320,13 @@ export function PivotTableByConcepto() {
                 prov.observac || null,
                 fmtARS(prov.importe),
               ].filter(Boolean);
+              const labelProv = labelParts.join(' · ');
+              const tieneReglaRegistro = reglasActivasPorNivel.registro.has(prov.rowId);
               return (
                 <tr
                   key={prov.id}
                   className={cn(
-                    "border-b transition-colors",
+                    "group border-b transition-colors",
                     prov.hasManualOverride
                       ? "bg-attention/5 hover:bg-attention/10"
                       : "hover:bg-accent/20"
@@ -326,7 +335,25 @@ export function PivotTableByConcepto() {
                   <td className={cn("sticky left-0 z-10 bg-background px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", prov.hasManualOverride ? "text-attention" : "text-muted-foreground")}>
                     <span className="flex items-center gap-1.5">
                       {prov.hasManualOverride && <EditedDot />}
-                      {labelParts.join(' · ')}
+                      <span className="truncate">{labelProv}</span>
+                      {localId != null && (
+                        <button
+                          type="button"
+                          title="Apertura de gastos"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setApertura({ nivel: "registro", entidadId: prov.rowId, entidadNombre: labelProv });
+                          }}
+                          className={cn(
+                            "shrink-0 flex h-4 w-4 items-center justify-center rounded hover:bg-muted transition-opacity",
+                            tieneReglaRegistro
+                              ? "text-primary opacity-100"
+                              : "text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                          )}
+                        >
+                          <Split className="w-2.5 h-2.5" />
+                        </button>
+                      )}
                     </span>
                   </td>
                   {months.map((mes) => (
@@ -389,11 +416,12 @@ export function PivotTableByConcepto() {
       />
 
       <AperturaGastosModal
-        conceptoCodigo={aperturaConcepto?.codigo ?? null}
-        conceptoNombre={aperturaConcepto?.nombre ?? ""}
+        nivel={apertura?.nivel ?? "concepto"}
+        entidadId={apertura?.entidadId ?? null}
+        entidadNombre={apertura?.entidadNombre ?? ""}
         origenLocalId={localId ?? null}
         origenPdvId={pdvId ?? null}
-        onClose={() => setAperturaConcepto(null)}
+        onClose={() => setApertura(null)}
       />
 
     </>
