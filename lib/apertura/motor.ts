@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { calcularDistribuciones, type DestinoPct } from "./calculo";
-import { resolverVigencia, vigenciaToSql, type ReglaVigencia } from "./vigencia";
+import { resolverVigencia, vigenciaToSql, FECHA_EFECTIVA_COMPRA_SQL, type ReglaVigencia } from "./vigencia";
 import { encontrarSuperposicion, origenesSuperpuestos } from "./validaciones";
 
 // Orden fijo de prioridad cuando una compra matchea reglas de más de un
@@ -221,6 +221,14 @@ export function condicionComprasElegibles(
 // nunca las hubiera tocado por su cuenta (su WHERE exige esDistribuido =
 // false). No hace nada si `nivel` es la prioridad más baja (concepto): no hay
 // nada de dónde ceder, y el comportamiento de v1 queda intacto.
+//
+// También cede compras que hoy están bajo una regla de menor prioridad
+// DESACTIVADA — eso borra el historial de distribuciones que "desactivar"
+// normalmente preserva (ver PATCH /api/apertura/reglas/[id]). Es intencional,
+// confirmado con el usuario: la alternativa (no tocar reglas desactivadas)
+// dejaría esas compras bloqueadas para siempre y la regla nueva se aplicaría
+// solo parcialmente a su conjunto de compras, sin ningún aviso — peor que
+// perder un historial ya inerte.
 export async function liberarComprasReclamables(
   prisma: AperturaDbClient,
   nivel: string,
@@ -270,8 +278,7 @@ export async function aplicarRegla(
   input: AplicarReglaInput
 ): Promise<{ comprasAfectadas: number }> {
   const cond = resolverVigencia(input.vigencia);
-  const fechaEfectiva = Prisma.sql`COALESCE(c."fechaManual", c.fecha)`;
-  const vigenciaSql = vigenciaToSql(cond, fechaEfectiva);
+  const vigenciaSql = vigenciaToSql(cond, FECHA_EFECTIVA_COMPRA_SQL);
 
   const compras = await prisma.$queryRaw<{ rowId: string; importeBase: Prisma.Decimal }[]>(
     condicionComprasElegibles(input.nivel ?? "concepto", input.entidadId, vigenciaSql, input.origen)

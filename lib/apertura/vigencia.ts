@@ -1,5 +1,12 @@
 import { Prisma } from "@prisma/client";
 
+// Expresión SQL de la fecha EFECTIVA de una compra — reusada por todo caller
+// que arma su propio vigenciaSql fuera de aplicarRegla (liberarComprasReclamables
+// y los route handlers que la invocan). Un solo lugar evita que esta expresión
+// diverja entre callers — si difiere, liberarComprasReclamables podría liberar
+// compras que aplicarRegla después no reclama, dejándolas sin distribuir.
+export const FECHA_EFECTIVA_COMPRA_SQL = Prisma.sql`COALESCE(c."fechaManual", c.fecha)`;
+
 export interface ReglaVigencia {
   modo: "historico" | "entre_fechas" | "desde_adelante" | "desde_atras";
   fechaDesde: Date | null;

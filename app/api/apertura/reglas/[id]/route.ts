@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { patchReglaSchema } from "@/lib/apertura/schemas";
 import { aplicarRegla, liberarComprasReclamables, revertirRegla, resolverLocalIdDestinos, resolverLocalIdOrigen, verificarSinSuperposicion, SuperposicionError } from "@/lib/apertura/motor";
-import { resolverVigencia, vigenciaToSql, type ReglaVigencia } from "@/lib/apertura/vigencia";
+import { resolverVigencia, vigenciaToSql, FECHA_EFECTIVA_COMPRA_SQL, type ReglaVigencia } from "@/lib/apertura/vigencia";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -113,7 +112,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         });
 
         const condVigencia = resolverVigencia(vigenciaNueva);
-        const vigenciaSql = vigenciaToSql(condVigencia, Prisma.sql`COALESCE(c."fechaManual", c.fecha)`);
+        const vigenciaSql = vigenciaToSql(condVigencia, FECHA_EFECTIVA_COMPRA_SQL);
         await liberarComprasReclamables(tx, existente.nivel, existente.entidadId, vigenciaSql, {
           origenLocalId: origen.origenLocalId,
           origenPuntoDeVentaId: origen.origenPuntoDeVentaId,

@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { previewTotalQuerySchema } from "@/lib/apertura/schemas";
 import { condicionComprasElegibles } from "@/lib/apertura/motor";
-import { resolverVigencia, vigenciaToSql, type ReglaVigencia } from "@/lib/apertura/vigencia";
+import { resolverVigencia, vigenciaToSql, FECHA_EFECTIVA_COMPRA_SQL, type ReglaVigencia } from "@/lib/apertura/vigencia";
 
 export const dynamic = "force-dynamic";
 
@@ -42,8 +42,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const cond = resolverVigencia(vigencia);
-    const fechaEfectiva = Prisma.sql`COALESCE(c."fechaManual", c.fecha)`;
-    const vigenciaSql = vigenciaToSql(cond, fechaEfectiva);
+    const vigenciaSql = vigenciaToSql(cond, FECHA_EFECTIVA_COMPRA_SQL);
 
     const rows = await prisma.$queryRaw<{ total: Prisma.Decimal | null }[]>(Prisma.sql`
       SELECT COALESCE(SUM(sub."importeBase"), 0) AS total
