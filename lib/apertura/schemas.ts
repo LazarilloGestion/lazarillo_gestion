@@ -113,12 +113,24 @@ function validarCuerpoRegla(
   validarOrigen(data, ctx);
 }
 
+export const nivelReglaSchema = z.enum(["concepto", "proveedor", "registro"]).default("concepto");
+
 export const crearReglaSchema = z
   .object({
+    nivel: nivelReglaSchema,
     entidadId: z.string().min(1).max(50),
     ...camposVigencia,
   })
-  .superRefine(validarCuerpoRegla);
+  .superRefine((data, ctx) => {
+    validarCuerpoRegla(data, ctx);
+    if (data.nivel === "registro" && data.modo !== "historico") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "nivel 'registro' no admite vigencia — modo debe ser 'historico'",
+        path: ["modo"],
+      });
+    }
+  });
 
 export type CrearReglaInput = z.infer<typeof crearReglaSchema>;
 
@@ -148,6 +160,7 @@ export type PatchReglaInput = z.infer<typeof patchReglaSchema>;
 // activa muestra $0 — hallazgo de la revisión final de rama, Fase C).
 export const previewTotalQuerySchema = z
   .object({
+    nivel: nivelReglaSchema,
     entidadId: z.string().min(1).max(50),
     reglaId: z.coerce.number().int().positive().optional(),
     origenLocalId: z.coerce.number().int().positive().nullable().optional(),

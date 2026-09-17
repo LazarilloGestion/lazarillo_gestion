@@ -235,3 +235,38 @@ describe("origen de la regla", () => {
     expect(previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "historico" }).success).toBe(false);
   });
 });
+
+describe("crearReglaSchema — nivel", () => {
+  const base = {
+    entidadId: "48",
+    origenLocalId: 1,
+    destinos: [{ localId: 1, porcentaje: 100 }],
+  };
+
+  it("default de nivel es 'concepto' si se omite (compatibilidad hacia atrás)", () => {
+    const r = crearReglaSchema.safeParse({ ...base, modo: "historico", confirmarHistorico: true });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.nivel).toBe("concepto");
+  });
+
+  it("nivel 'registro' con modo 'historico' es válido", () => {
+    const r = crearReglaSchema.safeParse({
+      ...base, nivel: "registro", modo: "historico", confirmarHistorico: true,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("nivel 'registro' con modo distinto de 'historico' es inválido", () => {
+    const r = crearReglaSchema.safeParse({
+      ...base, nivel: "registro", modo: "desde_adelante", fechaDesde: "2026-01-01T00:00:00Z",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("nivel 'proveedor' admite cualquier modo de vigencia, igual que concepto", () => {
+    const r = crearReglaSchema.safeParse({
+      ...base, nivel: "proveedor", entidadId: "123", modo: "desde_adelante", fechaDesde: "2026-01-01T00:00:00Z",
+    });
+    expect(r.success).toBe(true);
+  });
+});

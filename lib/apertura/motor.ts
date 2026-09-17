@@ -3,6 +3,25 @@ import { calcularDistribuciones, type DestinoPct } from "./calculo";
 import { resolverVigencia, vigenciaToSql, type ReglaVigencia } from "./vigencia";
 import { encontrarSuperposicion, origenesSuperpuestos } from "./validaciones";
 
+// Orden fijo de prioridad cuando una compra matchea reglas de más de un
+// nivel — spec v2 sección 2, no negociable. Número más alto = gana.
+export const PRIORIDAD_NIVEL: Record<string, number> = {
+  registro: 3,
+  proveedor: 2,
+  concepto: 1,
+};
+
+// Predicado de matching por nivel — hasta Fase 2 estaba hardcodeado a
+// concepto dentro de condicionComprasElegibles. proveedorId es Int en
+// compras, entidadId siempre es String — el cast ::text deja que un
+// proveedorId null nunca matchee (null::text = cualquier cosa es null,
+// osea false), igual que hoy pasa con conceptoCodigo ausente.
+function condicionMatchNivel(nivel: string, entidadId: string): Prisma.Sql {
+  if (nivel === "proveedor") return Prisma.sql`c."proveedorId"::text = ${entidadId}`;
+  if (nivel === "registro") return Prisma.sql`c."rowId" = ${entidadId}`;
+  return Prisma.sql`COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = ${entidadId}`;
+}
+
 // Mismo shape que lib/etl/types.ts DbClient, redeclarado localmente para no
 // acoplar lib/apertura/ (dominio de negocio) a lib/etl/ (dominio de import) —
 // son capas sin relación, Ley de Deméter (CLAUDE.md sección 1). Compatible
@@ -19,6 +38,11 @@ const FLUSH_THRESHOLD = 5000;
 
 interface AplicarReglaInput {
   reglaId: number;
+  // Opcional, default "concepto" — compatibilidad con los call sites
+  // existentes (POST/PATCH /api/apertura/reglas, sincronizarTrasImport) que
+  // todavía no pasan nivel explícito; lo harán en tareas posteriores del
+  // mismo plan, pasando el valor real y pisando este default.
+  nivel?: string;
   entidadId: string;
   vigencia: ReglaVigencia;
   destinos: DestinoPct[];
@@ -158,6 +182,7 @@ export async function verificarSinSuperposicion(
 // revertirRegla ya borró las distribuciones viejas y reseteó esDistribuido,
 // así que el filtro estricto es el correcto ahí.
 export function condicionComprasElegibles(
+  nivel: string,
   entidadId: string,
   vigenciaSql: Prisma.Sql,
   origen: { origenLocalId: number | null; origenPuntoDeVentaId: number | null },
@@ -181,7 +206,7 @@ export function condicionComprasElegibles(
   return Prisma.sql`
     SELECT c."rowId", COALESCE(c."importeManual", c.importe) AS "importeBase"
     FROM compras c
-    WHERE COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = ${entidadId}
+    WHERE ${condicionMatchNivel(nivel, entidadId)}
       AND c."esBloqueado" = false
       AND ${filtroDistribuido}
       AND ${filtroOrigen}
@@ -209,7 +234,7 @@ export async function aplicarRegla(
   const vigenciaSql = vigenciaToSql(cond, fechaEfectiva);
 
   const compras = await prisma.$queryRaw<{ rowId: string; importeBase: Prisma.Decimal }[]>(
-    condicionComprasElegibles(input.entidadId, vigenciaSql, input.origen)
+    condicionComprasElegibles(input.nivel ?? "concepto", input.entidadId, vigenciaSql, input.origen)
   );
 
   if (compras.length === 0) return { comprasAfectadas: 0 };

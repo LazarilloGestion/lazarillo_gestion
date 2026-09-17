@@ -14,6 +14,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const parsed = previewTotalQuerySchema.safeParse({
+    nivel: searchParams.get("nivel") ?? undefined,
     entidadId: searchParams.get("entidadId") ?? undefined,
     reglaId: searchParams.get("reglaId") ?? undefined,
     origenLocalId: searchParams.get("origenLocalId") ?? undefined,
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Datos inválidos", issues: parsed.error.issues }, { status: 422 });
   }
-  const { entidadId, reglaId, origenLocalId, origenPuntoDeVentaId, modo, fechaDesde, fechaHasta, extremosInclusivos } =
+  const { nivel, entidadId, reglaId, origenLocalId, origenPuntoDeVentaId, modo, fechaDesde, fechaHasta, extremosInclusivos } =
     parsed.data;
 
   const vigencia: ReglaVigencia = {
@@ -47,6 +48,7 @@ export async function GET(request: NextRequest) {
     const rows = await prisma.$queryRaw<{ total: Prisma.Decimal | null }[]>(Prisma.sql`
       SELECT COALESCE(SUM(sub."importeBase"), 0) AS total
       FROM (${condicionComprasElegibles(
+        nivel,
         entidadId,
         vigenciaSql,
         { origenLocalId: origenLocalId ?? null, origenPuntoDeVentaId: origenPuntoDeVentaId ?? null },
