@@ -1,6 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { aplicarRegla, revertirCompras } from "./motor";
-import type { ReglaVigencia } from "./vigencia";
+import { revertirCompras, reaplicarReglasActivas } from "./motor";
 
 export interface SincronizarTrasImportResultado {
   comprasRecalculadas: number;
@@ -92,46 +91,8 @@ export async function sincronizarTrasImport(
     }
   }
 
-  const reglasActivas = await prisma.reglaApertura.findMany({
-    where: { estado: "activa" },
-    include: { destinos: true },
-  });
-
-  let reglasReaplicadas = 0;
-  for (const regla of reglasActivas) {
-    try {
-      await prisma.$transaction(
-        async (tx) => {
-          const vigencia: ReglaVigencia = {
-            modo: regla.modo as ReglaVigencia["modo"],
-            fechaDesde: regla.fechaDesde,
-            fechaHasta: regla.fechaHasta,
-            extremosInclusivos: regla.extremosInclusivos,
-          };
-          await aplicarRegla(tx, {
-            reglaId: regla.id,
-            entidadId: regla.entidadId,
-            vigencia,
-            origen: { origenLocalId: regla.origenLocalId, origenPuntoDeVentaId: regla.origenPuntoDeVentaId },
-            destinos: regla.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
-          });
-        },
-        // 15s, no 55s: esta transacción corre dentro de un loop de N reglas
-        // activas, adentro de una función con maxDuration=60 que ya gastó
-        // tiempo en ETL antes de llegar acá — 55s por regla podía exceder el
-        // presupuesto total con más de una regla activa (revisión final de
-        // rama, hallazgo Important I2). Si en la práctica una regla real
-        // necesita más de 15s (ej. "histórico completo" sobre un volumen muy
-        // grande), revisitar — no se sobre-diseña con presupuesto dinámico
-        // para un caso hipotético ahora (mismo criterio YAGNI que la sección
-        // 5 del diseño técnico usa para maxDuration en general).
-        { timeout: 15000 }
-      );
-      reglasReaplicadas++;
-    } catch (err) {
-      errores.push(`aplicarRegla(regla #${regla.id}): ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
+  const { reglasReaplicadas, errores: erroresReaplicar } = await reaplicarReglasActivas(prisma);
+  errores.push(...erroresReaplicar);
 
   return { comprasRecalculadas, reglasReaplicadas, errores, omitidas };
 }

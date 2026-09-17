@@ -38,11 +38,7 @@ const FLUSH_THRESHOLD = 5000;
 
 interface AplicarReglaInput {
   reglaId: number;
-  // Opcional, default "concepto" — compatibilidad con los call sites
-  // existentes (POST/PATCH /api/apertura/reglas, sincronizarTrasImport) que
-  // todavía no pasan nivel explícito; lo harán en tareas posteriores del
-  // mismo plan, pasando el valor real y pisando este default.
-  nivel?: string;
+  nivel: string;
   entidadId: string;
   vigencia: ReglaVigencia;
   destinos: DestinoPct[];
@@ -281,7 +277,7 @@ export async function aplicarRegla(
   const vigenciaSql = vigenciaToSql(cond, FECHA_EFECTIVA_COMPRA_SQL);
 
   const compras = await prisma.$queryRaw<{ rowId: string; importeBase: Prisma.Decimal }[]>(
-    condicionComprasElegibles(input.nivel ?? "concepto", input.entidadId, vigenciaSql, input.origen)
+    condicionComprasElegibles(input.nivel, input.entidadId, vigenciaSql, input.origen)
   );
 
   if (compras.length === 0) return { comprasAfectadas: 0 };
@@ -434,4 +430,57 @@ export async function revertirCompras(prisma: AperturaDbClient, rowIds: string[]
   await prisma.$executeRaw(Prisma.sql`
     UPDATE compras SET "esDistribuido" = false, "distribuidoEn" = null WHERE "rowId" = ANY(${rowIds}::text[])
   `);
+}
+
+// Vuelve a aplicar TODAS las reglas activas, en orden de prioridad
+// (registro primero, concepto último) — el orden importa porque
+// aplicarRegla reclama greedily lo primero que encuentra sin distribuir
+// todavía: si una regla de concepto corriera antes que una de proveedor
+// sobre la misma compra recién liberada, se la quedaría igual aunque la de
+// proveedor tenga más prioridad. Usada por sincronizarTrasImport
+// (reimportacion.ts) y por el cascadeo tras eliminar una regla (ver DELETE
+// /api/apertura/reglas/[id]).
+export async function reaplicarReglasActivas(
+  prisma: PrismaClient
+): Promise<{ reglasReaplicadas: number; errores: string[] }> {
+  const reglasActivas = await prisma.reglaApertura.findMany({
+    where: { estado: "activa" },
+    include: { destinos: true },
+  });
+
+  const ordenadas = [...reglasActivas].sort(
+    (a, b) => PRIORIDAD_NIVEL[b.nivel] - PRIORIDAD_NIVEL[a.nivel]
+  );
+
+  const errores: string[] = [];
+  let reglasReaplicadas = 0;
+
+  for (const regla of ordenadas) {
+    try {
+      await prisma.$transaction(
+        async (tx) => {
+          const vigencia: ReglaVigencia = {
+            modo: regla.modo as ReglaVigencia["modo"],
+            fechaDesde: regla.fechaDesde,
+            fechaHasta: regla.fechaHasta,
+            extremosInclusivos: regla.extremosInclusivos,
+          };
+          await aplicarRegla(tx, {
+            reglaId: regla.id,
+            nivel: regla.nivel,
+            entidadId: regla.entidadId,
+            vigencia,
+            origen: { origenLocalId: regla.origenLocalId, origenPuntoDeVentaId: regla.origenPuntoDeVentaId },
+            destinos: regla.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
+          });
+        },
+        { timeout: 15000 }
+      );
+      reglasReaplicadas++;
+    } catch (err) {
+      errores.push(`aplicarRegla(regla #${regla.id}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return { reglasReaplicadas, errores };
 }

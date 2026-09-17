@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { patchReglaSchema } from "@/lib/apertura/schemas";
-import { aplicarRegla, liberarComprasReclamables, revertirRegla, resolverLocalIdDestinos, resolverLocalIdOrigen, verificarSinSuperposicion, SuperposicionError } from "@/lib/apertura/motor";
+import { aplicarRegla, liberarComprasReclamables, reaplicarReglasActivas, revertirRegla, resolverLocalIdDestinos, resolverLocalIdOrigen, verificarSinSuperposicion, SuperposicionError } from "@/lib/apertura/motor";
 import { resolverVigencia, vigenciaToSql, FECHA_EFECTIVA_COMPRA_SQL, type ReglaVigencia } from "@/lib/apertura/vigencia";
 
 export const dynamic = "force-dynamic";
@@ -168,7 +168,11 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
       { timeout: 55000 }
     );
 
-    return NextResponse.json({ ok: true, comprasRevertidas });
+    // Cascada: una regla de menor prioridad puede tener que reclamar las
+    // compras que se acaban de liberar (ver Task 4 del plan de motor).
+    const { errores: erroresCascada } = await reaplicarReglasActivas(prisma);
+
+    return NextResponse.json({ ok: true, comprasRevertidas, erroresCascada });
   } catch (err) {
     console.error("[DELETE /api/apertura/reglas/[id]]", err);
     return NextResponse.json({ error: "Error interno al eliminar la regla" }, { status: 500 });
