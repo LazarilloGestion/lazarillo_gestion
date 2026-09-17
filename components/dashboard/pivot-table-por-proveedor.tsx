@@ -18,6 +18,7 @@ import type { PivotDataPorProveedor, PivotProveedorTopRow, PivotConceptoSubRow }
 import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 import { AperturaGastosModal } from "./apertura-gastos-modal";
+import type { NivelRegla } from "@/lib/apertura/schemas";
 
 export function PivotTableByProveedor() {
   const {
@@ -27,10 +28,13 @@ export function PivotTableByProveedor() {
   } = useDashboard();
 
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
-  const [aperturaConcepto, setAperturaConcepto] = useState<{ codigo: string; nombre: string } | null>(null);
+  const [apertura, setApertura] = useState<{ nivel: NivelRegla; entidadId: string; entidadNombre: string } | null>(null);
   const { reglas } = useReglasApertura();
-  const conceptosConReglaActiva = useMemo(() => {
-    const activas = reglas.filter((r) => r.estado === "activa" && r.nivel === "concepto");
+  // Un solo pase sobre las reglas activas alcanzables por el filtro actual,
+  // separado por nivel — reemplaza conceptosConReglaActiva (Fase 1) ahora que
+  // hay 3 niveles que pueden mostrar el ícono coloreado.
+  const reglasActivasPorNivel = useMemo(() => {
+    const activas = reglas.filter((r) => r.estado === "activa");
     const alcanzaFiltro = (r: (typeof activas)[number]) => {
       if (pdvId == null && localId == null) return true;
       if (pdvId != null) {
@@ -41,7 +45,12 @@ export function PivotTableByProveedor() {
       }
       return r.origenLocalId === localId;
     };
-    return new Set(activas.filter(alcanzaFiltro).map((r) => r.entidadId));
+    const alcanzadas = activas.filter(alcanzaFiltro);
+    return {
+      concepto: new Set(alcanzadas.filter((r) => r.nivel === "concepto").map((r) => r.entidadId)),
+      proveedor: new Set(alcanzadas.filter((r) => r.nivel === "proveedor").map((r) => r.entidadId)),
+      registro: new Set(alcanzadas.filter((r) => r.nivel === "registro").map((r) => r.entidadId)),
+    };
   }, [reglas, localId, pdvId]);
 
   const { data, isLoading, error, ventasData, ventasLoading } = useOperacionKpis<PivotDataPorProveedor>({
@@ -172,9 +181,33 @@ export function PivotTableByProveedor() {
                 return (
                   <tr key={proveedor.id} className="border-b font-semibold" onContextMenu={collapseAll}>
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
-                      <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(proveedor.id)}>
-                        {normalize(proveedor.nombre)}
-                      </ExpandableButton>
+                      <div className="flex items-center gap-1">
+                        <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(proveedor.id)} className="flex-1 min-w-0">
+                          {normalize(proveedor.nombre)}
+                        </ExpandableButton>
+                        {localId != null && proveedor.proveedorId != null && (
+                          <button
+                            type="button"
+                            title="Apertura de gastos"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setApertura({
+                                nivel: "proveedor",
+                                entidadId: String(proveedor.proveedorId),
+                                entidadNombre: normalize(proveedor.nombre),
+                              });
+                            }}
+                            className={cn(
+                              "shrink-0 flex h-5 w-5 items-center justify-center rounded hover:bg-muted transition-colors",
+                              reglasActivasPorNivel.proveedor.has(String(proveedor.proveedorId))
+                                ? "text-primary"
+                                : "text-muted-foreground/40 hover:text-muted-foreground"
+                            )}
+                          >
+                            <Split className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     {months.map((mes) => (
                       <td
@@ -236,11 +269,11 @@ export function PivotTableByProveedor() {
                             title="Apertura de gastos"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setAperturaConcepto({ codigo: concepto.conceptoCodigo, nombre: concepto.nombre });
+                              setApertura({ nivel: "concepto", entidadId: concepto.conceptoCodigo, entidadNombre: concepto.nombre });
                             }}
                             className={cn(
                               "shrink-0 flex h-5 w-5 items-center justify-center rounded hover:bg-muted transition-colors",
-                              conceptosConReglaActiva.has(concepto.conceptoCodigo)
+                              reglasActivasPorNivel.concepto.has(concepto.conceptoCodigo)
                                 ? "text-primary"
                                 : "text-muted-foreground/40 hover:text-muted-foreground"
                             )}
@@ -309,18 +342,38 @@ export function PivotTableByProveedor() {
                 linea.observac || null,
                 fmtARS(linea.importe),
               ].filter(Boolean);
+              const labelLinea = labelParts.join(' · ');
+              const tieneReglaRegistro = reglasActivasPorNivel.registro.has(linea.rowId);
               return (
                 <tr
                   key={linea.id}
                   className={cn(
-                    "border-b transition-colors",
+                    "group border-b transition-colors",
                     linea.hasManualOverride ? "bg-attention/5 hover:bg-attention/10" : "hover:bg-accent/20"
                   )}
                 >
                   <td className={cn("sticky left-0 z-10 bg-background px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", linea.hasManualOverride ? "text-attention" : "text-muted-foreground")}>
                     <span className="flex items-center gap-1.5">
                       {linea.hasManualOverride && <EditedDot />}
-                      {labelParts.join(' · ')}
+                      <span className="truncate">{labelLinea}</span>
+                      {localId != null && (
+                        <button
+                          type="button"
+                          title="Apertura de gastos"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setApertura({ nivel: "registro", entidadId: linea.rowId, entidadNombre: labelLinea });
+                          }}
+                          className={cn(
+                            "shrink-0 flex h-4 w-4 items-center justify-center rounded hover:bg-muted transition-opacity",
+                            tieneReglaRegistro
+                              ? "text-primary opacity-100"
+                              : "text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                          )}
+                        >
+                          <Split className="w-2.5 h-2.5" />
+                        </button>
+                      )}
                     </span>
                   </td>
                   {months.map((mes) => (
@@ -377,11 +430,12 @@ export function PivotTableByProveedor() {
       <VentasDetalleModal filter={ventasDetalleFilter} onClose={() => setVentasDetalleFilter(null)} />
 
       <AperturaGastosModal
-        conceptoCodigo={aperturaConcepto?.codigo ?? null}
-        conceptoNombre={aperturaConcepto?.nombre ?? ""}
+        nivel={apertura?.nivel ?? "concepto"}
+        entidadId={apertura?.entidadId ?? null}
+        entidadNombre={apertura?.entidadNombre ?? ""}
         origenLocalId={localId ?? null}
         origenPdvId={pdvId ?? null}
-        onClose={() => setAperturaConcepto(null)}
+        onClose={() => setApertura(null)}
       />
     </>
   );
