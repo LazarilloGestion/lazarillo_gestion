@@ -117,6 +117,7 @@ export async function reevaluarCompra(
   await aplicarReglaACompra(prisma, {
     reglaId: regla.id,
     rowId,
+    // Number(x.toString()), no Number(x) directo — mismo patrón que motor.ts.
     importeBase: Math.round(Number(importeEfectivo.toString()) * 100) / 100,
     destinos: regla.destinos,
   });

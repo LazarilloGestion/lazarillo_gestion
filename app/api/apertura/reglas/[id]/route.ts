@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
-import { patchReglaSchema } from "@/lib/apertura/schemas";
+import { patchReglaSchema, type NivelRegla } from "@/lib/apertura/schemas";
 import { aplicarRegla, liberarComprasReclamables, reaplicarReglasActivas, revertirRegla, resolverLocalIdDestinos, resolverLocalIdOrigen, verificarSinSuperposicion, SuperposicionError } from "@/lib/apertura/motor";
 import { resolverVigencia, vigenciaToSql, FECHA_EFECTIVA_COMPRA_SQL, type ReglaVigencia } from "@/lib/apertura/vigencia";
 
@@ -42,6 +42,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // la regla siempre"). Se implementa como revertir + reaplicar completo —
   // más simple y correcto que un diff parcial, resultado final idéntico.
   const { modo, fechaDesde, fechaHasta, extremosInclusivos, origenLocalId, origenPuntoDeVentaId, destinos } = parsed.data;
+  // la columna DB no tiene enum — nivelReglaSchema ya validó el valor cuando se creó la regla
+  const nivelExistente = existente.nivel as NivelRegla;
   const vigenciaNueva: ReglaVigencia = {
     modo,
     fechaDesde: fechaDesde ? new Date(fechaDesde) : null,
@@ -65,7 +67,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         // shape { localId, puntoDeVentaId }, distinto del resto del motor.
         await verificarSinSuperposicion(
           tx,
-          existente.nivel,
+          nivelExistente,
           existente.entidadId,
           vigenciaNueva,
           { localId: origen.origenLocalId, puntoDeVentaId: origen.origenPuntoDeVentaId },
@@ -113,14 +115,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
         const condVigencia = resolverVigencia(vigenciaNueva);
         const vigenciaSql = vigenciaToSql(condVigencia, FECHA_EFECTIVA_COMPRA_SQL);
-        await liberarComprasReclamables(tx, existente.nivel, existente.entidadId, vigenciaSql, {
+        await liberarComprasReclamables(tx, nivelExistente, existente.entidadId, vigenciaSql, {
           origenLocalId: origen.origenLocalId,
           origenPuntoDeVentaId: origen.origenPuntoDeVentaId,
         });
 
         const resultado = await aplicarRegla(tx, {
           reglaId: regla.id,
-          nivel: existente.nivel,
+          nivel: nivelExistente,
           entidadId: existente.entidadId,
           vigencia: vigenciaNueva,
           origen: { origenLocalId: origen.origenLocalId, origenPuntoDeVentaId: origen.origenPuntoDeVentaId },
@@ -133,7 +135,21 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       { timeout: 55000 }
     );
 
-    return NextResponse.json({ data: regla, comprasAfectadas });
+    // Cascada: la vigencia/origen nuevo pudo dejar afuera compras que la
+    // vigencia VIEJA cubría (ej. acotar de "todo el año" a "enero-marzo") —
+    // esas quedaron revertidas (esDistribuido = false) por revertirRegla, pero
+    // nada las volvió a resolver contra otras reglas activas. La spec pide
+    // reevaluar la UNIÓN de compras antes/después, no solo el conjunto nuevo
+    // que aplicarRegla ya cubrió arriba. Misma cascada que DELETE, y por la
+    // misma razón corre DESPUÉS de la transacción, no dentro: un reaplique
+    // amplio no debería compartir el presupuesto de timeout de la transacción
+    // de edición.
+    const { errores: erroresCascada } = await reaplicarReglasActivas(prisma);
+    if (erroresCascada.length > 0) {
+      console.error("[PATCH /api/apertura/reglas/[id]] errores en la cascada de reaplicación", erroresCascada);
+    }
+
+    return NextResponse.json({ data: regla, comprasAfectadas, erroresCascada });
   } catch (err) {
     if (err instanceof SuperposicionError) {
       return NextResponse.json({ error: err.message }, { status: 409 });
@@ -169,10 +185,20 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     );
 
     // Cascada: una regla de menor prioridad puede tener que reclamar las
-    // compras que se acaban de liberar (ver Task 4 del plan de motor).
-    const { errores: erroresCascada } = await reaplicarReglasActivas(prisma);
-    if (erroresCascada.length > 0) {
-      console.error("[DELETE /api/apertura/reglas/[id]] errores en la cascada de reaplicación", erroresCascada);
+    // compras que se acaban de liberar (ver Task 4 del plan de motor). Su
+    // propio try/catch, separado del de arriba: si la cascada explota (ej.
+    // falla de conexión), el borrado ya commiteó — la respuesta no puede decir
+    // "Error interno al eliminar la regla" cuando eliminar es justo lo que sí
+    // funcionó (hallazgo de la revisión final de rama).
+    let erroresCascada: string[] = [];
+    try {
+      const resultado = await reaplicarReglasActivas(prisma);
+      erroresCascada = resultado.errores;
+      if (erroresCascada.length > 0) {
+        console.error("[DELETE /api/apertura/reglas/[id]] errores en la cascada de reaplicación", erroresCascada);
+      }
+    } catch (err) {
+      console.error("[DELETE /api/apertura/reglas/[id]] la cascada de reaplicación falló por completo (la regla ya se eliminó)", err);
     }
 
     return NextResponse.json({ ok: true, comprasRevertidas, erroresCascada });

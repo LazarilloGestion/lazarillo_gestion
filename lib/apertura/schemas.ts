@@ -114,6 +114,7 @@ function validarCuerpoRegla(
 }
 
 export const nivelReglaSchema = z.enum(["concepto", "proveedor", "registro"]).default("concepto");
+export type NivelRegla = z.infer<typeof nivelReglaSchema>;
 
 export const crearReglaSchema = z
   .object({

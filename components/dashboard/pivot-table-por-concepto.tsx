@@ -33,7 +33,7 @@ export function PivotTableByConcepto() {
   // Step 2: indicador sensible al filtro local/PDV.
   // Considera solo reglas cuyo origen cae dentro del filtro seleccionado.
   const conceptosConReglaActiva = useMemo(() => {
-    const activas = reglas.filter((r) => r.estado === "activa");
+    const activas = reglas.filter((r) => r.estado === "activa" && r.nivel === "concepto");
     const alcanzaFiltro = (r: (typeof activas)[number]) => {
       if (pdvId == null && localId == null) return true;
       if (pdvId != null) {

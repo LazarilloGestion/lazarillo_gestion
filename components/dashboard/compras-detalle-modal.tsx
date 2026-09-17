@@ -501,7 +501,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     const conceptoNuevo = state.conceptoCodigoManual;
     const requiereConfirmacion =
       state.esDistribuida ||
-      (!!conceptoNuevo && reglasApertura.some((r) => r.estado === "activa" && r.entidadId === conceptoNuevo));
+      (!!conceptoNuevo && reglasApertura.some((r) => r.estado === "activa" && r.nivel === "concepto" && r.entidadId === conceptoNuevo));
     if (requiereConfirmacion) {
       setPendienteConfirmacion(state);
     } else {

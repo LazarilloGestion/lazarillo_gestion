@@ -2,10 +2,11 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { calcularDistribuciones, type DestinoPct } from "./calculo";
 import { resolverVigencia, vigenciaToSql, FECHA_EFECTIVA_COMPRA_SQL, type ReglaVigencia } from "./vigencia";
 import { encontrarSuperposicion, origenesSuperpuestos } from "./validaciones";
+import type { NivelRegla } from "./schemas";
 
 // Orden fijo de prioridad cuando una compra matchea reglas de más de un
 // nivel — spec v2 sección 2, no negociable. Número más alto = gana.
-export const PRIORIDAD_NIVEL: Record<string, number> = {
+export const PRIORIDAD_NIVEL: Record<NivelRegla, number> = {
   registro: 3,
   proveedor: 2,
   concepto: 1,
@@ -16,8 +17,23 @@ export const PRIORIDAD_NIVEL: Record<string, number> = {
 // compras, entidadId siempre es String — el cast ::text deja que un
 // proveedorId null nunca matchee (null::text = cualquier cosa es null,
 // osea false), igual que hoy pasa con conceptoCodigo ausente.
-function condicionMatchNivel(nivel: string, entidadId: string): Prisma.Sql {
+//
+// nivel: NivelRegla (no string) a propósito — un typo en un futuro caller
+// antes caía silenciosamente en el branch de concepto de abajo y distribuía
+// plata real contra las compras equivocadas sin ningún error (hallazgo de la
+// revisión final de rama). Con el tipo acotado al enum de nivelReglaSchema,
+// un valor no reconocido es un error de compilación, no un bug de datos.
+function condicionMatchNivel(nivel: NivelRegla, entidadId: string): Prisma.Sql {
   if (nivel === "proveedor") return Prisma.sql`c."proveedorId"::text = ${entidadId}`;
+  // OJO: rowId no es estable para compras SIN comprobante confiable (sueldos,
+  // alquiler, gastos sueltos, tickets) — computeCompraRowId (lib/etl/normalizers/
+  // compra-identity.ts) incluye el importe en el hash para esos casos, así que
+  // una reimportación que corrige el monto genera un rowId NUEVO y una regla de
+  // registro existente queda apuntando a uno huérfano, sin matchear nada, sin
+  // ningún aviso. No alcanzable hoy (no hay reglas de registro en producción,
+  // ninguna UI las crea) — pendiente de resolver antes de que exista esa UI:
+  // ¿re-clavar la regla al nuevo rowId? ¿avisar al usuario? ¿no permitir
+  // registro sobre compras sin comprobante confiable?
   if (nivel === "registro") return Prisma.sql`c."rowId" = ${entidadId}`;
   return Prisma.sql`COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = ${entidadId}`;
 }
@@ -38,7 +54,7 @@ const FLUSH_THRESHOLD = 5000;
 
 interface AplicarReglaInput {
   reglaId: number;
-  nivel: string;
+  nivel: NivelRegla;
   entidadId: string;
   vigencia: ReglaVigencia;
   destinos: DestinoPct[];
@@ -119,7 +135,7 @@ export class SuperposicionError extends Error {
 // handlers (hallazgo de duplicación, code-review 24-ago-2026).
 export async function verificarSinSuperposicion(
   prisma: AperturaDbClient,
-  nivel: string,
+  nivel: NivelRegla,
   entidadId: string,
   vigenciaNueva: ReglaVigencia,
   origenNuevo: { localId: number | null; puntoDeVentaId: number | null },
@@ -179,7 +195,7 @@ export async function verificarSinSuperposicion(
 // revertirRegla ya borró las distribuciones viejas y reseteó esDistribuido,
 // así que el filtro estricto es el correcto ahí.
 export function condicionComprasElegibles(
-  nivel: string,
+  nivel: NivelRegla,
   entidadId: string,
   vigenciaSql: Prisma.Sql,
   origen: { origenLocalId: number | null; origenPuntoDeVentaId: number | null },
@@ -227,7 +243,7 @@ export function condicionComprasElegibles(
 // perder un historial ya inerte.
 export async function liberarComprasReclamables(
   prisma: AperturaDbClient,
-  nivel: string,
+  nivel: NivelRegla,
   entidadId: string,
   vigenciaSql: Prisma.Sql,
   origen: { origenLocalId: number | null; origenPuntoDeVentaId: number | null }
@@ -432,6 +448,12 @@ export async function revertirCompras(prisma: AperturaDbClient, rowIds: string[]
   `);
 }
 
+// Comparador de prioridad extraído para poder testearlo aislado (motor.test.ts)
+// sin levantar Prisma — la única pieza pura de este archivo hasta ahora.
+export function compararPrioridadNivel(a: { nivel: NivelRegla }, b: { nivel: NivelRegla }): number {
+  return PRIORIDAD_NIVEL[b.nivel] - PRIORIDAD_NIVEL[a.nivel];
+}
+
 // Vuelve a aplicar TODAS las reglas activas, en orden de prioridad
 // (registro primero, concepto último) — el orden importa porque
 // aplicarRegla reclama greedily lo primero que encuentra sin distribuir
@@ -440,6 +462,10 @@ export async function revertirCompras(prisma: AperturaDbClient, rowIds: string[]
 // proveedor tenga más prioridad. Usada por sincronizarTrasImport
 // (reimportacion.ts) y por el cascadeo tras eliminar una regla (ver DELETE
 // /api/apertura/reglas/[id]).
+//
+// Verificado contra datos reales de producción: una compra migró
+// correctamente concepto → proveedor → registro → proveedor → concepto,
+// mismo importe distribuido en cada paso (17-sep-2026).
 export async function reaplicarReglasActivas(
   prisma: PrismaClient
 ): Promise<{ reglasReaplicadas: number; errores: string[] }> {
@@ -448,9 +474,18 @@ export async function reaplicarReglasActivas(
     include: { destinos: true },
   });
 
-  const ordenadas = [...reglasActivas].sort(
-    (a, b) => PRIORIDAD_NIVEL[b.nivel] - PRIORIDAD_NIVEL[a.nivel]
-  );
+  // la columna DB no tiene enum — nivelReglaSchema ya validó el valor cuando se
+  // creó cada regla. Se castea una sola vez acá para que tanto el sort de abajo
+  // (compararPrioridadNivel espera NivelRegla) como el resto del loop trabajen
+  // con el tipo acotado sin repetir el cast en cada uso.
+  const conNivelTipado = reglasActivas.map((r) => ({ ...r, nivel: r.nivel as NivelRegla }));
+
+  // Dentro del mismo nivel no hace falta orderBy adicional: verificarSinSuperposicion
+  // ya impide que dos reglas activas del mismo nivel con el mismo entidadId compitan
+  // por la misma compra, y dos reglas del mismo nivel con entidadId distinto nunca
+  // pueden matchear la misma compra (una compra tiene un solo concepto, un solo
+  // proveedor, un solo rowId) — el orden dentro de un nivel es inobservable.
+  const ordenadas = [...conNivelTipado].sort(compararPrioridadNivel);
 
   const errores: string[] = [];
   let reglasReaplicadas = 0;
@@ -474,6 +509,14 @@ export async function reaplicarReglasActivas(
             destinos: regla.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
           });
         },
+        // 15s, no 55s: esta función puede correr dentro de un caller con
+        // maxDuration=60 que ya gastó tiempo antes de llegar acá (reimportación) o
+        // que además tiene su propia transacción de 55s corrida justo antes (DELETE
+        // de una regla) — 55s por regla podía exceder el presupuesto total con más
+        // de una regla activa. Si en la práctica una regla real necesita más de
+        // 15s (ej. "histórico completo" sobre un volumen muy grande), revisitar —
+        // no se sobre-diseña con presupuesto dinámico para un caso hipotético
+        // ahora (mismo criterio YAGNI de siempre en este módulo).
         { timeout: 15000 }
       );
       reglasReaplicadas++;

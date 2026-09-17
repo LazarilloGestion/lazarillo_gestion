@@ -102,7 +102,7 @@ export function AperturaGastosModal({
 
   const { reglas: todasLasReglas, isLoading: reglasLoading, error: reglasError } = useReglasApertura();
   const reglasDelConcepto = useMemo(
-    () => todasLasReglas.filter((r) => r.entidadId === conceptoCodigo).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)),
+    () => todasLasReglas.filter((r) => r.nivel === "concepto" && r.entidadId === conceptoCodigo).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)),
     [todasLasReglas, conceptoCodigo]
   );
 

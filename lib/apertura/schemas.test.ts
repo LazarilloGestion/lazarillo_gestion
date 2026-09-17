@@ -207,6 +207,14 @@ describe("previewTotalQuerySchema", () => {
     const result = previewTotalQuerySchema.safeParse({ entidadId: "", modo: "historico", ...baseWithOrigen });
     expect(result.success).toBe(false);
   });
+
+  it("nivel default es 'concepto' si se omite", () => {
+    const r = previewTotalQuerySchema.safeParse({
+      entidadId: "48", origenLocalId: 1, modo: "historico",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.nivel).toBe("concepto");
+  });
 });
 
 describe("origen de la regla", () => {
@@ -268,5 +276,14 @@ describe("crearReglaSchema — nivel", () => {
       ...base, nivel: "proveedor", entidadId: "123", modo: "desde_adelante", fechaDesde: "2026-01-01T00:00:00Z",
     });
     expect(r.success).toBe(true);
+  });
+
+  it("rechaza un nivel que no sea concepto/proveedor/registro", () => {
+    const r = crearReglaSchema.safeParse({
+      nivel: "no-existe", entidadId: "48", origenLocalId: 1,
+      modo: "historico", confirmarHistorico: true,
+      destinos: [{ localId: 1, porcentaje: 100 }],
+    });
+    expect(r.success).toBe(false);
   });
 });
