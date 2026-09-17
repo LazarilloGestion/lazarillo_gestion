@@ -28,6 +28,8 @@ export type PivotProveedorRow = {
   readonly conceptoCodigo: string;
   readonly rubroCodigo: string;
   readonly hasManualOverride: boolean;
+  readonly localIdOrigen: number | null;
+  readonly puntoDeVentaIdOrigen: number | null;
   values: Record<number, number>;
   rowTotal: number;
 };
@@ -77,6 +79,8 @@ export type PivotLineaRow = {
   readonly observac: string | null;
   readonly importe: number;
   readonly hasManualOverride: boolean;
+  readonly localIdOrigen: number | null;
+  readonly puntoDeVentaIdOrigen: number | null;
   values: Record<number, number>;
   rowTotal: number;
 };
@@ -153,6 +157,8 @@ export type SqlRow = {
   fecha: string | null;
   observac: string | null;
   has_manual_override: boolean;
+  local_id_origen: number | null;
+  punto_de_venta_id_origen: number | null;
 };
 
 // --- Ventas ---

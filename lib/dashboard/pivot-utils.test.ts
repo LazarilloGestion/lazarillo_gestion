@@ -34,7 +34,8 @@ describe("flattenRowsPorProveedor", () => {
   it("expande proveedor y concepto en cascada", () => {
     const linea: PivotLineaRow = {
       level: 2, id: "l1", rowId: "row-1", distribucionId: null, conceptoCodigo: "C1",
-      fecha: null, observac: null, importe: 10, hasManualOverride: false, values: {}, rowTotal: 10,
+      fecha: null, observac: null, importe: 10, hasManualOverride: false,
+      localIdOrigen: null, puntoDeVentaIdOrigen: null, values: {}, rowTotal: 10,
     };
     const concepto: PivotConceptoSubRow = {
       level: 1, id: "p1|C1", nombre: "Concepto 1", conceptoCodigo: "C1", rubroCodigo: "R1", proveedorId: 1,

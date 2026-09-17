@@ -2,6 +2,8 @@
 // Prisma.Decimal serializa a string sobre JSON (mismo criterio que
 // CompraDetalle en lib/dashboard/types.ts), DateTime serializa a ISO string.
 
+import type { NivelRegla } from "./schemas";
+
 export type ModoVigenciaApi = "historico" | "entre_fechas" | "desde_adelante" | "desde_atras";
 export type EstadoReglaApi = "activa" | "inactiva";
 
@@ -15,7 +17,7 @@ export interface DestinoReglaDTO {
 
 export interface ReglaAperturaDTO {
   id: number;
-  nivel: string;
+  nivel: NivelRegla;
   entidadId: string;
   origenLocalId: number | null;
   origenPuntoDeVentaId: number | null;

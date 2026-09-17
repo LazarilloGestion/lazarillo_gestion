@@ -29,7 +29,13 @@ export function PivotTableByConcepto() {
   } = useDashboard();
 
   const [pctMode, setPctMode] = useState<"ingresos" | "egresos">("ingresos");
-  const [apertura, setApertura] = useState<{ nivel: NivelRegla; entidadId: string; entidadNombre: string } | null>(null);
+  const [apertura, setApertura] = useState<{
+    nivel: NivelRegla;
+    entidadId: string;
+    entidadNombre: string;
+    origenLocalId: number | null;
+    origenPdvId: number | null;
+  } | null>(null);
   const { reglas } = useReglasApertura();
   // Un solo pase sobre las reglas activas alcanzables por el filtro actual,
   // separado por nivel — este árbol solo necesita concepto y registro (no
@@ -249,7 +255,13 @@ export function PivotTableByConcepto() {
                             title="Apertura de gastos"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setApertura({ nivel: "concepto", entidadId: concepto.conceptoCodigo, entidadNombre: concepto.nombre });
+                              setApertura({
+                                nivel: "concepto",
+                                entidadId: concepto.conceptoCodigo,
+                                entidadNombre: concepto.nombre,
+                                origenLocalId: localId ?? null,
+                                origenPdvId: pdvId ?? null,
+                              });
                             }}
                             className={cn(
                               "shrink-0 flex h-5 w-5 items-center justify-center rounded hover:bg-muted transition-colors",
@@ -335,17 +347,23 @@ export function PivotTableByConcepto() {
                   <td className={cn("sticky left-0 z-10 bg-background px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", prov.hasManualOverride ? "text-attention" : "text-muted-foreground")}>
                     <span className="flex items-center gap-1.5">
                       {prov.hasManualOverride && <EditedDot />}
-                      <span className="truncate">{labelProv}</span>
+                      {labelProv}
                       {localId != null && (
                         <button
                           type="button"
                           title="Apertura de gastos"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setApertura({ nivel: "registro", entidadId: prov.rowId, entidadNombre: labelProv });
+                            setApertura({
+                              nivel: "registro",
+                              entidadId: prov.rowId,
+                              entidadNombre: labelProv,
+                              origenLocalId: prov.localIdOrigen,
+                              origenPdvId: prov.puntoDeVentaIdOrigen,
+                            });
                           }}
                           className={cn(
-                            "shrink-0 flex h-4 w-4 items-center justify-center rounded hover:bg-muted transition-opacity",
+                            "shrink-0 flex h-4 w-4 items-center justify-center rounded hover:bg-muted transition-opacity focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                             tieneReglaRegistro
                               ? "text-primary opacity-100"
                               : "text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
@@ -419,8 +437,8 @@ export function PivotTableByConcepto() {
         nivel={apertura?.nivel ?? "concepto"}
         entidadId={apertura?.entidadId ?? null}
         entidadNombre={apertura?.entidadNombre ?? ""}
-        origenLocalId={localId ?? null}
-        origenPdvId={pdvId ?? null}
+        origenLocalId={apertura?.origenLocalId ?? null}
+        origenPdvId={apertura?.origenPdvId ?? null}
         onClose={() => setApertura(null)}
       />
 

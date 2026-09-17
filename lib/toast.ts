@@ -10,6 +10,11 @@ export const notify = {
       description: "Dejá la celda vacía si no hubo arqueo ese mes.",
     }),
 
+  aperturaSinCompras: () =>
+    toast.warning("Regla guardada, pero no afectó ninguna compra", {
+      description: "Revisá el origen y la vigencia — puede que no haya compras que coincidan todavía.",
+    }),
+
   errorActualizar: (nombre: string) =>
     toast.error(`No se pudo actualizar ${nombre}. Intentá de nuevo.`),
 

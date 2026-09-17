@@ -85,7 +85,9 @@ export async function GET(request: NextRequest) {
       TO_CHAR(COALESCE(c."fechaManual", c.fecha), 'YYYY-MM-DD')         AS fecha,
       COALESCE(c."observacManual", c.observac)                           AS observac,
       (c."importeManual" IS NOT NULL OR c."fechaManual" IS NOT NULL
-        OR c."conceptoCodigoManual" IS NOT NULL OR c."observacManual" IS NOT NULL) AS has_manual_override
+        OR c."conceptoCodigoManual" IS NOT NULL OR c."observacManual" IS NOT NULL) AS has_manual_override,
+      c."localIdOrigen"          AS local_id_origen,
+      c."puntoDeVentaIdOrigen"   AS punto_de_venta_id_origen
     FROM v_compras_distribuidas c
     LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
     LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
@@ -193,6 +195,8 @@ function buildPivotData(
       fecha,
       observac,
       has_manual_override,
+      local_id_origen,
+      punto_de_venta_id_origen,
     } = row;
 
     const t = typeof total === "object" && total !== null
@@ -244,6 +248,8 @@ function buildPivotData(
       conceptoCodigo: concepto_codigo,
       rubroCodigo: rubro_codigo,
       hasManualOverride: !!has_manual_override,
+      localIdOrigen: local_id_origen,
+      puntoDeVentaIdOrigen: punto_de_venta_id_origen,
       values: { [mes]: t },
       rowTotal: t,
     };

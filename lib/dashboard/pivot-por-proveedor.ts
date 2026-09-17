@@ -33,6 +33,8 @@ export function buildPivotDataByProveedor(
       fecha,
       observac,
       has_manual_override,
+      local_id_origen,
+      punto_de_venta_id_origen,
     } = row;
 
     const t = typeof total === "object" && total !== null ? Number(total.toString()) : Number(total);
@@ -81,6 +83,8 @@ export function buildPivotDataByProveedor(
       observac: observac ?? null,
       importe: t,
       hasManualOverride: !!has_manual_override,
+      localIdOrigen: local_id_origen,
+      puntoDeVentaIdOrigen: punto_de_venta_id_origen,
       values: { [mes]: t },
       rowTotal: t,
     };

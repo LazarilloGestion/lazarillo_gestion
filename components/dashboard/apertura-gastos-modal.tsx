@@ -232,7 +232,7 @@ export function AperturaGastosModal({
       // editar o eliminar una regla cambia eso para la misma ventana de
       // vigencia, así que el preview queda stale igual que pivot/detalle.
       // Sin params: matchea por prefijo todas las instancias cacheadas
-      // (una por combinación de modo/fechas), no solo la que está montada.
+      // (una por combinación de nivel/modo/fechas), no solo la que está montada.
       queryClient.invalidateQueries({ queryKey: ["apertura-preview-total"] }),
       queryClient.invalidateQueries({ queryKey: ["pivot"] }),
       queryClient.invalidateQueries({ queryKey: ["detalle"] }),
@@ -244,6 +244,7 @@ export function AperturaGastosModal({
     setGuardando(true);
     setErrorGuardar(null);
     let guardadoOk = false;
+    let comprasAfectadas: number | undefined;
     try {
       // Solo se mandan las fechas que el modo usa: una fecha vieja que quedó
       // en el formulario tras cambiar de modo el backend la ignora, pero se
@@ -287,6 +288,8 @@ export function AperturaGastosModal({
       }
 
       guardadoOk = true;
+      const payload = await res.json().catch(() => null);
+      comprasAfectadas = payload?.comprasAfectadas as number | undefined;
     } catch {
       setErrorGuardar("No se pudo guardar. Intentá de nuevo.");
     } finally {
@@ -300,7 +303,11 @@ export function AperturaGastosModal({
     // stale — reportarlo como "no se pudo guardar" sería mentir sobre una
     // mutación financiera ya persistida.
     setView("lista");
-    notify.registroActualizado();
+    if (comprasAfectadas === 0) {
+      notify.aperturaSinCompras();
+    } else {
+      notify.registroActualizado();
+    }
     try {
       await refetchDependientes();
     } catch (err) {
@@ -418,7 +425,7 @@ export function AperturaGastosModal({
 
           {view === "formulario" && (
             <div className="flex flex-col gap-4">
-              {editando ? (
+              {editando && nivel !== "registro" ? (
                 <AperturaOrigenSelector value={origen} locales={locales} onChange={setOrigen} />
               ) : (
                 <div className="flex flex-col gap-1.5">

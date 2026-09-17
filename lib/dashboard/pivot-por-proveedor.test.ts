@@ -10,6 +10,7 @@ function row(overrides: Partial<SqlRow>): SqlRow {
     proveedor_id: 1, proveedor_nombre: "Proveedor A",
     mes: 1, total: 100, row_id: "row-1", distribucion_id: null,
     fecha: "2026-01-01", observac: null, has_manual_override: false,
+    local_id_origen: null, punto_de_venta_id_origen: null,
     ...overrides,
   };
 }
