@@ -216,6 +216,45 @@ export function condicionComprasElegibles(
   `;
 }
 
+// Antes de que una regla de mayor prioridad reclame compras, hay que ceder
+// las que ya estaban tomadas por una regla de MENOR prioridad — aplicarRegla
+// nunca las hubiera tocado por su cuenta (su WHERE exige esDistribuido =
+// false). No hace nada si `nivel` es la prioridad más baja (concepto): no hay
+// nada de dónde ceder, y el comportamiento de v1 queda intacto.
+export async function liberarComprasReclamables(
+  prisma: AperturaDbClient,
+  nivel: string,
+  entidadId: string,
+  vigenciaSql: Prisma.Sql,
+  origen: { origenLocalId: number | null; origenPuntoDeVentaId: number | null }
+): Promise<void> {
+  const prioridadNueva = PRIORIDAD_NIVEL[nivel];
+  const nivelesMenores = Object.entries(PRIORIDAD_NIVEL)
+    .filter(([, p]) => p < prioridadNueva)
+    .map(([n]) => n);
+  if (nivelesMenores.length === 0) return;
+
+  const filtroOrigen =
+    origen.origenPuntoDeVentaId != null
+      ? Prisma.sql`c."puntoDeVentaId" = ${origen.origenPuntoDeVentaId}`
+      : Prisma.sql`c."localId" = ${origen.origenLocalId}`;
+
+  const filas = await prisma.$queryRaw<{ rowId: string }[]>(Prisma.sql`
+    SELECT DISTINCT c."rowId"
+    FROM compras c
+    JOIN distribuciones_apertura da ON da."compraRowId" = c."rowId"
+    JOIN reglas_apertura ra          ON ra.id = da."reglaId"
+    WHERE ${condicionMatchNivel(nivel, entidadId)}
+      AND c."esBloqueado" = false
+      AND ${filtroOrigen}
+      AND COALESCE(c."importeManual", c.importe) IS NOT NULL
+      AND (${vigenciaSql})
+      AND ra.nivel = ANY(${nivelesMenores}::text[])
+  `);
+
+  if (filas.length > 0) await revertirCompras(prisma, filas.map((f) => f.rowId));
+}
+
 // Aplica una regla ya persistida: busca las compras vigentes de su concepto,
 // calcula y persiste distribuciones_apertura, marca esDistribuido en las
 // compras afectadas. Siempre sobre el importe EFECTIVO — ver Global
