@@ -61,6 +61,7 @@ export async function reevaluarCompra(
       fecha: true, fechaManual: true,
       importe: true, importeManual: true,
       conceptoCodigo: true, conceptoCodigoManual: true,
+      proveedorId: true,
     },
   });
   if (!compra) return { reevaluada: false, distribuidaAhora: false };
@@ -70,34 +71,47 @@ export async function reevaluarCompra(
   const conceptoEfectivo = compra.conceptoCodigoManual ?? compra.conceptoCodigo;
   const fechaEfectiva = compra.fechaManual ?? compra.fecha;
   const importeEfectivo = compra.importeManual ?? compra.importe;
-  if (!conceptoEfectivo || !fechaEfectiva || importeEfectivo == null) {
+  if (!fechaEfectiva || importeEfectivo == null) {
     return { reevaluada: true, distribuidaAhora: false };
   }
 
-  const candidatas = await prisma.reglaApertura.findMany({
-    where: { estado: "activa", nivel: "concepto", entidadId: conceptoEfectivo },
-    select: {
-      id: true, modo: true, fechaDesde: true, fechaHasta: true, extremosInclusivos: true,
-      origenLocalId: true, origenPuntoDeVentaId: true,
-      destinos: { select: { id: true, porcentaje: true } },
-    },
-  });
+  // Orden de prioridad fijo: registro > proveedor > concepto (spec v2). Una
+  // compra sin concepto efectivo (dato ausente) simplemente no tiene
+  // candidatas de ese nivel — no es motivo para cortar antes, a diferencia de
+  // v1 donde concepto era el único nivel posible.
+  const nivelesAProbar: { nivel: string; entidadId: string | null }[] = [
+    { nivel: "registro", entidadId: rowId },
+    { nivel: "proveedor", entidadId: compra.proveedorId != null ? String(compra.proveedorId) : null },
+    { nivel: "concepto", entidadId: conceptoEfectivo ?? null },
+  ];
 
-  const regla = elegirReglaParaCompra(
-    { localId: compra.localId, puntoDeVentaId: compra.puntoDeVentaId },
-    fechaEfectiva,
-    candidatas.map((r) => ({
-      id: r.id,
-      modo: r.modo as ReglaVigencia["modo"],
-      fechaDesde: r.fechaDesde,
-      fechaHasta: r.fechaHasta,
-      extremosInclusivos: r.extremosInclusivos,
-      origenLocalId: r.origenLocalId,
-      origenPuntoDeVentaId: r.origenPuntoDeVentaId,
-      // Number(x.toString()) para Prisma.Decimal — mismo patrón que motor.ts.
-      destinos: r.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
-    }))
-  );
+  let regla: ReglaCandidata | null = null;
+  for (const { nivel, entidadId } of nivelesAProbar) {
+    if (entidadId == null) continue;
+    const candidatas = await prisma.reglaApertura.findMany({
+      where: { estado: "activa", nivel, entidadId },
+      select: {
+        id: true, modo: true, fechaDesde: true, fechaHasta: true, extremosInclusivos: true,
+        origenLocalId: true, origenPuntoDeVentaId: true,
+        destinos: { select: { id: true, porcentaje: true } },
+      },
+    });
+    regla = elegirReglaParaCompra(
+      { localId: compra.localId, puntoDeVentaId: compra.puntoDeVentaId },
+      fechaEfectiva,
+      candidatas.map((r) => ({
+        id: r.id,
+        modo: r.modo as ReglaVigencia["modo"],
+        fechaDesde: r.fechaDesde,
+        fechaHasta: r.fechaHasta,
+        extremosInclusivos: r.extremosInclusivos,
+        origenLocalId: r.origenLocalId,
+        origenPuntoDeVentaId: r.origenPuntoDeVentaId,
+        destinos: r.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
+      }))
+    );
+    if (regla) break;
+  }
   if (!regla) return { reevaluada: true, distribuidaAhora: false };
 
   await aplicarReglaACompra(prisma, {
