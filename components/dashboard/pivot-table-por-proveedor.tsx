@@ -36,6 +36,10 @@ export function PivotTableByProveedor() {
     origenPdvId: number | null;
   } | null>(null);
   const { reglas } = useReglasApertura();
+
+  // Un solo pase sobre las reglas activas alcanzables por el filtro actual,
+  // separado por nivel — reemplaza conceptosConReglaActiva (Fase 1) ahora que
+  // hay 3 niveles que pueden mostrar el ícono coloreado.
   const reglasActivasPorNivel = useMemo(() => {
     const activas = reglas.filter((r) => r.estado === "activa");
     const alcanzaFiltro = (r: (typeof activas)[number]) => {

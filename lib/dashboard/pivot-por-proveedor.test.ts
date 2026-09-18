@@ -72,6 +72,9 @@ describe("buildPivotDataByProveedor", () => {
   });
 
   it("proveedor null usa la clave __sin_proveedor y muestra el label sentinela sin importar el texto crudo del ERP", () => {
+    // La SQL real cae a c.proveedor (texto crudo, no vinculado) en esta columna
+    // cuando proveedor_id es null, antes de llegar al literal 'Sin Proveedor' —
+    // este fixture reproduce ese caso realista en vez de uno que ya trae el label limpio.
     const rows: SqlRow[] = [
       row({ proveedor_id: null, proveedor_nombre: "CARNICERIA LOPEZ SRL", row_id: "x1", total: 10 }),
     ];
