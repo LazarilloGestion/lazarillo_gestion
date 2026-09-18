@@ -16,16 +16,18 @@ function row(overrides: Partial<SqlRow>): SqlRow {
 }
 
 describe("buildPivotDataByProveedor", () => {
-  it("agrupa por proveedor y luego por concepto, sin mezclar proveedores", () => {
+  it("agrupa por rubro, luego proveedor, luego concepto, sin mezclar proveedores", () => {
     const rows: SqlRow[] = [
       row({ proveedor_id: 1, proveedor_nombre: "Proveedor A", concepto_codigo: "C1", row_id: "a1", total: 100 }),
       row({ proveedor_id: 2, proveedor_nombre: "Proveedor B", concepto_codigo: "C1", row_id: "b1", total: 200 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
 
-    expect(data.rows).toHaveLength(2);
-    const provA = data.rows.find((p) => p.proveedorId === 1)!;
-    const provB = data.rows.find((p) => p.proveedorId === 2)!;
+    expect(data.rows).toHaveLength(1);
+    const rubro = data.rows[0];
+    expect(rubro.children).toHaveLength(2);
+    const provA = rubro.children.find((p) => p.proveedorId === 1)!;
+    const provB = rubro.children.find((p) => p.proveedorId === 2)!;
     expect(provA.rowTotal).toBe(100);
     expect(provB.rowTotal).toBe(200);
     expect(provA.children).toHaveLength(1);
@@ -33,15 +35,38 @@ describe("buildPivotDataByProveedor", () => {
     expect(provA.children[0].rowTotal).toBe(100);
   });
 
-  it("rollup mensual correcto en el nivel proveedor y en los totales generales", () => {
+  it("un proveedor con compras en dos rubros aparece duplicado, uno por rubro, sin mezclar importes", () => {
+    const rows: SqlRow[] = [
+      row({ rubro_codigo: "R1", rubro_nombre: "Rubro 1", proveedor_id: 1, concepto_codigo: "C1", row_id: "a1", total: 100 }),
+      row({ rubro_codigo: "R2", rubro_nombre: "Rubro 2", proveedor_id: 1, concepto_codigo: "C2", concepto_nombre: "Concepto 2", row_id: "a2", total: 300 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+
+    expect(data.rows).toHaveLength(2);
+    const rubro1 = data.rows.find((r) => r.rubroCodigo === "R1")!;
+    const rubro2 = data.rows.find((r) => r.rubroCodigo === "R2")!;
+    expect(rubro1.children).toHaveLength(1);
+    expect(rubro2.children).toHaveLength(1);
+    expect(rubro1.children[0].proveedorId).toBe(1);
+    expect(rubro2.children[0].proveedorId).toBe(1);
+    expect(rubro1.children[0].rowTotal).toBe(100);
+    expect(rubro2.children[0].rowTotal).toBe(300);
+    expect(rubro1.children[0].id).not.toBe(rubro2.children[0].id);
+    expect(data.grandTotal).toBe(400);
+  });
+
+  it("rollup mensual correcto en proveedor y rubro, y en los totales generales", () => {
     const rows: SqlRow[] = [
       row({ proveedor_id: 1, concepto_codigo: "C1", row_id: "a1", mes: 1, total: 100 }),
       row({ proveedor_id: 1, concepto_codigo: "C2", concepto_nombre: "Concepto 2", row_id: "a2", mes: 1, total: 50 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
-    const provA = data.rows[0];
+    const rubro = data.rows[0];
+    const provA = rubro.children[0];
     expect(provA.values[1]).toBe(150);
     expect(provA.rowTotal).toBe(150);
+    expect(rubro.values[1]).toBe(150);
+    expect(rubro.rowTotal).toBe(150);
     expect(data.columnTotals[1]).toBe(150);
     expect(data.grandTotal).toBe(150);
   });
@@ -54,16 +79,16 @@ describe("buildPivotDataByProveedor", () => {
       row({ proveedor_id: null, proveedor_nombre: "CARNICERIA LOPEZ SRL", row_id: "x1", total: 10 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
-    expect(data.rows[0].proveedorId).toBeNull();
-    expect(data.rows[0].id).toBe("__sin_proveedor");
-    expect(data.rows[0].nombre).toBe(SIN_PROVEEDOR_NOMBRE);
+    const proveedor = data.rows[0].children[0];
+    expect(proveedor.proveedorId).toBeNull();
+    expect(proveedor.nombre).toBe(SIN_PROVEEDOR_NOMBRE);
   });
 
-  it("adjunta la composición correspondiente a cada concepto+proveedor", () => {
+  it("adjunta la composición correspondiente a cada concepto+proveedor, sin importar el rubro", () => {
     const rows: SqlRow[] = [row({ proveedor_id: 1, concepto_codigo: "C1", row_id: "a1" })];
     const composicion = { "C1|1": { 1: { total: 100, destinos: [{ nombre: "Local A", pct: 100, importe: 100 }] } } };
     const data = buildPivotDataByProveedor(rows, composicion);
-    expect(data.rows[0].children[0].composicion).toEqual(composicion["C1|1"]);
+    expect(data.rows[0].children[0].children[0].composicion).toEqual(composicion["C1|1"]);
   });
 
   it("dos líneas de la misma compra distribuida no colisionan de id", () => {
@@ -72,7 +97,7 @@ describe("buildPivotDataByProveedor", () => {
       row({ proveedor_id: 1, concepto_codigo: "C1", row_id: "a1", distribucion_id: 11, total: 40 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
-    const lineaIds = data.rows[0].children[0].children.map((l) => l.id);
+    const lineaIds = data.rows[0].children[0].children[0].children.map((l) => l.id);
     expect(new Set(lineaIds).size).toBe(2);
   });
 });

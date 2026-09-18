@@ -3,29 +3,32 @@ import type {
   SqlRow,
   ComposicionMes,
   PivotDataPorProveedor,
-  PivotProveedorTopRow,
+  PivotRubroRowPorProveedor,
+  PivotProveedorSubRow,
   PivotConceptoSubRow,
   PivotLineaRow,
 } from "./types";
 
 // Hermana de buildPivotData (app/api/dashboard/pivot/route.ts): misma fuente
 // de filas (SqlRow[], una por línea de compra con rubro/concepto/proveedor ya
-// resueltos), pero agrupa Proveedor → Concepto → línea en vez de
-// Rubro → Concepto → línea. Ver spec §3.2.
+// resueltos), pero agrupa Rubro → Proveedor → Concepto → línea. Ver spec
+// docs/superpowers/specs/2026-09-18-vista-por-proveedor-nivel-rubro-design.md §3.2.
 export function buildPivotDataByProveedor(
   sqlRows: SqlRow[],
   composicionPorProveedor: Record<string, Record<number, ComposicionMes>>
 ): PivotDataPorProveedor {
-  const proveedorMap = new Map<string, PivotProveedorTopRow>();
+  const rubroMap = new Map<string, PivotRubroRowPorProveedor>();
+  const proveedorMap = new Map<string, PivotProveedorSubRow>();
   const conceptoMap = new Map<string, PivotConceptoSubRow>();
 
   for (const row of sqlRows) {
     const {
+      rubro_codigo,
+      rubro_nombre,
       proveedor_id,
       proveedor_nombre,
       concepto_codigo,
       concepto_nombre,
-      rubro_codigo,
       mes,
       total,
       row_id,
@@ -39,25 +42,46 @@ export function buildPivotDataByProveedor(
 
     const t = typeof total === "object" && total !== null ? Number(total.toString()) : Number(total);
 
-    const provKey = proveedor_id != null ? String(proveedor_id) : SIN_PROVEEDOR_KEY;
+    // provKeyOriginal identifica al proveedor a secas (usado para la clave de
+    // composición, que no sabe de rubros); provKey lo compone con el rubro
+    // para que el mismo proveedor genere un nodo distinto por cada rubro en
+    // el que tiene compras (mismo criterio de duplicación que ya usa
+    // buildPivotData con sus proveedores-hoja).
+    const provKeyOriginal = proveedor_id != null ? String(proveedor_id) : SIN_PROVEEDOR_KEY;
+    const provKey = `${rubro_codigo}|${provKeyOriginal}`;
     const concKey = `${provKey}|${concepto_codigo}`;
 
-    if (!proveedorMap.has(provKey)) {
-      proveedorMap.set(provKey, {
+    if (!rubroMap.has(rubro_codigo)) {
+      rubroMap.set(rubro_codigo, {
         level: 0,
+        id: rubro_codigo,
+        nombre: rubro_nombre,
+        rubroCodigo: rubro_codigo,
+        values: {},
+        rowTotal: 0,
+        children: [],
+      });
+    }
+    const rubro = rubroMap.get(rubro_codigo)!;
+
+    if (!proveedorMap.has(provKey)) {
+      const proveedor: PivotProveedorSubRow = {
+        level: 1,
         id: provKey,
         nombre: proveedor_id != null ? proveedor_nombre : SIN_PROVEEDOR_NOMBRE,
         proveedorId: proveedor_id,
         values: {},
         rowTotal: 0,
         children: [],
-      });
+      };
+      proveedorMap.set(provKey, proveedor);
+      rubro.children.push(proveedor);
     }
     const proveedor = proveedorMap.get(provKey)!;
 
     if (!conceptoMap.has(concKey)) {
       const concepto: PivotConceptoSubRow = {
-        level: 1,
+        level: 2,
         id: concKey,
         nombre: concepto_nombre,
         conceptoCodigo: concepto_codigo,
@@ -66,7 +90,7 @@ export function buildPivotDataByProveedor(
         values: {},
         rowTotal: 0,
         children: [],
-        composicion: composicionPorProveedor[`${concepto_codigo}|${provKey}`],
+        composicion: composicionPorProveedor[`${concepto_codigo}|${provKeyOriginal}`],
       };
       conceptoMap.set(concKey, concepto);
       proveedor.children.push(concepto);
@@ -74,7 +98,7 @@ export function buildPivotDataByProveedor(
     const concepto = conceptoMap.get(concKey)!;
 
     const linea: PivotLineaRow = {
-      level: 2,
+      level: 3,
       id: `${concKey}|${row_id}|${distribucion_id ?? "orig"}`,
       rowId: row_id,
       distribucionId: distribucion_id,
@@ -91,33 +115,40 @@ export function buildPivotDataByProveedor(
     concepto.children.push(linea);
   }
 
-  // Roll up bottom-up: línea → concepto → proveedor (mismo patrón que buildPivotData).
-  for (const [, proveedor] of proveedorMap) {
-    for (const concepto of proveedor.children) {
-      for (const linea of concepto.children) {
-        for (const [m, val] of Object.entries(linea.values)) {
-          const mn = Number(m);
-          concepto.values[mn] = (concepto.values[mn] ?? 0) + val;
+  // Roll up bottom-up: línea → concepto → proveedor → rubro.
+  for (const [, rubro] of rubroMap) {
+    for (const proveedor of rubro.children) {
+      for (const concepto of proveedor.children) {
+        for (const linea of concepto.children) {
+          for (const [m, val] of Object.entries(linea.values)) {
+            const mn = Number(m);
+            concepto.values[mn] = (concepto.values[mn] ?? 0) + val;
+          }
+          concepto.rowTotal += linea.rowTotal;
         }
-        concepto.rowTotal += linea.rowTotal;
+        for (const [m, val] of Object.entries(concepto.values)) {
+          const mn = Number(m);
+          proveedor.values[mn] = (proveedor.values[mn] ?? 0) + val;
+        }
+        proveedor.rowTotal += concepto.rowTotal;
       }
-      for (const [m, val] of Object.entries(concepto.values)) {
+      for (const [m, val] of Object.entries(proveedor.values)) {
         const mn = Number(m);
-        proveedor.values[mn] = (proveedor.values[mn] ?? 0) + val;
+        rubro.values[mn] = (rubro.values[mn] ?? 0) + val;
       }
-      proveedor.rowTotal += concepto.rowTotal;
+      rubro.rowTotal += proveedor.rowTotal;
     }
   }
 
   const columnTotals: Record<number, number> = {};
   let grandTotal = 0;
-  for (const [, proveedor] of proveedorMap) {
-    for (const [m, val] of Object.entries(proveedor.values)) {
+  for (const [, rubro] of rubroMap) {
+    for (const [m, val] of Object.entries(rubro.values)) {
       const mn = Number(m);
       columnTotals[mn] = (columnTotals[mn] ?? 0) + val;
     }
-    grandTotal += proveedor.rowTotal;
+    grandTotal += rubro.rowTotal;
   }
 
-  return { rows: Array.from(proveedorMap.values()), columnTotals, grandTotal };
+  return { rows: Array.from(rubroMap.values()), columnTotals, grandTotal };
 }

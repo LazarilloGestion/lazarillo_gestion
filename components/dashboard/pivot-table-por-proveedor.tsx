@@ -14,7 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
 import { EditedDot } from "./edit-row-controls";
-import type { PivotDataPorProveedor, PivotProveedorTopRow, PivotConceptoSubRow } from "@/lib/dashboard/types";
+import type { PivotDataPorProveedor, PivotRubroRowPorProveedor, PivotProveedorSubRow, PivotConceptoSubRow } from "@/lib/dashboard/types";
 import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 import { AperturaGastosModal } from "./apertura-gastos-modal";
@@ -37,6 +37,7 @@ export function PivotTableByProveedor() {
     origenPdvId: number | null;
   } | null>(null);
   const { reglas } = useReglasApertura();
+
   // Un solo pase sobre las reglas activas alcanzables por el filtro actual,
   // separado por nivel — reemplaza conceptosConReglaActiva (Fase 1) ahora que
   // hay 3 niveles que pueden mostrar el ícono coloreado.
@@ -66,7 +67,7 @@ export function PivotTableByProveedor() {
   });
 
   const {
-    expanded, toggleRow, collapseAll, collapseConceptos,
+    expanded, toggleRow, collapseAll, collapseProveedores, collapseConceptos,
     flatRows, detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   } = usePivotScreenDataPorProveedor({
     data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery,
@@ -178,18 +179,66 @@ export function PivotTableByProveedor() {
 
           <tbody>
             {flatRows.map((item) => {
-              if (item.type === "proveedorTop") {
-                const proveedor = item.data as PivotProveedorTopRow;
+              if (item.type === "rubroTop") {
+                const rubro = item.data as PivotRubroRowPorProveedor;
+                const isExpanded = expanded.has(rubro.id);
+                return (
+                  <tr key={rubro.id} className="border-b font-semibold" onContextMenu={collapseAll}>
+                    <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
+                      <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(rubro.id)}>
+                        {rubro.nombre}
+                      </ExpandableButton>
+                    </td>
+                    {months.map((mes) => (
+                      <td
+                        key={mes}
+                        className={cn(
+                          "text-right px-3 py-2.5 tabular-nums bg-muted/25 hover:bg-muted/50 transition-colors",
+                          hasValue(rubro.values[mes]) && "cursor-pointer hover:text-primary"
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (hasValue(rubro.values[mes]))
+                            openDetalle({ mes, rubroCodigo: rubro.rubroCodigo });
+                        }}
+                      >
+                        {fmtARS(rubro.values[mes])}
+                      </td>
+                    ))}
+                    <td
+                      className="text-right px-4 py-2.5 tabular-nums font-semibold text-[15px] bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDetalle({ rubroCodigo: rubro.rubroCodigo });
+                      }}
+                    >
+                      {fmtARS(rubro.rowTotal)}
+                    </td>
+                    <td className="text-right px-3 py-2.5 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap bg-muted/25 hover:bg-muted/50 transition-colors">
+                      {fmtPct(rubro.rowTotal)}
+                    </td>
+                  </tr>
+                );
+              }
+
+              if (item.type === "proveedorSub") {
+                const proveedor = item.data as PivotProveedorSubRow;
                 const isExpanded = expanded.has(proveedor.id);
                 // "Sin Proveedor" no se puede filtrar en /api/dashboard/detalle
                 // (no hay forma de pedir "proveedorId IS NULL" ahí) — no ofrecer
                 // un drill-down que traería todas las compras sin filtrar.
                 const puedeDrillDown = proveedor.proveedorId != null;
                 return (
-                  <tr key={proveedor.id} className="border-b font-semibold" onContextMenu={collapseAll}>
+                  <tr key={proveedor.id} className="border-b font-semibold" onContextMenu={collapseProveedores}>
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
                       <div className="flex items-center gap-1">
-                        <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(proveedor.id)} className="flex-1 min-w-0">
+                        <ExpandableButton
+                          isExpanded={isExpanded}
+                          onClick={() => toggleRow(proveedor.id)}
+                          indent="pl-5"
+                          iconSize="w-3.5 h-3.5"
+                          className="flex-1 min-w-0"
+                        >
                           {normalize(proveedor.nombre)}
                         </ExpandableButton>
                         <AperturaSplitButton
@@ -254,8 +303,8 @@ export function PivotTableByProveedor() {
                         <ExpandableButton
                           isExpanded={isExpanded}
                           onClick={() => toggleRow(concepto.id)}
-                          indent="pl-5"
-                          iconSize="w-3.5 h-3.5"
+                          indent="pl-9"
+                          iconSize="w-3 h-3"
                           className="flex-1 min-w-0"
                         >
                           {concepto.nombre}
@@ -343,7 +392,7 @@ export function PivotTableByProveedor() {
                     linea.hasManualOverride ? "bg-attention/5 hover:bg-attention/10" : "hover:bg-accent/20"
                   )}
                 >
-                  <td className={cn("sticky left-0 z-10 bg-background px-4 py-1.5 pl-14 text-xs shadow-[1px_0_0_0_hsl(var(--border))]", linea.hasManualOverride ? "text-attention" : "text-muted-foreground")}>
+                  <td className={cn("sticky left-0 z-10 bg-background px-4 py-1.5 pl-[4.5rem] text-xs shadow-[1px_0_0_0_hsl(var(--border))]", linea.hasManualOverride ? "text-attention" : "text-muted-foreground")}>
                     <span className="flex items-center gap-1.5">
                       {linea.hasManualOverride && <EditedDot />}
                       {labelLinea}
