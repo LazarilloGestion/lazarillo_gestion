@@ -13,18 +13,24 @@ export async function GET(
 
   const { compraId } = await params;
 
-  // Buscar también por comprobante: el link ETL puede estar pendiente si
-  // compras se importó antes que detalle_compras en una sesión anterior.
+  // Buscar por comprobante (no por compraId): cuando una misma factura del ERP
+  // se importa dividida en varias filas de `compras` por concepto (mismo
+  // comprobante, distinto rowId), el link de ETL por comprobante no tiene forma
+  // de decidir a cuál de esas filas pertenece cada línea de detalle y termina
+  // concentrando el 100% de las líneas en una sola — dejando las demás en 0
+  // (bug reportado: facturas de "papelera" sin detalle). Como el dato de origen
+  // no distingue líneas por concepto, mostramos la factura completa bajo
+  // cualquiera de sus filas divididas en vez de un desglose que no se puede
+  // sostener. `localId` evita mezclar facturas de distintos locales que por
+  // azar compartan el mismo número de comprobante (mismo resguardo que usa el
+  // link de ETL en linkDetalleComprasByComprobante).
   const compra = await prisma.compra.findUnique({
     where: { rowId: compraId },
-    select: { comprobante: true },
+    select: { comprobante: true, localId: true },
   });
 
-  // Incluir filas aún no vinculadas (compraId: null) que compartan el comprobante.
-  // Restringir a compraId: null evita traer filas de otros locales que tengan el mismo
-  // string de comprobante pero ya estén correctamente vinculadas a su propia compra.
   const where = compra?.comprobante
-    ? { OR: [{ compraId }, { comprobante: compra.comprobante, compraId: null }] }
+    ? { comprobante: compra.comprobante, localId: compra.localId }
     : { compraId };
 
   const lineas = await prisma.detalleCompra.findMany({
