@@ -17,9 +17,9 @@ interface UsePivotScreenDataPorProveedorParams {
 }
 
 // Hermano de usePivotScreenData (lib/dashboard/pivot-utils.ts), para el árbol
-// Proveedor → Concepto → línea en vez de Rubro → Concepto → línea. Misma
-// forma de retorno a propósito, para que PivotTableByProveedor consuma este
-// hook igual que PivotTableByConcepto consume el original.
+// Rubro → Proveedor → Concepto → línea en vez de Rubro → Concepto → línea.
+// Misma forma de retorno a propósito, para que PivotTableByProveedor consuma
+// este hook igual que PivotTableByConcepto consume el original.
 export function usePivotScreenDataPorProveedor({
   data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery,
 }: UsePivotScreenDataPorProveedorParams) {
@@ -38,9 +38,12 @@ export function usePivotScreenDataPorProveedor({
 
     if (conceptoCodigo || proveedorId || observacionQuery) {
       const ids = new Set<string>();
-      for (const proveedor of data.rows) {
-        ids.add(proveedor.id);
-        for (const concepto of proveedor.children) ids.add(concepto.id);
+      for (const rubro of data.rows) {
+        ids.add(rubro.id);
+        for (const proveedor of rubro.children) {
+          ids.add(proveedor.id);
+          for (const concepto of proveedor.children) ids.add(concepto.id);
+        }
       }
       setExpanded(ids);
     } else {
@@ -62,16 +65,28 @@ export function usePivotScreenDataPorProveedor({
     [sortedRows, expanded, data]
   );
 
-  const proveedorIds = useMemo(() => new Set(sortedRows.map((r) => r.id)), [sortedRows]);
+  const rubroIds = useMemo(() => new Set(sortedRows.map((r) => r.id)), [sortedRows]);
+  const proveedorIds = useMemo(
+    () => new Set(sortedRows.flatMap((r) => r.children.map((p) => p.id))),
+    [sortedRows]
+  );
 
+  // Click derecho en fila de Proveedor: colapsa proveedor+concepto+línea, mantiene el rubro expandido.
+  const collapseProveedores = useCallback((e: React.MouseEvent) => {
+    if (navigator.maxTouchPoints > 0) return;
+    e.preventDefault();
+    setExpanded((prev) => new Set([...prev].filter((id) => rubroIds.has(id))));
+  }, [rubroIds, setExpanded]);
+
+  // Click derecho en fila de Concepto: colapsa concepto+línea, mantiene rubro y proveedor expandidos.
   const collapseConceptos = useCallback((e: React.MouseEvent) => {
     if (navigator.maxTouchPoints > 0) return;
     e.preventDefault();
-    setExpanded((prev) => new Set([...prev].filter((id) => proveedorIds.has(id))));
-  }, [proveedorIds, setExpanded]);
+    setExpanded((prev) => new Set([...prev].filter((id) => rubroIds.has(id) || proveedorIds.has(id))));
+  }, [rubroIds, proveedorIds, setExpanded]);
 
   return {
-    expanded, toggleRow, collapseAll, collapseConceptos,
+    expanded, toggleRow, collapseAll, collapseProveedores, collapseConceptos,
     sortedRows, flatRows, isEmpty: flatRows.length === 0,
     detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   };
