@@ -20,6 +20,12 @@ import { AperturaDestinoRow, type DestinoFormState } from "./apertura-destino-ro
 import { AperturaOrigenSelector, type OrigenFormState } from "./apertura-origen-selector";
 import { describirOrigen } from "@/lib/apertura/descripcion-origen";
 
+const NIVEL_LABELS: Record<NivelRegla, string> = {
+  concepto: "Concepto",
+  proveedor: "Proveedor",
+  registro: "Registro individual",
+};
+
 const VIGENCIA_VACIA: VigenciaFormState = {
   modo: "historico",
   fechaDesde: "",
@@ -351,6 +357,7 @@ export function AperturaGastosModal({
       <Dialog open={entidadId !== null} onOpenChange={(o) => { if (!o) onClose(); }}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
+            <Badge variant="secondary" className="w-fit">{NIVEL_LABELS[nivel]}</Badge>
             <DialogTitle className="text-base">Apertura de gastos — {entidadNombre}</DialogTitle>
           </DialogHeader>
 
