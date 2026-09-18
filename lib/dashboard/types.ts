@@ -209,6 +209,11 @@ export type CompraDetalle = {
   proveedorRef: { id: number; nombre: string | null; razon: string | null } | null;
   local: { nombre: string } | null;
   puntoDeVenta: { nombre: string } | null;
+  // Origen real de la compra (distinto de localId/puntoDeVentaId cuando la fila
+  // es el destino de una distribución) — necesario para abrir una regla de
+  // apertura nivel-registro con el origen correcto (ver commit 05e4c3b).
+  localIdOrigen: number | null;
+  puntoDeVentaIdOrigen: number | null;
   conceptoCaja: {
     codigo: string;
     nombre: string;

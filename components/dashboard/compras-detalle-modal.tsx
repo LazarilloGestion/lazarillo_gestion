@@ -4,6 +4,9 @@ import { notify } from "@/lib/toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare } from "lucide-react";
+import type { NivelRegla } from "@/lib/apertura/schemas";
+import { AperturaGastosModal } from "./apertura-gastos-modal";
+import { AperturaSplitButton } from "./apertura-split-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -26,6 +29,7 @@ import { CompraLineasModal } from "./compra-lineas-modal";
 import { DetalleModalShell } from "./detalle-modal-shell";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
+import { useDashboard } from "@/hooks/use-dashboard-store";
 
 export interface ColDef {
   label: string;
@@ -68,6 +72,19 @@ function isEdited(c: CompraDetalle) {
 
 function toDateInputValue(iso: string | null | undefined): string {
   return iso?.slice(0, 10) ?? "";
+}
+
+// Mismo criterio de armado que `labelProv`/`labelLinea` en las tablas de pivot
+// (fecha · proveedor · observación · importe) — para que el título de la
+// regla de apertura se lea igual sin importar desde qué vista se abrió.
+function buildEntidadNombre(item: CompraDetalle): string {
+  const parts = [
+    fmtDate(item.fechaManual ?? item.fecha),
+    normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon),
+    item.observacManual ?? item.observac ?? null,
+    fmtARS(item.importeManual != null ? Number(item.importeManual) : item.importe != null ? Number(item.importe) : null),
+  ];
+  return parts.filter(Boolean).join(" · ");
 }
 
 // ─── RubroSelect ──────────────────────────────────────────────────────────────
@@ -201,6 +218,9 @@ function ComprasRow({
   onCancel,
   saving,
   onOpenLineas,
+  onOpenApertura,
+  tieneReglaApertura,
+  puedeAperturar,
 }: {
   item: CompraDetalle;
   editing: EditState | null;
@@ -210,6 +230,11 @@ function ComprasRow({
   onEdit: (state: EditState) => void;
   onSave: (state: EditState) => void;
   onCancel: () => void;
+  onOpenApertura: (item: CompraDetalle) => void;
+  tieneReglaApertura: boolean;
+  // Mismo criterio que en las tablas de pivot: sin negocio seleccionado en el
+  // filtro del dashboard no se puede resolver un origen para la regla.
+  puedeAperturar: boolean;
   saving: boolean;
   onOpenLineas: (rowId: string, detalle: string | null) => void;
 }) {
@@ -331,22 +356,16 @@ function ComprasRow({
       <td className="px-3 py-1.5">
         {!item.detalle ? (
           <span className="text-muted-foreground">—</span>
-        ) : item.distribucionId == null && !item.esDistribuido ? (
+        ) : (
+          // item.rowId es siempre el de la compra base (nunca un compuesto),
+          // así que ver líneas funciona igual para una fila distribuida —
+          // muestra el detalle original de la factura, no el de aperturar.
           <button
             onClick={() => onOpenLineas(item.rowId, item.detalle)}
             className="text-muted-foreground hover:text-foreground hover:underline font-mono text-xs whitespace-nowrap"
           >
             {item.detalle}
           </button>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="text-muted-foreground font-mono text-xs whitespace-nowrap cursor-default">
-                {item.detalle}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Compra distribuida — el detalle por líneas no está disponible acá todavía.</TooltipContent>
-          </Tooltip>
         )}
       </td>
       <td className="px-3 py-1.5 max-w-[12rem] whitespace-normal break-words text-muted-foreground">{normalize(item.observacManual ?? item.observac)}</td>
@@ -356,31 +375,44 @@ function ComprasRow({
         {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
       </td>
       <td className="px-2 py-1.5">
-        {/* La edición ya está habilitada también para compras distribuidas: el
-            PATCH apunta siempre a la compra base (item.rowId) y dispara la
-            reevaluación de apertura. El importe queda bloqueado en el
-            formulario (se reparte por regla), el resto de los campos sí se
-            editan. "Ver líneas" sigue aparte y deshabilitado para distribuidas. */}
-        <EditTriggerButton
-          onClick={() => {
-            const esDistribuida = item.esDistribuido || item.distribucionId != null;
-            const initialConcepto = item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "";
-            const initialRubro = conceptoOptions.find(o => o.codigo === initialConcepto)?.rubroCodigo ?? SIN_RUBRO_CODE;
-            onEdit({
-              rowId: String(item.rowId),
-              distribucionId: item.distribucionId,
-              esDistribuida,
-              // En una fila de fan-out `item.importe` es solo la porción del
-              // destino — no se prellena para no dar a entender que ese es el
-              // importe editable de la compra base.
-              importeManual: esDistribuida ? "" : toEditString(item.importeManual ?? item.importe),
-              fechaManual: toDateInputValue(item.fechaManual ?? item.fecha),
-              conceptoCodigoManual: initialConcepto,
-              observacManual: item.observacManual ?? "",
-              rubroFiltro: initialRubro,
-            });
-          }}
-        />
+        <div className="flex items-center gap-1">
+          {/* La edición ya está habilitada también para compras distribuidas: el
+              PATCH apunta siempre a la compra base (item.rowId) y dispara la
+              reevaluación de apertura. El importe queda bloqueado en el
+              formulario (se reparte por regla), el resto de los campos sí se
+              editan. "Ver líneas" también está habilitado para distribuidas
+              (ver columna Detalle) — muestra el detalle original, de solo
+              lectura, sin tocar la apertura. */}
+          <EditTriggerButton
+            onClick={() => {
+              const esDistribuida = item.esDistribuido || item.distribucionId != null;
+              const initialConcepto = item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "";
+              const initialRubro = conceptoOptions.find(o => o.codigo === initialConcepto)?.rubroCodigo ?? SIN_RUBRO_CODE;
+              onEdit({
+                rowId: String(item.rowId),
+                distribucionId: item.distribucionId,
+                esDistribuida,
+                // En una fila de fan-out `item.importe` es solo la porción del
+                // destino — no se prellena para no dar a entender que ese es el
+                // importe editable de la compra base.
+                importeManual: esDistribuida ? "" : toEditString(item.importeManual ?? item.importe),
+                fechaManual: toDateInputValue(item.fechaManual ?? item.fecha),
+                conceptoCodigoManual: initialConcepto,
+                observacManual: item.observacManual ?? "",
+                rubroFiltro: initialRubro,
+              });
+            }}
+          />
+          {/* Aperturar este registro puntual — mismo modal/nivel "registro" que
+              el ícono equivalente de las tablas de pivot (commits 473cd13,
+              41bdce7), agregado acá para poder prorratear un gasto individual
+              sin salir de "Detalle de compras" durante la depuración de datos. */}
+          <AperturaSplitButton
+            puedeAperturar={puedeAperturar}
+            tieneReglaActiva={tieneReglaApertura}
+            onClick={() => onOpenApertura(item)}
+          />
+        </div>
       </td>
     </tr>
   );
@@ -395,6 +427,7 @@ class GuardError extends Error {}
 
 export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter | null; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const { localId } = useDashboard();
   const { reglas: reglasApertura } = useReglasApertura();
   const [editing, setEditing] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -404,6 +437,18 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   // recálculo de apertura (compra distribuida o concepto nuevo con regla
   // activa) y se le pide OK antes de mandar el PATCH.
   const [pendienteConfirmacion, setPendienteConfirmacion] = useState<EditState | null>(null);
+  const [apertura, setApertura] = useState<{
+    nivel: NivelRegla;
+    entidadId: string;
+    entidadNombre: string;
+    origenLocalId: number | null;
+    origenPdvId: number | null;
+  } | null>(null);
+
+  const reglasActivasRegistro = useMemo(
+    () => new Set(reglasApertura.filter((r) => r.estado === "activa" && r.nivel === "registro").map((r) => r.entidadId)),
+    [reglasApertura]
+  );
 
   // Retain last non-null filter so queryKey (and cached data) stay stable during close animation
   const [stableFilter, setStableFilter] = useState(filter);
@@ -561,6 +606,15 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
             onCancel={() => setEditing(null)}
             saving={saving}
             onOpenLineas={(rowId, detalle) => setSelectedLineas({ rowId, detalle })}
+            onOpenApertura={(row) => setApertura({
+              nivel: "registro",
+              entidadId: row.rowId,
+              entidadNombre: buildEntidadNombre(row),
+              origenLocalId: row.localIdOrigen,
+              origenPdvId: row.puntoDeVentaIdOrigen,
+            })}
+            tieneReglaApertura={reglasActivasRegistro.has(item.rowId)}
+            puedeAperturar={localId != null}
           />
         )}
       />
@@ -568,6 +622,14 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         compraId={selectedLineas?.rowId ?? null}
         comprobante={selectedLineas?.detalle ?? null}
         onClose={() => setSelectedLineas(null)}
+      />
+      <AperturaGastosModal
+        nivel={apertura?.nivel ?? "registro"}
+        entidadId={apertura?.entidadId ?? null}
+        entidadNombre={apertura?.entidadNombre ?? ""}
+        origenLocalId={apertura?.origenLocalId ?? null}
+        origenPdvId={apertura?.origenPdvId ?? null}
+        onClose={() => setApertura(null)}
       />
       <ConfirmDialog
         open={pendienteConfirmacion !== null}

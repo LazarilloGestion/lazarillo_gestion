@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
 import { usePivotScreenData } from "@/hooks/use-pivot-screen-data";
 import { ExpandableButton } from "@/components/ui/expandable-button";
-import { ChevronDown, ChevronUp, Split, Users } from "lucide-react";
+import { ChevronDown, ChevronUp, Users } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
@@ -19,6 +19,7 @@ import type { NivelRegla } from "@/lib/apertura/schemas";
 import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 import { AperturaGastosModal } from "./apertura-gastos-modal";
+import { AperturaSplitButton } from "./apertura-split-button";
 
 
 export function PivotTableByConcepto() {
@@ -249,30 +250,18 @@ export function PivotTableByConcepto() {
                         >
                           {concepto.nombre}
                         </ExpandableButton>
-                        {localId != null && (
-                          <button
-                            type="button"
-                            title="Apertura de gastos"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setApertura({
-                                nivel: "concepto",
-                                entidadId: concepto.conceptoCodigo,
-                                entidadNombre: concepto.nombre,
-                                origenLocalId: localId ?? null,
-                                origenPdvId: pdvId ?? null,
-                              });
-                            }}
-                            className={cn(
-                              "shrink-0 flex h-5 w-5 items-center justify-center rounded hover:bg-muted transition-colors",
-                              reglasActivasPorNivel.concepto.has(concepto.conceptoCodigo)
-                                ? "text-primary"
-                                : "text-muted-foreground/40 hover:text-muted-foreground"
-                            )}
-                          >
-                            <Split className="w-3 h-3" />
-                          </button>
-                        )}
+                        <AperturaSplitButton
+                          variant="block"
+                          puedeAperturar={localId != null}
+                          tieneReglaActiva={reglasActivasPorNivel.concepto.has(concepto.conceptoCodigo)}
+                          onClick={() => setApertura({
+                            nivel: "concepto",
+                            entidadId: concepto.conceptoCodigo,
+                            entidadNombre: concepto.nombre,
+                            origenLocalId: localId ?? null,
+                            origenPdvId: pdvId ?? null,
+                          })}
+                        />
                       </div>
                     </td>
                     {months.map((mes) => {
@@ -348,30 +337,17 @@ export function PivotTableByConcepto() {
                     <span className="flex items-center gap-1.5">
                       {prov.hasManualOverride && <EditedDot />}
                       {labelProv}
-                      {localId != null && (
-                        <button
-                          type="button"
-                          title="Apertura de gastos"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setApertura({
-                              nivel: "registro",
-                              entidadId: prov.rowId,
-                              entidadNombre: labelProv,
-                              origenLocalId: prov.localIdOrigen,
-                              origenPdvId: prov.puntoDeVentaIdOrigen,
-                            });
-                          }}
-                          className={cn(
-                            "shrink-0 flex h-4 w-4 items-center justify-center rounded hover:bg-muted transition-opacity focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                            tieneReglaRegistro
-                              ? "text-primary opacity-100"
-                              : "text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                          )}
-                        >
-                          <Split className="w-2.5 h-2.5" />
-                        </button>
-                      )}
+                      <AperturaSplitButton
+                        puedeAperturar={localId != null}
+                        tieneReglaActiva={tieneReglaRegistro}
+                        onClick={() => setApertura({
+                          nivel: "registro",
+                          entidadId: prov.rowId,
+                          entidadNombre: labelProv,
+                          origenLocalId: prov.localIdOrigen,
+                          origenPdvId: prov.puntoDeVentaIdOrigen,
+                        })}
+                      />
                     </span>
                   </td>
                   {months.map((mes) => (

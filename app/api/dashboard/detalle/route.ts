@@ -26,6 +26,8 @@ interface DetalleSqlRow {
   proveedorRazon: string | null;
   localNombre: string | null;
   pdvNombre: string | null;
+  localIdOrigen: number | null;
+  puntoDeVentaIdOrigen: number | null;
   conceptoCajaCodigo: string | null;
   conceptoCajaNombre: string | null;
   conceptoCajaRubroNombre: string | null;
@@ -60,6 +62,8 @@ function reshapeDetalle(r: DetalleSqlRow) {
     proveedorRef: r.proveedorId != null ? { id: r.proveedorId, nombre: r.proveedorNombre, razon: r.proveedorRazon } : null,
     local: r.localNombre != null ? { nombre: r.localNombre } : null,
     puntoDeVenta: r.pdvNombre != null ? { nombre: r.pdvNombre } : null,
+    localIdOrigen: r.localIdOrigen,
+    puntoDeVentaIdOrigen: r.puntoDeVentaIdOrigen,
     conceptoCaja:
       r.conceptoCajaCodigo != null
         ? { codigo: r.conceptoCajaCodigo, nombre: r.conceptoCajaNombre, rubro: r.conceptoCajaRubroNombre != null ? { nombre: r.conceptoCajaRubroNombre } : null }
@@ -102,6 +106,8 @@ const DETALLE_SELECT_JOIN = Prisma.sql`
     p.razon             AS "proveedorRazon",
     l.nombre            AS "localNombre",
     pdv.nombre          AS "pdvNombre",
+    c."localIdOrigen",
+    c."puntoDeVentaIdOrigen",
     cc.codigo           AS "conceptoCajaCodigo",
     cc.nombre           AS "conceptoCajaNombre",
     rc.nombre           AS "conceptoCajaRubroNombre",
