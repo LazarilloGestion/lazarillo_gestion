@@ -1,6 +1,6 @@
 import type {
   DecimalLike, PivotData, PivotRubroRow, PivotConceptoRow, PivotProveedorRow,
-  PivotDataPorProveedor, PivotProveedorTopRow, PivotConceptoSubRow, PivotLineaRow,
+  PivotDataPorProveedor, PivotRubroRowPorProveedor, PivotProveedorSubRow, PivotConceptoSubRow, PivotLineaRow,
 } from "./types";
 
 export function toNumber(v: DecimalLike): number {
@@ -22,7 +22,7 @@ export type SortCol = number | "total";
 export type SortDir = "asc" | "desc";
 
 function getValue(
-  row: PivotRubroRow | PivotConceptoRow | PivotProveedorRow | PivotProveedorTopRow | PivotConceptoSubRow | PivotLineaRow,
+  row: PivotRubroRow | PivotConceptoRow | PivotProveedorRow | PivotRubroRowPorProveedor | PivotProveedorSubRow | PivotConceptoSubRow | PivotLineaRow,
   col: SortCol
 ): number {
   return col === "total" ? row.rowTotal : (row.values[col as number] ?? 0);
@@ -75,47 +75,57 @@ export function flattenRows(
   return result;
 }
 
-/** Ordena el árbol "por proveedor" — misma lógica que sortPivotRows, sobre los tipos nuevos. */
+/** Ordena el árbol "por proveedor" — misma lógica que sortPivotRows, sobre los tipos nuevos, con un nivel más (rubro). */
 export function sortPivotRowsPorProveedor(
-  rows: PivotProveedorTopRow[],
+  rows: PivotRubroRowPorProveedor[],
   col: SortCol,
   dir: SortDir
-): PivotProveedorTopRow[] {
+): PivotRubroRowPorProveedor[] {
   const factor = dir === "desc" ? -1 : 1;
   return [...rows]
     .sort((a, b) => factor * (getValue(a, col) - getValue(b, col)))
-    .map((proveedor) => ({
-      ...proveedor,
-      children: [...proveedor.children]
+    .map((rubro) => ({
+      ...rubro,
+      children: [...rubro.children]
         .sort((a, b) => factor * (getValue(a, col) - getValue(b, col)))
-        .map((concepto) => ({
-          ...concepto,
-          children: [...concepto.children].sort(
-            (a, b) => factor * (getValue(a, col) - getValue(b, col))
-          ),
+        .map((proveedor) => ({
+          ...proveedor,
+          children: [...proveedor.children]
+            .sort((a, b) => factor * (getValue(a, col) - getValue(b, col)))
+            .map((concepto) => ({
+              ...concepto,
+              children: [...concepto.children].sort(
+                (a, b) => factor * (getValue(a, col) - getValue(b, col))
+              ),
+            })),
         })),
     }));
 }
 
 export type FlatRowPorProveedor =
-  | { type: "proveedorTop"; data: PivotProveedorTopRow }
+  | { type: "rubroTop"; data: PivotRubroRowPorProveedor }
+  | { type: "proveedorSub"; data: PivotProveedorSubRow }
   | { type: "conceptoSub"; data: PivotConceptoSubRow }
   | { type: "linea"; data: PivotLineaRow };
 
-/** Aplana el árbol "por proveedor" respetando expansión — siempre 3 niveles (no hay variante maxDepth como en Ventas). */
+/** Aplana el árbol "por proveedor" respetando expansión — siempre 4 niveles (no hay variante maxDepth como en Ventas). */
 export function flattenRowsPorProveedor(
   pivotData: PivotDataPorProveedor,
   expanded: Set<string>
 ): FlatRowPorProveedor[] {
   const result: FlatRowPorProveedor[] = [];
-  for (const proveedor of pivotData.rows) {
-    result.push({ type: "proveedorTop", data: proveedor });
-    if (!expanded.has(proveedor.id)) continue;
-    for (const concepto of proveedor.children) {
-      result.push({ type: "conceptoSub", data: concepto });
-      if (!expanded.has(concepto.id)) continue;
-      for (const linea of concepto.children) {
-        result.push({ type: "linea", data: linea });
+  for (const rubro of pivotData.rows) {
+    result.push({ type: "rubroTop", data: rubro });
+    if (!expanded.has(rubro.id)) continue;
+    for (const proveedor of rubro.children) {
+      result.push({ type: "proveedorSub", data: proveedor });
+      if (!expanded.has(proveedor.id)) continue;
+      for (const concepto of proveedor.children) {
+        result.push({ type: "conceptoSub", data: concepto });
+        if (!expanded.has(concepto.id)) continue;
+        for (const linea of concepto.children) {
+          result.push({ type: "linea", data: linea });
+        }
       }
     }
   }
