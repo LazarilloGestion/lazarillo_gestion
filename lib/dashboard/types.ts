@@ -91,6 +91,7 @@ export type PivotConceptoSubRow = {
   readonly conceptoCodigo: string;
   readonly rubroCodigo: string;
   readonly proveedorId: number | null;
+  readonly proveedorTexto: string | null;
   values: Record<number, number>;
   rowTotal: number;
   children: PivotLineaRow[];
@@ -102,6 +103,7 @@ export type PivotProveedorSubRow = {
   readonly id: string;
   readonly nombre: string;
   readonly proveedorId: number | null;
+  readonly proveedorTexto: string | null;
   values: Record<number, number>;
   rowTotal: number;
   children: PivotConceptoSubRow[];

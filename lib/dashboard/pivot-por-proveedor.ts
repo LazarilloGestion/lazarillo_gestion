@@ -1,4 +1,4 @@
-import { SIN_PROVEEDOR_KEY, SIN_PROVEEDOR_NOMBRE } from "./constants";
+import { normalizarTexto } from "../text-normalize";
 import type {
   SqlRow,
   ComposicionMes,
@@ -47,7 +47,15 @@ export function buildPivotDataByProveedor(
     // para que el mismo proveedor genere un nodo distinto por cada rubro en
     // el que tiene compras (mismo criterio de duplicación que ya usa
     // buildPivotData con sus proveedores-hoja).
-    const provKeyOriginal = proveedor_id != null ? String(proveedor_id) : SIN_PROVEEDOR_KEY;
+    //
+    // Sin proveedor_id, proveedor_nombre ya trae el texto crudo del ERP (o el
+    // literal "Sin Proveedor" si tampoco hay texto — ver COALESCE en
+    // app/api/dashboard/pivot/route.ts) — se usa normalizado como clave para
+    // no fragmentar el mismo proveedor por un typo de mayúsculas/tildes en
+    // una carga futura (spec 2026-09-19-agrupar-sin-proveedor-por-texto-crudo-design.md §3.2).
+    const provKeyOriginal = proveedor_id != null
+      ? String(proveedor_id)
+      : `texto:${normalizarTexto(proveedor_nombre)}`;
     const provKey = `${rubro_codigo}|${provKeyOriginal}`;
     const concKey = `${provKey}|${concepto_codigo}`;
 
@@ -68,8 +76,9 @@ export function buildPivotDataByProveedor(
       const proveedor: PivotProveedorSubRow = {
         level: 1,
         id: provKey,
-        nombre: proveedor_id != null ? proveedor_nombre : SIN_PROVEEDOR_NOMBRE,
+        nombre: proveedor_nombre,
         proveedorId: proveedor_id,
+        proveedorTexto: proveedor_id != null ? null : proveedor_nombre,
         values: {},
         rowTotal: 0,
         children: [],
@@ -87,6 +96,7 @@ export function buildPivotDataByProveedor(
         conceptoCodigo: concepto_codigo,
         rubroCodigo: rubro_codigo,
         proveedorId: proveedor_id,
+        proveedorTexto: proveedor_id != null ? null : proveedor_nombre,
         values: {},
         rowTotal: 0,
         children: [],

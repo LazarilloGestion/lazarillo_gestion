@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { buildPivotDataByProveedor } from "./pivot-por-proveedor";
-import { SIN_PROVEEDOR_NOMBRE } from "./constants";
 import type { SqlRow } from "./types";
 
 function row(overrides: Partial<SqlRow>): SqlRow {
@@ -71,17 +70,62 @@ describe("buildPivotDataByProveedor", () => {
     expect(data.grandTotal).toBe(150);
   });
 
-  it("proveedor null usa la clave __sin_proveedor y muestra el label sentinela sin importar el texto crudo del ERP", () => {
-    // La SQL real cae a c.proveedor (texto crudo, no vinculado) en esta columna
-    // cuando proveedor_id es null, antes de llegar al literal 'Sin Proveedor' —
-    // este fixture reproduce ese caso realista en vez de uno que ya trae el label limpio.
+  it("proveedor_id null: usa el texto crudo del ERP como nombre del grupo, no un label sentinela", () => {
     const rows: SqlRow[] = [
-      row({ proveedor_id: null, proveedor_nombre: "CARNICERIA LOPEZ SRL", row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "Diego", row_id: "x1", total: 10 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
     const proveedor = data.rows[0].children[0];
     expect(proveedor.proveedorId).toBeNull();
-    expect(proveedor.nombre).toBe(SIN_PROVEEDOR_NOMBRE);
+    expect(proveedor.nombre).toBe("Diego");
+    expect(proveedor.proveedorTexto).toBe("Diego");
+  });
+
+  it("dos textos crudos distintos sin proveedor real: dos nodos separados, no se mezclan", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "Diego", row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "GASTOS VARIOS", row_id: "x2", total: 20 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    const rubro = data.rows[0];
+    expect(rubro.children).toHaveLength(2);
+    const diego = rubro.children.find((p) => p.nombre === "Diego")!;
+    const gastosVarios = rubro.children.find((p) => p.nombre === "GASTOS VARIOS")!;
+    expect(diego.rowTotal).toBe(10);
+    expect(gastosVarios.rowTotal).toBe(20);
+  });
+
+  it("mismo texto crudo con mayúsculas/tildes distintas: mismo nodo (agrupa normalizado)", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "Agustín", row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "AGUSTIN", row_id: "x2", total: 15 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    const rubro = data.rows[0];
+    expect(rubro.children).toHaveLength(1);
+    expect(rubro.children[0].rowTotal).toBe(25);
+    // El label mostrado es el texto de la PRIMERA fila vista de ese grupo, no una forma normalizada.
+    expect(rubro.children[0].nombre).toBe("Agustín");
+  });
+
+  it("sin proveedor ni texto crudo (el literal 'Sin Proveedor' de la SQL): cae en su propio grupo, separado de cualquier texto real", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", row_id: "x1", total: 5 }),
+      row({ proveedor_id: null, proveedor_nombre: "Diego", row_id: "x2", total: 10 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    const rubro = data.rows[0];
+    expect(rubro.children).toHaveLength(2);
+    const sinDatos = rubro.children.find((p) => p.nombre === "Sin Proveedor")!;
+    const diego = rubro.children.find((p) => p.nombre === "Diego")!;
+    expect(sinDatos.rowTotal).toBe(5);
+    expect(diego.rowTotal).toBe(10);
+  });
+
+  it("proveedor real (proveedor_id no null): proveedorTexto queda null", () => {
+    const rows: SqlRow[] = [row({ proveedor_id: 1, proveedor_nombre: "Proveedor A", row_id: "a1" })];
+    const data = buildPivotDataByProveedor(rows, {});
+    expect(data.rows[0].children[0].proveedorTexto).toBeNull();
   });
 
   it("adjunta la composición correspondiente a cada concepto+proveedor, sin importar el rubro", () => {
