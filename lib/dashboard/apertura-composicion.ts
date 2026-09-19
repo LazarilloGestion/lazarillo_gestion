@@ -1,5 +1,5 @@
 import type { ComposicionMes } from "./types";
-import { SIN_PROVEEDOR_KEY } from "./constants";
+import { normalizarTexto } from "../text-normalize";
 
 type DecimalLike = number | string | { toString(): string };
 const toNum = (x: DecimalLike): number =>
@@ -8,6 +8,7 @@ const toNum = (x: DecimalLike): number =>
 export type ComposicionSqlRow = {
   concepto_codigo: string;
   proveedor_id: number | null;
+  proveedor_nombre: string;
   mes: number;
   destino_nombre: string;
   pct: DecimalLike;
@@ -17,6 +18,7 @@ export type ComposicionSqlRow = {
 export type ComposicionOriginalRow = {
   concepto_codigo: string;
   proveedor_id: number | null;
+  proveedor_nombre: string;
   mes: number;
   importe_original: DecimalLike;
 };
@@ -62,33 +64,39 @@ export function buildComposicion(
 // tooltip de la vista "por Proveedor" necesita el reparto de ESE proveedor en
 // ESE concepto, no el total cruzando todos los proveedores del concepto (que
 // es lo que devuelve buildComposicion) — ver spec §3.3.
+//
+// Sin proveedor_id, la clave usa el texto crudo normalizado (mismo formato
+// `texto:<normalizado>` que arma provKeyOriginal en pivot-por-proveedor.ts,
+// para que el lookup por esa clave encuentre esta entrada) en vez de un
+// sentinela fijo — así "Diego" y "GASTOS VARIOS" no comparten composición
+// aunque ninguno tenga proveedor real (spec 2026-09-19-agrupar-sin-proveedor-por-texto-crudo-design.md §3.3).
 export function buildComposicionPorProveedor(
   destinoRows: ComposicionSqlRow[],
   originalRows: ComposicionOriginalRow[]
 ): Record<string, Record<number, ComposicionMes>> {
   const out: Record<string, Record<number, ComposicionMes>> = {};
 
-  const key = (concepto: string, proveedorId: number | null) =>
-    `${concepto}|${proveedorId ?? SIN_PROVEEDOR_KEY}`;
+  const key = (concepto: string, proveedorId: number | null, proveedorNombre: string) =>
+    `${concepto}|${proveedorId != null ? String(proveedorId) : `texto:${normalizarTexto(proveedorNombre)}`}`;
 
-  const ensure = (concepto: string, proveedorId: number | null, mes: number): ComposicionMes => {
-    const k = key(concepto, proveedorId);
+  const ensure = (concepto: string, proveedorId: number | null, proveedorNombre: string, mes: number): ComposicionMes => {
+    const k = key(concepto, proveedorId, proveedorNombre);
     out[k] ??= {};
     out[k][mes] ??= { total: 0, destinos: [] };
     return out[k][mes];
   };
 
   for (const row of originalRows) {
-    ensure(row.concepto_codigo, row.proveedor_id, row.mes).total += toNum(row.importe_original);
+    ensure(row.concepto_codigo, row.proveedor_id, row.proveedor_nombre, row.mes).total += toNum(row.importe_original);
   }
   // A diferencia de buildComposicion, acá no hace falta fusionar: la clave del
-  // bucket ya incluye proveedor_id, que junto con (destino_nombre, porcentaje)
-  // coincide exactamente con el GROUP BY de la SQL (concepto_codigo,
-  // proveedor_id, mes, destino_nombre, da.porcentaje) — dos filas del mismo
-  // bucket nunca pueden compartir (nombre, pct). Si ese GROUP BY cambia,
-  // revisar este supuesto.
+  // bucket ya incluye proveedor_id (o el texto crudo normalizado), que junto
+  // con (destino_nombre, porcentaje) coincide exactamente con el GROUP BY de
+  // la SQL (concepto_codigo, proveedor_id, proveedor_nombre, mes,
+  // destino_nombre, da.porcentaje) — dos filas del mismo bucket nunca pueden
+  // compartir (nombre, pct). Si ese GROUP BY cambia, revisar este supuesto.
   for (const row of destinoRows) {
-    ensure(row.concepto_codigo, row.proveedor_id, row.mes).destinos.push({
+    ensure(row.concepto_codigo, row.proveedor_id, row.proveedor_nombre, row.mes).destinos.push({
       nombre: row.destino_nombre,
       pct: toNum(row.pct),
       importe: toNum(row.importe_calculado),
