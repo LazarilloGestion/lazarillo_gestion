@@ -119,4 +119,14 @@ describe("normalizeDetalleCompras", () => {
     const res = await normalizeDetalleCompras(rows, db);
     expect(res.created + res.updated + res.skippedRows.length + res.errors.length).toBe(rows.length);
   });
+
+  it("proveedorId siempre queda null (no hay texto de proveedor en esta tabla para validar el código, ver spec cruce-proveedorid)", async () => {
+    const proveedorModel = { findMany: vi.fn().mockResolvedValue([{ id: 5, codigo: "PROV1" }]) };
+    const db = createMockDb({ proveedor: proveedorModel });
+    const res = await normalizeDetalleCompras([baseRow({ COD_PRO: "PROV1" })], db);
+    expect(res.created).toBe(1);
+    expect(proveedorModel.findMany).not.toHaveBeenCalled();
+    const call = (db.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0][0] as { values: unknown[] };
+    expect(call.values[21]).toBeNull(); // columna proveedorId
+  });
 });

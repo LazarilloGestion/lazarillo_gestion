@@ -69,15 +69,51 @@ describe("normalizeCompras", () => {
     expect(res.skippedRows.filter((s) => s.motivo === "duplicado")).toHaveLength(0);
   });
 
-  it("resuelve proveedorId consultando proveedores por CODIGO", async () => {
-    const proveedorModel = { findMany: vi.fn().mockResolvedValue([{ id: 5, codigo: "PROV1" }]) };
+  // Índice 16 = columna "proveedorId" en el INSERT de compras.ts (20 columnas por fila,
+  // mismo criterio de introspección de $executeRaw que ventas.test.ts:91-92).
+
+  it("resuelve proveedorId cuando el texto crudo coincide con el nombre del proveedor", async () => {
+    const proveedorModel = {
+      findMany: vi.fn().mockResolvedValue([{ id: 5, codigo: "PROV1", nombre: "Juan Perez", razon: null }]),
+    };
     const db = createMockDb({ proveedor: proveedorModel });
-    const res = await normalizeCompras([baseRow({ CODIGO: "PROV1" })], db);
+    const res = await normalizeCompras([baseRow({ CODIGO: "PROV1", PROVEEDOR: "Juan Perez" })], db);
     expect(proveedorModel.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { codigo: { in: ["PROV1"] } } })
+      expect.objectContaining({
+        where: { codigo: { in: ["PROV1"] } },
+        select: { id: true, codigo: true, nombre: true, razon: true },
+      })
     );
     expect(res.created).toBe(1);
     expect(res.errors).toHaveLength(0);
+    const call = (db.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0][0] as { values: unknown[] };
+    expect(call.values[16]).toBe(5); // columna proveedorId
+  });
+
+  it("CODIGO coincide con un proveedor real pero el texto crudo no matchea (cruce, ver bug Diego/Creacion Tm Sr): proveedorId queda null", async () => {
+    const proveedorModel = {
+      findMany: vi.fn().mockResolvedValue([{ id: 46893, codigo: "309", nombre: "Creacion Tm Sr", razon: null }]),
+    };
+    const db = createMockDb({ proveedor: proveedorModel });
+    const res = await normalizeCompras(
+      [baseRow({ CODIGO: "309", PROVEEDOR: "Diego", COD_CGA: "307", CONCEPTO: "B. Liquidacion De Sueldo" })],
+      db
+    );
+    expect(res.created).toBe(1);
+    expect(res.errors).toHaveLength(0);
+    const call = (db.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0][0] as { values: unknown[] };
+    expect(call.values[16]).toBeNull();
+  });
+
+  it("PROVEEDOR null en la fila: sin texto para contradecir, se mantiene el proveedorId resuelto por código", async () => {
+    const proveedorModel = {
+      findMany: vi.fn().mockResolvedValue([{ id: 7, codigo: "PROV1", nombre: "Cualquiera", razon: null }]),
+    };
+    const db = createMockDb({ proveedor: proveedorModel });
+    const res = await normalizeCompras([baseRow({ CODIGO: "PROV1", PROVEEDOR: null })], db);
+    expect(res.created).toBe(1);
+    const call = (db.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0][0] as { values: unknown[] };
+    expect(call.values[16]).toBe(7);
   });
 
   it("conceptoCodigo queda null (no revienta) cuando el código no existe en conceptos_caja", async () => {

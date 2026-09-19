@@ -644,11 +644,17 @@ git commit -m "feat(scripts): backfill para corregir proveedorId cruzado en comp
 
 Run: `npx tsx scripts/fix-proveedorid-cruzado.ts`
 
-Revisar la salida con el usuario: cantidad total de filas a corregir (esperado, según el diagnóstico del 19-sep: ~2.164 filas) y el archivo JSON exportado en `tmp/fix-proveedorid-cruzado/fix-proveedorid-dry-run.json` para que el usuario pueda auditar una muestra.
+Revisar la salida con el usuario: la línea exacta `Filas a poner en null (cruzadas): <N>` (el diagnóstico del 19-sep estimó ~2.164 filas, pero ese número se midió con la normalización de texto previa al fix de acentos de la revisión final — el fix de acentos es más permisivo, así que el dry-run real puede dar un número **igual o algo menor**; eso es esperado, no drift) y el archivo JSON exportado en `tmp/fix-proveedorid-cruzado/fix-proveedorid-dry-run.json` para que el usuario pueda auditar una muestra.
+
+Mirar también la línea `Candidatas con distribución activa (esDistribuido=true)`. Esperado: `0`.
 
 - [ ] **Step 2: Confirmación explícita del usuario**
 
 Presentar el conteo del dry-run y pedir confirmación explícita antes de aplicar (CLAUDE.md §7 — dato financiero real). No continuar sin un "sí" explícito a este paso puntual.
+
+**Condición de parada:** si `Candidatas con distribución activa` es distinto de `0`, no seguir. Esas compras ya tienen plata repartida en `distribuciones_apertura` por una regla de Apertura de Gastos de nivel proveedor; nulificarles el `proveedorId` dejaría esas distribuciones huérfanas. El `--apply` aborta solo en ese caso (guard duro, sin bypass), así que esto es solo para saber qué esperar: hay que mirar las filas concretas y decidir manualmente con el usuario antes de reintentar.
+
+**Anotar el número confirmado** de la línea `Filas a poner en null (cruzadas):` — de acá en adelante `N` — para usarlo en el Step 4. No usar el total de "Compras con proveedorId asignado" (esa es la población de entrada, no lo que se va a corregir).
 
 - [ ] **Step 3: Backup**
 
@@ -659,8 +665,13 @@ Expected: lista de objetos del dump sin error.
 
 - [ ] **Step 4: Aplicar**
 
-Run: `npx tsx scripts/fix-proveedorid-cruzado.ts --apply`
-Expected: "Corrección completada y verificada." con `cantidadActualizada` igual al conteo confirmado en el Step 2.
+Run: `npx tsx scripts/fix-proveedorid-cruzado.ts --apply --esperadas=<N>`
+
+`<N>` es el número de filas confirmado por el usuario en el Step 2 (ej. `--esperadas=2164`). El flag no es opcional en este runbook: sin él, un import que corra entre el dry-run aprobado y este comando haría que `--apply` corrija una cantidad distinta a la que el humano revisó, sin que nada lo detecte. Con el flag, el script aborta sin escribir nada si el recálculo en vivo no da exactamente `N`.
+
+Expected: "Corrección completada y verificada." con `cantidadActualizada` igual a `N`. Antes de la transacción imprime también la pre-imagen exportada a `tmp/fix-proveedorid-cruzado/fix-proveedorid-pre-apply.json` (red de seguridad para deshacer de forma quirúrgica si el proceso cae después del commit).
+
+**Nota:** que exista `fix-proveedorid-pre-apply.json` no dice si el commit llegó a pasar o no (se escribe antes de abrir la transacción) — para confirmar que se aplicó, mirar el mensaje final ("Corrección completada y verificada.") y que exista `fix-proveedorid-aplicado.json`. Si el proceso corta a mitad de camino sin ese mensaje ni ese archivo, verificar con una query de solo lectura si el `UPDATE` llegó a commitear antes de decidir si hay que reintentar.
 
 - [ ] **Step 5: Verificación post-aplicación con el usuario**
 
