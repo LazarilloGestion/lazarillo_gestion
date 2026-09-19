@@ -47,3 +47,6 @@ rowid-migration-plan.json
 rowid-collisions.json
 backups/
 /tmp/
+
+# git worktrees aislados (subagent-driven-development)
+/.worktrees/
