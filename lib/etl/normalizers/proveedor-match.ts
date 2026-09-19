@@ -1,3 +1,5 @@
+import { normalizarTexto } from "../../text-normalize";
+
 // Compara el texto crudo de proveedor de una fila del ERP contra el nombre/razón
 // de un proveedor candidato del maestro, normalizando ambos (minúsculas, sin
 // signos de puntuación) antes de comparar. Evita confiar ciegamente en un CODIGO
@@ -14,27 +16,15 @@ export interface ProveedorCandidato {
   razon: string | null;
 }
 
-// NFD + strip de marcas combinantes ANTES de descartar lo no-alfanumérico: sin
-// eso, "Agustín" perdería la "í" entera (no es [a-z0-9]) y dejaría de coincidir
-// con "Agustin" del maestro, desvinculando un proveedor correcto solo porque un
-// lado del dato está acentuado y el otro no.
-function normalizarParaComparar(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-}
-
 export function proveedorTextoCoincide(
   textoCrudo: string | null,
   candidato: { nombre: string | null; razon: string | null }
 ): boolean {
   if (textoCrudo == null) return true;
-  const t = normalizarParaComparar(textoCrudo);
+  const t = normalizarTexto(textoCrudo);
   return (
-    (candidato.nombre != null && normalizarParaComparar(candidato.nombre) === t) ||
-    (candidato.razon != null && normalizarParaComparar(candidato.razon) === t)
+    (candidato.nombre != null && normalizarTexto(candidato.nombre) === t) ||
+    (candidato.razon != null && normalizarTexto(candidato.razon) === t)
   );
 }
 
