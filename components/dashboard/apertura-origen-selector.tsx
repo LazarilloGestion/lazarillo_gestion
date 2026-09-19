@@ -7,11 +7,6 @@ export interface OrigenFormState {
   puntoDeVentaId: number | null;
 }
 
-// Mismo patrón que apertura-destino-row: Radix Select no admite "" como value
-// de un SelectItem, así que "todo el local" (puntoDeVentaId = null) viaja con
-// un sentinel y se traduce de vuelta a null en el onChange.
-const TODO_EL_LOCAL = "__todo_el_local";
-
 export function AperturaOrigenSelector({
   value,
   locales,
@@ -47,19 +42,14 @@ export function AperturaOrigenSelector({
         </Select>
 
         <Select
-          value={value.puntoDeVentaId != null ? String(value.puntoDeVentaId) : TODO_EL_LOCAL}
+          value={value.puntoDeVentaId != null ? String(value.puntoDeVentaId) : ""}
           disabled={value.localId == null}
-          onValueChange={(v) =>
-            onChange({ ...value, puntoDeVentaId: v === TODO_EL_LOCAL ? null : Number(v) })
-          }
+          onValueChange={(v) => onChange({ ...value, puntoDeVentaId: Number(v) })}
         >
           <SelectTrigger className="h-8 flex-1 text-xs" size="sm">
             <SelectValue placeholder="Punto de venta" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={TODO_EL_LOCAL} className="text-xs">
-              Todo el local
-            </SelectItem>
             {puntosDeVenta.map((pv) => (
               <SelectItem key={pv.id} value={String(pv.id)} className="text-xs">
                 {pv.nombre}

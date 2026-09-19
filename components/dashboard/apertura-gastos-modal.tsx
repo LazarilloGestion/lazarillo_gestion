@@ -136,10 +136,10 @@ export function AperturaGastosModal({
     return `Origen: ${describirOrigen(locales, regla.origenLocalId, regla.origenPuntoDeVentaId)}`;
   }
 
-  // El origen queda "completo" con solo el local elegido — el punto de venta es
-  // opcional ("todo el local"). El backend (validarOrigen) exige al menos uno de
-  // los dos, así que sin local no hay preview ni guardado posible.
-  const origenCompleto = origen.localId != null;
+  // El origen exige local Y punto de venta — "todo el local" se sacó de uso
+  // (sesión 19-sep-2026, ambigüedad de negocio). El backend (validarOrigen)
+  // rechaza un origen sin PDV, así que sin PDV no hay preview ni guardado posible.
+  const origenCompleto = origen.localId != null && origen.puntoDeVentaId != null;
 
   const vigenciaCompletaParaPreview =
     entidadId != null &&

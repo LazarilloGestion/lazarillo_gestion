@@ -252,7 +252,7 @@ export function PivotTableByConcepto() {
                         </ExpandableButton>
                         <AperturaSplitButton
                           variant="block"
-                          puedeAperturar={localId != null}
+                          puedeAperturar={localId != null && pdvId != null}
                           tieneReglaActiva={reglasActivasPorNivel.concepto.has(concepto.conceptoCodigo)}
                           onClick={() => setApertura({
                             nivel: "concepto",
@@ -344,7 +344,7 @@ export function PivotTableByConcepto() {
                       {prov.distribucionId != null && <AperturaDot />}
                       {labelProv}
                       <AperturaSplitButton
-                        puedeAperturar={localId != null}
+                        puedeAperturar={localId != null && pdvId != null}
                         tieneReglaActiva={tieneReglaRegistro}
                         onClick={() => setApertura({
                           nivel: "registro",

@@ -4,8 +4,9 @@ import { cn } from "@/lib/utils";
 
 // Ícono "Aperturar" repetido en los 3 niveles de las tablas de pivot
 // (concepto/proveedor y registro) y en el modal de Detalle de compras.
-// `puedeAperturar` centraliza el guard de negocio seleccionado — sin eso no
-// hay origen para armar la regla — para no repetirlo en cada call site.
+// `puedeAperturar` centraliza el guard de local+PDV seleccionados — sin eso
+// no hay un origen puntual para armar la regla — para no repetirlo en cada
+// call site.
 export function AperturaSplitButton({
   puedeAperturar,
   tieneReglaActiva,

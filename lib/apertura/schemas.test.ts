@@ -6,7 +6,7 @@ const destinosOk = [
   { localId: 2, porcentaje: 40 },
 ];
 
-const baseWithOrigen = { origenLocalId: 1 };
+const baseWithOrigen = { origenLocalId: 1, origenPuntoDeVentaId: 10 };
 
 describe("crearReglaSchema", () => {
   it("acepta un cuerpo válido en modo entre_fechas", () => {
@@ -210,7 +210,7 @@ describe("previewTotalQuerySchema", () => {
 
   it("nivel default es 'concepto' si se omite", () => {
     const r = previewTotalQuerySchema.safeParse({
-      entidadId: "48", origenLocalId: 1, modo: "historico",
+      entidadId: "48", origenLocalId: 1, origenPuntoDeVentaId: 10, modo: "historico",
     });
     expect(r.success).toBe(true);
     if (r.success) expect(r.data.nivel).toBe("concepto");
@@ -222,10 +222,13 @@ describe("origen de la regla", () => {
     entidadId: "17", modo: "historico" as const, confirmarHistorico: true,
     destinos: [{ localId: 1, porcentaje: 60 }, { localId: 2, porcentaje: 40 }],
   };
-  it("acepta origen con solo origenLocalId", () => {
-    expect(crearReglaSchema.safeParse({ ...base, origenLocalId: 1 }).success).toBe(true);
+  it("rechaza origen con solo origenLocalId (regla debe apuntar a un PDV puntual)", () => {
+    expect(crearReglaSchema.safeParse({ ...base, origenLocalId: 1 }).success).toBe(false);
   });
-  it("acepta origen con origenPuntoDeVentaId", () => {
+  it("acepta origen con origenLocalId y origenPuntoDeVentaId", () => {
+    expect(crearReglaSchema.safeParse({ ...base, origenLocalId: 1, origenPuntoDeVentaId: 10 }).success).toBe(true);
+  });
+  it("acepta origen con solo origenPuntoDeVentaId (el local se resuelve server-side)", () => {
     expect(crearReglaSchema.safeParse({ ...base, origenPuntoDeVentaId: 10 }).success).toBe(true);
   });
   it("rechaza cuerpo sin ningún campo de origen", () => {
@@ -234,13 +237,16 @@ describe("origen de la regla", () => {
   it("rechaza origen con ambos campos en null", () => {
     expect(crearReglaSchema.safeParse({ ...base, origenLocalId: null, origenPuntoDeVentaId: null }).success).toBe(false);
   });
-  it("previewTotalQuerySchema coerce origenLocalId de string", () => {
-    const r = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "historico", origenLocalId: "3" });
+  it("previewTotalQuerySchema coerce origenPuntoDeVentaId de string", () => {
+    const r = previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "historico", origenLocalId: "3", origenPuntoDeVentaId: "10" });
     expect(r.success).toBe(true);
-    if (r.success) expect(r.data.origenLocalId).toBe(3);
+    if (r.success) expect(r.data.origenPuntoDeVentaId).toBe(10);
   });
   it("previewTotalQuerySchema rechaza sin origen", () => {
     expect(previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "historico" }).success).toBe(false);
+  });
+  it("previewTotalQuerySchema rechaza origen con solo local", () => {
+    expect(previewTotalQuerySchema.safeParse({ entidadId: "17", modo: "historico", origenLocalId: 1 }).success).toBe(false);
   });
 });
 
@@ -248,6 +254,7 @@ describe("crearReglaSchema — nivel", () => {
   const base = {
     entidadId: "48",
     origenLocalId: 1,
+    origenPuntoDeVentaId: 10,
     destinos: [{ localId: 1, porcentaje: 100 }],
   };
 
@@ -280,7 +287,7 @@ describe("crearReglaSchema — nivel", () => {
 
   it("rechaza un nivel que no sea concepto/proveedor/registro", () => {
     const r = crearReglaSchema.safeParse({
-      nivel: "no-existe", entidadId: "48", origenLocalId: 1,
+      nivel: "no-existe", entidadId: "48", origenLocalId: 1, origenPuntoDeVentaId: 10,
       modo: "historico", confirmarHistorico: true,
       destinos: [{ localId: 1, porcentaje: 100 }],
     });

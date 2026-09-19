@@ -22,7 +22,11 @@ export const camposVigenciaFecha = {
   extremosInclusivos: z.boolean().default(true),
 };
 
-// Origen (local/PDV) — al menos uno seteado, misma semántica que destinoSchema.
+// Origen (local/PDV). origenPuntoDeVentaId es obligatorio — una regla de
+// origen "todo el local" no distingue de qué PDV vino cada compra, lo que
+// generaba ambigüedad de negocio (ver sesión 19-sep-2026, reglas 64/108
+// migradas/eliminadas por este motivo). origenLocalId queda opcional porque
+// el servidor lo resuelve a partir del PDV (ver resolverLocalIdOrigen).
 export const camposOrigen = {
   origenLocalId: z.number().int().positive().nullable().optional(),
   origenPuntoDeVentaId: z.number().int().positive().nullable().optional(),
@@ -32,11 +36,11 @@ function validarOrigen(
   data: { origenLocalId?: number | null; origenPuntoDeVentaId?: number | null },
   ctx: z.RefinementCtx
 ) {
-  if (data.origenLocalId == null && data.origenPuntoDeVentaId == null) {
+  if (data.origenPuntoDeVentaId == null) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "La regla requiere un origen: origenLocalId o origenPuntoDeVentaId",
-      path: ["origenLocalId"],
+      message: "La regla requiere un origen con punto de venta (origenPuntoDeVentaId)",
+      path: ["origenPuntoDeVentaId"],
     });
   }
 }

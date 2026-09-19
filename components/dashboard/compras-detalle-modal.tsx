@@ -232,8 +232,9 @@ function ComprasRow({
   onCancel: () => void;
   onOpenApertura: (item: CompraDetalle) => void;
   tieneReglaApertura: boolean;
-  // Mismo criterio que en las tablas de pivot: sin negocio seleccionado en el
-  // filtro del dashboard no se puede resolver un origen para la regla.
+  // Mismo criterio que en las tablas de pivot: sin local y PDV seleccionados
+  // en el filtro del dashboard no se puede resolver un origen para la regla
+  // (origen a nivel local completo se sacó de uso, sesión 19-sep-2026).
   puedeAperturar: boolean;
   saving: boolean;
   onOpenLineas: (rowId: string, detalle: string | null) => void;
@@ -427,7 +428,7 @@ class GuardError extends Error {}
 
 export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter | null; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const { localId } = useDashboard();
+  const { localId, pdvId } = useDashboard();
   const { reglas: reglasApertura } = useReglasApertura();
   const [editing, setEditing] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -614,7 +615,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
               origenPdvId: row.puntoDeVentaIdOrigen,
             })}
             tieneReglaApertura={reglasActivasRegistro.has(item.rowId)}
-            puedeAperturar={localId != null}
+            puedeAperturar={localId != null && pdvId != null}
           />
         )}
       />

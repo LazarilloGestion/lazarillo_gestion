@@ -243,7 +243,7 @@ export function PivotTableByProveedor() {
                         </ExpandableButton>
                         <AperturaSplitButton
                           variant="block"
-                          puedeAperturar={localId != null && proveedor.proveedorId != null}
+                          puedeAperturar={localId != null && pdvId != null && proveedor.proveedorId != null}
                           tieneReglaActiva={reglasActivasPorNivel.proveedor.has(String(proveedor.proveedorId))}
                           onClick={() => setApertura({
                             nivel: "proveedor",
@@ -311,7 +311,7 @@ export function PivotTableByProveedor() {
                         </ExpandableButton>
                         <AperturaSplitButton
                           variant="block"
-                          puedeAperturar={localId != null}
+                          puedeAperturar={localId != null && pdvId != null}
                           tieneReglaActiva={reglasActivasPorNivel.concepto.has(concepto.conceptoCodigo)}
                           onClick={() => setApertura({
                             nivel: "concepto",
@@ -403,7 +403,7 @@ export function PivotTableByProveedor() {
                       {linea.distribucionId != null && <AperturaDot />}
                       {labelLinea}
                       <AperturaSplitButton
-                        puedeAperturar={localId != null}
+                        puedeAperturar={localId != null && pdvId != null}
                         tieneReglaActiva={tieneReglaRegistro}
                         onClick={() => setApertura({
                           nivel: "registro",
