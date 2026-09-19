@@ -101,6 +101,7 @@ export function buildComprasDetalleUrl(filter: DetalleFilter): string {
   if (filter.rubroCodigo) params.set("rubroCodigo", filter.rubroCodigo);
   if (filter.conceptoCodigo) params.set("conceptoCodigo", filter.conceptoCodigo);
   if (filter.proveedorId) params.set("proveedorId", String(filter.proveedorId));
+  else if (filter.proveedorTexto) params.set("proveedorTexto", filter.proveedorTexto);
   else if (filter.sinProveedor) params.set("sinProveedor", "1");
   if (filter.rowId) params.set("rowId", filter.rowId);
   if (filter.distribucionId != null) params.set("distribucionId", String(filter.distribucionId));

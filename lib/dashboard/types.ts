@@ -138,9 +138,11 @@ export type DetalleFilter = BaseDashboardFilter & {
   rubroCodigo?: string;
   conceptoCodigo?: string;
   proveedorId?: number;
-  // Mutuamente excluyente con proveedorId — pide explícitamente las compras
-  // sin proveedor vinculado ("Sin Proveedor" en la vista por Proveedor), que
-  // proveedorId no puede expresar (no hay un id para "ninguno").
+  // Sin proveedorId pero con texto crudo del ERP (Diego, Gabriel, GASTOS
+  // VARIOS, etc.) — mutuamente excluyente con proveedorId y sinProveedor.
+  proveedorTexto?: string;
+  // Sin proveedorId NI texto crudo — las compras realmente sin ningún dato de
+  // proveedor. Mutuamente excluyente con proveedorId y proveedorTexto.
   sinProveedor?: boolean;
   rowId?: string;
   distribucionId?: number;

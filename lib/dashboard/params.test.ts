@@ -56,6 +56,21 @@ describe("buildComprasDetalleUrl — sinProveedor", () => {
   });
 });
 
+describe("buildComprasDetalleUrl — proveedorTexto", () => {
+  it("con proveedorTexto: agrega proveedorTexto, no proveedorId ni sinProveedor", () => {
+    const url = buildComprasDetalleUrl({ year: 2026, proveedorTexto: "Diego" });
+    expect(url).toContain("proveedorTexto=Diego");
+    expect(url).not.toContain("proveedorId=");
+    expect(url).not.toContain("sinProveedor");
+  });
+
+  it("proveedorId tiene prioridad sobre proveedorTexto si ambos vinieran seteados", () => {
+    const url = buildComprasDetalleUrl({ year: 2026, proveedorId: 5, proveedorTexto: "Diego" });
+    expect(url).toContain("proveedorId=5");
+    expect(url).not.toContain("proveedorTexto");
+  });
+});
+
 describe("buildDashboardUrl — agrupacion", () => {
   it("sin agrupacion: no agrega el parámetro (default concepto)", () => {
     const url = buildDashboardUrl("/api/dashboard/pivot", { year: 2026 });
