@@ -646,9 +646,15 @@ Run: `npx tsx scripts/fix-proveedorid-cruzado.ts`
 
 Revisar la salida con el usuario: cantidad total de filas a corregir (esperado, según el diagnóstico del 19-sep: ~2.164 filas) y el archivo JSON exportado en `tmp/fix-proveedorid-cruzado/fix-proveedorid-dry-run.json` para que el usuario pueda auditar una muestra.
 
+Mirar también la línea `Candidatas con distribución activa (esDistribuido=true)`. Esperado: `0`.
+
 - [ ] **Step 2: Confirmación explícita del usuario**
 
 Presentar el conteo del dry-run y pedir confirmación explícita antes de aplicar (CLAUDE.md §7 — dato financiero real). No continuar sin un "sí" explícito a este paso puntual.
+
+**Condición de parada:** si `Candidatas con distribución activa` es distinto de `0`, no seguir. Esas compras ya tienen plata repartida en `distribuciones_apertura` por una regla de Apertura de Gastos de nivel proveedor; nulificarles el `proveedorId` dejaría esas distribuciones huérfanas. El `--apply` aborta solo en ese caso (guard duro, sin bypass), así que esto es solo para saber qué esperar: hay que mirar las filas concretas y decidir manualmente con el usuario antes de reintentar.
+
+**Anotar el número confirmado** de filas a corregir — de acá en adelante `N` — para usarlo en el Step 4.
 
 - [ ] **Step 3: Backup**
 
@@ -659,8 +665,11 @@ Expected: lista de objetos del dump sin error.
 
 - [ ] **Step 4: Aplicar**
 
-Run: `npx tsx scripts/fix-proveedorid-cruzado.ts --apply`
-Expected: "Corrección completada y verificada." con `cantidadActualizada` igual al conteo confirmado en el Step 2.
+Run: `npx tsx scripts/fix-proveedorid-cruzado.ts --apply --esperadas=<N>`
+
+`<N>` es el número de filas confirmado por el usuario en el Step 2 (ej. `--esperadas=2164`). El flag no es opcional en este runbook: sin él, un import que corra entre el dry-run aprobado y este comando haría que `--apply` corrija una cantidad distinta a la que el humano revisó, sin que nada lo detecte. Con el flag, el script aborta sin escribir nada si el recálculo en vivo no da exactamente `N`.
+
+Expected: "Corrección completada y verificada." con `cantidadActualizada` igual a `N`. Antes de la transacción imprime también la pre-imagen exportada a `tmp/fix-proveedorid-cruzado/fix-proveedorid-pre-apply.json` (red de seguridad para deshacer de forma quirúrgica si el proceso cae después del commit).
 
 - [ ] **Step 5: Verificación post-aplicación con el usuario**
 

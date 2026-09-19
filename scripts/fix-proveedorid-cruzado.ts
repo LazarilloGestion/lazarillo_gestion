@@ -126,6 +126,18 @@ async function desglosePorRubro(rowIds: string[]): Promise<{ rubro: string; cant
     .sort((a, b) => b.cantidad - a.cantidad);
 }
 
+// Una compra con esDistribuido=true tiene plata real ya repartida en
+// distribuciones_apertura por una regla de Apertura de Gastos (lib/apertura/motor.ts
+// setea el flag y las filas en la misma transacción, así que el flag es fiel).
+// Si esa regla es de nivel proveedor, nulificar proveedorId deja viva una
+// distribución cuya premisa ya no existe, sin que nadie se entere. Mismo
+// criterio que cleanup-duplicados-compras.ts aplica antes de borrar: se corta
+// duro y lo mira un humano — sin flag de bypass.
+async function contarCandidatasDistribuidas(rowIds: string[]): Promise<number> {
+  if (rowIds.length === 0) return 0;
+  return prisma.compra.count({ where: { rowId: { in: rowIds }, esDistribuido: true } });
+}
+
 function imprimirDesglosePorRubro(desglose: { rubro: string; cantidad: number }[]) {
   if (desglose.length === 0) return;
   console.log("Desglose por rubro de las filas a corregir:");
@@ -164,6 +176,17 @@ async function main() {
   console.log(`\n=== Plan de corrección de proveedorId cruzado (${apply ? "aplicando" : "dry-run"}) ===`);
   console.log(`Compras con proveedorId asignado: ${compras.length}`);
   console.log(`Filas a poner en null (cruzadas): ${plan.rowIdANulificar.length}`);
+  // Se reporta también en dry-run (no solo como guard de --apply) para que el
+  // humano que revisa los números antes del backup vea el problema y pueda
+  // decidir qué hacer, en vez de descubrirlo cuando --apply aborte.
+  const distribuidas = await contarCandidatasDistribuidas(plan.rowIdANulificar);
+  console.log(`Candidatas con distribución activa (esDistribuido=true): ${distribuidas}`);
+  if (distribuidas > 0) {
+    console.log(
+      "  ⚠ Cualquier valor distinto de 0 acá es condición de parada: --apply va a abortar. " +
+        "Requiere revisión manual de esas filas antes de seguir."
+    );
+  }
   imprimirDesglosePorRubro(await desglosePorRubro(plan.rowIdANulificar));
 
   if (!apply) {
@@ -214,6 +237,31 @@ async function main() {
     console.log("\nNo hay nada para corregir.\n");
     return;
   }
+
+  // Guard duro contra el conjunto RECALCULADO EN VIVO (no el del dry-run):
+  // ninguna fila a nulificar puede tener una distribución de apertura activa.
+  // Aborta antes de abrir la transacción, sin escribir nada y sin bypass.
+  const distribuidasEnVivo = await contarCandidatasDistribuidas(planEnVivo.rowIdANulificar);
+  if (distribuidasEnVivo > 0) {
+    throw new Error(
+      `No se puede proceder: ${distribuidasEnVivo} de las ${planEnVivo.rowIdANulificar.length} filas candidatas ` +
+        `tienen esDistribuido=true (distribuciones de apertura activas sobre plata real). ` +
+        `Nulificar su proveedorId dejaría esas distribuciones huérfanas de la regla de nivel proveedor que las generó. ` +
+        `Abortando sin escribir nada — revisar manualmente esas filas antes de reintentar.`
+    );
+  }
+
+  // Red de seguridad ante caída del proceso: la pre-imagen (rowId →
+  // proveedorIdAnterior) se escribe ANTES de abrir la transacción. El export
+  // post-commit sigue siendo el registro autoritativo de lo que efectivamente
+  // pasó; este archivo existe solo para que un crash entre el commit y ese
+  // export no deje como única salida restaurar el pg_dump completo.
+  const archivoPreApply = await exportarDetalle(
+    planEnVivo.rowIdANulificar,
+    porRowIdEnVivo,
+    `${SCRATCHPAD_DIR}/fix-proveedorid-pre-apply.json`
+  );
+  console.log(`Pre-imagen para deshacer exportada a ${archivoPreApply}`);
 
   const { cantidadActualizada } = await prisma.$transaction(
     async (tx) => {

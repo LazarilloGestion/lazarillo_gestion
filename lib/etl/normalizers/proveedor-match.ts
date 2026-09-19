@@ -14,8 +14,16 @@ export interface ProveedorCandidato {
   razon: string | null;
 }
 
+// NFD + strip de marcas combinantes ANTES de descartar lo no-alfanumérico: sin
+// eso, "Agustín" perdería la "í" entera (no es [a-z0-9]) y dejaría de coincidir
+// con "Agustin" del maestro, desvinculando un proveedor correcto solo porque un
+// lado del dato está acentuado y el otro no.
 function normalizarParaComparar(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
 }
 
 export function proveedorTextoCoincide(

@@ -22,6 +22,22 @@ describe("proveedorTextoCoincide", () => {
     expect(proveedorTextoCoincide("GASTOS VARIOS", { nombre: "Prosegur", razon: null })).toBe(false);
   });
 
+  it("acentos en el texto crudo pero no en el maestro → true (se transliteran, no se descartan)", () => {
+    expect(proveedorTextoCoincide("Agustín Pérez", { nombre: "Agustin Perez", razon: null })).toBe(true);
+  });
+
+  it("acentos en el maestro pero no en el texto crudo → true (simétrico)", () => {
+    expect(proveedorTextoCoincide("Agustin Perez", { nombre: "Agustín Pérez", razon: null })).toBe(true);
+  });
+
+  it("acentos distintos no vuelven iguales a dos proveedores distintos → false", () => {
+    expect(proveedorTextoCoincide("Agustín", { nombre: "Creación Tm Sr", razon: null })).toBe(false);
+  });
+
+  it("ñ y diéresis se transliteran igual en ambos lados → true", () => {
+    expect(proveedorTextoCoincide("Diseños Nuñez", { nombre: "Disenos Nunez", razon: null })).toBe(true);
+  });
+
   it("texto crudo null: sin evidencia en contra, se confía en el candidato → true", () => {
     expect(proveedorTextoCoincide(null, { nombre: "Cualquiera", razon: null })).toBe(true);
   });

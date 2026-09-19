@@ -60,7 +60,15 @@ export function proveedorTextoCoincide(
   candidato: { nombre: string | null; razon: string | null },
 ): boolean {
   if (textoCrudo == null) return true;
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  // NFD + strip de marcas combinantes antes de descartar lo no-alfanumérico:
+  // sin eso "Agustín" perdería la "í" entera y dejaría de coincidir con
+  // "Agustin" del maestro (desviación deliberada, revisión final 19-sep-2026).
+  const norm = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "");
   const t = norm(textoCrudo);
   return (candidato.nombre != null && norm(candidato.nombre) === t)
       || (candidato.razon  != null && norm(candidato.razon)  === t);
