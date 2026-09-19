@@ -226,7 +226,9 @@ export function PivotTableByProveedor() {
                 const isExpanded = expanded.has(proveedor.id);
                 const filtroProveedor = proveedor.proveedorId != null
                   ? { proveedorId: proveedor.proveedorId }
-                  : { sinProveedor: true as const };
+                  : proveedor.proveedorTexto != null
+                    ? { proveedorTexto: proveedor.proveedorTexto }
+                    : { sinProveedor: true as const };
                 return (
                   <tr key={proveedor.id} className="border-b font-semibold" onContextMenu={collapseProveedores}>
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -291,7 +293,9 @@ export function PivotTableByProveedor() {
                 const isExpanded = expanded.has(concepto.id);
                 const filtroProveedorConcepto = concepto.proveedorId != null
                   ? { proveedorId: concepto.proveedorId }
-                  : { sinProveedor: true as const };
+                  : concepto.proveedorTexto != null
+                    ? { proveedorTexto: concepto.proveedorTexto }
+                    : { sinProveedor: true as const };
                 return (
                   <tr key={concepto.id} className="border-b hover:bg-accent/40 transition-colors" onContextMenu={collapseConceptos}>
                     <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
