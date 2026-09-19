@@ -92,14 +92,6 @@ export async function normalizeDetalleCompras(
     })).map((a) => a.codigo)
   );
 
-  const codigosProvDet = [...new Set(filtered.map((pr) => pr.data.COD_PRO).filter((v): v is string => v != null))];
-  const provMapDet = new Map(
-    (await prisma.proveedor.findMany({
-      where: { codigo: { in: codigosProvDet } },
-      select: { id: true, codigo: true },
-    })).map((p) => [p.codigo, p.id])
-  );
-
   let created = 0;
   let updated = 0;
 
@@ -119,7 +111,10 @@ export async function normalizeDetalleCompras(
 
       const rowValues = chunk.map(({ rowId, row, data }) => {
         const articuloCodigo = artSet.has(data.CODIGO) ? data.CODIGO : null;
-        const proveedorId = data.COD_PRO != null ? provMapDet.get(data.COD_PRO) ?? null : null;
+        // proveedorId nunca se resuelve acá de forma independiente: esta tabla no
+        // tiene un campo de texto de proveedor contra el cual validar el CODIGO
+        // (a diferencia de compras.ts) — ver spec 2026-09-19-cruce-proveedorid-compras-design.md §3.3.
+        const proveedorId = null;
         return Prisma.sql`(
           ${rowId},
           ${data.COD_PRO},
