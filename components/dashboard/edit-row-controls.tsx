@@ -1,5 +1,6 @@
 "use client";
 import { Check, X, Pencil } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export function EditActionButtons({
   onSave,
@@ -53,6 +54,17 @@ export function EditedDot() {
       className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-attention"
       title="Editado manualmente"
     />
+  );
+}
+
+export function AperturaDot() {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-info" />
+      </TooltipTrigger>
+      <TooltipContent>Apertura de gastos aplicada</TooltipContent>
+    </Tooltip>
   );
 }
 
