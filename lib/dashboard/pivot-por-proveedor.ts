@@ -27,6 +27,7 @@ export function buildPivotDataByProveedor(
       rubro_nombre,
       proveedor_id,
       proveedor_nombre,
+      proveedor_texto_crudo,
       concepto_codigo,
       concepto_nombre,
       mes,
@@ -78,7 +79,12 @@ export function buildPivotDataByProveedor(
         id: provKey,
         nombre: proveedor_nombre,
         proveedorId: proveedor_id,
-        proveedorTexto: proveedor_id != null ? null : proveedor_nombre,
+        // Ojo: el filtro de drill-down sale de la columna CRUDA, no del
+        // proveedor_nombre del COALESCE — cuando no hay ni proveedor ni texto,
+        // proveedor_nombre trae el literal 'Sin Proveedor', que no matchea
+        // ninguna fila real de c.proveedor y dejaba el modal vacío. Con null
+        // acá, la UI cae a su rama sinProveedor:true.
+        proveedorTexto: proveedor_id != null ? null : proveedor_texto_crudo,
         values: {},
         rowTotal: 0,
         children: [],
@@ -96,7 +102,8 @@ export function buildPivotDataByProveedor(
         conceptoCodigo: concepto_codigo,
         rubroCodigo: rubro_codigo,
         proveedorId: proveedor_id,
-        proveedorTexto: proveedor_id != null ? null : proveedor_nombre,
+        // Misma fuente que el nodo de proveedor (ver comentario arriba).
+        proveedorTexto: proveedor_id != null ? null : proveedor_texto_crudo,
         values: {},
         rowTotal: 0,
         children: [],

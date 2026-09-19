@@ -167,6 +167,11 @@ export type SqlRow = {
   concepto_nombre: string;
   proveedor_id: number | null;
   proveedor_nombre: string;
+  // Columna cruda `compras.proveedor` SIN el COALESCE de proveedor_nombre: es
+  // la única forma de distinguir "no hay proveedor real pero sí texto del ERP"
+  // de "no hay ni proveedor ni texto" (que el COALESCE colapsa al literal
+  // 'Sin Proveedor'). La usa el filtro de drill-down, no el agrupado del árbol.
+  proveedor_texto_crudo: string | null;
   mes: number;
   total: DecimalLike;
   row_id: string;

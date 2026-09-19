@@ -6,7 +6,7 @@ function row(overrides: Partial<SqlRow>): SqlRow {
   return {
     rubro_codigo: "R1", rubro_nombre: "Rubro 1",
     concepto_codigo: "C1", concepto_nombre: "Concepto 1",
-    proveedor_id: 1, proveedor_nombre: "Proveedor A",
+    proveedor_id: 1, proveedor_nombre: "Proveedor A", proveedor_texto_crudo: null,
     mes: 1, total: 100, row_id: "row-1", distribucion_id: null,
     fecha: "2026-01-01", observac: null, has_manual_override: false,
     local_id_origen: null, punto_de_venta_id_origen: null,
@@ -72,7 +72,7 @@ describe("buildPivotDataByProveedor", () => {
 
   it("proveedor_id null: usa el texto crudo del ERP como nombre del grupo, no un label sentinela", () => {
     const rows: SqlRow[] = [
-      row({ proveedor_id: null, proveedor_nombre: "Diego", row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "Diego", proveedor_texto_crudo: "Diego", row_id: "x1", total: 10 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
     const proveedor = data.rows[0].children[0];
@@ -83,8 +83,8 @@ describe("buildPivotDataByProveedor", () => {
 
   it("dos textos crudos distintos sin proveedor real: dos nodos separados, no se mezclan", () => {
     const rows: SqlRow[] = [
-      row({ proveedor_id: null, proveedor_nombre: "Diego", row_id: "x1", total: 10 }),
-      row({ proveedor_id: null, proveedor_nombre: "GASTOS VARIOS", row_id: "x2", total: 20 }),
+      row({ proveedor_id: null, proveedor_nombre: "Diego", proveedor_texto_crudo: "Diego", row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "GASTOS VARIOS", proveedor_texto_crudo: "GASTOS VARIOS", row_id: "x2", total: 20 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
     const rubro = data.rows[0];
@@ -93,12 +93,15 @@ describe("buildPivotDataByProveedor", () => {
     const gastosVarios = rubro.children.find((p) => p.nombre === "GASTOS VARIOS")!;
     expect(diego.rowTotal).toBe(10);
     expect(gastosVarios.rowTotal).toBe(20);
+    // El filtro de drill-down de cada nodo sale del texto crudo, no del COALESCE.
+    expect(diego.proveedorTexto).toBe("Diego");
+    expect(gastosVarios.proveedorTexto).toBe("GASTOS VARIOS");
   });
 
   it("mismo texto crudo con mayúsculas/tildes distintas: mismo nodo (agrupa normalizado)", () => {
     const rows: SqlRow[] = [
-      row({ proveedor_id: null, proveedor_nombre: "Agustín", row_id: "x1", total: 10 }),
-      row({ proveedor_id: null, proveedor_nombre: "AGUSTIN", row_id: "x2", total: 15 }),
+      row({ proveedor_id: null, proveedor_nombre: "Agustín", proveedor_texto_crudo: "Agustín", row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "AGUSTIN", proveedor_texto_crudo: "AGUSTIN", row_id: "x2", total: 15 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
     const rubro = data.rows[0];
@@ -110,8 +113,10 @@ describe("buildPivotDataByProveedor", () => {
 
   it("sin proveedor ni texto crudo (el literal 'Sin Proveedor' de la SQL): cae en su propio grupo, separado de cualquier texto real", () => {
     const rows: SqlRow[] = [
-      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", row_id: "x1", total: 5 }),
-      row({ proveedor_id: null, proveedor_nombre: "Diego", row_id: "x2", total: 10 }),
+      // Así llega la fila real: la columna cruda es null y el COALESCE de la SQL
+      // cae al literal 'Sin Proveedor' para el label.
+      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", proveedor_texto_crudo: null, row_id: "x1", total: 5 }),
+      row({ proveedor_id: null, proveedor_nombre: "Diego", proveedor_texto_crudo: "Diego", row_id: "x2", total: 10 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
     const rubro = data.rows[0];
@@ -120,6 +125,13 @@ describe("buildPivotDataByProveedor", () => {
     const diego = rubro.children.find((p) => p.nombre === "Diego")!;
     expect(sinDatos.rowTotal).toBe(5);
     expect(diego.rowTotal).toBe(10);
+    // Sin texto crudo, proveedorTexto debe ser null para que la UI mande
+    // sinProveedor:true al drill-down (y no el literal del COALESCE, que no
+    // coincide con ninguna fila real de c.proveedor).
+    expect(sinDatos.proveedorTexto).toBeNull();
+    expect(sinDatos.children[0].proveedorTexto).toBeNull();
+    expect(diego.proveedorTexto).toBe("Diego");
+    expect(diego.children[0].proveedorTexto).toBe("Diego");
   });
 
   it("proveedor real (proveedor_id no null): proveedorTexto queda null", () => {

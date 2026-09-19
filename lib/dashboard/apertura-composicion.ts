@@ -89,18 +89,23 @@ export function buildComposicionPorProveedor(
   for (const row of originalRows) {
     ensure(row.concepto_codigo, row.proveedor_id, row.proveedor_nombre, row.mes).total += toNum(row.importe_original);
   }
-  // A diferencia de buildComposicion, acá no hace falta fusionar: la clave del
-  // bucket ya incluye proveedor_id (o el texto crudo normalizado), que junto
-  // con (destino_nombre, porcentaje) coincide exactamente con el GROUP BY de
-  // la SQL (concepto_codigo, proveedor_id, proveedor_nombre, mes,
-  // destino_nombre, da.porcentaje) — dos filas del mismo bucket nunca pueden
-  // compartir (nombre, pct). Si ese GROUP BY cambia, revisar este supuesto.
+  // Misma fusión por (nombre, pct) que buildComposicion, por una razón
+  // análoga: el GROUP BY de la SQL particiona también por proveedor_nombre,
+  // pero la clave de este bucket usa proveedor_id cuando existe. Un proveedor
+  // real cuyo maestro no tiene nombre NI razón hace que el COALESCE caiga a
+  // c.proveedor (que varía fila a fila), fragmentando un mismo proveedor_id en
+  // varias filas SQL que caen todas en este bucket — sin fusionar, el mismo
+  // destino aparecería duplicado en el tooltip.
   for (const row of destinoRows) {
-    ensure(row.concepto_codigo, row.proveedor_id, row.proveedor_nombre, row.mes).destinos.push({
-      nombre: row.destino_nombre,
-      pct: toNum(row.pct),
-      importe: toNum(row.importe_calculado),
-    });
+    const bucket = ensure(row.concepto_codigo, row.proveedor_id, row.proveedor_nombre, row.mes);
+    const pct = toNum(row.pct);
+    const importe = toNum(row.importe_calculado);
+    const existente = bucket.destinos.find((d) => d.nombre === row.destino_nombre && d.pct === pct);
+    if (existente) {
+      existente.importe += importe;
+    } else {
+      bucket.destinos.push({ nombre: row.destino_nombre, pct, importe });
+    }
   }
   return out;
 }

@@ -106,4 +106,20 @@ describe("buildComposicionPorProveedor", () => {
       { nombre: "Canchas Ramos", pct: 70, importe: 300 },
     ]);
   });
+
+  it("fusiona el mismo destino de un proveedor real fragmentado en varios proveedor_nombre (maestro sin nombre ni razón)", () => {
+    // Un proveedor real cuyo registro maestro no tiene nombre NI razón hace que
+    // el COALESCE de la SQL caiga a c.proveedor, que varía fila a fila: el
+    // GROUP BY por proveedor_nombre parte un único proveedor_id en varias filas.
+    const destinoRows = [
+      { concepto_codigo: "17", proveedor_id: 5, proveedor_nombre: "Diego", mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 400 },
+      { concepto_codigo: "17", proveedor_id: 5, proveedor_nombre: "diego", mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 300 },
+    ];
+    const originalRows = [{ concepto_codigo: "17", proveedor_id: 5, proveedor_nombre: "Diego", mes: 5, importe_original: 1000 }];
+    const result = buildComposicionPorProveedor(destinoRows, originalRows);
+
+    expect(result["17|5"][5].destinos).toHaveLength(1);
+    expect(result["17|5"][5].destinos[0]).toEqual({ nombre: "Actual", pct: 70, importe: 700 });
+    expect(result["17|5"][5].total).toBe(1000);
+  });
 });

@@ -86,6 +86,7 @@ export async function GET(request: NextRequest) {
       COALESCE(cc.nombre, 'Sin Concepto')                                AS concepto_nombre,
       p.id                                                                AS proveedor_id,
       COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor')         AS proveedor_nombre,
+      c.proveedor                                                        AS proveedor_texto_crudo,
       EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int        AS mes,
       COALESCE(c."importeManual", c.importe)                             AS total,
       c."rowId"                                                           AS row_id,
