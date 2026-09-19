@@ -60,14 +60,22 @@ export async function GET(request: NextRequest) {
   // NEGOCIO de origen que había — y conceptoCodigo puede colisionar entre
   // negocios (ver docs Alta Nuñez-Comercio), así que sin ese scoping la
   // composición terminaba sumando compras de otro negocio con el mismo
-  // código de concepto y mes. Se filtra en cambio por
-  // `"localIdOrigen"`/`"puntoDeVentaIdOrigen"` (el local/PDV real donde se
-  // cargó la compra, agregados a la vista en la migración
+  // código de concepto y mes. Se filtra en cambio por `"localIdOrigen"` (el
+  // local real donde se cargó la compra, agregado a la vista en la migración
   // 20260916131712_v_compras_distribuidas_origen) para acotar por negocio de
   // origen sin volver a acotar por destino.
+  //
+  // OJO: solo por localIdOrigen, NUNCA por puntoDeVentaIdOrigen. La colisión
+  // de códigos es entre NEGOCIOS (Local, ej. Ramos Mejía vs San Justo — ver
+  // docs Alta Nuñez-Comercio), no entre PDVs de un mismo local. Ramos Mejía
+  // tiene PDVs Bar y Canchas: si el usuario filtra el dashboard por Canchas
+  // (que solo recibe reparto de apertura, nunca origina compras) y acá se
+  // filtrara también por puntoDeVentaIdOrigen = Canchas, la composición no
+  // encuentra nada (el origen real es Bar) y el tooltip desaparece — bug
+  // reportado por el cliente el 19-sep-2026 (luz/gas aperturados desde Bar,
+  // sin tooltip al mirar Canchas).
   const conditionsComposicion = buildPivotConditions({ year, tableAlias: "c", localId: undefined, pdvId: undefined, months, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, filterRubrosOcultos: true, visibilidadCol });
   if (localId) conditionsComposicion.push(Prisma.sql`c."localIdOrigen" = ${localId}`);
-  if (pdvId) conditionsComposicion.push(Prisma.sql`c."puntoDeVentaIdOrigen" = ${pdvId}`);
   const whereComposicion = Prisma.join(conditionsComposicion, " AND ");
 
   const rowsQuery = prisma.$queryRaw<SqlRow[]>(Prisma.sql`
