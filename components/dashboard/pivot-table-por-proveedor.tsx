@@ -13,7 +13,7 @@ import { origenAlcanza } from "@/lib/apertura/validaciones";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
-import { EditedDot } from "./edit-row-controls";
+import { EditedDot, AperturaDot } from "./edit-row-controls";
 import type { PivotDataPorProveedor, PivotRubroRowPorProveedor, PivotProveedorSubRow, PivotConceptoSubRow } from "@/lib/dashboard/types";
 import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
@@ -346,12 +346,17 @@ export function PivotTableByProveedor() {
                         <Tooltip key={mes}>
                           <TooltipTrigger asChild>{cell}</TooltipTrigger>
                           <TooltipContent className="text-xs">
-                            <div className="font-medium">100% · {fmtARS(comp.total)}</div>
-                            {comp.destinos.map((d, i) => (
-                              <div key={i} className="text-background/70">
-                                {d.pct}% {d.nombre} {fmtARS(d.importe)}
-                              </div>
-                            ))}
+                            {/* TooltipContent es inline-flex (fila) por defecto — envolver en
+                                flex-col para que el detalle se lea de arriba a abajo en vez de
+                                romperse a mitad de palabra cuando hay 2+ destinos. */}
+                            <div className="flex flex-col items-start gap-0.5">
+                              <div className="font-medium">100% · {fmtARS(comp.total)}</div>
+                              {comp.destinos.map((d, i) => (
+                                <div key={i} className="text-background/70">
+                                  {d.pct}% {d.nombre} {fmtARS(d.importe)}
+                                </div>
+                              ))}
+                            </div>
                           </TooltipContent>
                         </Tooltip>
                       );
@@ -395,6 +400,7 @@ export function PivotTableByProveedor() {
                   <td className={cn("sticky left-0 z-10 bg-background px-4 py-1.5 pl-[4.5rem] text-xs shadow-[1px_0_0_0_hsl(var(--border))]", linea.hasManualOverride ? "text-attention" : "text-muted-foreground")}>
                     <span className="flex items-center gap-1.5">
                       {linea.hasManualOverride && <EditedDot />}
+                      {linea.distribucionId != null && <AperturaDot />}
                       {labelLinea}
                       <AperturaSplitButton
                         puedeAperturar={localId != null}
