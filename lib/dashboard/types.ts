@@ -136,6 +136,10 @@ export type DetalleFilter = BaseDashboardFilter & {
   rubroCodigo?: string;
   conceptoCodigo?: string;
   proveedorId?: number;
+  // Mutuamente excluyente con proveedorId — pide explícitamente las compras
+  // sin proveedor vinculado ("Sin Proveedor" en la vista por Proveedor), que
+  // proveedorId no puede expresar (no hay un id para "ninguno").
+  sinProveedor?: boolean;
   rowId?: string;
   distribucionId?: number;
 };

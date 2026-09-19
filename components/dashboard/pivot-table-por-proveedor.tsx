@@ -224,10 +224,9 @@ export function PivotTableByProveedor() {
               if (item.type === "proveedorSub") {
                 const proveedor = item.data as PivotProveedorSubRow;
                 const isExpanded = expanded.has(proveedor.id);
-                // "Sin Proveedor" no se puede filtrar en /api/dashboard/detalle
-                // (no hay forma de pedir "proveedorId IS NULL" ahí) — no ofrecer
-                // un drill-down que traería todas las compras sin filtrar.
-                const puedeDrillDown = proveedor.proveedorId != null;
+                const filtroProveedor = proveedor.proveedorId != null
+                  ? { proveedorId: proveedor.proveedorId }
+                  : { sinProveedor: true as const };
                 return (
                   <tr key={proveedor.id} className="border-b font-semibold" onContextMenu={collapseProveedores}>
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -260,25 +259,22 @@ export function PivotTableByProveedor() {
                         key={mes}
                         className={cn(
                           "text-right px-3 py-2.5 tabular-nums bg-muted/25 hover:bg-muted/50 transition-colors",
-                          puedeDrillDown && hasValue(proveedor.values[mes]) && "cursor-pointer hover:text-primary"
+                          hasValue(proveedor.values[mes]) && "cursor-pointer hover:text-primary"
                         )}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (puedeDrillDown && hasValue(proveedor.values[mes]))
-                            openDetalle({ mes, proveedorId: proveedor.proveedorId! });
+                          if (hasValue(proveedor.values[mes]))
+                            openDetalle({ mes, ...filtroProveedor });
                         }}
                       >
                         {fmtARS(proveedor.values[mes])}
                       </td>
                     ))}
                     <td
-                      className={cn(
-                        "text-right px-4 py-2.5 tabular-nums font-semibold text-[15px] bg-muted/25 hover:bg-muted/50 transition-colors",
-                        puedeDrillDown && "cursor-pointer hover:text-primary"
-                      )}
+                      className="text-right px-4 py-2.5 tabular-nums font-semibold text-[15px] bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (puedeDrillDown) openDetalle({ proveedorId: proveedor.proveedorId! });
+                        openDetalle(filtroProveedor);
                       }}
                     >
                       {fmtARS(proveedor.rowTotal)}
@@ -293,9 +289,9 @@ export function PivotTableByProveedor() {
               if (item.type === "conceptoSub") {
                 const concepto = item.data as PivotConceptoSubRow;
                 const isExpanded = expanded.has(concepto.id);
-                // Sin proveedor vinculado no se puede armar el filtro {proveedorId, conceptoCodigo}
-                // que este drill-down necesita — mismo criterio que puedeDrillDown en la fila de proveedor.
-                const puedeDrillDownConcepto = concepto.proveedorId != null;
+                const filtroProveedorConcepto = concepto.proveedorId != null
+                  ? { proveedorId: concepto.proveedorId }
+                  : { sinProveedor: true as const };
                 return (
                   <tr key={concepto.id} className="border-b hover:bg-accent/40 transition-colors" onContextMenu={collapseConceptos}>
                     <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -330,12 +326,12 @@ export function PivotTableByProveedor() {
                           key={mes}
                           className={cn(
                             "text-right px-3 py-2 tabular-nums text-muted-foreground",
-                            puedeDrillDownConcepto && hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
+                            hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
                           )}
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (puedeDrillDownConcepto && hasValue(concepto.values[mes]))
-                              openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo, proveedorId: concepto.proveedorId! });
+                            if (hasValue(concepto.values[mes]))
+                              openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo, ...filtroProveedorConcepto });
                           }}
                         >
                           {fmtARS(concepto.values[mes])}
@@ -362,14 +358,10 @@ export function PivotTableByProveedor() {
                       );
                     })}
                     <td
-                      className={cn(
-                        "text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm",
-                        puedeDrillDownConcepto && "cursor-pointer hover:text-foreground"
-                      )}
+                      className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (puedeDrillDownConcepto)
-                          openDetalle({ conceptoCodigo: concepto.conceptoCodigo, proveedorId: concepto.proveedorId! });
+                        openDetalle({ conceptoCodigo: concepto.conceptoCodigo, ...filtroProveedorConcepto });
                       }}
                     >
                       {fmtARS(concepto.rowTotal)}

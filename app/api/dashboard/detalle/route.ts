@@ -193,6 +193,7 @@ export async function GET(request: NextRequest) {
   const pdvId = idSchema.safeParse(searchParams.get("pdvId")).data;
   const mes = mesSchema.safeParse(searchParams.get("mes")).data;
   const proveedorId = idSchema.safeParse(searchParams.get("proveedorId")).data;
+  const sinProveedor = searchParams.get("sinProveedor") === "1";
 
   const conceptoCodigoRaw = searchParams.get("conceptoCodigo");
   const rubroCodigoRaw = searchParams.get("rubroCodigo");
@@ -209,6 +210,7 @@ export async function GET(request: NextRequest) {
   if (localId !== undefined) conditions.push(Prisma.sql`c."localId" = ${localId}`);
   if (pdvId !== undefined) conditions.push(Prisma.sql`c."puntoDeVentaId" = ${pdvId}`);
   if (proveedorId !== undefined) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
+  else if (sinProveedor) conditions.push(Prisma.sql`c."proveedorId" IS NULL`);
 
   // cc_ef/rc_ef (concepto EFECTIVO, mismo join que pivot usa: COALESCE(manual,
   // original)) es solo para filtrar — replica exactamente el comportamiento
