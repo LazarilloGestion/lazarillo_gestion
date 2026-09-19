@@ -10,8 +10,11 @@
  * Requiere --apply para ejecutar contra la base real.
  *
  * Uso:
- *   npx tsx scripts/fix-proveedorid-cruzado.ts             # dry-run
- *   npx tsx scripts/fix-proveedorid-cruzado.ts --apply      # aplica de verdad
+ *   npx tsx scripts/fix-proveedorid-cruzado.ts                              # dry-run
+ *   npx tsx scripts/fix-proveedorid-cruzado.ts --apply                      # aplica de verdad
+ *   npx tsx scripts/fix-proveedorid-cruzado.ts --apply --esperadas=2164     # aplica solo si el
+ *     recálculo en vivo encuentra exactamente 2164 filas — pin contra el número que un humano
+ *     aprobó en la corrida de dry-run anterior (proceso separado, ver Task 5).
  */
 
 import { config } from "dotenv";
@@ -54,6 +57,7 @@ export function planFixProveedorCruzado(compras: CompraParaFix[]): PlanFixProvee
 interface CompraDbRow {
   rowId: string;
   proveedor: string | null;
+  proveedorId: number | null;
   importe: { toString(): string } | null;
   fecha: Date | null;
   proveedorRef: { nombre: string | null; razon: string | null } | null;
@@ -62,6 +66,7 @@ interface CompraDbRow {
 const SELECT_COMPRA = {
   rowId: true,
   proveedor: true,
+  proveedorId: true,
   importe: true,
   fecha: true,
   proveedorRef: { select: { nombre: true, razon: true } },
@@ -76,12 +81,16 @@ function aCompraParaFix(c: CompraDbRow): CompraParaFix {
   };
 }
 
+// Se registra el proveedorId anterior (I3, code review) — sin esto, deshacer
+// una corrección ya aplicada requeriría restaurar el dump completo de la base
+// en vez de un script quirúrgico puntual sobre estas filas.
 async function exportarDetalle(rowIds: string[], porRowId: Map<string, CompraDbRow>, archivo: string) {
   const detalle = rowIds.map((rowId) => {
     const c = porRowId.get(rowId)!;
     return {
       rowId: c.rowId,
       proveedorTextoCrudo: c.proveedor,
+      proveedorIdAnterior: c.proveedorId,
       proveedorNombreActual: c.proveedorRef?.nombre ?? null,
       importe: c.importe != null ? c.importe.toString() : null,
       fecha: c.fecha,
@@ -93,8 +102,57 @@ async function exportarDetalle(rowIds: string[], porRowId: Map<string, CompraDbR
   return archivo;
 }
 
+// Desglose por rubro de las filas candidatas — pedido explícito del spec de
+// diseño (2026-09-19-cruce-proveedorid-compras-design.md) que se había perdido
+// al traducir la spec a texto de tarea (I5, code review). Reusa la relación
+// Compra.conceptoCaja ya existente (basada en conceptoCodigo, que es codCga
+// validado contra el maestro de conceptos en el ETL — ver
+// lib/etl/normalizers/compras.ts) en vez de re-implementar el join manual
+// sobre el texto crudo de codCga: mismo resultado, sin duplicar lógica de
+// validación de FK que el ETL ya resuelve.
+async function desglosePorRubro(rowIds: string[]): Promise<{ rubro: string; cantidad: number }[]> {
+  if (rowIds.length === 0) return [];
+  const filas = await prisma.compra.findMany({
+    where: { rowId: { in: rowIds } },
+    select: { conceptoCaja: { select: { rubro: { select: { nombre: true } } } } },
+  });
+  const conteoPorRubro = new Map<string, number>();
+  for (const f of filas) {
+    const rubro = f.conceptoCaja?.rubro?.nombre ?? "Sin rubro";
+    conteoPorRubro.set(rubro, (conteoPorRubro.get(rubro) ?? 0) + 1);
+  }
+  return [...conteoPorRubro.entries()]
+    .map(([rubro, cantidad]) => ({ rubro, cantidad }))
+    .sort((a, b) => b.cantidad - a.cantidad);
+}
+
+function imprimirDesglosePorRubro(desglose: { rubro: string; cantidad: number }[]) {
+  if (desglose.length === 0) return;
+  console.log("Desglose por rubro de las filas a corregir:");
+  for (const { rubro, cantidad } of desglose) {
+    console.log(`  - ${rubro}: ${cantidad}`);
+  }
+}
+
+// --esperadas=<N> pin del número que el humano aprobó en la corrida de
+// dry-run anterior (proceso separado, ver Task 5) contra el recálculo en vivo
+// de esta corrida de --apply — sin esto, un import que corre entremedio de
+// las dos invocaciones podría hacer que --apply corrija una cantidad de filas
+// distinta a la que el humano efectivamente revisó, sin que nada lo detecte
+// (I4, code review).
+function parsearEsperadas(argv: string[]): number | null {
+  const arg = argv.find((a) => a.startsWith("--esperadas="));
+  if (!arg) return null;
+  const valor = Number(arg.slice("--esperadas=".length));
+  if (!Number.isInteger(valor) || valor < 0) {
+    throw new Error(`--esperadas debe ser un entero no negativo, se recibió "${arg}"`);
+  }
+  return valor;
+}
+
 async function main() {
   const apply = process.argv.includes("--apply");
+  const esperadas = parsearEsperadas(process.argv);
 
   const compras: CompraDbRow[] = await prisma.compra.findMany({
     where: { proveedorId: { not: null } },
@@ -106,11 +164,16 @@ async function main() {
   console.log(`\n=== Plan de corrección de proveedorId cruzado (${apply ? "aplicando" : "dry-run"}) ===`);
   console.log(`Compras con proveedorId asignado: ${compras.length}`);
   console.log(`Filas a poner en null (cruzadas): ${plan.rowIdANulificar.length}`);
-
-  const archivoDryRun = await exportarDetalle(plan.rowIdANulificar, porRowId, `${SCRATCHPAD_DIR}/fix-proveedorid-dry-run.json`);
-  console.log(`Detalle exportado a ${archivoDryRun}`);
+  imprimirDesglosePorRubro(await desglosePorRubro(plan.rowIdANulificar));
 
   if (!apply) {
+    // Este archivo es el artefacto de auditoría que el humano revisa antes de
+    // aprobar --apply (ver Task 5) — solo se escribe en modo dry-run. La
+    // corrida de --apply NUNCA lo pisa (I4, code review): si lo hiciera,
+    // destruiría la evidencia exacta que se aprobó, antes incluso de escribir
+    // nada en la base.
+    const archivoDryRun = await exportarDetalle(plan.rowIdANulificar, porRowId, `${SCRATCHPAD_DIR}/fix-proveedorid-dry-run.json`);
+    console.log(`Detalle exportado a ${archivoDryRun}`);
     console.log("\nDry-run — no se escribió nada en la base. Re-ejecutar con --apply para aplicar.\n");
     return;
   }
@@ -135,6 +198,18 @@ async function main() {
     );
   }
 
+  // Ancla contra la corrida de dry-run aprobada en una invocación anterior y
+  // separada del proceso (I4, code review) — la comparación de arriba solo
+  // detecta drift DENTRO de esta misma invocación de --apply, no drift entre
+  // el dry-run que el humano vio y esta corrida.
+  if (esperadas !== null && planEnVivo.rowIdANulificar.length !== esperadas) {
+    throw new Error(
+      `--esperadas=${esperadas} no coincide con el recálculo en vivo: ` +
+        `se encontraron ${planEnVivo.rowIdANulificar.length} filas a corregir. ` +
+        `La base pudo haber cambiado desde el dry-run aprobado — abortando sin escribir nada.`
+    );
+  }
+
   if (planEnVivo.rowIdANulificar.length === 0) {
     console.log("\nNo hay nada para corregir.\n");
     return;
@@ -142,23 +217,53 @@ async function main() {
 
   const { cantidadActualizada } = await prisma.$transaction(
     async (tx) => {
-      const candidatasAhora = await tx.compra.count({
+      // Re-verificación puntual del predicado real (no solo existencia de
+      // fila) justo antes de escribir — si alguna candidata fue re-linkeada a
+      // un proveedor correcto entremedio del recálculo en vivo y este punto,
+      // ya no debe nulificarse. Mismo criterio que cleanup-duplicados-compras.ts
+      // re-verifica esDistribuido antes de borrar, no solo que la fila siga
+      // existiendo (I1, code review).
+      const candidatasAhora = await tx.compra.findMany({
         where: { rowId: { in: planEnVivo.rowIdANulificar }, proveedorId: { not: null } },
+        select: { rowId: true, proveedor: true, proveedorRef: { select: { nombre: true, razon: true } } },
       });
-      if (candidatasAhora !== planEnVivo.rowIdANulificar.length) {
+      if (candidatasAhora.length !== planEnVivo.rowIdANulificar.length) {
         throw new Error(
           `Verificación falló: ${planEnVivo.rowIdANulificar.length} filas candidatas esperadas, ` +
-            `${candidatasAhora} encontradas justo antes de aplicar — alguna cambió entremedio.`
+            `${candidatasAhora.length} encontradas justo antes de aplicar — alguna cambió entremedio.`
+        );
+      }
+      const yaCoincide = candidatasAhora.find((c) =>
+        proveedorTextoCoincide(c.proveedor, { nombre: c.proveedorRef?.nombre ?? null, razon: c.proveedorRef?.razon ?? null })
+      );
+      if (yaCoincide) {
+        throw new Error(
+          `Verificación falló: ${yaCoincide.rowId} fue re-linkeada a un proveedor que ahora sí coincide ` +
+            `con su texto crudo, entre el recálculo en vivo y la corrección — ya no debe nulificarse.`
         );
       }
 
+      // proveedorId: { not: null } en el where hace que este count sea una
+      // aserción real (antes matcheaba solo por PK, que ya estaba garantizado
+      // por el filtro de arriba — I2, code review).
       const resultado = await tx.compra.updateMany({
-        where: { rowId: { in: planEnVivo.rowIdANulificar } },
+        where: { rowId: { in: planEnVivo.rowIdANulificar }, proveedorId: { not: null } },
         data: { proveedorId: null },
       });
       if (resultado.count !== planEnVivo.rowIdANulificar.length) {
         throw new Error(
           `Verificación falló: se esperaba corregir ${planEnVivo.rowIdANulificar.length} filas, se actualizaron ${resultado.count}`
+        );
+      }
+
+      // Verificación posterior real: ninguna de las filas candidatas debe
+      // seguir con proveedorId no-nulo después del update (I2, code review).
+      const remanentes = await tx.compra.count({
+        where: { rowId: { in: planEnVivo.rowIdANulificar }, proveedorId: { not: null } },
+      });
+      if (remanentes !== 0) {
+        throw new Error(
+          `Verificación falló: ${remanentes} filas candidatas siguen con proveedorId no-nulo después de la corrección.`
         );
       }
 
@@ -175,6 +280,7 @@ async function main() {
 
   console.log(`\n=== Verificación post-corrección ===`);
   console.log(`Filas corregidas (proveedorId → null): ${cantidadActualizada}`);
+  imprimirDesglosePorRubro(await desglosePorRubro(planEnVivo.rowIdANulificar));
   console.log(`Detalle de lo corregido exportado a ${archivoAplicado}`);
   console.log("\nCorrección completada y verificada.\n");
 }
