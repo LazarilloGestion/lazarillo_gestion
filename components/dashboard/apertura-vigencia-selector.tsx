@@ -35,7 +35,7 @@ export function AperturaVigenciaSelector({
   return (
     <div className="flex flex-col gap-2">
       {modoAbierto && (
-        <div className="absolute inset-0 z-40 rounded-xl bg-black/40" />
+        <div className="absolute inset-0 z-40 rounded-xl bg-black/10" />
       )}
       <Select
         open={modoAbierto}
