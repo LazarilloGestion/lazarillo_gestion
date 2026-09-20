@@ -12,7 +12,7 @@ function rubroRow(overrides: Partial<PivotRubroRowPorProveedor>): PivotRubroRowP
 
 function proveedorRow(overrides: Partial<PivotProveedorSubRow>): PivotProveedorSubRow {
   return {
-    level: 1, id: "R1|1", nombre: "Proveedor A", proveedorId: 1, proveedorTexto: null,
+    level: 1, id: "R1|1", nombre: "Proveedor A", proveedorId: 1, proveedorTexto: null, entidadIdProveedor: "1",
     values: {}, rowTotal: 0, children: [],
     ...overrides,
   };

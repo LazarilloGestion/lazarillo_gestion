@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizarTexto } from "./text-normalize";
+import { normalizarTexto, normalizarProveedorTexto } from "./text-normalize";
 
 describe("normalizarTexto", () => {
   it("minúsculas y sin cambios en alfanumérico simple", () => {
@@ -22,5 +22,15 @@ describe("normalizarTexto", () => {
 
   it("dos textos sin relación no coinciden", () => {
     expect(normalizarTexto("Diego")).not.toBe(normalizarTexto("Creacion Tm Sr"));
+  });
+});
+
+describe("normalizarProveedorTexto", () => {
+  it("con texto: normaliza el texto crudo del proveedor", () => {
+    expect(normalizarProveedorTexto("Diego")).toBe("diego");
+  });
+
+  it("sin texto (null): cae al fallback 'Sin Proveedor' normalizado", () => {
+    expect(normalizarProveedorTexto(null)).toBe("sinproveedor");
   });
 });

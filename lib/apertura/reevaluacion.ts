@@ -1,6 +1,7 @@
 import { origenAlcanza } from "./validaciones";
 import { fechaEnVigencia, type ReglaVigencia } from "./vigencia";
 import { revertirCompra, aplicarReglaACompra, type AperturaDbClient } from "./motor";
+import { normalizarProveedorTexto } from "../text-normalize";
 
 export type ReglaCandidata = {
   id: number;
@@ -40,6 +41,15 @@ export function elegirReglaParaCompra(
   );
 }
 
+// Mismo criterio que condicionMatchNivel (lib/apertura/motor.ts) para nivel
+// "proveedor" — extraída como función pura para poder testearla sin Prisma, y
+// para que este archivo y el motor NUNCA puedan resolver un entidadId distinto
+// para la misma compra.
+export function resolverEntidadIdProveedor(compra: { proveedorId: number | null; proveedor: string | null }): string {
+  if (compra.proveedorId != null) return String(compra.proveedorId);
+  return `texto:${normalizarProveedorTexto(compra.proveedor)}`;
+}
+
 // Orquestación: revierte la distribución vieja de la compra y le aplica la
 // regla activa que corresponda a su estado ACTUAL (concepto/fecha/local
 // efectivos). SIEMPRE dentro de una $transaction (igual que el resto del
@@ -61,7 +71,7 @@ export async function reevaluarCompra(
       fecha: true, fechaManual: true,
       importe: true, importeManual: true,
       conceptoCodigo: true, conceptoCodigoManual: true,
-      proveedorId: true,
+      proveedorId: true, proveedor: true,
     },
   });
   if (!compra) return { reevaluada: false, distribuidaAhora: false };
@@ -81,7 +91,7 @@ export async function reevaluarCompra(
   // v1 donde concepto era el único nivel posible.
   const nivelesAProbar: { nivel: string; entidadId: string | null }[] = [
     { nivel: "registro", entidadId: rowId },
-    { nivel: "proveedor", entidadId: compra.proveedorId != null ? String(compra.proveedorId) : null },
+    { nivel: "proveedor", entidadId: resolverEntidadIdProveedor(compra) },
     { nivel: "concepto", entidadId: conceptoEfectivo ?? null },
   ];
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { elegirReglaParaCompra, type ReglaCandidata } from "./reevaluacion";
+import { elegirReglaParaCompra, resolverEntidadIdProveedor, type ReglaCandidata } from "./reevaluacion";
 
 const reglaRamosAlquiler: ReglaCandidata = {
   id: 1, modo: "historico", fechaDesde: null, fechaHasta: null, extremosInclusivos: true,
@@ -26,5 +26,19 @@ describe("elegirReglaParaCompra", () => {
   it("compra sin local: ninguna regla", () => {
     const r = elegirReglaParaCompra({ localId: null, puntoDeVentaId: null }, new Date("2026-01-15"), [reglaRamosAlquiler, reglaSanJustoEne]);
     expect(r).toBeNull();
+  });
+});
+
+describe("resolverEntidadIdProveedor", () => {
+  it("proveedorId presente: usa el id numérico como string", () => {
+    expect(resolverEntidadIdProveedor({ proveedorId: 5, proveedor: "Juan Perez" })).toBe("5");
+  });
+
+  it("proveedorId null con texto crudo: usa 'texto:<normalizado>'", () => {
+    expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: "Diego" })).toBe("texto:diego");
+  });
+
+  it("proveedorId null y sin texto: cae a 'texto:sinproveedor'", () => {
+    expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: null })).toBe("texto:sinproveedor");
   });
 });

@@ -206,6 +206,12 @@ model Compra {
   proveedorId  Int?
   proveedorRef Proveedor? @relation(fields: [proveedorId], references: [id])
 
+  // Apertura de Gastos a nivel proveedor cuando NO hay proveedorId real — texto
+  // crudo del ERP normalizado (misma función que agrupa el árbol del pivot, ver
+  // lib/text-normalize.ts). NULL cuando proveedorId no es null: en ese caso el
+  // motor matchea por proveedorId, este campo no se usa ni se mantiene.
+  proveedorTextoNormalizado String?
+
   detalles DetalleCompra[]
 
   @@index([fecha])

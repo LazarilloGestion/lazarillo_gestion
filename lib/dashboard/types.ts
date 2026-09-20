@@ -104,6 +104,7 @@ export type PivotProveedorSubRow = {
   readonly nombre: string;
   readonly proveedorId: number | null;
   readonly proveedorTexto: string | null;
+  readonly entidadIdProveedor: string;
   values: Record<number, number>;
   rowTotal: number;
   children: PivotConceptoSubRow[];

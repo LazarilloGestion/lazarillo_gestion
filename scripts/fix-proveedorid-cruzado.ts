@@ -5,6 +5,8 @@
  * colisión de código (ver docs/superpowers/specs/2026-09-19-cruce-proveedorid-compras-design.md).
  * El ETL ya corta la causa para futuros imports (lib/etl/normalizers/compras.ts) —
  * este script corrige las filas que ya quedaron mal linkeadas en producción.
+ * Al nulificar proveedorId también completa proveedorTextoNormalizado, para que
+ * la fila siga siendo matcheable por una regla de Apertura de texto crudo.
  *
  * Por defecto corre en modo dry-run (solo reporta el plan, no escribe nada).
  * Requiere --apply para ejecutar contra la base real.
@@ -24,6 +26,7 @@ import { fileURLToPath } from "url";
 import * as path from "path";
 import { prisma } from "../lib/prisma";
 import { proveedorTextoCoincide } from "../lib/etl/normalizers/proveedor-match";
+import { normalizarProveedorTexto } from "../lib/text-normalize";
 
 // Relativo al repo (gitignored, ver .gitignore) — mismo criterio que
 // cleanup-duplicados-compras.ts: este módulo corre como ESM bajo tsx (usa
@@ -291,16 +294,37 @@ async function main() {
         );
       }
 
+      // Nulificar proveedorId sin poblar proveedorTextoNormalizado dejaría estas
+      // filas invisibles para el motor de Apertura: el árbol del dashboard las
+      // agrupa por c.proveedor crudo, así que el usuario las vería bajo su nodo
+      // de texto, pero una regla de texto activa sobre ese nodo nunca las
+      // matchearía (condicionMatchNivel exige proveedorTextoNormalizado = valor)
+      // — plata aperturada en pantalla que el motor nunca distribuye, sin error.
+      // Cada fila tiene su propio texto crudo, así que se agrupa por valor
+      // normalizado y se emite un updateMany por grupo (mismo patrón que
+      // backfill-proveedor-texto-normalizado.ts) en vez de uno solo masivo.
+      const porTextoNormalizado = new Map<string, string[]>();
+      for (const rowId of planEnVivo.rowIdANulificar) {
+        const textoNormalizado = normalizarProveedorTexto(porRowIdEnVivo.get(rowId)!.proveedor);
+        const rowIds = porTextoNormalizado.get(textoNormalizado) ?? [];
+        rowIds.push(rowId);
+        porTextoNormalizado.set(textoNormalizado, rowIds);
+      }
+
       // proveedorId: { not: null } en el where hace que este count sea una
       // aserción real (antes matcheaba solo por PK, que ya estaba garantizado
       // por el filtro de arriba — I2, code review).
-      const resultado = await tx.compra.updateMany({
-        where: { rowId: { in: planEnVivo.rowIdANulificar }, proveedorId: { not: null } },
-        data: { proveedorId: null },
-      });
-      if (resultado.count !== planEnVivo.rowIdANulificar.length) {
+      let cantidad = 0;
+      for (const [proveedorTextoNormalizado, rowIds] of porTextoNormalizado) {
+        const resultado = await tx.compra.updateMany({
+          where: { rowId: { in: rowIds }, proveedorId: { not: null } },
+          data: { proveedorId: null, proveedorTextoNormalizado },
+        });
+        cantidad += resultado.count;
+      }
+      if (cantidad !== planEnVivo.rowIdANulificar.length) {
         throw new Error(
-          `Verificación falló: se esperaba corregir ${planEnVivo.rowIdANulificar.length} filas, se actualizaron ${resultado.count}`
+          `Verificación falló: se esperaba corregir ${planEnVivo.rowIdANulificar.length} filas, se actualizaron ${cantidad}`
         );
       }
 
@@ -315,9 +339,13 @@ async function main() {
         );
       }
 
-      return { cantidadActualizada: resultado.count };
+      return { cantidadActualizada: cantidad };
     },
-    { timeout: 30000, maxWait: 20000 }
+    // Con el agrupamiento por texto crudo, la transacción pasó de 1 statement a
+    // uno por valor distinto de proveedor entre las candidatas (centenares
+    // posibles) — 30s dejaba de tener margen. Mismo criterio que
+    // backfill-proveedor-texto-normalizado.ts.
+    { timeout: 120000, maxWait: 20000 }
   );
 
   const archivoAplicado = await exportarDetalle(

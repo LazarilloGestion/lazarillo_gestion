@@ -244,11 +244,11 @@ export function PivotTableByProveedor() {
                         </ExpandableButton>
                         <AperturaSplitButton
                           variant="block"
-                          puedeAperturar={localId != null && pdvId != null && proveedor.proveedorId != null}
-                          tieneReglaActiva={reglasActivasPorNivel.proveedor.has(String(proveedor.proveedorId))}
+                          puedeAperturar={localId != null && pdvId != null}
+                          tieneReglaActiva={reglasActivasPorNivel.proveedor.has(proveedor.entidadIdProveedor)}
                           onClick={() => setApertura({
                             nivel: "proveedor",
-                            entidadId: String(proveedor.proveedorId),
+                            entidadId: proveedor.entidadIdProveedor,
                             entidadNombre: normalize(proveedor.nombre),
                             origenLocalId: localId ?? null,
                             origenPdvId: pdvId ?? null,

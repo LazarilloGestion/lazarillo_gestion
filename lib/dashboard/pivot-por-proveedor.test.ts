@@ -81,6 +81,30 @@ describe("buildPivotDataByProveedor", () => {
     expect(proveedor.proveedorTexto).toBe("Diego");
   });
 
+  it("entidadIdProveedor: con proveedor_id usa el id como string", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: 7, proveedor_nombre: "Proveedor G", row_id: "a1", total: 10 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    expect(data.rows[0].children[0].entidadIdProveedor).toBe("7");
+  });
+
+  it("entidadIdProveedor: sin proveedor_id usa 'texto:<normalizado>' del proveedor_nombre", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "Diego", proveedor_texto_crudo: "Diego", row_id: "x1", total: 10 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    expect(data.rows[0].children[0].entidadIdProveedor).toBe("texto:diego");
+  });
+
+  it("entidadIdProveedor: nodo genuino Sin Proveedor usa 'texto:sinproveedor'", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", proveedor_texto_crudo: null, row_id: "x1", total: 10 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    expect(data.rows[0].children[0].entidadIdProveedor).toBe("texto:sinproveedor");
+  });
+
   it("dos textos crudos distintos sin proveedor real: dos nodos separados, no se mezclan", () => {
     const rows: SqlRow[] = [
       row({ proveedor_id: null, proveedor_nombre: "Diego", proveedor_texto_crudo: "Diego", row_id: "x1", total: 10 }),

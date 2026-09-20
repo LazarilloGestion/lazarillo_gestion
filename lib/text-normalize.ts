@@ -14,3 +14,11 @@ export function normalizarTexto(s: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
 }
+
+// Fallback compartido por ETL, reevaluación de Apertura y el backfill de
+// producción — las 3 rutas que necesitan resolver "qué texto de proveedor usar
+// cuando no hay proveedorId real", con el mismo criterio que el COALESCE(...,
+// 'Sin Proveedor') que ya arma app/api/dashboard/pivot/route.ts.
+export function normalizarProveedorTexto(proveedor: string | null): string {
+  return normalizarTexto(proveedor ?? "Sin Proveedor");
+}

@@ -69,8 +69,9 @@ describe("normalizeCompras", () => {
     expect(res.skippedRows.filter((s) => s.motivo === "duplicado")).toHaveLength(0);
   });
 
-  // Índice 16 = columna "proveedorId" en el INSERT de compras.ts (20 columnas por fila,
-  // mismo criterio de introspección de $executeRaw que ventas.test.ts:91-92).
+  // Índice 16 = columna "proveedorId" en el INSERT de compras.ts; índice 20 =
+  // "proveedorTextoNormalizado" (21 columnas por fila), mismo criterio de
+  // introspección de $executeRaw que ventas.test.ts:91-92.
 
   it("resuelve proveedorId cuando el texto crudo coincide con el nombre del proveedor", async () => {
     const proveedorModel = {
@@ -114,6 +115,35 @@ describe("normalizeCompras", () => {
     expect(res.created).toBe(1);
     const call = (db.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0][0] as { values: unknown[] };
     expect(call.values[16]).toBe(7);
+  });
+
+  it("proveedorId null: proveedorTextoNormalizado usa el texto crudo normalizado", async () => {
+    const db = createMockDb();
+    const res = await normalizeCompras([baseRow({ CODIGO: null, PROVEEDOR: "Diego" })], db);
+    expect(res.created).toBe(1);
+    const call = (db.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0][0] as { values: unknown[] };
+    expect(call.values[16]).toBeNull(); // proveedorId
+    expect(call.values[20]).toBe("diego"); // proveedorTextoNormalizado
+  });
+
+  it("proveedorId null y sin texto de proveedor: proveedorTextoNormalizado cae a 'Sin Proveedor' normalizado", async () => {
+    const db = createMockDb();
+    const res = await normalizeCompras([baseRow({ CODIGO: null, PROVEEDOR: null })], db);
+    expect(res.created).toBe(1);
+    const call = (db.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0][0] as { values: unknown[] };
+    expect(call.values[20]).toBe("sinproveedor");
+  });
+
+  it("proveedorId resuelto (no null): proveedorTextoNormalizado queda null, no se calcula", async () => {
+    const proveedorModel = {
+      findMany: vi.fn().mockResolvedValue([{ id: 5, codigo: "PROV1", nombre: "Juan Perez", razon: null }]),
+    };
+    const db = createMockDb({ proveedor: proveedorModel });
+    const res = await normalizeCompras([baseRow({ CODIGO: "PROV1", PROVEEDOR: "Juan Perez" })], db);
+    expect(res.created).toBe(1);
+    const call = (db.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0][0] as { values: unknown[] };
+    expect(call.values[16]).toBe(5); // proveedorId
+    expect(call.values[20]).toBeNull(); // proveedorTextoNormalizado
   });
 
   it("conceptoCodigo queda null (no revienta) cuando el código no existe en conceptos_caja", async () => {

@@ -85,6 +85,13 @@ export function buildPivotDataByProveedor(
         // ninguna fila real de c.proveedor y dejaba el modal vacío. Con null
         // acá, la UI cae a su rama sinProveedor:true.
         proveedorTexto: proveedor_id != null ? null : proveedor_texto_crudo,
+        // Mismo valor que ya usa condicionMatchNivel (lib/apertura/motor.ts) y
+        // resolverEntidadIdProveedor (lib/apertura/reevaluacion.ts) para nivel
+        // "proveedor" — la UI nunca recomputa normalizarTexto por su cuenta,
+        // así la clave de agrupación y el entidadId de una regla nueva son
+        // byte-idénticos por construcción (docs/superpowers/specs/2026-09-20-
+        // apertura-proveedor-texto-crudo-design.md §4.3).
+        entidadIdProveedor: provKeyOriginal,
         values: {},
         rowTotal: 0,
         children: [],
