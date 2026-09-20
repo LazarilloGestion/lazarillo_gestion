@@ -8,6 +8,7 @@ import { parseComprobanteFromDetalle, computeCompraRowId, compraIdentityFromRawR
 import { camposErpCambiaron, type CompraErpFields } from "./compras-diff";
 import { canonicalDecimal } from "./compra-identity";
 import { resolveProveedorId, type ProveedorCandidato } from "./proveedor-match";
+import { normalizarProveedorTexto } from "../../text-normalize";
 
 import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 
@@ -189,6 +190,12 @@ export async function normalizeCompras(
       const rowValues = chunk.map(({ rowId, row, data }) => {
         const proveedorId = resolveProveedorId(data.CODIGO, data.PROVEEDOR, provMap);
         const conceptoCodigo = conceptoSet.has(data.COD_CGA) ? data.COD_CGA : null;
+        // Solo se calcula cuando NO hay proveedorId real — es la dimensión de
+        // matching que usa el motor de Apertura para nivel "proveedor" cuando
+        // el ERP no linkeó un proveedor real (ver lib/apertura/motor.ts).
+        const proveedorTextoNormalizado = proveedorId == null
+          ? normalizarProveedorTexto(data.PROVEEDOR)
+          : null;
 
         return Prisma.sql`(
           ${rowId},
@@ -210,7 +217,8 @@ export async function normalizeCompras(
           ${proveedorId}::integer,
           ${conceptoCodigo},
           ${localId}::integer,
-          ${puntoDeVentaId}::integer
+          ${puntoDeVentaId}::integer,
+          ${proveedorTextoNormalizado}
         )`;
       });
 
@@ -218,7 +226,7 @@ export async function normalizeCompras(
         INSERT INTO compras (
           "rowId", "codCga", concepto, comprobante, fecha, codigo, proveedor, detalle, observac,
           importe, "importeTrabajado", "impInt", imputac, per1, per2, per3,
-          "proveedorId", "conceptoCodigo", "localId", "puntoDeVentaId"
+          "proveedorId", "conceptoCodigo", "localId", "puntoDeVentaId", "proveedorTextoNormalizado"
         )
         VALUES ${Prisma.join(rowValues)}
         ON CONFLICT ("rowId") DO UPDATE SET
@@ -239,6 +247,7 @@ export async function normalizeCompras(
           per3               = EXCLUDED.per3,
           "proveedorId"      = EXCLUDED."proveedorId",
           "conceptoCodigo"   = EXCLUDED."conceptoCodigo",
+          "proveedorTextoNormalizado" = EXCLUDED."proveedorTextoNormalizado",
           -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
           "localId"          = COALESCE(compras."localId", EXCLUDED."localId"),
           "puntoDeVentaId"   = COALESCE(compras."puntoDeVentaId", EXCLUDED."puntoDeVentaId")
