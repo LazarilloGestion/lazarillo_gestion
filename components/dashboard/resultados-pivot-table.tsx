@@ -1,4 +1,5 @@
 "use client";
+import { useMemo, useState } from "react";
 import { useResultadosData } from "@/hooks/use-resultados-data";
 import { ExpandableButton } from "@/components/ui/expandable-button";
 import { ChevronDown, ChevronUp, Inbox, ListTree } from "lucide-react";
@@ -6,6 +7,9 @@ import { cn, fmtARS, normalize } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { pctSobreIngresos } from "@/lib/dashboard/resultados-calc";
+import { useReglasApertura } from "@/hooks/use-reglas-apertura";
+import { origenAlcanza } from "@/lib/apertura/validaciones";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PivotLoading, PivotError } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
 import { CajaRows } from "./caja-rows";
@@ -13,10 +17,13 @@ import { SocietarioRows } from "./societario-rows";
 import { SectionDivider } from "./section-divider";
 import { StickyCardCell } from "./sticky-card-cell";
 import { cardCellClasses, CARD_GAP_HEIGHT } from "@/lib/dashboard/card-row-classes";
-import { EditedDot } from "./edit-row-controls";
+import { EditedDot, AperturaDot } from "./edit-row-controls";
 import type { PivotRubroRow, PivotConceptoRow } from "@/lib/dashboard/types";
+import type { NivelRegla } from "@/lib/apertura/schemas";
 import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
+import { AperturaGastosModal } from "./apertura-gastos-modal";
+import { AperturaSplitButton } from "./apertura-split-button";
 
 export function ResultadosPivotTable() {
   const {
@@ -26,6 +33,35 @@ export function ResultadosPivotTable() {
     expanded, toggleRow, collapseAll, collapseConceptos,
     detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   } = useResultadosData();
+
+  const [apertura, setApertura] = useState<{
+    nivel: NivelRegla;
+    entidadId: string;
+    entidadNombre: string;
+    origenLocalId: number | null;
+    origenPdvId: number | null;
+  } | null>(null);
+  const { reglas } = useReglasApertura();
+  // Mismo cálculo que pivot-table-por-concepto.tsx — un solo pase sobre las
+  // reglas activas alcanzables por el filtro actual, separado por nivel.
+  const reglasActivasPorNivel = useMemo(() => {
+    const activas = reglas.filter((r) => r.estado === "activa");
+    const alcanzaFiltro = (r: (typeof activas)[number]) => {
+      if (pdvId == null && localId == null) return true;
+      if (pdvId != null) {
+        return origenAlcanza(
+          { localId: r.origenLocalId, puntoDeVentaId: r.origenPuntoDeVentaId },
+          { localId: localId ?? r.origenLocalId, puntoDeVentaId: pdvId }
+        );
+      }
+      return r.origenLocalId === localId;
+    };
+    const alcanzadas = activas.filter(alcanzaFiltro);
+    return {
+      concepto: new Set(alcanzadas.filter((r) => r.nivel === "concepto").map((r) => r.entidadId)),
+      registro: new Set(alcanzadas.filter((r) => r.nivel === "registro").map((r) => r.entidadId)),
+    };
+  }, [reglas, localId, pdvId]);
 
   if (operacion.isLoading || isLoading) return <PivotLoading />;
   if (operacion.error || error) return <PivotError />;
@@ -202,27 +238,66 @@ export function ResultadosPivotTable() {
                         onContextMenu={collapseConceptos}
                       >
                         <StickyCardCell position={rowPosition} className="px-4 py-2">
-                          <ExpandableButton isExpanded={isExpanded} onClick={() => toggleRow(concepto.id)} indent="pl-5" iconSize="w-3.5 h-3.5">
-                            {concepto.nombre}
-                          </ExpandableButton>
+                          <div className="flex items-center gap-1">
+                            <ExpandableButton
+                              isExpanded={isExpanded}
+                              onClick={() => toggleRow(concepto.id)}
+                              indent="pl-5"
+                              iconSize="w-3.5 h-3.5"
+                              className="flex-1 min-w-0"
+                            >
+                              {concepto.nombre}
+                            </ExpandableButton>
+                            <AperturaSplitButton
+                              variant="block"
+                              puedeAperturar={localId != null && pdvId != null}
+                              tieneReglaActiva={reglasActivasPorNivel.concepto.has(concepto.conceptoCodigo)}
+                              onClick={() => setApertura({
+                                nivel: "concepto",
+                                entidadId: concepto.conceptoCodigo,
+                                entidadNombre: concepto.nombre,
+                                origenLocalId: localId ?? null,
+                                origenPdvId: pdvId ?? null,
+                              })}
+                            />
+                          </div>
                         </StickyCardCell>
-                        {months.map((mes) => (
-                          <td
-                            key={mes}
-                            className={cn(
-                              "text-right px-3 py-2 tabular-nums text-muted-foreground",
-                              cardCellClasses(rowPosition, "mid"),
-                              hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
-                            )}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (hasValue(concepto.values[mes]))
-                                openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo });
-                            }}
-                          >
-                            {fmtARS(concepto.values[mes])}
-                          </td>
-                        ))}
+                        {months.map((mes) => {
+                          const comp = concepto.composicion?.[mes];
+                          const cell = (
+                            <td
+                              key={mes}
+                              className={cn(
+                                "text-right px-3 py-2 tabular-nums text-muted-foreground",
+                                cardCellClasses(rowPosition, "mid"),
+                                hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
+                              )}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (hasValue(concepto.values[mes]))
+                                  openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo });
+                              }}
+                            >
+                              {fmtARS(concepto.values[mes])}
+                            </td>
+                          );
+                          if (!comp) return cell;
+                          return (
+                            <Tooltip key={mes}>
+                              <TooltipTrigger asChild>{cell}</TooltipTrigger>
+                              <TooltipContent className="text-xs">
+                                <div className="flex flex-col items-start gap-0.5">
+                                  <div className="font-medium">100% · {fmtARS(comp.total)}</div>
+                                  {comp.destinos.map((d, i) => (
+                                    <div key={i} className="text-background/70">
+                                      {d.pct}% {d.nombre} {fmtARS(d.importe)}
+                                    </div>
+                                  ))}
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
                         <td
                           className={cn("text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold cursor-pointer hover:text-foreground", cardCellClasses(rowPosition, "mid"))}
                           onClick={(e) => {
@@ -246,11 +321,12 @@ export function ResultadosPivotTable() {
                     prov.observac || null,
                     fmtARS(prov.importe),
                   ].filter(Boolean);
+                  const labelProv = labelParts.join(' · ');
                   return (
                     <tr
                       key={prov.id}
                       className={cn(
-                        "border-b transition-colors",
+                        "group border-b transition-colors",
                         prov.hasManualOverride
                           ? "bg-attention/5 hover:bg-attention/10"
                           : "hover:bg-accent/20"
@@ -259,7 +335,19 @@ export function ResultadosPivotTable() {
                       <StickyCardCell position={rowPosition} className={cn("px-4 py-1.5 pl-14 text-xs", prov.hasManualOverride ? "text-attention" : "text-muted-foreground")}>
                         <span className="flex items-center gap-1.5">
                           {prov.hasManualOverride && <EditedDot />}
-                          {labelParts.join(' · ')}
+                          {prov.distribucionId != null && <AperturaDot />}
+                          {labelProv}
+                          <AperturaSplitButton
+                            puedeAperturar={localId != null && pdvId != null}
+                            tieneReglaActiva={reglasActivasPorNivel.registro.has(prov.rowId)}
+                            onClick={() => setApertura({
+                              nivel: "registro",
+                              entidadId: prov.rowId,
+                              entidadNombre: labelProv,
+                              origenLocalId: prov.localIdOrigen,
+                              origenPdvId: prov.puntoDeVentaIdOrigen,
+                            })}
+                          />
                         </span>
                       </StickyCardCell>
                       {months.map((mes) => (
@@ -303,6 +391,15 @@ export function ResultadosPivotTable() {
       <VentasDetalleModal
         filter={ventasDetalleFilter}
         onClose={() => setVentasDetalleFilter(null)}
+      />
+
+      <AperturaGastosModal
+        nivel={apertura?.nivel ?? "concepto"}
+        entidadId={apertura?.entidadId ?? null}
+        entidadNombre={apertura?.entidadNombre ?? ""}
+        origenLocalId={apertura?.origenLocalId ?? null}
+        origenPdvId={apertura?.origenPdvId ?? null}
+        onClose={() => setApertura(null)}
       />
     </>
   );
