@@ -121,6 +121,11 @@ async function main() {
     return;
   }
 
+  // La verificación de conteo va DENTRO del callback (no después del
+  // await prisma.$transaction(...)): si no matchea, el throw hace que la
+  // transacción entera rechace y Prisma haga rollback, en vez de dejar
+  // confirmada una escritura parcial (mismo patrón que fix-proveedorid-cruzado.ts,
+  // I-review Task 7).
   let actualizadas = 0;
   await prisma.$transaction(async (tx) => {
     for (const { rowId, proveedorTextoNormalizado } of planEnVivo.actualizaciones) {
@@ -130,13 +135,13 @@ async function main() {
       });
       actualizadas += resultado.count;
     }
-  }, { timeout: 30000, maxWait: 20000 });
 
-  if (actualizadas !== planEnVivo.actualizaciones.length) {
-    throw new Error(
-      `Verificación falló: se esperaba completar ${planEnVivo.actualizaciones.length} filas, se actualizaron ${actualizadas}`
-    );
-  }
+    if (actualizadas !== planEnVivo.actualizaciones.length) {
+      throw new Error(
+        `Verificación falló: se esperaba completar ${planEnVivo.actualizaciones.length} filas, se actualizaron ${actualizadas}`
+      );
+    }
+  }, { timeout: 30000, maxWait: 20000 });
 
   const archivoAplicado = await exportarDetalle(planEnVivo.actualizaciones, `${SCRATCHPAD_DIR}/backfill-aplicado.json`);
   console.log(`\n=== Verificación post-backfill ===`);
