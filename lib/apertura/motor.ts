@@ -23,8 +23,23 @@ export const PRIORIDAD_NIVEL: Record<NivelRegla, number> = {
 // plata real contra las compras equivocadas sin ningún error (hallazgo de la
 // revisión final de rama). Con el tipo acotado al enum de nivelReglaSchema,
 // un valor no reconocido es un error de compilación, no un bug de datos.
-function condicionMatchNivel(nivel: NivelRegla, entidadId: string): Prisma.Sql {
-  if (nivel === "proveedor") return Prisma.sql`c."proveedorId"::text = ${entidadId}`;
+export function condicionMatchNivel(nivel: NivelRegla, entidadId: string): Prisma.Sql {
+  if (nivel === "proveedor") {
+    // "texto:" identifica una regla sobre un proveedor de texto crudo del ERP
+    // (Diego, GASTOS VARIOS, o el nodo genuino "Sin Proveedor" → "texto:sinproveedor")
+    // en vez de un proveedorId real — mismo prefijo que ya usa provKeyOriginal en
+    // lib/dashboard/pivot-por-proveedor.ts, para que agrupación visual y matching
+    // de reglas nunca diverjan. proveedorTextoNormalizado (lib/etl/normalizers/
+    // compras.ts) solo se calcula cuando proveedorId es null, así que el AND es
+    // necesario: sin él, una compra con proveedorId real cuyo proveedorTextoNormalizado
+    // quedó de un import viejo (no aplica hoy, pero no depende de esa garantía)
+    // podría matchear por error.
+    if (entidadId.startsWith("texto:")) {
+      const valorNormalizado = entidadId.slice("texto:".length);
+      return Prisma.sql`c."proveedorId" IS NULL AND c."proveedorTextoNormalizado" = ${valorNormalizado}`;
+    }
+    return Prisma.sql`c."proveedorId"::text = ${entidadId}`;
+  }
   // OJO: rowId no es estable para compras SIN comprobante confiable (sueldos,
   // alquiler, gastos sueltos, tickets) — computeCompraRowId (lib/etl/normalizers/
   // compra-identity.ts) incluye el importe en el hash para esos casos, así que
