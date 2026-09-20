@@ -13,7 +13,10 @@
  * Uso:
  *   npx tsx scripts/backfill-proveedor-texto-normalizado.ts                          # dry-run
  *   npx tsx scripts/backfill-proveedor-texto-normalizado.ts --apply                  # aplica de verdad
- *   npx tsx scripts/backfill-proveedor-texto-normalizado.ts --apply --esperadas=11826
+ *   npx tsx scripts/backfill-proveedor-texto-normalizado.ts --apply --esperadas=<N>
+ *
+ * <N> es el conteo que el humano aprobó en la corrida de dry-run inmediatamente
+ * anterior — cambia con cada import nuevo, no hay un valor correcto fijo.
  */
 
 import { config } from "dotenv";
@@ -56,6 +59,21 @@ export function planBackfillProveedorTexto(compras: CompraParaBackfill[]): PlanB
   return { actualizaciones };
 }
 
+// Un updateMany por FILA contra la base real proyectaba ~800s (medido: ~59ms de
+// round-trip por statement × ~14.000 filas), muy por encima de cualquier timeout
+// de transacción razonable — el --apply nunca podría terminar. Los valores
+// distintos de proveedorTextoNormalizado son ~173, así que agrupar por valor
+// convierte ~14.000 statements en ~173.
+export function agruparPorTextoNormalizado(actualizaciones: ActualizacionBackfill[]): Map<string, string[]> {
+  const porValor = new Map<string, string[]>();
+  for (const { rowId, proveedorTextoNormalizado } of actualizaciones) {
+    const rowIds = porValor.get(proveedorTextoNormalizado) ?? [];
+    rowIds.push(rowId);
+    porValor.set(proveedorTextoNormalizado, rowIds);
+  }
+  return porValor;
+}
+
 function parsearEsperadas(argv: string[]): number | null {
   const arg = argv.find((a) => a.startsWith("--esperadas="));
   if (!arg) return null;
@@ -86,6 +104,7 @@ async function main() {
   console.log(`\n=== Plan de backfill de proveedorTextoNormalizado (${apply ? "aplicando" : "dry-run"}) ===`);
   console.log(`Compras con proveedorId null: ${compras.length}`);
   console.log(`Filas a completar: ${plan.actualizaciones.length}`);
+  console.log(`Valores distintos de proveedorTextoNormalizado (updateMany a emitir): ${agruparPorTextoNormalizado(plan.actualizaciones).size}`);
 
   if (!apply) {
     const archivoDryRun = await exportarDetalle(plan.actualizaciones, `${SCRATCHPAD_DIR}/backfill-dry-run.json`);
@@ -126,11 +145,18 @@ async function main() {
   // transacción entera rechace y Prisma haga rollback, en vez de dejar
   // confirmada una escritura parcial (mismo patrón que fix-proveedorid-cruzado.ts,
   // I-review Task 7).
+  const porValor = agruparPorTextoNormalizado(planEnVivo.actualizaciones);
+  console.log(`Grupos a actualizar (un updateMany por valor): ${porValor.size}`);
+
   let actualizadas = 0;
+  // timeout de 120s: ~173 statements × ~59ms medidos ≈ 10s de round-trips, más
+  // el costo del update en sí. Margen amplio a propósito — el escenario malo no
+  // es tardar de más, es que un pico de latencia haga fallar el único --apply
+  // que un humano autorizó.
   await prisma.$transaction(async (tx) => {
-    for (const { rowId, proveedorTextoNormalizado } of planEnVivo.actualizaciones) {
+    for (const [proveedorTextoNormalizado, rowIds] of porValor) {
       const resultado = await tx.compra.updateMany({
-        where: { rowId, proveedorId: null },
+        where: { rowId: { in: rowIds }, proveedorId: null },
         data: { proveedorTextoNormalizado },
       });
       actualizadas += resultado.count;
@@ -141,7 +167,7 @@ async function main() {
         `Verificación falló: se esperaba completar ${planEnVivo.actualizaciones.length} filas, se actualizaron ${actualizadas}`
       );
     }
-  }, { timeout: 30000, maxWait: 20000 });
+  }, { timeout: 120000, maxWait: 20000 });
 
   const archivoAplicado = await exportarDetalle(planEnVivo.actualizaciones, `${SCRATCHPAD_DIR}/backfill-aplicado.json`);
   console.log(`\n=== Verificación post-backfill ===`);
