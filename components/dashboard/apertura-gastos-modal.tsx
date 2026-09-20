@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Plus, Pencil, Trash2, Ban, Inbox } from "lucide-react";
 import { cn, fmtARS } from "@/lib/utils";
@@ -361,6 +362,8 @@ export function AperturaGastosModal({
             <DialogTitle className="text-base">Apertura de gastos — {entidadNombre}</DialogTitle>
           </DialogHeader>
 
+          <Separator />
+
           {view === "lista" && (
             <div className="flex flex-col gap-2">
               {reglasLoading ? (
@@ -370,9 +373,10 @@ export function AperturaGastosModal({
                   Error: {reglasError.message}
                 </div>
               ) : reglasDeLaEntidad.length === 0 ? (
-                <div className="py-4 flex flex-col items-center gap-2 text-sm text-muted-foreground">
+                <div className="py-8 flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
                   <Inbox className="w-8 h-8 opacity-40" />
-                  Todavía no hay reglas de apertura para esto.
+                  <span>Todavía no hay reglas de apertura para esto.</span>
+                  <span className="text-xs">Creá una para repartir este gasto entre otros locales o puntos de venta.</span>
                 </div>
               ) : (
                 reglasDeLaEntidad.map((regla) => (
@@ -423,7 +427,12 @@ export function AperturaGastosModal({
               <button
                 type="button"
                 onClick={abrirFormularioNuevo}
-                className="mt-1 inline-flex items-center justify-center gap-1.5 h-8 rounded-md border text-xs hover:bg-muted"
+                className={cn(
+                  "mt-2 inline-flex items-center justify-center gap-1.5 h-8 rounded-md text-xs",
+                  reglasDeLaEntidad.length === 0
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                    : "border hover:bg-muted"
+                )}
               >
                 <Plus className="h-3.5 w-3.5" /> Nueva regla
               </button>
@@ -456,9 +465,15 @@ export function AperturaGastosModal({
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Destinos</span>
-                  <span>
+                  <span className="flex items-center gap-1.5">
                     Total del período:{" "}
-                    {previewLoading ? "…" : total === null ? "—" : fmtARS(total)}
+                    {previewLoading ? (
+                      <Skeleton className="h-3.5 w-16" />
+                    ) : total === null ? (
+                      "—"
+                    ) : (
+                      fmtARS(total)
+                    )}
                   </span>
                 </div>
                 <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-2">

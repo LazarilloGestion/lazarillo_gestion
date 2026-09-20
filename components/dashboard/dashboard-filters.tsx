@@ -48,7 +48,7 @@ export function DashboardFilters() {
   const isVentas = tab === "ventas";
   const isResultados = tab === "resultados";
   const rubrosConfigProps = isResultados
-    ? { field: "visibleEnResultados" as const, title: "Conceptos visibles en Resultados" }
+    ? { field: "visibleEnResultados" as const, title: "Rubros visibles en Resultados" }
     : {};
   const isMobile = useIsMobile();
 

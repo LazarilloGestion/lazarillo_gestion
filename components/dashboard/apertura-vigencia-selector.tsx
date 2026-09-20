@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -29,10 +30,20 @@ export function AperturaVigenciaSelector({
   value: VigenciaFormState;
   onChange: (next: VigenciaFormState) => void;
 }) {
+  const [modoAbierto, setModoAbierto] = useState(false);
+
   return (
     <div className="flex flex-col gap-2">
-      <Select value={value.modo} onValueChange={(v) => onChange({ ...value, modo: v as ModoVigencia })}>
-        <SelectTrigger className="h-8 w-full text-xs" size="sm">
+      {modoAbierto && (
+        <div className="absolute inset-0 z-40 rounded-xl bg-black/40" />
+      )}
+      <Select
+        open={modoAbierto}
+        onOpenChange={setModoAbierto}
+        value={value.modo}
+        onValueChange={(v) => onChange({ ...value, modo: v as ModoVigencia })}
+      >
+        <SelectTrigger className="relative z-50 h-8 w-full text-xs" size="sm">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
