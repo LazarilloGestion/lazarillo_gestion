@@ -36,7 +36,10 @@ export function condicionMatchNivel(nivel: NivelRegla, entidadId: string): Prism
     // podría matchear por error.
     if (entidadId.startsWith("texto:")) {
       const valorNormalizado = entidadId.slice("texto:".length);
-      return Prisma.sql`c."proveedorId" IS NULL AND c."proveedorTextoNormalizado" = ${valorNormalizado}`;
+      // Paréntesis envolventes: los callers de hoy solo concatenan con AND, pero
+      // uno futuro que use OR/NOT rompería la precedencia en silencio sobre plata
+      // real (el IS NULL se ataría al OR externo en vez de al igual de texto).
+      return Prisma.sql`(c."proveedorId" IS NULL AND c."proveedorTextoNormalizado" = ${valorNormalizado})`;
     }
     return Prisma.sql`c."proveedorId"::text = ${entidadId}`;
   }
