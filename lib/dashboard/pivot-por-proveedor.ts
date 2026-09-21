@@ -1,4 +1,5 @@
 import { normalizarTexto } from "../text-normalize";
+import { mergeComposiciones } from "./apertura-composicion";
 import type {
   SqlRow,
   ComposicionMes,
@@ -150,12 +151,53 @@ export function buildPivotDataByProveedor(
           }
           concepto.rowTotal += linea.rowTotal;
         }
+        // composicionTotal del concepto: fusiona su propia composición mensual
+        // (si tiene regla aplicada) en una sola composición anual. El
+        // "sin regla" son los meses SIN composicion — no `rowTotal - suma`,
+        // porque composicion.total es el reparto completo sin filtrar por
+        // PDV (ver mergeComposiciones) y no es comparable contra rowTotal
+        // cuando hay un filtro de PDV activo.
+        const mesesSinComposicion = Object.keys(concepto.values)
+          .map(Number)
+          .filter((m) => !concepto.composicion?.[m]);
+        const totalSinReglaConcepto = mesesSinComposicion.reduce((s, m) => s + concepto.values[m], 0);
+        concepto.composicionTotal = mergeComposiciones(
+          concepto.composicion ? Object.values(concepto.composicion) : [],
+          totalSinReglaConcepto
+        );
         for (const [m, val] of Object.entries(concepto.values)) {
           const mn = Number(m);
           proveedor.values[mn] = (proveedor.values[mn] ?? 0) + val;
         }
         proveedor.rowTotal += concepto.rowTotal;
       }
+      // composicion del proveedor: fusiona la composición de sus conceptos
+      // hijos (por mes y en el total anual) — ver tooltip del total de
+      // proveedor, que hasta acá no tenía de dónde sacar este dato.
+      const mesesConComposicion = new Set<number>();
+      for (const concepto of proveedor.children) {
+        for (const m of Object.keys(concepto.composicion ?? {})) mesesConComposicion.add(Number(m));
+      }
+      for (const mes of mesesConComposicion) {
+        const totalSinReglaMes = proveedor.children
+          .filter((c) => !c.composicion?.[mes])
+          .reduce((s, c) => s + (c.values[mes] ?? 0), 0);
+        const merged = mergeComposiciones(
+          proveedor.children.map((c) => c.composicion?.[mes]),
+          totalSinReglaMes
+        );
+        if (merged) {
+          proveedor.composicion ??= {};
+          proveedor.composicion[mes] = merged;
+        }
+      }
+      const totalSinReglaAnual = proveedor.children
+        .filter((c) => !c.composicionTotal)
+        .reduce((s, c) => s + c.rowTotal, 0);
+      proveedor.composicionTotal = mergeComposiciones(
+        proveedor.children.map((c) => c.composicionTotal),
+        totalSinReglaAnual
+      );
       for (const [m, val] of Object.entries(proveedor.values)) {
         const mn = Number(m);
         rubro.values[mn] = (rubro.values[mn] ?? 0) + val;

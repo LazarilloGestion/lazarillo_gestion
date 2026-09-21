@@ -109,3 +109,55 @@ export function buildComposicionPorProveedor(
   }
   return out;
 }
+
+// Umbral bajo el cual un `totalSinRegla` se considera error de redondeo
+// flotante, no un remanente real sin apertura — evita un bucket "Sin
+// apertura" espurio de centavos (o negativo).
+const EPSILON_SIN_APERTURA = 0.01;
+
+// Fusiona N ComposicionMes (de distintos conceptos de un mismo proveedor en
+// un mes, o de distintos meses de un mismo concepto/proveedor en el año) en
+// una sola composición agregada, sumando importe por destino (agrupado por
+// nombre).
+//
+// OJO: `composicion.total` de cada parte es SIEMPRE el reparto completo sin
+// filtrar por PDV (ver app/api/dashboard/pivot/route.ts, comentario sobre
+// `conditionsComposicion` — decisión a propósito para que el tooltip no
+// desaparezca al filtrar por un PDV destino). Por eso el total agregado acá
+// NO se fuerza contra el valor (posiblemente filtrado) de la celda que
+// dispara el tooltip — sería mezclar dos bases distintas y da porcentajes
+// sin sentido (>100%). En cambio, `totalSinRegla` lo arma el caller sumando
+// el `values`/`rowTotal` de los hijos que NO tienen composicion — para esos
+// sí es válido usar el valor (filtrado o no) tal cual, porque un concepto
+// sin regla no se reparte: su valor ES su total real.
+export function mergeComposiciones(
+  partes: Array<ComposicionMes | undefined>,
+  totalSinRegla: number
+): ComposicionMes | undefined {
+  if (partes.every((p) => p === undefined)) return undefined;
+
+  const importePorDestino = new Map<string, number>();
+  let totalConRegla = 0;
+  for (const parte of partes) {
+    if (!parte) continue;
+    totalConRegla += parte.total;
+    for (const d of parte.destinos) {
+      importePorDestino.set(d.nombre, (importePorDestino.get(d.nombre) ?? 0) + d.importe);
+    }
+  }
+
+  const sinRegla = totalSinRegla > EPSILON_SIN_APERTURA ? totalSinRegla : 0;
+  const total = totalConRegla + sinRegla;
+  const pct = (importe: number) => (total !== 0 ? (importe / total) * 100 : 0);
+  const destinos = Array.from(importePorDestino.entries()).map(([nombre, importe]) => ({
+    nombre,
+    pct: pct(importe),
+    importe,
+  }));
+
+  if (sinRegla > 0) {
+    destinos.push({ nombre: "Sin apertura", pct: pct(sinRegla), importe: sinRegla });
+  }
+
+  return { total, destinos };
+}

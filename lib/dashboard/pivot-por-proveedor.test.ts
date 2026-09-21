@@ -180,4 +180,107 @@ describe("buildPivotDataByProveedor", () => {
     const lineaIds = data.rows[0].children[0].children[0].children.map((l) => l.id);
     expect(new Set(lineaIds).size).toBe(2);
   });
+
+  it("un único concepto con composicion y cobertura total: el proveedor hereda la misma composicion del mes, sin bucket 'Sin apertura'", () => {
+    const rows: SqlRow[] = [row({ proveedor_id: 1, concepto_codigo: "C1", row_id: "a1", mes: 1, total: 100 })];
+    const composicion = { "C1|1": { 1: { total: 100, destinos: [{ nombre: "Local A", pct: 100, importe: 100 }] } } };
+    const data = buildPivotDataByProveedor(rows, composicion);
+    const proveedor = data.rows[0].children[0];
+    expect(proveedor.composicion?.[1]).toEqual({ total: 100, destinos: [{ nombre: "Local A", pct: 100, importe: 100 }] });
+  });
+
+  it("dos conceptos bajo el mismo proveedor, solo uno con composicion: el total del proveedor agrega bucket 'Sin apertura' con el resto", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: 1, concepto_codigo: "C1", row_id: "a1", mes: 2, total: 110 }),
+      row({ proveedor_id: 1, concepto_codigo: "C2", concepto_nombre: "Concepto 2", row_id: "a2", mes: 2, total: 918367 }),
+    ];
+    const composicion = {
+      "C1|1": { 2: { total: 110, destinos: [{ nombre: "Ramos Mejía — Bar", pct: 70, importe: 77 }, { nombre: "Ramos Mejía — Canchas", pct: 30, importe: 33 }] } },
+    };
+    const data = buildPivotDataByProveedor(rows, composicion);
+    const proveedor = data.rows[0].children[0];
+    expect(proveedor.values[2]).toBe(918477);
+    expect(proveedor.composicion?.[2]).toEqual({
+      total: 918477,
+      destinos: [
+        { nombre: "Ramos Mejía — Bar", pct: (77 / 918477) * 100, importe: 77 },
+        { nombre: "Ramos Mejía — Canchas", pct: (33 / 918477) * 100, importe: 33 },
+        { nombre: "Sin apertura", pct: (918367 / 918477) * 100, importe: 918367 },
+      ],
+    });
+  });
+
+  it("composicionTotal del concepto agrega su propia composicion mensual a lo largo del año", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: 1, concepto_codigo: "C1", row_id: "a1", mes: 1, total: 100 }),
+      row({ proveedor_id: 1, concepto_codigo: "C1", row_id: "a2", mes: 2, total: 50 }),
+    ];
+    const composicion = {
+      "C1|1": {
+        1: { total: 100, destinos: [{ nombre: "Local A", pct: 100, importe: 100 }] },
+        2: { total: 50, destinos: [{ nombre: "Local A", pct: 100, importe: 50 }] },
+      },
+    };
+    const data = buildPivotDataByProveedor(rows, composicion);
+    const concepto = data.rows[0].children[0].children[0];
+    expect(concepto.composicionTotal).toEqual({ total: 150, destinos: [{ nombre: "Local A", pct: 100, importe: 150 }] });
+  });
+
+  it("composicionTotal del proveedor agrega los composicionTotal de sus conceptos hijos", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: 1, concepto_codigo: "C1", row_id: "a1", mes: 1, total: 100 }),
+      row({ proveedor_id: 1, concepto_codigo: "C2", concepto_nombre: "Concepto 2", row_id: "a2", mes: 1, total: 50 }),
+    ];
+    const composicion = {
+      "C1|1": { 1: { total: 100, destinos: [{ nombre: "Local A", pct: 100, importe: 100 }] } },
+    };
+    const data = buildPivotDataByProveedor(rows, composicion);
+    const proveedor = data.rows[0].children[0];
+    expect(proveedor.composicionTotal).toEqual({
+      total: 150,
+      destinos: [
+        { nombre: "Local A", pct: (100 / 150) * 100, importe: 100 },
+        { nombre: "Sin apertura", pct: (50 / 150) * 100, importe: 50 },
+      ],
+    });
+  });
+
+  it("con filtro de PDV activo, composicion.total del concepto (reparto completo sin filtrar) puede superar su values filtrado: el proveedor no genera pct > 100%", () => {
+    // Reproduce el bug reportado: con el dashboard filtrado a un PDV (ej.
+    // "Canchas"), la fila trae solo el importe destinado a ESE PDV ($1.155.000),
+    // pero composicion.total sigue siendo el reparto completo sin filtrar
+    // (Bar $2.695.000 + Canchas $1.155.000 = $3.850.000, por diseño de
+    // app/api/dashboard/pivot/route.ts). mergeComposiciones no debe comparar
+    // ambas bases ni generar destinos con pct > 100%.
+    const rows: SqlRow[] = [row({ proveedor_id: 1, concepto_codigo: "C1", row_id: "a1", mes: 1, total: 1155000 })];
+    const composicion = {
+      "C1|1": {
+        1: {
+          total: 3850000,
+          destinos: [
+            { nombre: "Ramos Mejía — Bar", pct: 70, importe: 2695000 },
+            { nombre: "Ramos Mejía — Canchas", pct: 30, importe: 1155000 },
+          ],
+        },
+      },
+    };
+    const data = buildPivotDataByProveedor(rows, composicion);
+    const proveedor = data.rows[0].children[0];
+    expect(proveedor.composicion?.[1]).toEqual({
+      total: 3850000,
+      destinos: [
+        { nombre: "Ramos Mejía — Bar", pct: 70, importe: 2695000 },
+        { nombre: "Ramos Mejía — Canchas", pct: 30, importe: 1155000 },
+      ],
+    });
+    expect(proveedor.composicion?.[1]?.destinos.every((d) => d.pct <= 100)).toBe(true);
+  });
+
+  it("proveedor sin ningún concepto con composicion: no arma composicion ni composicionTotal", () => {
+    const rows: SqlRow[] = [row({ proveedor_id: 1, concepto_codigo: "C1", row_id: "a1", mes: 1, total: 100 })];
+    const data = buildPivotDataByProveedor(rows, {});
+    const proveedor = data.rows[0].children[0];
+    expect(proveedor.composicion).toBeUndefined();
+    expect(proveedor.composicionTotal).toBeUndefined();
+  });
 });

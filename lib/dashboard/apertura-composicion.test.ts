@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildComposicion, buildComposicionPorProveedor } from "./apertura-composicion";
+import { buildComposicion, buildComposicionPorProveedor, mergeComposiciones } from "./apertura-composicion";
 
 describe("buildComposicion", () => {
   it("agrupa por concepto+mes y arma la lista de destinos con pct e importe", () => {
@@ -121,5 +121,58 @@ describe("buildComposicionPorProveedor", () => {
     expect(result["17|5"][5].destinos).toHaveLength(1);
     expect(result["17|5"][5].destinos[0]).toEqual({ nombre: "Actual", pct: 70, importe: 700 });
     expect(result["17|5"][5].total).toBe(1000);
+  });
+});
+
+describe("mergeComposiciones", () => {
+  it("fusiona dos composiciones con el mismo destino, sumando importe y recalculando pct sobre el total combinado", () => {
+    const a = { total: 100, destinos: [{ nombre: "Ramos Mejía — Bar", pct: 70, importe: 70 }] };
+    const b = { total: 200, destinos: [{ nombre: "Ramos Mejía — Bar", pct: 100, importe: 200 }] };
+    const result = mergeComposiciones([a, b], 0);
+    expect(result).toEqual({
+      total: 300,
+      destinos: [{ nombre: "Ramos Mejía — Bar", pct: 90, importe: 270 }],
+    });
+  });
+
+  it("agrega bucket 'Sin apertura' con el totalSinRegla que pasa el caller (montos de los hijos sin regla)", () => {
+    const a = { total: 110, destinos: [{ nombre: "Ramos Mejía — Bar", pct: 70, importe: 77 }, { nombre: "Ramos Mejía — Canchas", pct: 30, importe: 33 }] };
+    const result = mergeComposiciones([a, undefined], 918367);
+    expect(result?.total).toBe(918477);
+    expect(result?.destinos).toEqual([
+      { nombre: "Ramos Mejía — Bar", pct: (77 / 918477) * 100, importe: 77 },
+      { nombre: "Ramos Mejía — Canchas", pct: (33 / 918477) * 100, importe: 33 },
+      { nombre: "Sin apertura", pct: (918367 / 918477) * 100, importe: 918367 },
+    ]);
+  });
+
+  it("no depende del filtro de PDV activo: el total con regla es siempre el reparto completo, no el valor filtrado de la celda", () => {
+    // Caso real: proveedor.values[mes] filtrado a un PDV puede ser MENOR que
+    // la suma de composicion.total de sus conceptos (que es siempre el
+    // reparto completo, sin filtrar — spec de app/api/dashboard/pivot/route.ts
+    // §"La composición del tooltip SIEMPRE muestra el reparto completo").
+    // mergeComposiciones no debe comparar contra ese valor filtrado.
+    const bar = { total: 2695000, destinos: [{ nombre: "Ramos Mejía — Bar", pct: 100, importe: 2695000 }] };
+    const canchas = { total: 1155000, destinos: [{ nombre: "Ramos Mejía — Canchas", pct: 100, importe: 1155000 }] };
+    const result = mergeComposiciones([bar, canchas], 0);
+    expect(result?.total).toBe(3850000);
+    expect(result?.destinos.every((d) => d.pct <= 100)).toBe(true);
+  });
+
+  it("no agrega bucket 'Sin apertura' cuando totalSinRegla está por debajo del epsilon de redondeo", () => {
+    const a = { total: 99.999, destinos: [{ nombre: "X", pct: 100, importe: 99.999 }] };
+    const result = mergeComposiciones([a], 0.001);
+    expect(result?.destinos).toEqual([{ nombre: "X", pct: expect.closeTo(99.999, 2), importe: 99.999 }]);
+  });
+
+  it("devuelve undefined si ninguna parte tiene composicion", () => {
+    const result = mergeComposiciones([undefined, undefined], 500);
+    expect(result).toBeUndefined();
+  });
+
+  it("no genera bucket negativo cuando totalSinRegla llega negativo por redondeo flotante (no debería pasar en uso real, pero no debe romper)", () => {
+    const a = { total: 100, destinos: [{ nombre: "X", pct: 100, importe: 100 }] };
+    const result = mergeComposiciones([a], -0.001);
+    expect(result?.destinos.find((d) => d.nombre === "Sin apertura")).toBeUndefined();
   });
 });

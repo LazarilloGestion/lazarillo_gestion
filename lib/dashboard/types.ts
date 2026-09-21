@@ -96,6 +96,7 @@ export type PivotConceptoSubRow = {
   rowTotal: number;
   children: PivotLineaRow[];
   composicion?: Record<number, ComposicionMes>;
+  composicionTotal?: ComposicionMes;
 };
 
 export type PivotProveedorSubRow = {
@@ -108,6 +109,8 @@ export type PivotProveedorSubRow = {
   values: Record<number, number>;
   rowTotal: number;
   children: PivotConceptoSubRow[];
+  composicion?: Record<number, ComposicionMes>;
+  composicionTotal?: ComposicionMes;
 };
 
 export type PivotRubroRowPorProveedor = {

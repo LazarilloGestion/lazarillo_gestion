@@ -14,12 +14,37 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
 import { EditedDot, AperturaDot } from "./edit-row-controls";
-import type { PivotDataPorProveedor, PivotRubroRowPorProveedor, PivotProveedorSubRow, PivotConceptoSubRow } from "@/lib/dashboard/types";
+import type { PivotDataPorProveedor, PivotRubroRowPorProveedor, PivotProveedorSubRow, PivotConceptoSubRow, ComposicionMes } from "@/lib/dashboard/types";
 import { ComprasDetalleModal } from "./compras-detalle-modal";
 import { VentasDetalleModal } from "./ventas-detalle-modal";
 import { AperturaGastosModal } from "./apertura-gastos-modal";
 import { AperturaSplitButton } from "./apertura-split-button";
 import type { NivelRegla } from "@/lib/apertura/schemas";
+
+// Envuelve una celda con el tooltip de prorrateo cuando hay composicion para
+// esa celda (mes puntual o total anual, de concepto o de proveedor agregado)
+// — sin composicion, devuelve la celda tal cual, sin tooltip.
+function ComposicionTooltip({ comp, children }: { comp: ComposicionMes | undefined; children: React.ReactElement }) {
+  if (!comp) return children;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent className="text-xs">
+        {/* TooltipContent es inline-flex (fila) por defecto — envolver en
+            flex-col para que el detalle se lea de arriba a abajo en vez de
+            romperse a mitad de palabra cuando hay 2+ destinos. */}
+        <div className="flex flex-col items-start gap-0.5">
+          <div className="font-medium">100% · {fmtARS(comp.total)}</div>
+          {comp.destinos.map((d, i) => (
+            <div key={i} className="text-background/70">
+              {Math.round(d.pct)}% {d.nombre} {fmtARS(d.importe)}
+            </div>
+          ))}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function PivotTableByProveedor() {
   const {
@@ -257,30 +282,33 @@ export function PivotTableByProveedor() {
                       </div>
                     </td>
                     {months.map((mes) => (
+                      <ComposicionTooltip key={mes} comp={proveedor.composicion?.[mes]}>
+                        <td
+                          className={cn(
+                            "text-right px-3 py-2.5 tabular-nums bg-muted/25 hover:bg-muted/50 transition-colors",
+                            hasValue(proveedor.values[mes]) && "cursor-pointer hover:text-primary"
+                          )}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (hasValue(proveedor.values[mes]))
+                              openDetalle({ mes, ...filtroProveedor });
+                          }}
+                        >
+                          {fmtARS(proveedor.values[mes])}
+                        </td>
+                      </ComposicionTooltip>
+                    ))}
+                    <ComposicionTooltip comp={proveedor.composicionTotal}>
                       <td
-                        key={mes}
-                        className={cn(
-                          "text-right px-3 py-2.5 tabular-nums bg-muted/25 hover:bg-muted/50 transition-colors",
-                          hasValue(proveedor.values[mes]) && "cursor-pointer hover:text-primary"
-                        )}
+                        className="text-right px-4 py-2.5 tabular-nums font-semibold text-[15px] bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (hasValue(proveedor.values[mes]))
-                            openDetalle({ mes, ...filtroProveedor });
+                          openDetalle(filtroProveedor);
                         }}
                       >
-                        {fmtARS(proveedor.values[mes])}
+                        {fmtARS(proveedor.rowTotal)}
                       </td>
-                    ))}
-                    <td
-                      className="text-right px-4 py-2.5 tabular-nums font-semibold text-[15px] bg-muted/25 hover:bg-muted/50 transition-colors cursor-pointer hover:text-primary"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openDetalle(filtroProveedor);
-                      }}
-                    >
-                      {fmtARS(proveedor.rowTotal)}
-                    </td>
+                    </ComposicionTooltip>
                     <td className="text-right px-3 py-2.5 tabular-nums text-xs text-muted-foreground/70 whitespace-nowrap bg-muted/25 hover:bg-muted/50 transition-colors">
                       {fmtPct(proveedor.rowTotal)}
                     </td>
@@ -323,11 +351,9 @@ export function PivotTableByProveedor() {
                         />
                       </div>
                     </td>
-                    {months.map((mes) => {
-                      const comp = concepto.composicion?.[mes];
-                      const cell = (
+                    {months.map((mes) => (
+                      <ComposicionTooltip key={mes} comp={concepto.composicion?.[mes]}>
                         <td
-                          key={mes}
                           className={cn(
                             "text-right px-3 py-2 tabular-nums text-muted-foreground",
                             hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
@@ -340,36 +366,19 @@ export function PivotTableByProveedor() {
                         >
                           {fmtARS(concepto.values[mes])}
                         </td>
-                      );
-                      if (!comp) return cell;
-                      return (
-                        <Tooltip key={mes}>
-                          <TooltipTrigger asChild>{cell}</TooltipTrigger>
-                          <TooltipContent className="text-xs">
-                            {/* TooltipContent es inline-flex (fila) por defecto — envolver en
-                                flex-col para que el detalle se lea de arriba a abajo en vez de
-                                romperse a mitad de palabra cuando hay 2+ destinos. */}
-                            <div className="flex flex-col items-start gap-0.5">
-                              <div className="font-medium">100% · {fmtARS(comp.total)}</div>
-                              {comp.destinos.map((d, i) => (
-                                <div key={i} className="text-background/70">
-                                  {d.pct}% {d.nombre} {fmtARS(d.importe)}
-                                </div>
-                              ))}
-                            </div>
-                          </TooltipContent>
-                        </Tooltip>
-                      );
-                    })}
-                    <td
-                      className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openDetalle({ conceptoCodigo: concepto.conceptoCodigo, ...filtroProveedorConcepto });
-                      }}
-                    >
-                      {fmtARS(concepto.rowTotal)}
-                    </td>
+                      </ComposicionTooltip>
+                    ))}
+                    <ComposicionTooltip comp={concepto.composicionTotal}>
+                      <td
+                        className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDetalle({ conceptoCodigo: concepto.conceptoCodigo, ...filtroProveedorConcepto });
+                        }}
+                      >
+                        {fmtARS(concepto.rowTotal)}
+                      </td>
+                    </ComposicionTooltip>
                     <td className="text-right px-3 py-2 tabular-nums text-xs text-muted-foreground/50 whitespace-nowrap">
                       {fmtPct(concepto.rowTotal)}
                     </td>
