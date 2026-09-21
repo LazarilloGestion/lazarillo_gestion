@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { sortPivotRowsPorProveedor, flattenRowsPorProveedor } from "./pivot-utils";
-import type { PivotRubroRowPorProveedor, PivotProveedorSubRow, PivotConceptoSubRow, PivotLineaRow, PivotDataPorProveedor } from "./types";
+import { sortPivotRows, sortPivotRowsPorProveedor, flattenRowsPorProveedor } from "./pivot-utils";
+import type {
+  PivotRubroRow, PivotConceptoRow,
+  PivotRubroRowPorProveedor, PivotProveedorSubRow, PivotConceptoSubRow, PivotLineaRow, PivotDataPorProveedor,
+} from "./types";
 
 function rubroRow(overrides: Partial<PivotRubroRowPorProveedor>): PivotRubroRowPorProveedor {
   return {
@@ -18,6 +21,22 @@ function proveedorRow(overrides: Partial<PivotProveedorSubRow>): PivotProveedorS
   };
 }
 
+function rubroRowConcepto(overrides: Partial<PivotRubroRow>): PivotRubroRow {
+  return {
+    level: 0, id: "R1", nombre: "Rubro 1", rubroCodigo: "R1",
+    values: {}, rowTotal: 0, children: [],
+    ...overrides,
+  };
+}
+
+function conceptoRow(overrides: Partial<PivotConceptoRow>): PivotConceptoRow {
+  return {
+    level: 1, id: "C1", nombre: "Concepto 1", conceptoCodigo: "C1", rubroCodigo: "R1",
+    values: {}, rowTotal: 0, children: [],
+    ...overrides,
+  };
+}
+
 describe("sortPivotRowsPorProveedor", () => {
   it("ordena rubros por total descendente", () => {
     const rows = [rubroRow({ id: "r1", rowTotal: 100 }), rubroRow({ id: "r2", rowTotal: 300 })];
@@ -29,6 +48,56 @@ describe("sortPivotRowsPorProveedor", () => {
     const rows = [rubroRow({ id: "r1", rowTotal: 100 }), rubroRow({ id: "r2", rowTotal: 300 })];
     sortPivotRowsPorProveedor(rows, "total", "desc");
     expect(rows.map((r) => r.id)).toEqual(["r1", "r2"]);
+  });
+
+  it("desempata rubros por nombre alfabético cuando el total es igual", () => {
+    const rows = [
+      rubroRow({ id: "r1", nombre: "Zapatos", rowTotal: 100 }),
+      rubroRow({ id: "r2", nombre: "Alimentos", rowTotal: 100 }),
+    ];
+    const sorted = sortPivotRowsPorProveedor(rows, "total", "desc");
+    expect(sorted.map((r) => r.nombre)).toEqual(["Alimentos", "Zapatos"]);
+  });
+
+  it("desempata proveedores hijos por nombre cuando el total es igual", () => {
+    const rubro = rubroRow({
+      id: "r1",
+      children: [
+        proveedorRow({ id: "r1|1", nombre: "Ruta Verde", rowTotal: 50 }),
+        proveedorRow({ id: "r1|2", nombre: "Agronatural", rowTotal: 50 }),
+      ],
+    });
+    const sorted = sortPivotRowsPorProveedor([rubro], "total", "desc");
+    expect(sorted[0].children.map((p) => p.nombre)).toEqual(["Agronatural", "Ruta Verde"]);
+  });
+});
+
+describe("sortPivotRows", () => {
+  it("ordena rubros por total descendente", () => {
+    const rows = [rubroRowConcepto({ id: "r1", rowTotal: 100 }), rubroRowConcepto({ id: "r2", rowTotal: 300 })];
+    const sorted = sortPivotRows(rows, "total", "desc");
+    expect(sorted.map((r) => r.id)).toEqual(["r2", "r1"]);
+  });
+
+  it("desempata rubros por nombre alfabético cuando el total es igual", () => {
+    const rows = [
+      rubroRowConcepto({ id: "r1", nombre: "Zapatos", rowTotal: 100 }),
+      rubroRowConcepto({ id: "r2", nombre: "Alimentos", rowTotal: 100 }),
+    ];
+    const sorted = sortPivotRows(rows, "total", "desc");
+    expect(sorted.map((r) => r.nombre)).toEqual(["Alimentos", "Zapatos"]);
+  });
+
+  it("desempata conceptos hijos por nombre cuando el total es igual", () => {
+    const rubro = rubroRowConcepto({
+      id: "r1",
+      children: [
+        conceptoRow({ id: "c1", nombre: "Verduleria", rowTotal: 50 }),
+        conceptoRow({ id: "c2", nombre: "Almacen", rowTotal: 50 }),
+      ],
+    });
+    const sorted = sortPivotRows([rubro], "total", "desc");
+    expect(sorted[0].children.map((c) => c.nombre)).toEqual(["Almacen", "Verduleria"]);
   });
 });
 

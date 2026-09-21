@@ -21,11 +21,21 @@ export type FlatRow =
 export type SortCol = number | "total";
 export type SortDir = "asc" | "desc";
 
-function getValue(
-  row: PivotRubroRow | PivotConceptoRow | PivotProveedorRow | PivotRubroRowPorProveedor | PivotProveedorSubRow | PivotConceptoSubRow | PivotLineaRow,
-  col: SortCol
-): number {
+type SortableRow =
+  | PivotRubroRow | PivotConceptoRow | PivotProveedorRow
+  | PivotRubroRowPorProveedor | PivotProveedorSubRow | PivotConceptoSubRow | PivotLineaRow;
+
+function getValue(row: SortableRow, col: SortCol): number {
   return col === "total" ? row.rowTotal : (row.values[col as number] ?? 0);
+}
+
+/** Compara por valor y, ante empate, desempata alfabéticamente por nombre (PivotLineaRow no tiene nombre y queda sin desempate). */
+function compareRows(a: SortableRow, b: SortableRow, col: SortCol, factor: number): number {
+  const diff = getValue(a, col) - getValue(b, col);
+  if (diff !== 0) return factor * diff;
+  const nombreA = "nombre" in a ? a.nombre : "";
+  const nombreB = "nombre" in b ? b.nombre : "";
+  return nombreA.localeCompare(nombreB, "es", { sensitivity: "base" });
 }
 
 /** Ordena cada nivel del árbol pivot sin mutar el original. */
@@ -36,15 +46,15 @@ export function sortPivotRows(
 ): PivotRubroRow[] {
   const factor = dir === "desc" ? -1 : 1;
   return [...rows]
-    .sort((a, b) => factor * (getValue(a, col) - getValue(b, col)))
+    .sort((a, b) => compareRows(a, b, col, factor))
     .map((rubro) => ({
       ...rubro,
       children: [...rubro.children]
-        .sort((a, b) => factor * (getValue(a, col) - getValue(b, col)))
+        .sort((a, b) => compareRows(a, b, col, factor))
         .map((concepto) => ({
           ...concepto,
           children: [...concepto.children].sort(
-            (a, b) => factor * (getValue(a, col) - getValue(b, col))
+            (a, b) => compareRows(a, b, col, factor)
           ),
         })),
     }));
@@ -83,19 +93,19 @@ export function sortPivotRowsPorProveedor(
 ): PivotRubroRowPorProveedor[] {
   const factor = dir === "desc" ? -1 : 1;
   return [...rows]
-    .sort((a, b) => factor * (getValue(a, col) - getValue(b, col)))
+    .sort((a, b) => compareRows(a, b, col, factor))
     .map((rubro) => ({
       ...rubro,
       children: [...rubro.children]
-        .sort((a, b) => factor * (getValue(a, col) - getValue(b, col)))
+        .sort((a, b) => compareRows(a, b, col, factor))
         .map((proveedor) => ({
           ...proveedor,
           children: [...proveedor.children]
-            .sort((a, b) => factor * (getValue(a, col) - getValue(b, col)))
+            .sort((a, b) => compareRows(a, b, col, factor))
             .map((concepto) => ({
               ...concepto,
               children: [...concepto.children].sort(
-                (a, b) => factor * (getValue(a, col) - getValue(b, col))
+                (a, b) => compareRows(a, b, col, factor)
               ),
             })),
         })),
