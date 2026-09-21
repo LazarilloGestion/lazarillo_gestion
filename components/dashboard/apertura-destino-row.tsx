@@ -113,13 +113,19 @@ export function AperturaDestinoRow({
     onChange({ ...destino, porcentaje: pctDesdeMonto(Number(texto), total) });
   }
 
+  // Sin flechitas nativas del type="number": en Chrome/Safari le restan ancho
+  // útil al campo por dentro sin que se note, y eran parte de por qué el monto
+  // (hasta 11-12 dígitos con totales reales en ARS) aparecía cortado.
+  const sinSpinner =
+    "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2">
       <Select
         value={destino.localId != null ? String(destino.localId) : ""}
         onValueChange={(v) => onChange({ ...destino, localId: Number(v), puntoDeVentaId: null })}
       >
-        <SelectTrigger className="h-8 w-32 text-xs" size="sm">
+        <SelectTrigger className="w-28 shrink-0 text-xs" size="sm">
           <SelectValue placeholder="Local" />
         </SelectTrigger>
         <SelectContent>
@@ -136,7 +142,7 @@ export function AperturaDestinoRow({
         onValueChange={(v) => onChange({ ...destino, puntoDeVentaId: v === TODO_EL_LOCAL ? null : Number(v) })}
         disabled={!localSeleccionado}
       >
-        <SelectTrigger className="h-8 w-32 text-xs" size="sm">
+        <SelectTrigger className="w-28 shrink-0 text-xs" size="sm">
           <SelectValue placeholder="Punto de venta" />
         </SelectTrigger>
         <SelectContent>
@@ -151,13 +157,13 @@ export function AperturaDestinoRow({
         </SelectContent>
       </Select>
 
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         <Input
           type="number"
           step="0.01"
           min={0}
           max={100}
-          className="h-8 w-16 text-xs text-right"
+          className={`h-7 w-16 text-xs text-right ${sinSpinner}`}
           value={pctDraft}
           onFocus={() => setCampoActivo("pct")}
           onBlur={() => desenfocar("pct")}
@@ -166,11 +172,15 @@ export function AperturaDestinoRow({
         <span className="text-xs text-muted-foreground">%</span>
       </div>
 
-      <div className="flex items-center gap-1">
+      {/* flex-1: el monto puede tener cualquier cantidad de dígitos según el
+          total del período, así que toma todo el espacio que sobra en la fila
+          (hay de sobra: Local/PDV/% ya tienen su ancho fijo) en vez de un
+          w-24 arbitrario que se queda corto con totales grandes. */}
+      <div className="flex min-w-0 flex-1 items-center gap-1">
         <Input
           type="number"
           step="0.01"
-          className="h-8 w-24 text-xs text-right"
+          className={`h-7 min-w-0 flex-1 text-xs text-right ${sinSpinner}`}
           // Sin total conocido no hay contra qué convertir: se muestra "—" en
           // vez de un $0 que parecería dato real (mismo criterio que el total
           // agregado del modal).
@@ -181,7 +191,7 @@ export function AperturaDestinoRow({
           onBlur={() => desenfocar("monto")}
           onChange={(e) => handleMontoChange(e.target.value)}
         />
-        <span className="text-xs text-muted-foreground">$</span>
+        <span className="shrink-0 text-xs text-muted-foreground">$</span>
       </div>
 
       <button
