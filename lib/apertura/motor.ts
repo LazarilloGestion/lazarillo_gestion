@@ -203,7 +203,10 @@ export async function verificarSinSuperposicion(
 // "elegibles" (mismo concepto efectivo, no bloqueada, no distribuida, con
 // importe efectivo, dentro de la vigencia). Devuelve el SELECT completo (no
 // solo el WHERE) porque ambos callers necesitan las mismas columnas —
-// aplicarRegla las usa fila por fila, preview-total las suma en un subquery.
+// aplicarRegla las usa fila por fila, preview-total las agrupa por mes en un
+// subquery. fechaEfectiva viaja en el SELECT (no solo en el WHERE via
+// vigenciaSql) porque preview-total la necesita para el GROUP BY; aplicarRegla
+// simplemente la ignora.
 //
 // `reglaEnEdicionId` relaja el filtro esDistribuido para el preview del flujo
 // de EDICIÓN: las compras que la propia regla ya distribuyó tienen
@@ -235,7 +238,7 @@ export function condicionComprasElegibles(
       : Prisma.sql`c."localId" = ${origen.origenLocalId}`;
 
   return Prisma.sql`
-    SELECT c."rowId", COALESCE(c."importeManual", c.importe) AS "importeBase"
+    SELECT c."rowId", COALESCE(c."importeManual", c.importe) AS "importeBase", ${FECHA_EFECTIVA_COMPRA_SQL} AS "fechaEfectiva"
     FROM compras c
     WHERE ${condicionMatchNivel(nivel, entidadId)}
       AND c."esBloqueado" = false

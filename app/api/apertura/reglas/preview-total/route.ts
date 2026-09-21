@@ -44,19 +44,40 @@ export async function GET(request: NextRequest) {
     const cond = resolverVigencia(vigencia);
     const vigenciaSql = vigenciaToSql(cond, FECHA_EFECTIVA_COMPRA_SQL);
 
-    const rows = await prisma.$queryRaw<{ total: Prisma.Decimal | null }[]>(Prisma.sql`
-      SELECT COALESCE(SUM(sub."importeBase"), 0) AS total
-      FROM (${condicionComprasElegibles(
-        nivel,
-        entidadId,
-        vigenciaSql,
-        { origenLocalId: origenLocalId ?? null, origenPuntoDeVentaId: origenPuntoDeVentaId ?? null },
-        reglaId ?? null
-      )}) sub
-    `);
+    // Dos números con usos distintos en el formulario: `total` (suma de TODO
+    // el período elegido) va en el header "Total del período" como contexto
+    // agregado; `ultimoValor` (solo el mes más reciente CON compras) es la
+    // base que cada destino usa para el %↔$ — un total acumulado de
+    // histórico completo (potencialmente años) resultaba un número sin uso
+    // práctico para estimar el reparto ahí (pedido del usuario, sesión
+    // 21-sep-2026). Un solo CTE evalúa condicionComprasElegibles una vez para
+    // ambos. Meses sin compras no generan fila en "elegibles", así que el
+    // ORDER BY + LIMIT 1 del último mes ya los saltea solo.
+    const rows = await prisma.$queryRaw<{ total: Prisma.Decimal | null; ultimoValor: Prisma.Decimal | null }[]>(
+      Prisma.sql`
+      WITH elegibles AS (
+        ${condicionComprasElegibles(
+          nivel,
+          entidadId,
+          vigenciaSql,
+          { origenLocalId: origenLocalId ?? null, origenPuntoDeVentaId: origenPuntoDeVentaId ?? null },
+          reglaId ?? null
+        )}
+      )
+      SELECT
+        (SELECT COALESCE(SUM("importeBase"), 0) FROM elegibles) AS total,
+        (
+          SELECT SUM("importeBase") FROM elegibles
+          WHERE date_trunc('month', "fechaEfectiva") = (
+            SELECT date_trunc('month', "fechaEfectiva") FROM elegibles ORDER BY "fechaEfectiva" DESC LIMIT 1
+          )
+        ) AS "ultimoValor"
+    `
+    );
 
     const total = rows[0]?.total != null ? Number(rows[0].total.toString()) : 0;
-    return NextResponse.json({ total });
+    const ultimoValor = rows[0]?.ultimoValor != null ? Number(rows[0].ultimoValor.toString()) : 0;
+    return NextResponse.json({ total, ultimoValor });
   } catch (err) {
     console.error("[GET /api/apertura/reglas/preview-total]", err);
     return NextResponse.json({ error: "Error interno al calcular el total" }, { status: 500 });

@@ -167,7 +167,7 @@ export function AperturaGastosModal({
       }).toString()}`
     : null;
 
-  const { data: previewData, isLoading: previewLoading } = useFetchQuery<{ total: number }>(
+  const { data: previewData, isLoading: previewLoading } = useFetchQuery<{ total: number; ultimoValor: number }>(
     // editando?.id en la key: crear y editar consultan totales distintos para
     // la misma vigencia, no pueden compartir entrada de caché. nivel también
     // entra en la key: el mismo entidadId puede colisionar numéricamente entre
@@ -176,9 +176,12 @@ export function AperturaGastosModal({
     previewUrl,
     { staleTime: 10_000 }
   );
-  // null (no 0) cuando el total todavía no se conoce — un 0 se leería como
-  // dato real tanto en el agregado como en el $ de cada destino.
+  // null (no 0) mientras no se conocen — un 0 se leería como dato real tanto
+  // en el agregado del header como en el $ de cada destino. `total` (suma de
+  // todo el período) alimenta el header; `ultimoValor` (solo el mes más
+  // reciente con compras) es la base del %↔$ de cada destino.
   const total = previewUrl !== null && !previewLoading ? previewData?.total ?? null : null;
+  const ultimoValor = previewUrl !== null && !previewLoading ? previewData?.ultimoValor ?? null : null;
 
   // Reset de estado local al cerrarse el modal (entidadId -> null) —
   // ajuste durante el render en vez de useEffect (evita la cascada de
@@ -482,7 +485,7 @@ export function AperturaGastosModal({
                       key={i}
                       destino={d}
                       locales={locales}
-                      total={total}
+                      total={ultimoValor}
                       otrosDestinos={destinos.filter((_, idx) => idx !== i)}
                       removable={destinos.length > 1}
                       onChange={(next) => setDestinos((prev) => prev.map((p, idx) => (idx === i ? next : p)))}
