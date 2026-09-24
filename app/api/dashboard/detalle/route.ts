@@ -222,7 +222,12 @@ export async function GET(request: NextRequest) {
   // compra reclasificada a mano a otro rubro/concepto dejaría de aparecer al
   // filtrar por su rubro nuevo, o seguiría apareciendo en el rubro viejo.
   if (rubroCodigo && !conceptoCodigo) {
-    conditions.push(Prisma.sql`rc_ef.codigo = ${rubroCodigo}`);
+    // Mismo criterio que el pivot (query-builders.ts) y el SELECT de
+    // /api/dashboard/pivot: el bucket "Sin Rubro" es sintético
+    // ('__sin_rubro'), no existe como código real en rubros_concepto_caja.
+    // Sin el COALESCE, rc_ef.codigo es NULL para esas compras y
+    // `NULL = '__sin_rubro'` nunca matchea — el modal abre vacío.
+    conditions.push(Prisma.sql`COALESCE(rc_ef.codigo, '__sin_rubro') = ${rubroCodigo}`);
   } else if (conceptoCodigo) {
     conditions.push(Prisma.sql`COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = ${conceptoCodigo}`);
   } else {
