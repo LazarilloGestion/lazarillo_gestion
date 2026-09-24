@@ -18,7 +18,7 @@ const MODO_LABELS: Record<ModoVigencia, string> = {
   historico: "Todos los registros (histórico completo)",
   entre_fechas: "Entre dos fechas",
   desde_adelante: "Desde una fecha en adelante",
-  desde_atras: "Hasta una fecha (hacia atrás)",
+  desde_atras: "Desde una fecha hacia atrás",
 };
 
 const MODOS: ModoVigencia[] = ["historico", "entre_fechas", "desde_adelante", "desde_atras"];
