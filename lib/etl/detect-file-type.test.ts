@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectFileType } from "./detect-file-type";
+import { detectFileType, buildTipoNoIdentificadoMessage } from "./detect-file-type";
 
 describe("detectFileType", () => {
   it("rubrosArticulo: headers mínimos requeridos", () => {
@@ -64,5 +64,19 @@ describe("detectFileType", () => {
     // ambigüedad real hay que unir explícitamente ambos sets requeridos.
     const ambiguousHeaders = ["CODIGO", "NOMBRE", "CALC_RENT", "TIPO", "COD_IMP", "COD_RGA"];
     expect(detectFileType(ambiguousHeaders)).toBe("rubrosConceptoCaja");
+  });
+});
+
+describe("buildTipoNoIdentificadoMessage", () => {
+  it("incluye las columnas encontradas separadas por coma", () => {
+    expect(buildTipoNoIdentificadoMessage(["COD_RUI", "CODIGO", "NOMBRE"])).toBe(
+      "No se pudo identificar el tipo de archivo. Columnas encontradas: COD_RUI, CODIGO, NOMBRE"
+    );
+  });
+
+  it("headers vacíos -> mensaje sin columnas listadas", () => {
+    expect(buildTipoNoIdentificadoMessage([])).toBe(
+      "No se pudo identificar el tipo de archivo. Columnas encontradas: "
+    );
   });
 });

@@ -5,8 +5,9 @@ import { notify } from "@/lib/toast";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import type { ETLReport } from "@/lib/etl/types";
 import type { DriveFile } from "@/lib/drive/types";
+import { parseImportResponse } from "./parse-import-response";
 
-export type FileImportStatus = "idle" | "importing" | "success" | "error";
+export type FileImportStatus = "idle" | "importing" | "success" | "error" | "unsupported";
 export type FileStates = Record<string, FileImportStatus>;
 export type FileReports = Record<string, ETLReport[]>;
 export type FileErrors = Record<string, string>;
@@ -58,8 +59,8 @@ export function useDriveImport() {
   // del que falló no llegan a intentarse en este request, y quedan marcados
   // como tal (no como "success" ni "idle"). Antes, al mandar un POST por
   // archivo, un archivo roto no le impedía al resto del lote intentarse.
-  async function importFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number): Promise<{ errors: number; total: number; records: number }> {
-    if (files.length === 0) return { errors: 0, total: 0, records: 0 };
+  async function importFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number): Promise<{ errors: number; unsupported: number; total: number; records: number }> {
+    if (files.length === 0) return { errors: 0, unsupported: 0, total: 0, records: 0 };
 
     setFileStatuses((s) => {
       const n = { ...s };
@@ -67,10 +68,11 @@ export function useDriveImport() {
       return n;
     });
 
-    const finalStatuses: FileStates = {};
-    const finalErrors: FileErrors = {};
-    const finalReports: Record<string, ETLReport> = {};
+    let finalStatuses: FileStates = {};
+    let finalErrors: FileErrors = {};
+    let finalReports: Record<string, ETLReport> = {};
     let errors = 0;
+    let unsupported = 0;
     let records = 0;
 
     try {
@@ -86,51 +88,13 @@ export function useDriveImport() {
       const json = await res.json();
       notificarApertura(json.apertura);
 
-      const results = Array.isArray(json.results)
-        ? (json.results as { fileId: string; fileName: string; report: ETLReport }[])
-        : [];
-
-      for (const { fileId, report } of results) {
-        const totalErrors = report.errors.length;
-        const procesadas = report.created + report.updated;
-        // Un archivo puede responder 200 con el reporte armado y aun así no haber
-        // servido para nada (todas las filas fallaron validación) — eso no es un
-        // éxito, aunque no haya sido una excepción HTTP. Detectado en producción
-        // 24-ago-2026: un archivo con 72/72 filas en error quedaba marcado como
-        // "success" y no frenaba el resto del batch.
-        const sinNingunResultado = totalErrors > 0 && procesadas === 0;
-        finalStatuses[fileId] = sinNingunResultado ? "error" : "success";
-        finalReports[fileId] = report;
-        if (sinNingunResultado) {
-          errors++;
-          finalErrors[fileId] = `${totalErrors} fila${totalErrors !== 1 ? "s" : ""} con error, ninguna se pudo procesar`;
-        } else {
-          records += procesadas;
-        }
-      }
-
-      if (!res.ok) {
-        const mensaje = typeof json.error === "string" ? json.error : "Error";
-        const failedFileId = typeof json.failedFileId === "string" ? json.failedFileId : null;
-        if (failedFileId && finalStatuses[failedFileId] === undefined) {
-          finalStatuses[failedFileId] = "error";
-          finalErrors[failedFileId] = mensaje;
-          errors++;
-        }
-        for (const f of files) {
-          if (finalStatuses[f.id] !== undefined) continue;
-          finalStatuses[f.id] = "error";
-          finalErrors[f.id] = "No se llegó a procesar: otro archivo del mismo lote falló antes.";
-          errors++;
-        }
-      } else {
-        for (const f of files) {
-          if (finalStatuses[f.id] !== undefined) continue;
-          finalStatuses[f.id] = "error";
-          finalErrors[f.id] = "Respuesta inesperada del servidor";
-          errors++;
-        }
-      }
+      const parsed = parseImportResponse(files, res.ok, json);
+      finalStatuses = parsed.statuses;
+      finalErrors = parsed.errors;
+      finalReports = parsed.reports;
+      errors = parsed.errorCount;
+      unsupported = parsed.unsupportedCount;
+      records = parsed.recordCount;
     } catch {
       for (const f of files) {
         finalStatuses[f.id] = "error";
@@ -154,7 +118,7 @@ export function useDriveImport() {
       return n;
     });
 
-    return { errors, total: files.length, records };
+    return { errors, unsupported, total: files.length, records };
   }
 
   async function importOneFile(file: DriveFile, localId?: number, puntoDeVentaId?: number): Promise<{ ok: boolean; records: number }> {
@@ -162,7 +126,7 @@ export function useDriveImport() {
     return { ok: errors === 0, records };
   }
 
-  async function importAllFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number): Promise<{ errors: number; total: number; records: number }> {
+  async function importAllFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number): Promise<{ errors: number; unsupported: number; total: number; records: number }> {
     const result = await importFiles(files, localId, puntoDeVentaId);
     maestrosQuery.refetch().catch((err) => console.error("[importar] no se pudo refrescar maestros-status tras el import", err));
     return result;
@@ -172,6 +136,7 @@ export function useDriveImport() {
     setGlobalImporting(true);
     let totalFiles = 0;
     let totalErrors = 0;
+    let totalUnsupported = 0;
     let totalRecords = 0;
     let foldersBlocked = false;
     let skippedFolders = 0;
@@ -181,10 +146,12 @@ export function useDriveImport() {
         const r = await importAllFiles(ready.maestros);
         totalFiles += r.total;
         totalErrors += r.errors;
+        totalUnsupported += r.unsupported;
         totalRecords += r.records;
         // Si algún archivo de maestros falló, no seguir con las carpetas transaccionales:
         // podrían quedar referenciando proveedores/rubros/conceptos que este ciclo debía
-        // crear o actualizar y no llegó a hacerlo.
+        // crear o actualizar y no llegó a hacerlo. Un archivo no soportado no cuenta acá —
+        // se ignora, no bloquea nada.
         maestrosConErrores = r.errors > 0;
       }
       if (maestrosConErrores) {
@@ -202,6 +169,7 @@ export function useDriveImport() {
           const r = await importAllFiles(folder.files, folder.localId ?? undefined, folder.puntoDeVentaId ?? undefined);
           totalFiles += r.total;
           totalErrors += r.errors;
+          totalUnsupported += r.unsupported;
           totalRecords += r.records;
         }
       }
@@ -211,6 +179,7 @@ export function useDriveImport() {
         notify.maestrosNoCargados(totalFiles);
       } else {
         if (skippedFolders > 0) notify.localNoReconocido(skippedFolders);
+        if (totalUnsupported > 0) notify.archivosNoSoportados(totalUnsupported);
         if (totalFiles > 0) {
           if (totalErrors === 0) {
             notify.importacionCompletada(totalFiles, totalRecords);

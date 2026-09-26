@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getExcelHeaders, readExcelBuffer } from "./helpers";
-import { detectFileType } from "./detect-file-type";
+import { detectFileType, buildTipoNoIdentificadoMessage } from "./detect-file-type";
 import { normalizeRubrosConceptoCaja } from "./normalizers/rubros-concepto-caja";
 import { normalizeRubrosArticulo } from "./normalizers/rubros-articulo";
 import { normalizeSubrubrosArticulo } from "./normalizers/subrubros-articulo";
@@ -49,9 +49,7 @@ export async function runETL(
   const fileType = detectFileType(headers);
 
   if (!fileType) {
-    throw new Error(
-      `No se pudo identificar el tipo de archivo. Columnas encontradas: ${headers.join(", ")}`
-    );
+    throw new Error(buildTipoNoIdentificadoMessage(headers));
   }
 
   const rows = readExcelBuffer(buffer);

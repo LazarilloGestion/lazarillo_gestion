@@ -397,7 +397,7 @@ model ImportLog {
   localId        Int?
   puntoDeVentaId Int?
 
-  estado    String // 'ok' | 'error'
+  estado    String // 'ok' | 'error' | 'no_soportado'
   totalRows Int?
   created   Int?
   updated   Int?
@@ -405,7 +405,9 @@ model ImportLog {
 
   errors       Json?   // ETLRowError[] tal cual los arma runETL
   skippedRows  Json?   // ETLSkippedRow[] tal cual
-  errorMessage String? // solo cuando estado='error' (excepción de runETL, no llegó a haber report)
+  // 'error': excepción de runETL, no llegó a haber report.
+  // 'no_soportado': columnas no matchean ningún ETLFileType — nunca se llamó a runETL.
+  errorMessage String?
 
   durationMs Int?
 

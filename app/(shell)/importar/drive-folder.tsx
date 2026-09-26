@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import {
-  FileSpreadsheet, CheckCircle2, AlertCircle,
+  FileSpreadsheet, CheckCircle2, AlertCircle, Info,
   FolderOpen, Folder, RefreshCw, CloudDownload, ChevronDown,
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
@@ -62,7 +62,9 @@ export function DriveFolder({
   const [collapsed, setCollapsed] = useState(true);
 
   const pendingFiles = files.filter((f) => !fileStatuses[f.id] || fileStatuses[f.id] === "idle" || fileStatuses[f.id] === "error");
-  const allDone = files.length > 0 && files.every((f) => fileStatuses[f.id] === "success");
+  // Un archivo no soportado es un estado final igual que "success" — reintentarlo
+  // da siempre el mismo resultado, así que no debe dejar la carpeta "incompleta".
+  const allDone = files.length > 0 && files.every((f) => fileStatuses[f.id] === "success" || fileStatuses[f.id] === "unsupported");
   const folderImporting = files.some((f) => fileStatuses[f.id] === "importing");
 
   async function handleImportAll() {
@@ -182,8 +184,13 @@ export function DriveFolder({
                           {new Date(file.modifiedTime).toLocaleDateString("es-AR")}
                           {file.size && ` · ${formatBytes(Number(file.size))}`}
                         </p>
-                        {status === "error" && fileErrors[file.id] && (
-                          <p className="text-xs text-destructive mt-0.5">{translateError(fileErrors[file.id])}</p>
+                        {(status === "error" || status === "unsupported") && fileErrors[file.id] && (
+                          <p className={cn(
+                            "text-xs mt-0.5",
+                            status === "unsupported" ? "text-zinc-400 dark:text-zinc-500" : "text-destructive"
+                          )}>
+                            {translateError(fileErrors[file.id])}
+                          </p>
                         )}
                       </div>
                       {status === "success" ? (
@@ -196,6 +203,10 @@ export function DriveFolder({
                           <CheckCircle2 className="w-4 h-4 text-success group-hover:hidden" />
                           <RefreshCw className="w-4 h-4 text-zinc-400 hidden group-hover:block" />
                         </button>
+                      ) : status === "unsupported" ? (
+                        <span title="Tipo de archivo no soportado por el sistema" className="shrink-0">
+                          <Info className="w-4 h-4 text-zinc-400 dark:text-zinc-500" />
+                        </span>
                       ) : status === "error" ? (
                         <button
                           onClick={async () => { onResetFile(file.id); await onImportOne(file, localId, puntoDeVentaId); }}

@@ -52,6 +52,13 @@ export const notify = {
       closeButton: true,
     }),
 
+  archivosNoSoportados: (count: number) =>
+    toast.warning("Archivos no soportados", {
+      description: `${count} archivo${count !== 1 ? "s" : ""} no ${count !== 1 ? "fueron reconocidos" : "fue reconocido"} por el sistema y se ${count !== 1 ? "ignoraron" : "ignoró"} — el resto de la importación no se vio afectado`,
+      duration: Infinity,
+      closeButton: true,
+    }),
+
   aperturaSincronizacionConErrores: (count: number) =>
     toast.warning("Apertura de gastos — sincronización con errores", {
       description: `${count} error${count !== 1 ? "es" : ""} al recalcular/aplicar reglas de apertura tras el import — revisá los detalles en el servidor`,

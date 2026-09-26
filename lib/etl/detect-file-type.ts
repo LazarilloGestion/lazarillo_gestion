@@ -22,3 +22,7 @@ export function detectFileType(headers: string[]): ETLFileType | null {
   }
   return null;
 }
+
+export function buildTipoNoIdentificadoMessage(headers: string[]): string {
+  return `No se pudo identificar el tipo de archivo. Columnas encontradas: ${headers.join(", ")}`;
+}

@@ -10,12 +10,12 @@ import { getFileOrder } from "@/lib/etl/file-processor";
 import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
 import { sincronizarTrasImport, type SincronizarTrasImportResultado } from "@/lib/apertura/reimportacion";
 import { getExcelHeaders } from "@/lib/etl/helpers";
-import { detectFileType } from "@/lib/etl/detect-file-type";
+import { detectFileType, buildTipoNoIdentificadoMessage } from "@/lib/etl/detect-file-type";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/utils";
 import { rateLimit } from "@/lib/rate-limit";
-import type { ETLContext, ETLReport, DbClient } from "@/lib/etl/types";
+import type { ETLContext, ETLReport, DbClient, DriveImportResultItem } from "@/lib/etl/types";
 
 const TRANSACTIONAL_TYPES = new Set(["compras", "detalleCompras", "ventas"]);
 const MAESTRO_FILE_TYPES = [
@@ -84,6 +84,11 @@ const driveImportBodySchema = z
   .refine((b) => b.files !== undefined || (b.file_id != null && b.file_name != null), {
     message: "Se requiere files[] o file_id+file_name",
   });
+
+// Un archivo `unsupported` nunca corrió el normalizer — no aporta ETLReport.
+function reportsOf(results: DriveImportResultItem[]): ETLReport[] {
+  return results.flatMap((r) => ("report" in r ? [r.report] : []));
+}
 
 // Guard + llamada a sincronizarTrasImport compartidos entre el camino de
 // éxito y el camino de error parcial (archivo posterior del batch falló,
@@ -217,7 +222,7 @@ export async function POST(req: NextRequest) {
     // respuesta solo devolvía ETLReport[] sin ninguna forma de correlacionar
     // cada resultado con el archivo que lo generó (hallazgo de eficiencia,
     // code-review 24-ago-2026).
-    const results: { fileId: string; fileName: string; report: ETLReport }[] = [];
+    const results: DriveImportResultItem[] = [];
 
     const [localRecord, pdvRecord] = await Promise.all([
       localId != null ? prisma.local.findUnique({ where: { id: localId }, select: { nombre: true } }) : null,
@@ -242,6 +247,36 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         console.error("[POST /api/etl/drive-import] Falló el archivado en Storage, se sigue sin archivar", { userId: user.id, file_name }, e);
         storagePath = undefined;
+      }
+
+      // Archivo cuyas columnas no matchean ningún ETLFileType conocido: no es
+      // una excepción del sistema, es un archivo fuera de alcance (ej. un
+      // export nuevo del ERP que este proyecto todavía no contempla). Se
+      // ignora — se loguea aparte y se sigue con el resto del batch, sin
+      // llegar a invocar runETL para este archivo.
+      const headers = getExcelHeaders(buffer);
+      const fileType = detectFileType(headers);
+      if (!fileType) {
+        const errorMessage = buildTipoNoIdentificadoMessage(headers);
+        try {
+          await prisma.importLog.create({
+            data: {
+              batchId,
+              fileType: null,
+              fileName: file_name,
+              storagePath,
+              localId,
+              puntoDeVentaId,
+              estado: "no_soportado",
+              errorMessage,
+              triggeredBy: user.id,
+            },
+          });
+        } catch (logErr) {
+          console.error("[POST /api/etl/drive-import] Falló el registro del ImportLog (no_soportado), se sigue sin loguear", { userId: user.id, file_name }, logErr);
+        }
+        results.push({ fileId: file_id, fileName: file_name, unsupported: true, errorMessage });
+        continue;
       }
 
       let report: ETLReport;
@@ -270,7 +305,7 @@ export async function POST(req: NextRequest) {
         } catch (logErr) {
           console.error("[POST /api/etl/drive-import] Falló el registro del ImportLog (camino error), se sigue sin loguear", { userId: user.id, file_name }, logErr);
         }
-        const aperturaParcial = await sincronizarAperturaSiCorresponde(results.map((r) => r.report));
+        const aperturaParcial = await sincronizarAperturaSiCorresponde(reportsOf(results));
         if (aperturaParcial.errores.length > 0) {
           console.error("[POST /api/etl/drive-import] apertura.errores (batch parcial)", aperturaParcial.errores);
         }
@@ -321,7 +356,7 @@ export async function POST(req: NextRequest) {
     // Link detalle_compras → compras post-batch
     await linkDetalleCompras(getEtlClient() as unknown as DbClient, localId);
 
-    const apertura = await sincronizarAperturaSiCorresponde(results.map((r) => r.report));
+    const apertura = await sincronizarAperturaSiCorresponde(reportsOf(results));
     if (apertura.errores.length > 0) {
       console.error("[POST /api/etl/drive-import] apertura.errores", apertura.errores);
     }
