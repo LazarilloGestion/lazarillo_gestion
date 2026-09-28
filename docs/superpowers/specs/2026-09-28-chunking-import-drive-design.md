@@ -134,6 +134,9 @@ sola tanda, ahora aplicado también entre tandas de la misma carpeta.
 
 ## 6. Riesgo residual (fuera de alcance de este fix)
 
+> **Amendment (28-sep-2026, más tarde el mismo día):** la evidencia apareció.
+> Ver sección 9 — `CHUNK_SIZE` bajó de 5 a 3.
+
 Si en el futuro una sola tanda de 5 archivos (ej. 5 archivos de ventas muy grandes)
 por sí sola superara los 60s, este fix no alcanza — pero no hay evidencia hoy de que
 eso ocurra (el peor caso medido, ventas de San Justo con 12.725 filas, tomó 17s). Se
@@ -242,3 +245,35 @@ scope por período) es un cambio a lógica de distribución de plata real — no
 para apurar bajo presión de un bloqueo de producción. Volver a "una vez por
 carpeta" es el fix mínimo que ataca la causa (multiplicación por cantidad de
 tandas) sin tocar la lógica de reglas.
+
+## 9. Tercer ajuste: CHUNK_SIZE de 5 a 3 (28-sep-2026, con la sincronización ya movida)
+
+Con la sección 8 ya en producción (sincronización una vez por carpeta), Ramos
+Mejía volvió a fallar — esta vez sin el patrón de multiplicación: BAR Resto y FC
+Canchas quedaron a la mitad, cada una con un timeout real de Vercel en una sola
+tanda (`FUNCTION_INVOCATION_TIMEOUT`, confirmado con logs de Vercel).
+
+Diferencia con los dos casos anteriores: acá no hay ningún costo que se
+multiplique por cantidad de tandas — es simplemente que **5 archivos por tanda
+ya no entran cómodos** cuando son archivos grandes. Se cruzó el timestamp exacto
+del request (Vercel) contra `ImportLog` (creadoEn de cada archivo) para
+reconstruir el desglose de una tanda que murió:
+
+- ~15s de overhead antes de tocar el primer archivo de la tanda (auth + refresh
+  de token de Drive + descarga en paralelo de los 5 archivos).
+- 4 de los 5 archivos de la tanda (todos `detalle_compras homologado`, 6.000-8.700
+  filas cada uno) tardaron entre 6,6s y 11,2s de ETL cada uno — ~35s en total.
+- La función murió a los 60s exactos, en medio del procesamiento del 5º archivo.
+
+**Fix:** `CHUNK_SIZE` baja de 5 a 3 (`hooks/use-drive-import.ts`). Con el peor
+caso medido (~15s de overhead + 3 archivos de ~11s), una tanda queda en ~48s —
+margen real en vez de rozar el límite. Cambio de una constante, sin tocar lógica
+ni el servidor.
+
+**Por qué no se atacó antes:** la sección 6 ya dejaba este caso documentado como
+riesgo residual explícito, a propósito sin resolver "por si aparecía evidencia
+real" — apareció el mismo día. No se sobre-diseñó de entrada (ej. tandas de
+tamaño variable según bytes/filas del archivo) porque no había evidencia de que
+hiciera falta; con la evidencia de hoy, bajar el número fijo alcanza. Si en el
+futuro reaparece con tandas de 3, ahí sí vale la pena evaluar un criterio más
+fino que un tamaño fijo.

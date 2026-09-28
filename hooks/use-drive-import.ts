@@ -9,7 +9,13 @@ import { parseImportResponse } from "./parse-import-response";
 import { accumulateAperturaInputs } from "./accumulate-apertura-inputs";
 import { chunk } from "@/lib/chunk";
 
-const CHUNK_SIZE = 5;
+// Bajado de 5 a 3 el 28-sep-2026: con reglas ya fuera del camino síncrono
+// (ver comentario de importFiles), una tanda de 5 archivos "detalle de compras
+// homologado" grandes (6.000-8.700 filas c/u, 7-11s de ETL cada uno) más el
+// overhead previo (~15s: auth + descarga de Drive) seguía rozando los 60s —
+// confirmado con un timeout real en Ramos Mejía (BAR Resto) con esos mismos
+// archivos. 3 da margen real: ~15s + 3×11s ≈ 48s en el peor caso medido.
+const CHUNK_SIZE = 3;
 
 export type FileImportStatus = "idle" | "importing" | "success" | "error" | "unsupported";
 export type FileStates = Record<string, FileImportStatus>;
