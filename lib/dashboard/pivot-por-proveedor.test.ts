@@ -139,6 +139,17 @@ describe("buildPivotDataByProveedor", () => {
     expect(abril670.entidadIdProveedor).toBe("texto:abril|codigo:670");
   });
 
+  it("Sin Proveedor (balde genuino) no se fragmenta por codigo aunque la compra traiga uno", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", proveedor_texto_crudo: null, proveedor_codigo: "999", row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", proveedor_texto_crudo: null, proveedor_codigo: "888", row_id: "x2", total: 20 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    expect(data.rows[0].children).toHaveLength(1);
+    expect(data.rows[0].children[0].entidadIdProveedor).toBe("texto:sinproveedor");
+    expect(data.rows[0].children[0].rowTotal).toBe(30);
+  });
+
   it("mismo nombre y mismo codigo en filas distintas: se siguen sumando en un solo nodo", () => {
     const rows: SqlRow[] = [
       row({ proveedor_id: null, proveedor_nombre: "Abril", proveedor_texto_crudo: "Abril", proveedor_codigo: "368", row_id: "a1", total: 100 }),

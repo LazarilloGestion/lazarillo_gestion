@@ -106,6 +106,14 @@ describe("buildComposicionPorProveedor", () => {
     expect(result["3|texto:gastosvarios"][1].total).toBe(10);
   });
 
+  it("Sin Proveedor no se fragmenta por codigo en el tooltip tampoco", () => {
+    const result = buildComposicionPorProveedor(
+      [{ concepto_codigo: "3", proveedor_id: null, proveedor_nombre: "Sin Proveedor", proveedor_codigo: "999", mes: 1, destino_nombre: "X", pct: 100, importe_calculado: 10 }],
+      [{ concepto_codigo: "3", proveedor_id: null, proveedor_nombre: "Sin Proveedor", proveedor_codigo: "999", mes: 1, importe_original: 10 }]
+    );
+    expect(result["3|texto:sinproveedor"][1].total).toBe(10);
+  });
+
   it("no afecta a buildComposicion existente (sigue agrupando solo por concepto)", () => {
     const result = buildComposicion(
       [{ concepto_codigo: "17", proveedor_id: 1, proveedor_nombre: "Proveedor A", proveedor_codigo: null, mes: 5, destino_nombre: "Actual", pct: 70, importe_calculado: 700 }],

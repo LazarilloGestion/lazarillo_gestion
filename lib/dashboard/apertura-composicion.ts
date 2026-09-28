@@ -1,5 +1,6 @@
 import type { ComposicionMes } from "./types";
 import { normalizarTexto } from "../text-normalize";
+import { construirEntidadIdProveedorTexto } from "../proveedor-entidad-id";
 
 type DecimalLike = number | string | { toString(): string };
 const toNum = (x: DecimalLike): number =>
@@ -83,8 +84,7 @@ export function buildComposicionPorProveedor(
   // que comparten nombre.
   const key = (concepto: string, proveedorId: number | null, proveedorNombre: string, proveedorCodigo: string | null) => {
     if (proveedorId != null) return `${concepto}|${proveedorId}`;
-    const base = `texto:${normalizarTexto(proveedorNombre)}`;
-    return `${concepto}|${proveedorCodigo != null ? `${base}|codigo:${proveedorCodigo}` : base}`;
+    return `${concepto}|${construirEntidadIdProveedorTexto(normalizarTexto(proveedorNombre), proveedorCodigo)}`;
   };
 
   const ensure = (concepto: string, proveedorId: number | null, proveedorNombre: string, proveedorCodigo: string | null, mes: number): ComposicionMes => {

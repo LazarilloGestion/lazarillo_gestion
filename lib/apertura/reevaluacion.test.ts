@@ -42,8 +42,12 @@ describe("resolverEntidadIdProveedor", () => {
     expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: "Diego", codigo: null })).toBe("texto:diego");
   });
 
-  it("proveedorId null y sin texto: cae a 'texto:sinproveedor' (con codigo si lo hay)", () => {
+  it("proveedorId null y sin texto: cae a 'texto:sinproveedor', sin codigo", () => {
     expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: null, codigo: null })).toBe("texto:sinproveedor");
+  });
+
+  it("proveedorId null, sin texto, CON codigo: sigue siendo 'texto:sinproveedor' sin sufijo — no es una identidad real a desambiguar", () => {
+    expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: null, codigo: "999" })).toBe("texto:sinproveedor");
   });
 
   it("dos personas con mismo nombre y codigo distinto resuelven a entidadId distinto", () => {

@@ -69,6 +69,26 @@ describe("buildComprasDetalleUrl — proveedorTexto", () => {
     expect(url).toContain("proveedorId=5");
     expect(url).not.toContain("proveedorTexto");
   });
+
+  it("con proveedorTexto y codigo: agrega ambos, para separar personas con el mismo nombre", () => {
+    const url = buildComprasDetalleUrl({ year: 2026, proveedorTexto: "Abril", codigo: "368" });
+    const params = new URL(url, "http://localhost").searchParams;
+    expect(params.get("proveedorTexto")).toBe("Abril");
+    expect(params.get("codigo")).toBe("368");
+  });
+
+  it("con proveedorTexto sin codigo: no agrega codigo", () => {
+    const url = buildComprasDetalleUrl({ year: 2026, proveedorTexto: "Abril" });
+    const params = new URL(url, "http://localhost").searchParams;
+    expect(params.get("proveedorTexto")).toBe("Abril");
+    expect(params.has("codigo")).toBe(false);
+  });
+
+  it("codigo sin proveedorTexto: se ignora (solo acota a proveedorTexto, nunca filtra solo)", () => {
+    const url = buildComprasDetalleUrl({ year: 2026, proveedorId: 5, codigo: "368" });
+    const params = new URL(url, "http://localhost").searchParams;
+    expect(params.has("codigo")).toBe(false);
+  });
 });
 
 describe("buildDashboardUrl — agrupacion", () => {

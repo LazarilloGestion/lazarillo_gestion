@@ -115,7 +115,7 @@ describe("flattenRowsPorProveedor", () => {
       localIdOrigen: null, puntoDeVentaIdOrigen: null, values: {}, rowTotal: 10,
     };
     const concepto: PivotConceptoSubRow = {
-      level: 2, id: "r1|p1|C1", nombre: "Concepto 1", conceptoCodigo: "C1", rubroCodigo: "r1", proveedorId: 1, proveedorTexto: null,
+      level: 2, id: "r1|p1|C1", nombre: "Concepto 1", conceptoCodigo: "C1", rubroCodigo: "r1", proveedorId: 1, proveedorTexto: null, codigo: null,
       values: {}, rowTotal: 10, children: [linea],
     };
     const proveedor = proveedorRow({ id: "r1|p1", children: [concepto] });
@@ -137,7 +137,7 @@ describe("flattenRowsPorProveedor", () => {
 
   it("no expande concepto si el proveedor padre no está expandido", () => {
     const concepto: PivotConceptoSubRow = {
-      level: 2, id: "r1|p1|C1", nombre: "Concepto 1", conceptoCodigo: "C1", rubroCodigo: "r1", proveedorId: 1, proveedorTexto: null,
+      level: 2, id: "r1|p1|C1", nombre: "Concepto 1", conceptoCodigo: "C1", rubroCodigo: "r1", proveedorId: 1, proveedorTexto: null, codigo: null,
       values: {}, rowTotal: 10, children: [],
     };
     const proveedor = proveedorRow({ id: "r1|p1", children: [concepto] });

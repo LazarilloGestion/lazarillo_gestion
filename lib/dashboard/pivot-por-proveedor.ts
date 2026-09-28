@@ -1,4 +1,5 @@
 import { normalizarTexto } from "../text-normalize";
+import { construirEntidadIdProveedorTexto } from "../proveedor-entidad-id";
 import { mergeComposiciones } from "./apertura-composicion";
 import type {
   SqlRow,
@@ -64,9 +65,7 @@ export function buildPivotDataByProveedor(
     // Ver docs/superpowers/specs/2026-09-28-codigo-empleado-proveedor-design.md §3.4.
     const provKeyOriginal = proveedor_id != null
       ? String(proveedor_id)
-      : proveedor_codigo != null
-        ? `texto:${normalizarTexto(proveedor_nombre)}|codigo:${proveedor_codigo}`
-        : `texto:${normalizarTexto(proveedor_nombre)}`;
+      : construirEntidadIdProveedorTexto(normalizarTexto(proveedor_nombre), proveedor_codigo);
     const provKey = `${rubro_codigo}|${provKeyOriginal}`;
     const concKey = `${provKey}|${concepto_codigo}`;
 
@@ -123,6 +122,7 @@ export function buildPivotDataByProveedor(
         proveedorId: proveedor_id,
         // Misma fuente que el nodo de proveedor (ver comentario arriba).
         proveedorTexto: proveedor_id != null ? null : proveedor_texto_crudo,
+        codigo: proveedor_codigo,
         values: {},
         rowTotal: 0,
         children: [],

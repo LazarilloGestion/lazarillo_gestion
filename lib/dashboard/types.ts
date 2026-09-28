@@ -92,6 +92,13 @@ export type PivotConceptoSubRow = {
   readonly rubroCodigo: string;
   readonly proveedorId: number | null;
   readonly proveedorTexto: string | null;
+  // Mismo campo que PivotProveedorSubRow.codigo, para poder pasar el código
+  // al filtro de drill-down (ver DetalleFilter.codigo) — sin esto, clickear
+  // el detalle de un concepto bajo un proveedor de texto crudo con código
+  // (ej. "368 - Abril") mezclaba las compras de las DOS personas que
+  // comparten ese nombre, aunque la fila mostrada ya las separe (hallazgo de
+  // la revisión final de rama).
+  readonly codigo: string | null;
   values: Record<number, number>;
   rowTotal: number;
   children: PivotLineaRow[];
@@ -149,6 +156,11 @@ export type DetalleFilter = BaseDashboardFilter & {
   // Sin proveedorId pero con texto crudo del ERP (Diego, Gabriel, GASTOS
   // VARIOS, etc.) — mutuamente excluyente con proveedorId y sinProveedor.
   proveedorTexto?: string;
+  // Código de la compra (Compra.codigo) — SOLO válido junto con
+  // proveedorTexto, para acotar el drill-down a una sola persona cuando dos
+  // comparten proveedorTexto (ej. dos "Abril" con código 368 y 670). Ausente
+  // = no filtra por código (compatibilidad con proveedorTexto sin código).
+  codigo?: string;
   // Sin proveedorId NI texto crudo — las compras realmente sin ningún dato de
   // proveedor. Mutuamente excluyente con proveedorId y proveedorTexto.
   sinProveedor?: boolean;
