@@ -131,3 +131,43 @@ por sí sola superara los 60s, este fix no alcanza — pero no hay evidencia hoy
 eso ocurra (el peor caso medido, ventas de San Justo con 12.725 filas, tomó 17s). Se
 deja documentado para revisar si aparece evidencia real, en vez de sobre-diseñar
 ahora (mismo criterio YAGNI de otras partes de este módulo).
+
+La revisión final de rama detectó dos límites conocidos adicionales, aceptados
+explícitamente (no requieren cambio de código):
+
+- **Rate limit por usuario** (`rateLimit(user.id, 20, 60_000)` en
+  `app/api/etl/drive-import/route.ts`): con una tanda = un request, una carpeta grande
+  ahora genera más requests que antes (ej. 36 archivos → 8 tandas en vez de 1). A la
+  velocidad medida hoy (una tanda de 5 archivos tarda varios segundos), no hay riesgo
+  real de pegarle a las 20 requests/60s — pero si `importarTodo` llegara a mandar
+  varias carpetas grandes muy rápido, podría acercarse al límite. Sin evidencia de que
+  esto pase hoy; no se ataca sin evidencia real (YAGNI).
+- **Validación previa por tanda, no por carpeta entera:** el comentario "evita commits
+  parciales" en `route.ts` (loop de validación de tamaño/magic-bytes/local requerido)
+  ahora vale solo dentro de una tanda, no de la carpeta completa — un archivo inválido
+  en la tanda 3 ya no impide que las tandas 1 y 2 hayan commiteado. Aceptado por
+  diseño: los upserts del ETL son idempotentes, y esto es consistente con el resto de
+  la sección 4 (cada tanda es su propia unidad de trabajo).
+
+## 7. Exención de Maestros (agregado tras revisión final de rama)
+
+La partición en tandas del punto 4.2 **no aplica a la carpeta de Maestros** — solo a
+carpetas transaccionales (las que se importan con un `localId` conocido). Maestros
+siempre se manda en un único request, igual que antes de este fix.
+
+Motivo: el servidor ordena por dependencia real (`getFileOrder`, headers del Excel)
+solo *dentro* de un mismo request — nunca entre requests separados. La carpeta de
+Maestros típicamente tiene 6 tipos de archivo (ya supera `CHUNK_SIZE = 5`), y el
+orden entre tandas dependería de un sort client-side por prefijo numérico del nombre
+de archivo (`app/api/drive/files/route.ts`, función `depOrder`) que no garantiza
+dependencias — un archivo no soportado (ver fix de "archivos no soportados", mismo
+día) con un prefijo numérico bajo podría correr `conceptosCaja` antes que
+`rubrosConceptoCaja` hubiera commiteado. Eso dispara un silent-drop real:
+`lib/etl/normalizers/conceptos-caja.ts` pone `codRga = null` en silencio (no error)
+para un código que todavía no existe en la base, siempre que la base ya tenga *algún*
+`rubroConceptoCaja` (o sea, en cualquier import que no sea el primerísimo de la
+historia).
+
+Maestros nunca fue la causa del timeout original — es un conjunto chico y fijo de
+tipos de archivo (a diferencia de las carpetas transaccionales, que acumulan años de
+compras/ventas sin techo, como pasó en Ramos Mejía). No necesita particionarse.
