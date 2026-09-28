@@ -92,6 +92,13 @@ export type PivotConceptoSubRow = {
   readonly rubroCodigo: string;
   readonly proveedorId: number | null;
   readonly proveedorTexto: string | null;
+  // Mismo campo que PivotProveedorSubRow.codigo, para poder pasar el código
+  // al filtro de drill-down (ver DetalleFilter.codigo) — sin esto, clickear
+  // el detalle de un concepto bajo un proveedor de texto crudo con código
+  // (ej. "368 - Abril") mezclaba las compras de las DOS personas que
+  // comparten ese nombre, aunque la fila mostrada ya las separe (hallazgo de
+  // la revisión final de rama).
+  readonly codigo: string | null;
   values: Record<number, number>;
   rowTotal: number;
   children: PivotLineaRow[];
@@ -105,6 +112,10 @@ export type PivotProveedorSubRow = {
   readonly nombre: string;
   readonly proveedorId: number | null;
   readonly proveedorTexto: string | null;
+  // Código de proveedor del ERP — null sin proveedor real y sin código en la
+  // compra. Ver proveedor_codigo en SqlRow.
+  readonly codigo: string | null;
+  readonly rubroCodigo: string;
   readonly entidadIdProveedor: string;
   values: Record<number, number>;
   rowTotal: number;
@@ -145,6 +156,11 @@ export type DetalleFilter = BaseDashboardFilter & {
   // Sin proveedorId pero con texto crudo del ERP (Diego, Gabriel, GASTOS
   // VARIOS, etc.) — mutuamente excluyente con proveedorId y sinProveedor.
   proveedorTexto?: string;
+  // Código de la compra (Compra.codigo) — SOLO válido junto con
+  // proveedorTexto, para acotar el drill-down a una sola persona cuando dos
+  // comparten proveedorTexto (ej. dos "Abril" con código 368 y 670). Ausente
+  // = no filtra por código (compatibilidad con proveedorTexto sin código).
+  codigo?: string;
   // Sin proveedorId NI texto crudo — las compras realmente sin ningún dato de
   // proveedor. Mutuamente excluyente con proveedorId y proveedorTexto.
   sinProveedor?: boolean;
@@ -176,6 +192,12 @@ export type SqlRow = {
   // de "no hay ni proveedor ni texto" (que el COALESCE colapsa al literal
   // 'Sin Proveedor'). La usa el filtro de drill-down, no el agrupado del árbol.
   proveedor_texto_crudo: string | null;
+  // Código de proveedor del ERP (columna D del Excel de compras, Compra.codigo)
+  // — null cuando no hay proveedor real Y la compra no trae código. Usado para
+  // desambiguar nombres ambiguos (ver pivot-table-por-proveedor.tsx) y para la
+  // clave de agrupación de proveedores sin proveedorId real (ver
+  // pivot-por-proveedor.ts).
+  proveedor_codigo: string | null;
   mes: number;
   total: DecimalLike;
   row_id: string;

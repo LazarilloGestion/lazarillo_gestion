@@ -40,4 +40,18 @@ describe("condicionMatchNivel", () => {
     expect(cond.sql).toContain('"conceptoCodigoManual"');
     expect(cond.values).toEqual(["GASTO1"]);
   });
+
+  it("nivel proveedor con entidadId 'texto:<normalizado>|codigo:<codigo>': agrega AND sobre c.codigo", () => {
+    const cond = condicionMatchNivel("proveedor", "texto:abril|codigo:368");
+    expect(cond.sql).toContain('"proveedorId" IS NULL');
+    expect(cond.sql).toContain('"proveedorTextoNormalizado" = ?');
+    expect(cond.sql).toContain('"codigo" = ?');
+    expect(cond.values).toEqual(["abril", "368"]);
+  });
+
+  it("nivel proveedor con entidadId 'texto:<normalizado>' sin codigo: comportamiento sin cambios", () => {
+    const cond = condicionMatchNivel("proveedor", "texto:diego");
+    expect(cond.sql).not.toContain('"codigo" = ?');
+    expect(cond.values).toEqual(["diego"]);
+  });
 });

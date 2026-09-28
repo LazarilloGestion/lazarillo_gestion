@@ -2,6 +2,7 @@ import { origenAlcanza } from "./validaciones";
 import { fechaEnVigencia, type ReglaVigencia } from "./vigencia";
 import { revertirCompra, aplicarReglaACompra, type AperturaDbClient } from "./motor";
 import { normalizarProveedorTexto } from "../text-normalize";
+import { construirEntidadIdProveedorTexto, candidatosEntidadIdProveedor } from "../proveedor-entidad-id";
 
 export type ReglaCandidata = {
   id: number;
@@ -44,10 +45,13 @@ export function elegirReglaParaCompra(
 // Mismo criterio que condicionMatchNivel (lib/apertura/motor.ts) para nivel
 // "proveedor" — extraída como función pura para poder testearla sin Prisma, y
 // para que este archivo y el motor NUNCA puedan resolver un entidadId distinto
-// para la misma compra.
-export function resolverEntidadIdProveedor(compra: { proveedorId: number | null; proveedor: string | null }): string {
+// para la misma compra. El sufijo `|codigo:<codigo>` desambigua personas
+// reales distintas que comparten nombre (ver docs/superpowers/specs/
+// 2026-09-28-codigo-empleado-proveedor-design.md §3.6) — se omite cuando la
+// compra no trae código, para no fragmentar los casos que hoy funcionan bien.
+export function resolverEntidadIdProveedor(compra: { proveedorId: number | null; proveedor: string | null; codigo: string | null }): string {
   if (compra.proveedorId != null) return String(compra.proveedorId);
-  return `texto:${normalizarProveedorTexto(compra.proveedor)}`;
+  return construirEntidadIdProveedorTexto(normalizarProveedorTexto(compra.proveedor), compra.codigo);
 }
 
 // Orquestación: revierte la distribución vieja de la compra y le aplica la
@@ -71,7 +75,7 @@ export async function reevaluarCompra(
       fecha: true, fechaManual: true,
       importe: true, importeManual: true,
       conceptoCodigo: true, conceptoCodigoManual: true,
-      proveedorId: true, proveedor: true,
+      proveedorId: true, proveedor: true, codigo: true,
     },
   });
   if (!compra) return { reevaluada: false, distribuidaAhora: false };
@@ -89,27 +93,45 @@ export async function reevaluarCompra(
   // compra sin concepto efectivo (dato ausente) simplemente no tiene
   // candidatas de ese nivel — no es motivo para cortar antes, a diferencia de
   // v1 donde concepto era el único nivel posible.
-  const nivelesAProbar: { nivel: string; entidadId: string | null }[] = [
-    { nivel: "registro", entidadId: rowId },
-    { nivel: "proveedor", entidadId: resolverEntidadIdProveedor(compra) },
-    { nivel: "concepto", entidadId: conceptoEfectivo ?? null },
+  //
+  // Nivel "proveedor" prueba VARIOS entidadId candidatos (no solo el exacto):
+  // mientras las reglas ya existentes en producción no se migren al formato
+  // con código (plan aparte, spec §4), siguen guardadas como "texto:<nombre>"
+  // sin sufijo. Sin este fallback, resolverEntidadIdProveedor ya devuelve
+  // "texto:<nombre>|codigo:<codigo>" para cualquier compra con código, y el
+  // lookup exacto de abajo dejaba de encontrar esas reglas viejas — la compra
+  // se revertía y no volvía a distribuirse (o caía a una regla de concepto
+  // equivocada), en silencio, apenas alguien editara la compra a mano
+  // (hallazgo de la revisión final de rama). candidatosEntidadIdProveedor
+  // devuelve el candidato específico primero — gana si compite con uno viejo.
+  const nivelesAProbar: { nivel: string; entidadIds: string[] }[] = [
+    { nivel: "registro", entidadIds: [rowId] },
+    { nivel: "proveedor", entidadIds: candidatosEntidadIdProveedor(resolverEntidadIdProveedor(compra)) },
+    { nivel: "concepto", entidadIds: conceptoEfectivo != null ? [conceptoEfectivo] : [] },
   ];
 
   let regla: ReglaCandidata | null = null;
-  for (const { nivel, entidadId } of nivelesAProbar) {
-    if (entidadId == null) continue;
+  for (const { nivel, entidadIds } of nivelesAProbar) {
+    if (entidadIds.length === 0) continue;
     const candidatas = await prisma.reglaApertura.findMany({
-      where: { estado: "activa", nivel, entidadId },
+      where: { estado: "activa", nivel, entidadId: { in: entidadIds } },
       select: {
-        id: true, modo: true, fechaDesde: true, fechaHasta: true, extremosInclusivos: true,
+        id: true, entidadId: true, modo: true, fechaDesde: true, fechaHasta: true, extremosInclusivos: true,
         origenLocalId: true, origenPuntoDeVentaId: true,
         destinos: { select: { id: true, porcentaje: true } },
       },
     });
+    // Cuando hay más de un entidadId candidato, se ordenan las reglas
+    // encontradas según la posición de su entidadId en entidadIds — el más
+    // específico (con código) queda primero, así elegirReglaParaCompra lo
+    // prefiere sobre una regla vieja sin código si ambas cubren la compra.
+    const ordenadas = entidadIds.length > 1
+      ? [...candidatas].sort((a, b) => entidadIds.indexOf(a.entidadId) - entidadIds.indexOf(b.entidadId))
+      : candidatas;
     regla = elegirReglaParaCompra(
       { localId: compra.localId, puntoDeVentaId: compra.puntoDeVentaId },
       fechaEfectiva,
-      candidatas.map((r) => ({
+      ordenadas.map((r) => ({
         id: r.id,
         modo: r.modo as ReglaVigencia["modo"],
         fechaDesde: r.fechaDesde,

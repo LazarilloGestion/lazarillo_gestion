@@ -195,6 +195,8 @@ export async function GET(request: NextRequest) {
   const proveedorId = idSchema.safeParse(searchParams.get("proveedorId")).data;
   const proveedorTextoRaw = searchParams.get("proveedorTexto");
   const proveedorTexto = proveedorTextoRaw ? textoLibreSchema.safeParse(proveedorTextoRaw).data : undefined;
+  const codigoRaw = searchParams.get("codigo");
+  const codigo = codigoRaw ? codigoSchema.safeParse(codigoRaw).data : undefined;
   const sinProveedor = searchParams.get("sinProveedor") === "1";
 
   const conceptoCodigoRaw = searchParams.get("conceptoCodigo");
@@ -212,7 +214,18 @@ export async function GET(request: NextRequest) {
   if (localId !== undefined) conditions.push(Prisma.sql`c."localId" = ${localId}`);
   if (pdvId !== undefined) conditions.push(Prisma.sql`c."puntoDeVentaId" = ${pdvId}`);
   if (proveedorId !== undefined) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
-  else if (proveedorTexto !== undefined) conditions.push(Prisma.sql`c."proveedorId" IS NULL AND c.proveedor = ${proveedorTexto}`);
+  else if (proveedorTexto !== undefined) {
+    // codigo es un AND adicional, no un reemplazo de proveedorTexto — dos
+    // personas con el mismo proveedorTexto (ej. dos "Abril") solo se separan
+    // si también se filtra por su código real (ver spec de la revisión final
+    // de rama). Sin codigo en la URL (compatibilidad con proveedores de texto
+    // crudo sin código), el filtro queda igual que antes.
+    conditions.push(
+      codigo !== undefined
+        ? Prisma.sql`c."proveedorId" IS NULL AND c.proveedor = ${proveedorTexto} AND c.codigo = ${codigo}`
+        : Prisma.sql`c."proveedorId" IS NULL AND c.proveedor = ${proveedorTexto}`
+    );
+  }
   else if (sinProveedor) conditions.push(Prisma.sql`c."proveedorId" IS NULL AND c.proveedor IS NULL`);
 
   // cc_ef/rc_ef (concepto EFECTIVO, mismo join que pivot usa: COALESCE(manual,

@@ -87,6 +87,7 @@ export async function GET(request: NextRequest) {
       p.id                                                                AS proveedor_id,
       COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor')         AS proveedor_nombre,
       c.proveedor                                                        AS proveedor_texto_crudo,
+      c.codigo                                                           AS proveedor_codigo,
       EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int        AS mes,
       COALESCE(c."importeManual", c.importe)                             AS total,
       c."rowId"                                                           AS row_id,
@@ -124,6 +125,7 @@ export async function GET(request: NextRequest) {
       END                                                         AS destino_nombre,
       p.id                                                          AS proveedor_id,
       COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor')   AS proveedor_nombre,
+      c.codigo                                                     AS proveedor_codigo,
       da.porcentaje                                                AS pct,
       SUM(da."importeCalculado")                                   AS importe_calculado
     FROM v_compras_distribuidas c
@@ -135,7 +137,7 @@ export async function GET(request: NextRequest) {
     LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
     LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
     WHERE c."distribucionId" IS NOT NULL AND ${whereComposicion}
-    GROUP BY concepto_codigo, proveedor_id, proveedor_nombre, mes, destino_nombre, da.porcentaje
+    GROUP BY concepto_codigo, proveedor_id, proveedor_nombre, proveedor_codigo, mes, destino_nombre, da.porcentaje
   `);
 
   // Total "100%" del tooltip = importe original de la compra, deduplicado por
@@ -149,6 +151,7 @@ export async function GET(request: NextRequest) {
         COALESCE(cc.codigo, '__sin_concepto')                       AS concepto_codigo,
         p.id                                                          AS proveedor_id,
         COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor')   AS proveedor_nombre,
+        c.codigo                                                     AS proveedor_codigo,
         EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int AS mes,
         da."compraRowId",
         da."importeOriginal"                                        AS importe_original
@@ -159,7 +162,7 @@ export async function GET(request: NextRequest) {
       LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
       WHERE c."distribucionId" IS NOT NULL AND ${whereComposicion}
     ) dedup
-    GROUP BY concepto_codigo, proveedor_id, proveedor_nombre, mes
+    GROUP BY concepto_codigo, proveedor_id, proveedor_nombre, proveedor_codigo, mes
   `);
 
   // Los tres queries son independientes entre sí y `prisma` es un cliente

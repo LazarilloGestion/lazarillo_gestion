@@ -5,7 +5,7 @@ import { usePivotScreenDataPorProveedor } from "@/hooks/use-pivot-screen-data-po
 import { ExpandableButton } from "@/components/ui/expandable-button";
 import { ChevronDown, ChevronUp, Users } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
-import { MONTHS } from "@/lib/dashboard/constants";
+import { MONTHS, RUBRO_GASTOS_EN_PERSONAL_CODIGO } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
@@ -20,6 +20,7 @@ import { VentasDetalleModal } from "./ventas-detalle-modal";
 import { AperturaGastosModal } from "./apertura-gastos-modal";
 import { AperturaSplitButton } from "./apertura-split-button";
 import type { NivelRegla } from "@/lib/apertura/schemas";
+import { candidatosEntidadIdProveedor } from "@/lib/proveedor-entidad-id";
 
 // Envuelve una celda con el tooltip de prorrateo cuando hay composicion para
 // esa celda (mes puntual o total anual, de concepto o de proveedor agregado)
@@ -252,8 +253,15 @@ export function PivotTableByProveedor() {
                 const filtroProveedor = proveedor.proveedorId != null
                   ? { proveedorId: proveedor.proveedorId }
                   : proveedor.proveedorTexto != null
-                    ? { proveedorTexto: proveedor.proveedorTexto }
+                    ? { proveedorTexto: proveedor.proveedorTexto, codigo: proveedor.codigo ?? undefined }
                     : { sinProveedor: true as const };
+                // Bajo Gastos En Personal los "proveedores" suelen ser personas de
+                // planilla con nombres ambiguos — el código del ERP los desambigua.
+                // En el resto de rubros el nombre ya alcanza, así que no se antepone.
+                const nombreProveedor =
+                  proveedor.rubroCodigo === RUBRO_GASTOS_EN_PERSONAL_CODIGO && proveedor.codigo
+                    ? `${proveedor.codigo} - ${normalize(proveedor.nombre)}`
+                    : normalize(proveedor.nombre);
                 return (
                   <tr key={proveedor.id} className="border-b font-semibold" onContextMenu={collapseProveedores}>
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -265,12 +273,12 @@ export function PivotTableByProveedor() {
                           iconSize="w-3.5 h-3.5"
                           className="flex-1 min-w-0"
                         >
-                          {normalize(proveedor.nombre)}
+                          {nombreProveedor}
                         </ExpandableButton>
                         <AperturaSplitButton
                           variant="block"
                           puedeAperturar={localId != null && pdvId != null}
-                          tieneReglaActiva={reglasActivasPorNivel.proveedor.has(proveedor.entidadIdProveedor)}
+                          tieneReglaActiva={candidatosEntidadIdProveedor(proveedor.entidadIdProveedor).some((c) => reglasActivasPorNivel.proveedor.has(c))}
                           onClick={() => setApertura({
                             nivel: "proveedor",
                             entidadId: proveedor.entidadIdProveedor,
@@ -322,7 +330,7 @@ export function PivotTableByProveedor() {
                 const filtroProveedorConcepto = concepto.proveedorId != null
                   ? { proveedorId: concepto.proveedorId }
                   : concepto.proveedorTexto != null
-                    ? { proveedorTexto: concepto.proveedorTexto }
+                    ? { proveedorTexto: concepto.proveedorTexto, codigo: concepto.codigo ?? undefined }
                     : { sinProveedor: true as const };
                 return (
                   <tr key={concepto.id} className="border-b hover:bg-accent/40 transition-colors" onContextMenu={collapseConceptos}>

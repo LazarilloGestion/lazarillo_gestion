@@ -1,5 +1,6 @@
 import type { ComposicionMes } from "./types";
 import { normalizarTexto } from "../text-normalize";
+import { construirEntidadIdProveedorTexto } from "../proveedor-entidad-id";
 
 type DecimalLike = number | string | { toString(): string };
 const toNum = (x: DecimalLike): number =>
@@ -9,6 +10,7 @@ export type ComposicionSqlRow = {
   concepto_codigo: string;
   proveedor_id: number | null;
   proveedor_nombre: string;
+  proveedor_codigo: string | null;
   mes: number;
   destino_nombre: string;
   pct: DecimalLike;
@@ -19,6 +21,7 @@ export type ComposicionOriginalRow = {
   concepto_codigo: string;
   proveedor_id: number | null;
   proveedor_nombre: string;
+  proveedor_codigo: string | null;
   mes: number;
   importe_original: DecimalLike;
 };
@@ -76,18 +79,23 @@ export function buildComposicionPorProveedor(
 ): Record<string, Record<number, ComposicionMes>> {
   const out: Record<string, Record<number, ComposicionMes>> = {};
 
-  const key = (concepto: string, proveedorId: number | null, proveedorNombre: string) =>
-    `${concepto}|${proveedorId != null ? String(proveedorId) : `texto:${normalizarTexto(proveedorNombre)}`}`;
+  // Mismo formato que provKeyOriginal en pivot-por-proveedor.ts — ver comentario
+  // ahí sobre por qué el código hace falta para no mezclar personas distintas
+  // que comparten nombre.
+  const key = (concepto: string, proveedorId: number | null, proveedorNombre: string, proveedorCodigo: string | null) => {
+    if (proveedorId != null) return `${concepto}|${proveedorId}`;
+    return `${concepto}|${construirEntidadIdProveedorTexto(normalizarTexto(proveedorNombre), proveedorCodigo)}`;
+  };
 
-  const ensure = (concepto: string, proveedorId: number | null, proveedorNombre: string, mes: number): ComposicionMes => {
-    const k = key(concepto, proveedorId, proveedorNombre);
+  const ensure = (concepto: string, proveedorId: number | null, proveedorNombre: string, proveedorCodigo: string | null, mes: number): ComposicionMes => {
+    const k = key(concepto, proveedorId, proveedorNombre, proveedorCodigo);
     out[k] ??= {};
     out[k][mes] ??= { total: 0, destinos: [] };
     return out[k][mes];
   };
 
   for (const row of originalRows) {
-    ensure(row.concepto_codigo, row.proveedor_id, row.proveedor_nombre, row.mes).total += toNum(row.importe_original);
+    ensure(row.concepto_codigo, row.proveedor_id, row.proveedor_nombre, row.proveedor_codigo, row.mes).total += toNum(row.importe_original);
   }
   // Misma fusión por (nombre, pct) que buildComposicion, por una razón
   // análoga: el GROUP BY de la SQL particiona también por proveedor_nombre,
@@ -97,7 +105,7 @@ export function buildComposicionPorProveedor(
   // varias filas SQL que caen todas en este bucket — sin fusionar, el mismo
   // destino aparecería duplicado en el tooltip.
   for (const row of destinoRows) {
-    const bucket = ensure(row.concepto_codigo, row.proveedor_id, row.proveedor_nombre, row.mes);
+    const bucket = ensure(row.concepto_codigo, row.proveedor_id, row.proveedor_nombre, row.proveedor_codigo, row.mes);
     const pct = toNum(row.pct);
     const importe = toNum(row.importe_calculado);
     const existente = bucket.destinos.find((d) => d.nombre === row.destino_nombre && d.pct === pct);

@@ -6,7 +6,7 @@ function row(overrides: Partial<SqlRow>): SqlRow {
   return {
     rubro_codigo: "R1", rubro_nombre: "Rubro 1",
     concepto_codigo: "C1", concepto_nombre: "Concepto 1",
-    proveedor_id: 1, proveedor_nombre: "Proveedor A", proveedor_texto_crudo: null,
+    proveedor_id: 1, proveedor_nombre: "Proveedor A", proveedor_texto_crudo: null, proveedor_codigo: "P1",
     mes: 1, total: 100, row_id: "row-1", distribucion_id: null,
     fecha: "2026-01-01", observac: null, has_manual_override: false,
     local_id_origen: null, punto_de_venta_id_origen: null,
@@ -89,20 +89,83 @@ describe("buildPivotDataByProveedor", () => {
     expect(data.rows[0].children[0].entidadIdProveedor).toBe("7");
   });
 
-  it("entidadIdProveedor: sin proveedor_id usa 'texto:<normalizado>' del proveedor_nombre", () => {
+  it("entidadIdProveedor: sin proveedor_id y sin codigo usa 'texto:<normalizado>' del proveedor_nombre", () => {
     const rows: SqlRow[] = [
-      row({ proveedor_id: null, proveedor_nombre: "Diego", proveedor_texto_crudo: "Diego", row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "Diego", proveedor_texto_crudo: "Diego", proveedor_codigo: null, row_id: "x1", total: 10 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
     expect(data.rows[0].children[0].entidadIdProveedor).toBe("texto:diego");
   });
 
-  it("entidadIdProveedor: nodo genuino Sin Proveedor usa 'texto:sinproveedor'", () => {
+  it("entidadIdProveedor: nodo genuino Sin Proveedor sin codigo usa 'texto:sinproveedor'", () => {
     const rows: SqlRow[] = [
-      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", proveedor_texto_crudo: null, row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", proveedor_texto_crudo: null, proveedor_codigo: null, row_id: "x1", total: 10 }),
     ];
     const data = buildPivotDataByProveedor(rows, {});
     expect(data.rows[0].children[0].entidadIdProveedor).toBe("texto:sinproveedor");
+  });
+
+  it("propaga codigo y rubroCodigo al nodo de proveedor", () => {
+    const rows: SqlRow[] = [
+      row({ rubro_codigo: "3", proveedor_id: 608, proveedor_nombre: "Santiago Benjamin", proveedor_codigo: "608", row_id: "a1", total: 10 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    const proveedor = data.rows[0].children[0];
+    expect(proveedor.codigo).toBe("608");
+    expect(proveedor.rubroCodigo).toBe("3");
+  });
+
+  it("sin proveedor real, codigo llega null si la compra no trae codigo", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "Diego", proveedor_texto_crudo: "Diego", proveedor_codigo: null, row_id: "x1", total: 10 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    expect(data.rows[0].children[0].codigo).toBeNull();
+  });
+
+  it("dos personas con el mismo nombre pero codigo distinto: dos nodos separados, no se mezcla la plata", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "Abril", proveedor_texto_crudo: "Abril", proveedor_codigo: "368", row_id: "a1", total: 100 }),
+      row({ proveedor_id: null, proveedor_nombre: "Abril", proveedor_texto_crudo: "Abril", proveedor_codigo: "670", row_id: "a2", total: 50 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    const rubro = data.rows[0];
+    expect(rubro.children).toHaveLength(2);
+    const abril368 = rubro.children.find((p) => p.codigo === "368")!;
+    const abril670 = rubro.children.find((p) => p.codigo === "670")!;
+    expect(abril368.rowTotal).toBe(100);
+    expect(abril670.rowTotal).toBe(50);
+    expect(abril368.entidadIdProveedor).toBe("texto:abril|codigo:368");
+    expect(abril670.entidadIdProveedor).toBe("texto:abril|codigo:670");
+  });
+
+  it("Sin Proveedor (balde genuino) no se fragmenta por codigo aunque la compra traiga uno", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", proveedor_texto_crudo: null, proveedor_codigo: "999", row_id: "x1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "Sin Proveedor", proveedor_texto_crudo: null, proveedor_codigo: "888", row_id: "x2", total: 20 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    expect(data.rows[0].children).toHaveLength(1);
+    expect(data.rows[0].children[0].entidadIdProveedor).toBe("texto:sinproveedor");
+    expect(data.rows[0].children[0].rowTotal).toBe(30);
+  });
+
+  it("mismo nombre y mismo codigo en filas distintas: se siguen sumando en un solo nodo", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "Abril", proveedor_texto_crudo: "Abril", proveedor_codigo: "368", row_id: "a1", total: 100 }),
+      row({ proveedor_id: null, proveedor_nombre: "Abril", proveedor_texto_crudo: "Abril", proveedor_codigo: "368", row_id: "a2", total: 50 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    expect(data.rows[0].children).toHaveLength(1);
+    expect(data.rows[0].children[0].rowTotal).toBe(150);
+  });
+
+  it("proveedor real (proveedorId no null): entidadIdProveedor sigue siendo solo el id, sin sufijo de codigo", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: 7, proveedor_nombre: "Proveedor G", proveedor_codigo: "7", row_id: "a1", total: 10 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    expect(data.rows[0].children[0].entidadIdProveedor).toBe("7");
   });
 
   it("dos textos crudos distintos sin proveedor real: dos nodos separados, no se mezclan", () => {

@@ -1,4 +1,5 @@
 import { normalizarTexto } from "../text-normalize";
+import { construirEntidadIdProveedorTexto } from "../proveedor-entidad-id";
 import { mergeComposiciones } from "./apertura-composicion";
 import type {
   SqlRow,
@@ -29,6 +30,7 @@ export function buildPivotDataByProveedor(
       proveedor_id,
       proveedor_nombre,
       proveedor_texto_crudo,
+      proveedor_codigo,
       concepto_codigo,
       concepto_nombre,
       mes,
@@ -55,9 +57,15 @@ export function buildPivotDataByProveedor(
     // app/api/dashboard/pivot/route.ts) — se usa normalizado como clave para
     // no fragmentar el mismo proveedor por un typo de mayúsculas/tildes en
     // una carga futura (spec 2026-09-19-agrupar-sin-proveedor-por-texto-crudo-design.md §3.2).
+    // Con proveedor_id null, el mismo nombre puede corresponder a personas
+    // reales distintas (ej. "Abril" con código 368 y otra "Abril" con código
+    // 670) — sin el código en la clave, sus compras se sumarían en un solo
+    // nodo. Sin código en la compra (proveedor_codigo null), no hay forma de
+    // desambiguar: se mantiene el agrupado solo por nombre, igual que antes.
+    // Ver docs/superpowers/specs/2026-09-28-codigo-empleado-proveedor-design.md §3.4.
     const provKeyOriginal = proveedor_id != null
       ? String(proveedor_id)
-      : `texto:${normalizarTexto(proveedor_nombre)}`;
+      : construirEntidadIdProveedorTexto(normalizarTexto(proveedor_nombre), proveedor_codigo);
     const provKey = `${rubro_codigo}|${provKeyOriginal}`;
     const concKey = `${provKey}|${concepto_codigo}`;
 
@@ -93,6 +101,8 @@ export function buildPivotDataByProveedor(
         // byte-idénticos por construcción (docs/superpowers/specs/2026-09-20-
         // apertura-proveedor-texto-crudo-design.md §4.3).
         entidadIdProveedor: provKeyOriginal,
+        codigo: proveedor_codigo,
+        rubroCodigo: rubro_codigo,
         values: {},
         rowTotal: 0,
         children: [],
@@ -112,6 +122,7 @@ export function buildPivotDataByProveedor(
         proveedorId: proveedor_id,
         // Misma fuente que el nodo de proveedor (ver comentario arriba).
         proveedorTexto: proveedor_id != null ? null : proveedor_texto_crudo,
+        codigo: proveedor_codigo,
         values: {},
         rowTotal: 0,
         children: [],

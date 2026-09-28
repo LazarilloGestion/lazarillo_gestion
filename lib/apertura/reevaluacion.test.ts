@@ -30,15 +30,29 @@ describe("elegirReglaParaCompra", () => {
 });
 
 describe("resolverEntidadIdProveedor", () => {
-  it("proveedorId presente: usa el id numérico como string", () => {
-    expect(resolverEntidadIdProveedor({ proveedorId: 5, proveedor: "Juan Perez" })).toBe("5");
+  it("proveedorId presente: usa el id numérico como string, sin importar el código", () => {
+    expect(resolverEntidadIdProveedor({ proveedorId: 5, proveedor: "Juan Perez", codigo: "999" })).toBe("5");
   });
 
-  it("proveedorId null con texto crudo: usa 'texto:<normalizado>'", () => {
-    expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: "Diego" })).toBe("texto:diego");
+  it("proveedorId null con texto crudo y codigo: usa 'texto:<normalizado>|codigo:<codigo>'", () => {
+    expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: "Diego", codigo: "120" })).toBe("texto:diego|codigo:120");
   });
 
-  it("proveedorId null y sin texto: cae a 'texto:sinproveedor'", () => {
-    expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: null })).toBe("texto:sinproveedor");
+  it("proveedorId null con texto crudo pero SIN codigo: usa 'texto:<normalizado>' sin sufijo, igual que antes", () => {
+    expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: "Diego", codigo: null })).toBe("texto:diego");
+  });
+
+  it("proveedorId null y sin texto: cae a 'texto:sinproveedor', sin codigo", () => {
+    expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: null, codigo: null })).toBe("texto:sinproveedor");
+  });
+
+  it("proveedorId null, sin texto, CON codigo: sigue siendo 'texto:sinproveedor' sin sufijo — no es una identidad real a desambiguar", () => {
+    expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: null, codigo: "999" })).toBe("texto:sinproveedor");
+  });
+
+  it("dos personas con mismo nombre y codigo distinto resuelven a entidadId distinto", () => {
+    const a = resolverEntidadIdProveedor({ proveedorId: null, proveedor: "Abril", codigo: "368" });
+    const b = resolverEntidadIdProveedor({ proveedorId: null, proveedor: "Abril", codigo: "670" });
+    expect(a).not.toBe(b);
   });
 });
