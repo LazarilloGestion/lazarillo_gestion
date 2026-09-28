@@ -105,6 +105,10 @@ export type PivotProveedorSubRow = {
   readonly nombre: string;
   readonly proveedorId: number | null;
   readonly proveedorTexto: string | null;
+  // Código de proveedor del ERP — null sin proveedor real y sin código en la
+  // compra. Ver proveedor_codigo en SqlRow.
+  readonly codigo: string | null;
+  readonly rubroCodigo: string;
   readonly entidadIdProveedor: string;
   values: Record<number, number>;
   rowTotal: number;
@@ -176,6 +180,12 @@ export type SqlRow = {
   // de "no hay ni proveedor ni texto" (que el COALESCE colapsa al literal
   // 'Sin Proveedor'). La usa el filtro de drill-down, no el agrupado del árbol.
   proveedor_texto_crudo: string | null;
+  // Código de proveedor del ERP (columna D del Excel de compras, Compra.codigo)
+  // — null cuando no hay proveedor real Y la compra no trae código. Usado para
+  // desambiguar nombres ambiguos (ver pivot-table-por-proveedor.tsx) y para la
+  // clave de agrupación de proveedores sin proveedorId real (ver
+  // pivot-por-proveedor.ts).
+  proveedor_codigo: string | null;
   mes: number;
   total: DecimalLike;
   row_id: string;
