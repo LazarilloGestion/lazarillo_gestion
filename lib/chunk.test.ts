@@ -27,4 +27,9 @@ describe("chunk", () => {
     const items = ["a", "b", "c", "d", "e", "f"];
     expect(chunk(items, 2)).toEqual([["a", "b"], ["c", "d"], ["e", "f"]]);
   });
+
+  it("size <= 0 -> tira RangeError", () => {
+    expect(() => chunk([1, 2, 3], 0)).toThrow(RangeError);
+    expect(() => chunk([1, 2, 3], -1)).toThrow(RangeError);
+  });
 });

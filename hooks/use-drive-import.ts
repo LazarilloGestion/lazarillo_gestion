@@ -8,6 +8,8 @@ import type { DriveFile } from "@/lib/drive/types";
 import { parseImportResponse } from "./parse-import-response";
 import { chunk } from "@/lib/chunk";
 
+const CHUNK_SIZE = 5;
+
 export type FileImportStatus = "idle" | "importing" | "success" | "error" | "unsupported";
 export type FileStates = Record<string, FileImportStatus>;
 export type FileReports = Record<string, ETLReport[]>;
@@ -47,8 +49,6 @@ export function useDriveImport() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [anyImporting]);
 
-  const CHUNK_SIZE = 5;
-
   // Se particiona en tandas de CHUNK_SIZE en vez de mandar toda la carpeta en un
   // solo POST — una carpeta con muchos archivos (ej. Ramos Mejía, 36 tras sumar
   // años homologados el 27/28-sep-2026) podía superar el maxDuration=60 de
@@ -78,7 +78,17 @@ export function useDriveImport() {
     let totalRecords = 0;
     let aborted = false;
 
-    for (const batch of chunk(files, CHUNK_SIZE)) {
+    // Maestros (localId == null) van siempre en un solo request: el server ordena por
+    // dependencia real (getFileOrder, headers del Excel) DENTRO de un request, pero no
+    // entre requests separados — particionar acá arriesgaba correr conceptosCaja antes
+    // que rubrosConceptoCaja hubiera commiteado, y conceptos-caja.ts pone codRga=null en
+    // silencio para códigos que todavía no existen (silent-drop, hallazgo Important de
+    // la revisión final de rama). Los maestros son un conjunto chico y fijo de tipos de
+    // archivo que nunca causó el timeout original — solo las carpetas transaccionales
+    // (años de compras/ventas acumulados) lo hacían, así que solo esas necesitan partirse.
+    const batches = localId != null ? chunk(files, CHUNK_SIZE) : [files];
+
+    for (const batch of batches) {
       if (aborted) {
         const notAttempted: FileStates = {};
         const notAttemptedErrors: FileErrors = {};
@@ -118,7 +128,8 @@ export function useDriveImport() {
         totalUnsupported += parsed.unsupportedCount;
         totalRecords += parsed.recordCount;
         if (!res.ok) chunkFailed = true;
-      } catch {
+      } catch (err) {
+        console.error("[useDriveImport] Error de red importando tanda", err);
         for (const f of batch) {
           finalStatuses[f.id] = "error";
           finalErrors[f.id] = "Error de red";
