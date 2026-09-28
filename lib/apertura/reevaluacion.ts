@@ -44,10 +44,14 @@ export function elegirReglaParaCompra(
 // Mismo criterio que condicionMatchNivel (lib/apertura/motor.ts) para nivel
 // "proveedor" — extraída como función pura para poder testearla sin Prisma, y
 // para que este archivo y el motor NUNCA puedan resolver un entidadId distinto
-// para la misma compra.
-export function resolverEntidadIdProveedor(compra: { proveedorId: number | null; proveedor: string | null }): string {
+// para la misma compra. El sufijo `|codigo:<codigo>` desambigua personas
+// reales distintas que comparten nombre (ver docs/superpowers/specs/
+// 2026-09-28-codigo-empleado-proveedor-design.md §3.6) — se omite cuando la
+// compra no trae código, para no fragmentar los casos que hoy funcionan bien.
+export function resolverEntidadIdProveedor(compra: { proveedorId: number | null; proveedor: string | null; codigo: string | null }): string {
   if (compra.proveedorId != null) return String(compra.proveedorId);
-  return `texto:${normalizarProveedorTexto(compra.proveedor)}`;
+  const base = `texto:${normalizarProveedorTexto(compra.proveedor)}`;
+  return compra.codigo != null ? `${base}|codigo:${compra.codigo}` : base;
 }
 
 // Orquestación: revierte la distribución vieja de la compra y le aplica la
@@ -71,7 +75,7 @@ export async function reevaluarCompra(
       fecha: true, fechaManual: true,
       importe: true, importeManual: true,
       conceptoCodigo: true, conceptoCodigoManual: true,
-      proveedorId: true, proveedor: true,
+      proveedorId: true, proveedor: true, codigo: true,
     },
   });
   if (!compra) return { reevaluada: false, distribuidaAhora: false };
