@@ -50,6 +50,14 @@ homologados (2016-2026) los días 27/28-sep-2026.
 
 ### 4.1 Sin cambios en el servidor
 
+> **Amendment (sección 8):** esto quedó desactualizado — un segundo timeout real
+> el mismo día mostró que "seguro" (correcto) no significaba "barato". La
+> sincronización se movió a un endpoint aparte, `POST
+> /api/etl/drive-import/finalizar`, que el cliente llama una sola vez por
+> carpeta. Queda el razonamiento original abajo como registro de por qué se
+> pensó que era seguro correrlo por tanda — la parte de corrección seguía
+> siendo válida, lo que faltaba era el costo.
+
 `POST /api/etl/drive-import` no cambia. Ya procesa `files[]` de cualquier tamaño
 en orden de dependencia y corre `linkDetalleCompras`/`sincronizarAperturaSiCorresponde`
 una vez al final de cada request — exactamente el comportamiento que se quiere por
@@ -171,3 +179,66 @@ historia).
 Maestros nunca fue la causa del timeout original — es un conjunto chico y fijo de
 tipos de archivo (a diferencia de las carpetas transaccionales, que acumulan años de
 compras/ventas sin techo, como pasó en Ramos Mejía). No necesita particionarse.
+
+## 8. Segundo timeout real: sincronizar apertura por tanda no era gratis (28-sep-2026)
+
+Con el fix de la sección 4 ya en producción, Ramos Mejía volvió a fallar el mismo
+día: Maestros pasó, pero el import transaccional de `Ramos - BAR Resto` tiró un
+segundo timeout real de Vercel (`FUNCTION_INVOCATION_TIMEOUT`, confirmado con
+captura de los logs de Vercel — request de 10:22:31 a 10:23:32 GMT-3, exactos 60s).
+
+Lo revelador: la tanda que hizo timeout eran **los mismos 5 archivos que ya habían
+importado bien minutos antes** (mismo `batchId` de compras, mismos nombres de
+archivo, mismo tamaño de tanda). Mismo input, mismo tamaño — pero esta vez no
+entró en el presupuesto. Eso descarta "el archivo es grande" como causa (ya se
+había medido rápido) y apunta a algo que crece con el estado de la base entre una
+corrida y la siguiente.
+
+**Causa raíz:** `reaplicarReglasActivas` (`lib/apertura/motor.ts`) no filtra por lo
+que trajo la tanda actual — reescanea **todas** las compras con
+`esDistribuido = false` contra **todas** las reglas activas, cada vez que se lo
+llama. Medido en producción en el momento del segundo timeout:
+
+- **139 reglas activas** (subieron de 112 — hallazgo de la revisión final de rama,
+  ese número ya estaba desactualizado unas horas después).
+- **54.714 de 63.940 compras de Ramos Mejía (85%) con `esDistribuido = false`** —
+  el backlog histórico que se está importando (años 2016-2026) nunca se había
+  distribuido, así que cada compra nueva que entra queda en ese estado hasta que
+  una regla la reclama.
+
+La sección 4.1 ya razonaba correctamente que correr esa sincronización por tanda
+era **seguro** (idempotente, opera sobre toda la tabla, no sobre "esta request")
+— pero "seguro" no es lo mismo que "barato". Antes de particionar, esa
+sincronización corría **una vez por carpeta** (36 archivos). Después de particionar
+en tandas de 5, pasó a correr **~8 veces por carpeta** — cada una reescaneando el
+mismo backlog de 54.714 compras contra las mismas 139 reglas. Una tanda que antes
+tenía margen de sobra terminó absorbiendo una fracción de un costo que se
+multiplicó por 8.
+
+### Diseño revisado
+
+`linkDetalleCompras` y `sincronizarAperturaSiCorresponde` se sacan por completo de
+`POST /api/etl/drive-import` (que ahora solo procesa archivos y devuelve
+`results`, sin campo `apertura`) y pasan a un endpoint nuevo:
+
+**`POST /api/etl/drive-import/finalizar`** — body
+`{ local_id?, compras_modificadas: string[], hubo_compras_tocadas: boolean }`.
+Corre `linkDetalleCompras` y, si `hubo_compras_tocadas`, `sincronizarTrasImport`
+con la lista acumulada. El cliente lo llama **una sola vez por carpeta**, después
+de que todas sus tandas terminaron (se hayan completado todas o se haya frenado
+alguna a mitad de camino — igual que antes de particionar, se sincroniza con lo
+que sí se llegó a procesar).
+
+`hooks/use-drive-import.ts` (`importFiles`) acumula, a través de todas las tandas
+de una carpeta, los `ETLReport` de tipo `compras` (vía la nueva función pura
+`accumulateAperturaInputs`, con test) para derivar `huboComprasTocadas` y
+`comprasModificadas` — mismo criterio que antes calculaba el servidor por
+request, ahora calculado por el cliente una vez por carpeta.
+
+**Por qué no se optimiza `reaplicarReglasActivas` en su lugar:** filtrar por local
+de origen no ayuda acá — las 139 reglas de Ramos YA son todas de Ramos, no hay
+nada que filtrar para esa carpeta puntual. Optimizar la query en sí (índices,
+scope por período) es un cambio a lógica de distribución de plata real — no algo
+para apurar bajo presión de un bloqueo de producción. Volver a "una vez por
+carpeta" es el fix mínimo que ataca la causa (multiplicación por cantidad de
+tandas) sin tocar la lógica de reglas.

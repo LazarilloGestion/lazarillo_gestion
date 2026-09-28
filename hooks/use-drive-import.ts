@@ -6,6 +6,7 @@ import { useFetchQuery } from "@/hooks/use-fetch-query";
 import type { ETLReport } from "@/lib/etl/types";
 import type { DriveFile } from "@/lib/drive/types";
 import { parseImportResponse } from "./parse-import-response";
+import { accumulateAperturaInputs } from "./accumulate-apertura-inputs";
 import { chunk } from "@/lib/chunk";
 
 const CHUNK_SIZE = 5;
@@ -56,14 +57,24 @@ export function useDriveImport() {
   // import ya había commiteado todo en la base (confirmado: "Vercel Runtime
   // Timeout Error: Task timed out after 60 seconds" — ver
   // docs/superpowers/specs/2026-09-28-chunking-import-drive-design.md).
-  // linkDetalleCompras/sincronizarAperturaSiCorresponde corren una vez por tanda
-  // (no acumulados hasta el final de la carpeta) — son idempotentes y operan
-  // sobre todo el local en la base, no sobre "esta request", así que repetirlos
-  // más seguido es seguro.
+  //
+  // linkDetalleCompras/sincronizarAperturaSiCorresponde YA NO corren por tanda —
+  // se acumulan acá y se sincronizan una sola vez al final de la carpeta, vía
+  // POST /api/etl/drive-import/finalizar. Correrlos por tanda parecía seguro
+  // (son idempotentes) pero no era gratis: reaplicarReglasActivas reescanea
+  // TODAS las compras esDistribuido=false contra TODAS las reglas activas en
+  // cada corrida — con Ramos Mejía (139 reglas, ~55.000 compras sin distribuir
+  // por el backlog histórico que se está importando) eso multiplicaba el costo
+  // por la cantidad de tandas de la carpeta, y una tanda de 5 archivos que
+  // antes entraba cómoda en el presupuesto volvió a superar los 60s (segundo
+  // timeout real, 28-sep-2026, mismos archivos que minutos antes habían
+  // importado bien).
   //
   // Si una tanda falla (excepción real de runETL, o error de red), las tandas
   // siguientes de esa carpeta no se intentan — mismo comportamiento que ya existía
-  // a nivel carpeta completa, ahora a nivel tanda.
+  // a nivel carpeta completa, ahora a nivel tanda. La finalización igual corre al
+  // final con lo que sí se llegó a procesar (mismo criterio que ya existía para
+  // un fallo a mitad de una sola request, antes de particionar).
   async function importFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number): Promise<{ errors: number; unsupported: number; total: number; records: number }> {
     if (files.length === 0) return { errors: 0, unsupported: 0, total: 0, records: 0 };
 
@@ -77,6 +88,7 @@ export function useDriveImport() {
     let totalUnsupported = 0;
     let totalRecords = 0;
     let aborted = false;
+    const reportesCompras: ETLReport[] = [];
 
     // Maestros (localId == null) van siempre en un solo request: el server ordena por
     // dependencia real (getFileOrder, headers del Excel) DENTRO de un request, pero no
@@ -118,7 +130,6 @@ export function useDriveImport() {
           }),
         });
         const json = await res.json();
-        notificarApertura(json.apertura);
 
         const parsed = parseImportResponse(batch, res.ok, json);
         finalStatuses = parsed.statuses;
@@ -128,6 +139,8 @@ export function useDriveImport() {
         totalUnsupported += parsed.unsupportedCount;
         totalRecords += parsed.recordCount;
         if (!res.ok) chunkFailed = true;
+
+        reportesCompras.push(...Object.values(parsed.reports));
       } catch (err) {
         console.error("[useDriveImport] Error de red importando tanda", err);
         for (const f of batch) {
@@ -154,6 +167,25 @@ export function useDriveImport() {
       });
 
       if (chunkFailed) aborted = true;
+    }
+
+    const { huboComprasTocadas, comprasModificadas } = accumulateAperturaInputs(reportesCompras);
+    if (huboComprasTocadas) {
+      try {
+        const res = await fetch("/api/etl/drive-import/finalizar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            local_id: localId,
+            compras_modificadas: comprasModificadas,
+            hubo_compras_tocadas: huboComprasTocadas,
+          }),
+        });
+        const json = await res.json();
+        notificarApertura(json.apertura);
+      } catch (err) {
+        console.error("[useDriveImport] Error finalizando sincronización de apertura", err);
+      }
     }
 
     return { errors: totalErrors, unsupported: totalUnsupported, total: files.length, records: totalRecords };

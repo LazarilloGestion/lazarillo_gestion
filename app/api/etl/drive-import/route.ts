@@ -7,8 +7,6 @@ import { runETL } from "@/lib/etl/run-etl";
 import { getEtlClient } from "@/lib/etl/etl-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getFileOrder } from "@/lib/etl/file-processor";
-import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
-import { sincronizarTrasImport, type SincronizarTrasImportResultado } from "@/lib/apertura/reimportacion";
 import { getExcelHeaders } from "@/lib/etl/helpers";
 import { detectFileType, buildTipoNoIdentificadoMessage } from "@/lib/etl/detect-file-type";
 import { Prisma } from "@prisma/client";
@@ -84,33 +82,6 @@ const driveImportBodySchema = z
   .refine((b) => b.files !== undefined || (b.file_id != null && b.file_name != null), {
     message: "Se requiere files[] o file_id+file_name",
   });
-
-// Un archivo `unsupported` nunca corrió el normalizer — no aporta ETLReport.
-function reportsOf(results: DriveImportResultItem[]): ETLReport[] {
-  return results.flatMap((r) => ("report" in r ? [r.report] : []));
-}
-
-// Guard + llamada a sincronizarTrasImport compartidos entre el camino de
-// éxito y el camino de error parcial (archivo posterior del batch falló,
-// revisión final de rama, hallazgo Critical C2) — un solo lugar en vez de
-// duplicar el guard de "¿tocó alguna compra?" en dos call sites. El propio
-// try/catch evita que un fallo ACÁ (ej. reglaApertura.findMany sin conexión a
-// la base) se propague como una excepción que el catch externo convertiría en
-// un 500 genérico, perdiendo el mensaje real del error que se estaba por
-// devolver (revisión final de rama, ronda 2, hallazgo Minor).
-async function sincronizarAperturaSiCorresponde(reports: ETLReport[]): Promise<SincronizarTrasImportResultado> {
-  const huboComprasTocadas = reports.some((r) => r.fileType === "compras" && (r.created > 0 || r.updated > 0));
-  if (!huboComprasTocadas) {
-    return { comprasRecalculadas: 0, reglasReaplicadas: 0, errores: [], omitidas: [] };
-  }
-  const comprasModificadas = reports.flatMap((r) => r.comprasDistribuidasModificadas ?? []);
-  try {
-    return await sincronizarTrasImport(getEtlClient(), comprasModificadas);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { comprasRecalculadas: 0, reglasReaplicadas: 0, errores: [`sincronizarTrasImport: ${message}`], omitidas: [] };
-  }
-}
 
 /**
  * POST — descarga archivos de Drive y los procesa con el ETL en orden de dependencia.
@@ -305,17 +276,12 @@ export async function POST(req: NextRequest) {
         } catch (logErr) {
           console.error("[POST /api/etl/drive-import] Falló el registro del ImportLog (camino error), se sigue sin loguear", { userId: user.id, file_name }, logErr);
         }
-        const aperturaParcial = await sincronizarAperturaSiCorresponde(reportsOf(results));
-        if (aperturaParcial.errores.length > 0) {
-          console.error("[POST /api/etl/drive-import] apertura.errores (batch parcial)", aperturaParcial.errores);
-        }
         return NextResponse.json(
           {
             error: `Error procesando el archivo: ${message}`,
             results,
             failedFileId: file_id,
             failedFileName: file_name,
-            apertura: aperturaParcial,
           },
           { status: 422 }
         );
@@ -353,15 +319,12 @@ export async function POST(req: NextRequest) {
       results.push({ fileId: file_id, fileName: file_name, report });
     }
 
-    // Link detalle_compras → compras post-batch
-    await linkDetalleCompras(getEtlClient() as unknown as DbClient, localId);
-
-    const apertura = await sincronizarAperturaSiCorresponde(reportsOf(results));
-    if (apertura.errores.length > 0) {
-      console.error("[POST /api/etl/drive-import] apertura.errores", apertura.errores);
-    }
-
-    return NextResponse.json({ results, apertura });
+    // linkDetalleCompras/sincronizarAperturaSiCorresponde YA NO corren acá — se
+    // movieron a POST /api/etl/drive-import/finalizar, que el cliente llama una
+    // sola vez por carpeta (no una vez por tanda). Ver el comentario de ese
+    // archivo para el motivo (reaplicarReglasActivas escala con el total de
+    // reglas activas × compras sin distribuir, no con el tamaño de la tanda).
+    return NextResponse.json({ results });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error desconocido";
     return NextResponse.json({ error: msg }, { status: 500 });
