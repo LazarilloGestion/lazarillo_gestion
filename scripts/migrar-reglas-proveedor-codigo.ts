@@ -60,6 +60,8 @@ config({ path: ".env.local" });
 import { fileURLToPath } from "url";
 import * as path from "path";
 import { prisma } from "../lib/prisma";
+import { revertirRegla, aplicarRegla, type AperturaDbClient } from "../lib/apertura/motor";
+import type { ReglaVigencia } from "../lib/apertura/vigencia";
 
 const SCRATCHPAD_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "tmp", "migrar-reglas-proveedor-codigo");
 
@@ -183,7 +185,141 @@ async function main() {
     return;
   }
 
-  console.log("\n(la rama --apply se agrega en la Task 3 de este plan — todavía no está implementada)");
+  console.log("\nAplicando...");
+
+  // Recálculo en vivo — mismo criterio que fix-proveedorid-cruzado.ts: nunca
+  // reusar el plan de arriba por si algo cambió la base entremedio.
+  const reglasEnVivo = await buscarReglasCandidatas();
+  const codigosEnVivo = await codigosPorRegla(reglasEnVivo.map((r) => r.id));
+  const candidatasEnVivo = reglasEnVivo.map((r) => aReglaCandidata(r, codigosEnVivo.get(r.id) ?? []));
+  const decisionesEnVivo = planificarMigracionReglas(candidatasEnVivo);
+
+  if (decisionesEnVivo.length !== decisiones.length) {
+    throw new Error(
+      `Plan cambió entre el resumen mostrado y la ejecución: se esperaban ${decisiones.length} reglas candidatas, ` +
+        `el recálculo en vivo encontró ${decisionesEnVivo.length}. Abortando sin escribir nada.`
+    );
+  }
+
+  const porIdEnVivo = new Map(reglasEnVivo.map((r) => [r.id, r]));
+  const resumen = { renombradas: 0, divididasEn: 0, omitidas: 0 };
+
+  for (const decision of decisionesEnVivo) {
+    if (decision.tipo === "omitir") {
+      resumen.omitidas++;
+      continue;
+    }
+
+    if (decision.tipo === "renombrar") {
+      // Rename puro: no toca compras ni distribuciones_apertura (esas
+      // referencian reglaId, no entidadId) — solo cambia cómo la regla
+      // matchea compras FUTURAS. Bajo riesgo, sin necesidad de $transaction.
+      await prisma.reglaApertura.update({
+        where: { id: decision.reglaId },
+        data: { entidadId: decision.entidadIdNuevo },
+      });
+      resumen.renombradas++;
+      console.log(`  #${decision.reglaId} renombrada -> ${decision.entidadIdNuevo}`);
+      continue;
+    }
+
+    // dividir: revertir + crear N reglas nuevas + redistribuir, todo en una
+    // transacción — si algo falla a mitad de camino, no debe quedar la
+    // regla vieja borrada sin sus reemplazos, ni reemplazos a medio crear.
+    const reglaVieja = porIdEnVivo.get(decision.reglaId)!;
+    const normalizado = reglaVieja.entidadId.slice("texto:".length);
+
+    // Pre-imagen: qué compras y cuánta plata tenía la regla vieja ANTES de
+    // tocar nada — es el invariante contra el que se verifica después.
+    const preImagen = await prisma.$queryRawUnsafe<{ compraRowId: string; total: string }[]>(
+      `SELECT "compraRowId", SUM("importeCalculado") as total FROM distribuciones_apertura
+       WHERE "reglaId" = $1 GROUP BY "compraRowId"`,
+      decision.reglaId
+    );
+    const totalPreImagen = preImagen.reduce((s, r) => s + Number(r.total), 0);
+    const rowIdsPreImagen = new Set(preImagen.map((r) => r.compraRowId));
+
+    const idsNuevasReglas = await prisma.$transaction(async (tx: AperturaDbClient) => {
+      await revertirRegla(tx, decision.reglaId);
+
+      const nuevosIds: number[] = [];
+      for (const codigo of decision.codigosNuevos) {
+        const entidadIdNuevo = construirEntidadIdProveedorTexto(normalizado, codigo);
+        const nueva = await tx.reglaApertura.create({
+          data: {
+            nivel: "proveedor",
+            entidadId: entidadIdNuevo,
+            origenLocalId: reglaVieja.origenLocalId,
+            origenPuntoDeVentaId: reglaVieja.origenPuntoDeVentaId,
+            modo: reglaVieja.modo,
+            fechaDesde: reglaVieja.fechaDesde,
+            fechaHasta: reglaVieja.fechaHasta,
+            extremosInclusivos: reglaVieja.extremosInclusivos,
+            estado: "activa",
+            creadoPor: "migrar-reglas-proveedor-codigo.ts",
+          },
+        });
+        const destinosNuevos = await Promise.all(
+          reglaVieja.destinos.map((d) =>
+            tx.destinoRegla.create({
+              data: { reglaId: nueva.id, localId: d.localId, puntoDeVentaId: d.puntoDeVentaId, porcentaje: d.porcentaje.toString() },
+            })
+          )
+        );
+        await aplicarRegla(tx, {
+          reglaId: nueva.id,
+          nivel: "proveedor",
+          entidadId: entidadIdNuevo,
+          vigencia: { modo: reglaVieja.modo as ReglaVigencia["modo"], fechaDesde: reglaVieja.fechaDesde, fechaHasta: reglaVieja.fechaHasta, extremosInclusivos: reglaVieja.extremosInclusivos },
+          destinos: destinosNuevos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
+          origen: { origenLocalId: reglaVieja.origenLocalId, origenPuntoDeVentaId: reglaVieja.origenPuntoDeVentaId },
+        });
+        nuevosIds.push(nueva.id);
+      }
+
+      await tx.destinoRegla.deleteMany({ where: { reglaId: decision.reglaId } });
+      await tx.reglaApertura.delete({ where: { id: decision.reglaId } });
+
+      return nuevosIds;
+    }, { timeout: 30000, maxWait: 20000 });
+
+    // Verificación: toda compra que la regla vieja tenía distribuida debe
+    // volver a estar esDistribuido=true, y la plata total de ESE MISMO
+    // conjunto de compras (no un total global, que podría incluir compras
+    // nuevas legítimamente barridas por la regla específica) debe coincidir
+    // con la pre-imagen — spec §4.2 "el total no debe cambiar, solo cómo se reparte".
+    const postImagen = await prisma.$queryRawUnsafe<{ compraRowId: string; total: string }[]>(
+      `SELECT "compraRowId", SUM("importeCalculado") as total FROM distribuciones_apertura
+       WHERE "reglaId" = ANY($1::int[]) AND "compraRowId" = ANY($2::text[])
+       GROUP BY "compraRowId"`,
+      idsNuevasReglas,
+      [...rowIdsPreImagen]
+    );
+    const totalPostImagen = postImagen.reduce((s, r) => s + Number(r.total), 0);
+    if (postImagen.length !== rowIdsPreImagen.size) {
+      throw new Error(
+        `Verificación falló para regla vieja #${decision.reglaId}: ${rowIdsPreImagen.size} compras tenía distribuidas, ` +
+          `${postImagen.length} quedaron cubiertas por las reglas nuevas (${idsNuevasReglas.join(", ")}). Revisar manualmente.`
+      );
+    }
+    if (Math.abs(totalPostImagen - totalPreImagen) > 0.01) {
+      throw new Error(
+        `Verificación falló para regla vieja #${decision.reglaId}: total antes $${totalPreImagen}, total después $${totalPostImagen} ` +
+          `sobre el mismo conjunto de compras. Revisar manualmente.`
+      );
+    }
+
+    resumen.divididasEn++;
+    console.log(`  #${decision.reglaId} (${reglaVieja.entidadId}) dividida en ${idsNuevasReglas.length} reglas nuevas: ${idsNuevasReglas.join(", ")} — $${totalPreImagen} verificado sin cambios`);
+  }
+
+  const archivoAplicado = await exportarPlan(reglasEnVivo, decisionesEnVivo, `${SCRATCHPAD_DIR}/plan-aplicado.json`);
+  console.log(`\n=== Resultado ===`);
+  console.log(`Renombradas: ${resumen.renombradas}`);
+  console.log(`Divididas: ${resumen.divididasEn}`);
+  console.log(`Omitidas: ${resumen.omitidas}`);
+  console.log(`Detalle exportado a ${archivoAplicado}`);
+  console.log("\nMigración completada y verificada.\n");
 }
 
 const esEntrypointCli = process.argv[1] === fileURLToPath(import.meta.url);
