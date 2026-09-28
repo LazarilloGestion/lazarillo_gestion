@@ -84,12 +84,6 @@ export function useDriveImport() {
   async function importFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number): Promise<{ errors: number; unsupported: number; total: number; records: number }> {
     if (files.length === 0) return { errors: 0, unsupported: 0, total: 0, records: 0 };
 
-    setFileStatuses((s) => {
-      const n = { ...s };
-      for (const f of files) n[f.id] = "importing";
-      return n;
-    });
-
     let totalErrors = 0;
     let totalUnsupported = 0;
     let totalRecords = 0;
@@ -119,6 +113,12 @@ export function useDriveImport() {
         setFileErrors((s) => ({ ...s, ...notAttemptedErrors }));
         continue;
       }
+
+      setFileStatuses((s) => {
+        const n = { ...s };
+        for (const f of batch) n[f.id] = "importing";
+        return n;
+      });
 
       let finalStatuses: FileStates = {};
       let finalErrors: FileErrors = {};
