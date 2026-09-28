@@ -5,7 +5,7 @@ import { usePivotScreenDataPorProveedor } from "@/hooks/use-pivot-screen-data-po
 import { ExpandableButton } from "@/components/ui/expandable-button";
 import { ChevronDown, ChevronUp, Users } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
-import { MONTHS } from "@/lib/dashboard/constants";
+import { MONTHS, RUBRO_GASTOS_EN_PERSONAL_CODIGO } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
@@ -254,6 +254,13 @@ export function PivotTableByProveedor() {
                   : proveedor.proveedorTexto != null
                     ? { proveedorTexto: proveedor.proveedorTexto }
                     : { sinProveedor: true as const };
+                // Bajo Gastos En Personal los "proveedores" suelen ser personas de
+                // planilla con nombres ambiguos — el código del ERP los desambigua.
+                // En el resto de rubros el nombre ya alcanza, así que no se antepone.
+                const nombreProveedor =
+                  proveedor.rubroCodigo === RUBRO_GASTOS_EN_PERSONAL_CODIGO && proveedor.codigo
+                    ? `${proveedor.codigo} - ${normalize(proveedor.nombre)}`
+                    : normalize(proveedor.nombre);
                 return (
                   <tr key={proveedor.id} className="border-b font-semibold" onContextMenu={collapseProveedores}>
                     <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -265,7 +272,7 @@ export function PivotTableByProveedor() {
                           iconSize="w-3.5 h-3.5"
                           className="flex-1 min-w-0"
                         >
-                          {normalize(proveedor.nombre)}
+                          {nombreProveedor}
                         </ExpandableButton>
                         <AperturaSplitButton
                           variant="block"

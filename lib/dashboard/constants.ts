@@ -15,6 +15,13 @@ export const SIN_TIPO_NOMBRE   = "Sin Tipo";
 export const SIN_COBRO_CODE    = "__sin_cobro";
 export const SIN_COBRO_NOMBRE  = "Sin Cobro";
 
+// Rubro cuyos "proveedores" suelen ser en realidad personas de planilla con
+// nombres ambiguos (ej. "Alejo" vs "Alejo Rodrigo", dos "Abril" con código
+// distinto) — ahí se antepone el código de proveedor al nombre en la vista
+// Compras x Proveedor. Ver docs/superpowers/specs/
+// 2026-09-28-codigo-empleado-proveedor-design.md §2.3.
+export const RUBRO_GASTOS_EN_PERSONAL_CODIGO = "3";
+
 // Campo booleano de RubroConceptoCaja que controla si un rubro se ve en cada vista del dashboard.
 // Única fuente de verdad — no redeclarar este union en otros archivos.
 export const VISIBILIDAD_FIELDS = ["visibleEnDashboard", "visibleEnResultados"] as const;
