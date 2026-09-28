@@ -9,13 +9,18 @@ import { parseImportResponse } from "./parse-import-response";
 import { accumulateAperturaInputs } from "./accumulate-apertura-inputs";
 import { chunk } from "@/lib/chunk";
 
-// Bajado de 5 a 3 el 28-sep-2026: con reglas ya fuera del camino síncrono
-// (ver comentario de importFiles), una tanda de 5 archivos "detalle de compras
-// homologado" grandes (6.000-8.700 filas c/u, 7-11s de ETL cada uno) más el
-// overhead previo (~15s: auth + descarga de Drive) seguía rozando los 60s —
-// confirmado con un timeout real en Ramos Mejía (BAR Resto) con esos mismos
-// archivos. 3 da margen real: ~15s + 3×11s ≈ 48s en el peor caso medido.
-const CHUNK_SIZE = 3;
+// 5 → 3 → 1 el mismo día (28-sep-2026). Con 3 volvió a fallar: ventas corre
+// 13-16s POR ARCHIVO (más lento que compras, 5-8s), así que hasta 3 ventas
+// pesados en una tanda ya sumaban más de 60s. La razón original para meter
+// varios archivos en un mismo request (que linkDetalleCompras/
+// sincronizarAperturaSiCorresponde no corrieran una vez por archivo) ya no
+// aplica — esas dos corren una sola vez por carpeta vía /finalizar,
+// desacopladas de cuántos requests hicieron falta. Batchear más de un
+// archivo por request ya no ahorra nada real, solo suma riesgo de que la
+// SUMA de varios archivos pesados supere los 60s. Un archivo por request
+// (peor caso medido hoy: ~16s, ventas de 15.618 filas) deja margen de sobra
+// sin tener que adivinar un número.
+const CHUNK_SIZE = 1;
 
 export type FileImportStatus = "idle" | "importing" | "success" | "error" | "unsupported";
 export type FileStates = Record<string, FileImportStatus>;

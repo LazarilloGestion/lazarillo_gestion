@@ -277,3 +277,39 @@ tamaño variable según bytes/filas del archivo) porque no había evidencia de q
 hiciera falta; con la evidencia de hoy, bajar el número fijo alcanza. Si en el
 futuro reaparece con tandas de 3, ahí sí vale la pena evaluar un criterio más
 fino que un tamaño fijo.
+
+## 10. CHUNK_SIZE de 3 a 1 — deja de ser un tamaño fijo adivinado (28-sep-2026)
+
+Con `CHUNK_SIZE = 3` volvió a fallar, esta vez con `ventas`: 13-16s de ETL por
+archivo (más lento que `compras`, 5-8s), así que 3 archivos de ventas pesados en
+una tanda ya sumaban de sobra los 60s (confirmado: el batch murió habiendo
+logueado 2 de los 3 archivos de la tanda, ventas de BAR_2025 y BAR_2026 con
+13,2s y 15,8s respectivamente).
+
+Tercera vez que se toca el mismo número el mismo día — señal de que "tamaño de
+tanda fijo, ajustado por evidencia" ya no converge, porque el peso por archivo
+varía demasiado entre tipos (`ventas` >> `detalle_compras` homologado >
+`compras` > maestros). En vez de seguir bajando el número, se revisó la premisa:
+
+**La sección 8 ya había resuelto por qué se necesitaba batchear varios archivos
+por request en primer lugar** — evitar que `linkDetalleCompras`/
+`sincronizarAperturaSiCorresponde` corrieran una vez por archivo (optimización
+de un code-review de 24-ago-2026, antes de que existiera `/finalizar`). Esa
+razón ya no existe: esas dos funciones corren una sola vez por carpeta vía
+`/finalizar`, totalmente desacopladas de cuántos requests hicieron falta para
+subir los archivos. Batchear más de un archivo por request hoy no ahorra nada
+real — solo agrega el riesgo de que la SUMA de varios archivos pesados supere
+el presupuesto de una sola request.
+
+**Fix:** `CHUNK_SIZE = 1` — un archivo por request para carpetas transaccionales
+(Maestros sigue exento, sección 7). Esto es, en los hechos, volver al
+comportamiento anterior al code-review de 24-ago-2026 que introdujo el
+batcheo — pero ahora sin el costo que ese código intentaba evitar, porque
+`/finalizar` ya lo resolvió por otro lado. El peor caso individual medido hoy
+(~16s, ventas de 15.618 filas) deja margen de sobra sin tener que adivinar un
+número que dependa de qué tipos de archivo caigan en la misma tanda.
+
+Con esto, "tamaño de tanda" deja de ser una variable a ajustar: no hay tanda,
+hay un archivo por request. El riesgo residual de la sección 6 (un solo archivo
+que por sí solo supere los 60s) sigue siendo el único techo real que queda —
+sin evidencia hoy de que exista un archivo así.
