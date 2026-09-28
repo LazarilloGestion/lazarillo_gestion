@@ -6,6 +6,9 @@ import { useFetchQuery } from "@/hooks/use-fetch-query";
 import type { ETLReport } from "@/lib/etl/types";
 import type { DriveFile } from "@/lib/drive/types";
 import { parseImportResponse } from "./parse-import-response";
+import { chunk } from "@/lib/chunk";
+
+const CHUNK_SIZE = 5;
 
 export type FileImportStatus = "idle" | "importing" | "success" | "error" | "unsupported";
 export type FileStates = Record<string, FileImportStatus>;
@@ -46,19 +49,21 @@ export function useDriveImport() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [anyImporting]);
 
-  // Un solo POST con files[] para todo el lote, en vez de uno por archivo —
-  // linkDetalleCompras/sincronizarAperturaSiCorresponde en el servidor corren
-  // una vez por carpeta en vez de una vez por archivo (hallazgo de
-  // eficiencia, code-review 24-ago-2026). La API devuelve `results` con
-  // fileId por entrada para poder actualizar el status individual de cada
-  // archivo igual que antes, aunque vayan en un solo request.
+  // Se particiona en tandas de CHUNK_SIZE en vez de mandar toda la carpeta en un
+  // solo POST — una carpeta con muchos archivos (ej. Ramos Mejía, 36 tras sumar
+  // años homologados el 27/28-sep-2026) podía superar el maxDuration=60 de
+  // app/api/etl/drive-import/route.ts, cortando la respuesta después de que el
+  // import ya había commiteado todo en la base (confirmado: "Vercel Runtime
+  // Timeout Error: Task timed out after 60 seconds" — ver
+  // docs/superpowers/specs/2026-09-28-chunking-import-drive-design.md).
+  // linkDetalleCompras/sincronizarAperturaSiCorresponde corren una vez por tanda
+  // (no acumulados hasta el final de la carpeta) — son idempotentes y operan
+  // sobre todo el local en la base, no sobre "esta request", así que repetirlos
+  // más seguido es seguro.
   //
-  // Nota: el servidor corta el batch entero ante el primer archivo que tira
-  // excepción (mismo comportamiento que ya tenía /api/etl/drive-import para
-  // files[] antes de este cambio) — los archivos del lote que quedaron detrás
-  // del que falló no llegan a intentarse en este request, y quedan marcados
-  // como tal (no como "success" ni "idle"). Antes, al mandar un POST por
-  // archivo, un archivo roto no le impedía al resto del lote intentarse.
+  // Si una tanda falla (excepción real de runETL, o error de red), las tandas
+  // siguientes de esa carpeta no se intentan — mismo comportamiento que ya existía
+  // a nivel carpeta completa, ahora a nivel tanda.
   async function importFiles(files: DriveFile[], localId?: number, puntoDeVentaId?: number): Promise<{ errors: number; unsupported: number; total: number; records: number }> {
     if (files.length === 0) return { errors: 0, unsupported: 0, total: 0, records: 0 };
 
@@ -68,57 +73,90 @@ export function useDriveImport() {
       return n;
     });
 
-    let finalStatuses: FileStates = {};
-    let finalErrors: FileErrors = {};
-    let finalReports: Record<string, ETLReport> = {};
-    let errors = 0;
-    let unsupported = 0;
-    let records = 0;
+    let totalErrors = 0;
+    let totalUnsupported = 0;
+    let totalRecords = 0;
+    let aborted = false;
 
-    try {
-      const res = await fetch("/api/etl/drive-import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          files: files.map((f) => ({ file_id: f.id, file_name: f.name })),
-          local_id: localId,
-          punto_de_venta_id: puntoDeVentaId,
-        }),
-      });
-      const json = await res.json();
-      notificarApertura(json.apertura);
+    // Maestros (localId == null) van siempre en un solo request: el server ordena por
+    // dependencia real (getFileOrder, headers del Excel) DENTRO de un request, pero no
+    // entre requests separados — particionar acá arriesgaba correr conceptosCaja antes
+    // que rubrosConceptoCaja hubiera commiteado, y conceptos-caja.ts pone codRga=null en
+    // silencio para códigos que todavía no existen (silent-drop, hallazgo Important de
+    // la revisión final de rama). Los maestros son un conjunto chico y fijo de tipos de
+    // archivo que nunca causó el timeout original — solo las carpetas transaccionales
+    // (años de compras/ventas acumulados) lo hacían, así que solo esas necesitan partirse.
+    const batches = localId != null ? chunk(files, CHUNK_SIZE) : [files];
 
-      const parsed = parseImportResponse(files, res.ok, json);
-      finalStatuses = parsed.statuses;
-      finalErrors = parsed.errors;
-      finalReports = parsed.reports;
-      errors = parsed.errorCount;
-      unsupported = parsed.unsupportedCount;
-      records = parsed.recordCount;
-    } catch {
-      for (const f of files) {
-        finalStatuses[f.id] = "error";
-        finalErrors[f.id] = "Error de red";
+    for (const batch of batches) {
+      if (aborted) {
+        const notAttempted: FileStates = {};
+        const notAttemptedErrors: FileErrors = {};
+        for (const f of batch) {
+          notAttempted[f.id] = "error";
+          notAttemptedErrors[f.id] = "No se llegó a procesar: otra tanda del mismo lote falló antes.";
+        }
+        totalErrors += batch.length;
+        setFileStatuses((s) => ({ ...s, ...notAttempted }));
+        setFileErrors((s) => ({ ...s, ...notAttemptedErrors }));
+        continue;
       }
-      errors = files.length;
+
+      let finalStatuses: FileStates = {};
+      let finalErrors: FileErrors = {};
+      let finalReports: Record<string, ETLReport> = {};
+      let chunkFailed = false;
+
+      try {
+        const res = await fetch("/api/etl/drive-import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            files: batch.map((f) => ({ file_id: f.id, file_name: f.name })),
+            local_id: localId,
+            punto_de_venta_id: puntoDeVentaId,
+          }),
+        });
+        const json = await res.json();
+        notificarApertura(json.apertura);
+
+        const parsed = parseImportResponse(batch, res.ok, json);
+        finalStatuses = parsed.statuses;
+        finalErrors = parsed.errors;
+        finalReports = parsed.reports;
+        totalErrors += parsed.errorCount;
+        totalUnsupported += parsed.unsupportedCount;
+        totalRecords += parsed.recordCount;
+        if (!res.ok) chunkFailed = true;
+      } catch (err) {
+        console.error("[useDriveImport] Error de red importando tanda", err);
+        for (const f of batch) {
+          finalStatuses[f.id] = "error";
+          finalErrors[f.id] = "Error de red";
+        }
+        totalErrors += batch.length;
+        chunkFailed = true;
+      }
+
+      setFileStatuses((s) => ({ ...s, ...finalStatuses }));
+      setFileReports((s) => {
+        const n = { ...s };
+        for (const [fileId, report] of Object.entries(finalReports)) n[fileId] = [report];
+        return n;
+      });
+      setFileErrors((s) => {
+        const n = { ...s };
+        for (const [fileId, msg] of Object.entries(finalErrors)) n[fileId] = msg;
+        for (const [fileId, status] of Object.entries(finalStatuses)) {
+          if (status === "success") delete n[fileId];
+        }
+        return n;
+      });
+
+      if (chunkFailed) aborted = true;
     }
 
-    setFileStatuses((s) => ({ ...s, ...finalStatuses }));
-    setFileReports((s) => {
-      const n = { ...s };
-      for (const [fileId, report] of Object.entries(finalReports)) n[fileId] = [report];
-      return n;
-    });
-    setFileErrors((s) => {
-      const n = { ...s };
-      for (const [fileId, msg] of Object.entries(finalErrors)) n[fileId] = msg;
-      for (const [fileId, status] of Object.entries(finalStatuses)) {
-        if (status === "success") delete n[fileId];
-      }
-      return n;
-    });
-
-    return { errors, unsupported, total: files.length, records };
+    return { errors: totalErrors, unsupported: totalUnsupported, total: files.length, records: totalRecords };
   }
 
   async function importOneFile(file: DriveFile, localId?: number, puntoDeVentaId?: number): Promise<{ ok: boolean; records: number }> {
