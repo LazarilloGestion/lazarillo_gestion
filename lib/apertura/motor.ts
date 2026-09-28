@@ -35,11 +35,22 @@ export function condicionMatchNivel(nivel: NivelRegla, entidadId: string): Prism
     // quedó de un import viejo (no aplica hoy, pero no depende de esa garantía)
     // podría matchear por error.
     if (entidadId.startsWith("texto:")) {
-      const valorNormalizado = entidadId.slice("texto:".length);
+      const resto = entidadId.slice("texto:".length);
+      // "|codigo:" separa el nombre normalizado del código real de la compra —
+      // dos personas con el mismo nombre pero código distinto (ej. dos "Abril")
+      // no deben matchear la misma regla. Se compara contra la columna cruda
+      // Compra.codigo (no un campo materializado) a propósito: evita tocar
+      // proveedorTextoNormalizado, que ya está poblado para todo el histórico.
+      // Ver docs/superpowers/specs/2026-09-28-codigo-empleado-proveedor-design.md §3.6.
+      const separador = resto.indexOf("|codigo:");
+      const valorNormalizado = separador === -1 ? resto : resto.slice(0, separador);
+      const codigo = separador === -1 ? null : resto.slice(separador + "|codigo:".length);
       // Paréntesis envolventes: los callers de hoy solo concatenan con AND, pero
       // uno futuro que use OR/NOT rompería la precedencia en silencio sobre plata
       // real (el IS NULL se ataría al OR externo en vez de al igual de texto).
-      return Prisma.sql`(c."proveedorId" IS NULL AND c."proveedorTextoNormalizado" = ${valorNormalizado})`;
+      return codigo !== null
+        ? Prisma.sql`(c."proveedorId" IS NULL AND c."proveedorTextoNormalizado" = ${valorNormalizado} AND c."codigo" = ${codigo})`
+        : Prisma.sql`(c."proveedorId" IS NULL AND c."proveedorTextoNormalizado" = ${valorNormalizado})`;
     }
     return Prisma.sql`c."proveedorId"::text = ${entidadId}`;
   }
