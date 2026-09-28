@@ -67,6 +67,9 @@ export function DriveFolder({
   const allDone = files.length > 0 && files.every((f) => fileStatuses[f.id] === "success" || fileStatuses[f.id] === "unsupported");
   const folderImporting = files.some((f) => fileStatuses[f.id] === "importing");
 
+  // Mismo criterio que allDone: success/unsupported son estados terminales.
+  const importedCount = files.filter((f) => fileStatuses[f.id] === "success" || fileStatuses[f.id] === "unsupported").length;
+
   async function handleImportAll() {
     setBatchRunning(true);
     try {
@@ -90,7 +93,12 @@ export function DriveFolder({
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-zinc-900 dark:text-white">{title}</span>
               {(folderImporting || batchRunning) && (
-                <Spinner size="sm" />
+                <span className="flex items-center gap-1.5">
+                  <Spinner size="sm" />
+                  <span className="text-xs text-zinc-400 font-mono">
+                    {importedCount}/{files.length} importados
+                  </span>
+                </span>
               )}
               {allDone && !folderImporting && !batchRunning && (
                 <CheckCircle2 className="w-3.5 h-3.5 text-success" />
