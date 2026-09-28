@@ -229,17 +229,18 @@ async function main() {
     const reglaVieja = porIdEnVivo.get(decision.reglaId)!;
     const normalizado = reglaVieja.entidadId.slice("texto:".length);
 
-    // Pre-imagen: qué compras y cuánta plata tenía la regla vieja ANTES de
-    // tocar nada — es el invariante contra el que se verifica después.
-    const preImagen = await prisma.$queryRawUnsafe<{ compraRowId: string; total: string }[]>(
-      `SELECT "compraRowId", SUM("importeCalculado") as total FROM distribuciones_apertura
-       WHERE "reglaId" = $1 GROUP BY "compraRowId"`,
-      decision.reglaId
-    );
-    const totalPreImagen = preImagen.reduce((s, r) => s + Number(r.total), 0);
-    const rowIdsPreImagen = new Set(preImagen.map((r) => r.compraRowId));
+    const { idsNuevasReglas, totalPreImagen } = await prisma.$transaction(async (tx: AperturaDbClient) => {
+      // Pre-imagen dentro de la transacción: leerla afuera dejaba una ventana
+      // en la que una edición concurrente podía correr la base de comparación
+      // entre la lectura y el revert.
+      const preImagen = await tx.$queryRawUnsafe<{ compraRowId: string; total: string }[]>(
+        `SELECT "compraRowId", SUM("importeCalculado") as total FROM distribuciones_apertura
+         WHERE "reglaId" = $1 GROUP BY "compraRowId"`,
+        decision.reglaId
+      );
+      const totalPreImagen = preImagen.reduce((s, r) => s + Number(r.total), 0);
+      const rowIdsPreImagen = new Set(preImagen.map((r) => r.compraRowId));
 
-    const idsNuevasReglas = await prisma.$transaction(async (tx: AperturaDbClient) => {
       await revertirRegla(tx, decision.reglaId);
 
       const nuevosIds: number[] = [];
@@ -280,34 +281,37 @@ async function main() {
       await tx.destinoRegla.deleteMany({ where: { reglaId: decision.reglaId } });
       await tx.reglaApertura.delete({ where: { id: decision.reglaId } });
 
-      return nuevosIds;
-    }, { timeout: 30000, maxWait: 20000 });
+      // Verificación dentro de la transacción: si falla, el throw hace
+      // rollback completo (revert deshecho, regla vieja intacta, nuevas nunca
+      // commiteadas) en vez de dejar compras sin redistribuir. Toda compra
+      // que la regla vieja tenía distribuida debe quedar cubierta por las
+      // nuevas, y la plata de ESE MISMO conjunto de compras (no un total
+      // global, que podría incluir compras nuevas legítimamente barridas por
+      // la regla específica) debe coincidir con la pre-imagen — spec §4.2
+      // "el total no debe cambiar, solo cómo se reparte".
+      const postImagen = await tx.$queryRawUnsafe<{ compraRowId: string; total: string }[]>(
+        `SELECT "compraRowId", SUM("importeCalculado") as total FROM distribuciones_apertura
+         WHERE "reglaId" = ANY($1::int[]) AND "compraRowId" = ANY($2::text[])
+         GROUP BY "compraRowId"`,
+        nuevosIds,
+        [...rowIdsPreImagen]
+      );
+      const totalPostImagen = postImagen.reduce((s, r) => s + Number(r.total), 0);
+      if (postImagen.length !== rowIdsPreImagen.size) {
+        throw new Error(
+          `Verificación falló para regla vieja #${decision.reglaId}: ${rowIdsPreImagen.size} compras tenía distribuidas, ` +
+            `${postImagen.length} quedaron cubiertas por las reglas nuevas (${nuevosIds.join(", ")}). Transacción revertida, revisar manualmente.`
+        );
+      }
+      if (Math.abs(totalPostImagen - totalPreImagen) > 0.01) {
+        throw new Error(
+          `Verificación falló para regla vieja #${decision.reglaId}: total antes $${totalPreImagen}, total después $${totalPostImagen} ` +
+            `sobre el mismo conjunto de compras. Transacción revertida, revisar manualmente.`
+        );
+      }
 
-    // Verificación: toda compra que la regla vieja tenía distribuida debe
-    // volver a estar esDistribuido=true, y la plata total de ESE MISMO
-    // conjunto de compras (no un total global, que podría incluir compras
-    // nuevas legítimamente barridas por la regla específica) debe coincidir
-    // con la pre-imagen — spec §4.2 "el total no debe cambiar, solo cómo se reparte".
-    const postImagen = await prisma.$queryRawUnsafe<{ compraRowId: string; total: string }[]>(
-      `SELECT "compraRowId", SUM("importeCalculado") as total FROM distribuciones_apertura
-       WHERE "reglaId" = ANY($1::int[]) AND "compraRowId" = ANY($2::text[])
-       GROUP BY "compraRowId"`,
-      idsNuevasReglas,
-      [...rowIdsPreImagen]
-    );
-    const totalPostImagen = postImagen.reduce((s, r) => s + Number(r.total), 0);
-    if (postImagen.length !== rowIdsPreImagen.size) {
-      throw new Error(
-        `Verificación falló para regla vieja #${decision.reglaId}: ${rowIdsPreImagen.size} compras tenía distribuidas, ` +
-          `${postImagen.length} quedaron cubiertas por las reglas nuevas (${idsNuevasReglas.join(", ")}). Revisar manualmente.`
-      );
-    }
-    if (Math.abs(totalPostImagen - totalPreImagen) > 0.01) {
-      throw new Error(
-        `Verificación falló para regla vieja #${decision.reglaId}: total antes $${totalPreImagen}, total después $${totalPostImagen} ` +
-          `sobre el mismo conjunto de compras. Revisar manualmente.`
-      );
-    }
+      return { idsNuevasReglas: nuevosIds, totalPreImagen };
+    }, { timeout: 30000, maxWait: 20000 });
 
     resumen.divididasEn++;
     console.log(`  #${decision.reglaId} (${reglaVieja.entidadId}) dividida en ${idsNuevasReglas.length} reglas nuevas: ${idsNuevasReglas.join(", ")} — $${totalPreImagen} verificado sin cambios`);
