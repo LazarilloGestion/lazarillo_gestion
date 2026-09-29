@@ -106,4 +106,62 @@ describe("planReconciliacionDuplicados", () => {
     expect(plan.rowIdABorrar).toHaveLength(0);
     expect(plan.gruposExcluidos).toHaveLength(0);
   });
+
+  it("1 esDistribuido=true con comprobante compartido y observaciones sin relación de prefijo: grupo excluido, no se elige automáticamente a la distribuida", () => {
+    // Mismo riesgo que el caso Mochila/Válvula (0 distribuidas) pero en la
+    // rama de 1 distribuida: sin este chequeo, la distribuida ganaría
+    // siempre sin importar el texto, y podría borrarse una compra real y
+    // distinta que comparte comprobante por casualidad.
+    const mochilaDistribuida = fila({
+      rowId: "mochila-distribuida",
+      observac: "Mochila Baño Vestuario",
+      comprobante: "0004-00001111",
+      esDistribuido: true,
+    });
+    const valvula = fila({
+      rowId: "valvula",
+      observac: "Valvula + Tecla Descarga Baño",
+      comprobante: "0004-00001111",
+    });
+    const plan = planReconciliacionDuplicados([mochilaDistribuida, valvula]);
+    expect(plan.rowIdABorrar).toHaveLength(0);
+    expect(plan.gruposExcluidos).toHaveLength(1);
+    expect(plan.gruposExcluidos[0].motivo).toBe(
+      "esDistribuido difiere pero observaciones sin relación de texto clara — revisar a mano"
+    );
+  });
+
+  it("1 esDistribuido=true con comprobante compartido y relación de prefijo: sigue fusionando normal", () => {
+    const distribuida = fila({
+      rowId: "turbina-distribuida",
+      observac: "Turbina Inflable",
+      comprobante: "0005-00002222",
+      esDistribuido: true,
+    });
+    const noDistribuida = fila({
+      rowId: "turbina-no-distribuida",
+      observac: "Turbina Inflable Nuevo",
+      comprobante: "0005-00002222",
+    });
+    const plan = planReconciliacionDuplicados([distribuida, noDistribuida]);
+    expect(plan.rowIdABorrar).toEqual(["turbina-no-distribuida"]);
+    expect(plan.gruposExcluidos).toHaveLength(0);
+  });
+
+  it("observac vacío/null del lado que se borra pasa el chequeo de prefijo trivialmente (documentado, no bloqueado)", () => {
+    // String.prototype.startsWith("") siempre da true, así que un observac
+    // vacío/null del lado más corto pasa el chequeo de relación de prefijo
+    // sin decir nada sobre el texto. No se bloquea porque ya requiere
+    // comprobante compartido — una señal real por sí sola — pero queda
+    // documentado acá para que el comportamiento sea explícito, no implícito.
+    const sinObservac = fila({ rowId: "sin-observac", observac: null, comprobante: "0006-00003333" });
+    const conObservac = fila({
+      rowId: "con-observac",
+      observac: "Factura de luz completa",
+      comprobante: "0006-00003333",
+    });
+    const plan = planReconciliacionDuplicados([sinObservac, conObservac]);
+    expect(plan.rowIdABorrar).toEqual(["sin-observac"]);
+    expect(plan.gruposExcluidos).toHaveLength(0);
+  });
 });

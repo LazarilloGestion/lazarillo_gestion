@@ -69,6 +69,23 @@ function claveAncla(c: CompraParaReconciliar): string {
   return [c.codCga, fechaISO, c.codigo, c.concepto, importe].join("|");
 }
 
+// "Relación de prefijo": el observac más corto de las dos filas es un
+// prefijo textual del más largo — señal de que el ERP amplió/corrigió la
+// misma descripción (mismo criterio de "gana el más largo" que ya usa la
+// rama de 0 distribuidas) en vez de tratarse de dos compras reales
+// distintas que comparten comprobante por casualidad (caso Mochila/Válvula,
+// spec §1). Nota: un observac vacío/null del lado más corto pasa
+// trivialmente (`"".startsWith(...)` siempre da true) — no se bloquea acá
+// porque el llamador solo usa esta función cuando ya hay comprobante
+// compartido, una señal real por sí sola (documentado con test, no
+// implícito).
+function tienenRelacionDePrefijo(a: CompraParaReconciliar, b: CompraParaReconciliar): boolean {
+  const obsA = a.observac ?? "";
+  const obsB = b.observac ?? "";
+  const [corto, largo] = obsA.length <= obsB.length ? [obsA, obsB] : [obsB, obsA];
+  return largo.startsWith(corto);
+}
+
 // Función pura, testable sin base de datos real. Nunca borra una fila con
 // esDistribuido=true si la otra mitad del grupo no lo tiene también — y
 // cualquier forma de grupo no verificada como segura se excluye completa en
@@ -102,10 +119,29 @@ export function planReconciliacionDuplicados(compras: CompraParaReconciliar[]): 
     const [a, b] = grupo;
     const distribuidas = grupo.filter((c) => c.esDistribuido);
 
+    // Calculado una sola vez por grupo — se reusa igual en la rama de 0 y en
+    // la de 1 esDistribuido para no duplicar el chequeo de seguridad del
+    // caso Mochila/Válvula (spec §1, hallazgo CRITICAL + Important de
+    // code-review, 29-sep-2026). Cuando el comprobante difiere o alguna de
+    // las dos filas no lo tiene (el caso "comprobante aparece después", 50
+    // de los 54 grupos reales), la fusión queda incondicional — ese caso es
+    // estructuralmente inequívoco y no necesita chequeo de texto (mismo
+    // criterio que usa la reconciliación hacia adelante de Task 2, que
+    // tampoco chequea texto en esa rama).
+    const mismoComprobante = a.comprobante != null && a.comprobante === b.comprobante;
+    const relacionDePrefijoOk = !mismoComprobante || tienenRelacionDePrefijo(a, b);
+
     let survivor: CompraParaReconciliar;
     let loser: CompraParaReconciliar;
 
     if (distribuidas.length === 1) {
+      if (!relacionDePrefijoOk) {
+        gruposExcluidos.push({
+          motivo: "esDistribuido difiere pero observaciones sin relación de texto clara — revisar a mano",
+          rowIds,
+        });
+        continue;
+      }
       survivor = distribuidas[0];
       loser = survivor === a ? b : a;
     } else if (distribuidas.length === 0) {
@@ -115,29 +151,15 @@ export function planReconciliacionDuplicados(compras: CompraParaReconciliar[]): 
         gruposExcluidos.push({ motivo: "empate de longitud de observac, revisar a mano", rowIds });
         continue;
       }
+      if (!relacionDePrefijoOk) {
+        gruposExcluidos.push({
+          motivo: "ambas con comprobante, observaciones sin relación de texto clara — revisar a mano",
+          rowIds,
+        });
+        continue;
+      }
       survivor = largoA > largoB ? a : b;
       loser = survivor === a ? b : a;
-
-      // Caso real que este criterio NO debe fusionar nunca (spec §1: Mochila
-      // Baño Vestuario / Valvula + Tecla Descarga Baño — misma factura, 2
-      // ítems distintos, no un duplicado). Cuando ambas filas comparten un
-      // comprobante no nulo, "gana el más largo" solo es seguro si el
-      // OBSERVAC más corto es un prefijo del más largo (el ERP agregando una
-      // aclaración al mismo texto) — si no hay esa relación, es evidencia de
-      // que son dos compras reales distintas con el mismo comprobante, no
-      // una edición del ERP sobre la misma fila.
-      const mismoComprobante = a.comprobante != null && a.comprobante === b.comprobante;
-      if (mismoComprobante) {
-        const observacLoser = loser.observac ?? "";
-        const observacSurvivor = survivor.observac ?? "";
-        if (!observacSurvivor.startsWith(observacLoser)) {
-          gruposExcluidos.push({
-            motivo: "ambas con comprobante, observaciones sin relación de texto clara — revisar a mano",
-            rowIds,
-          });
-          continue;
-        }
-      }
     } else {
       gruposExcluidos.push({ motivo: "ambas filas tienen esDistribuido=true, revisar a mano", rowIds });
       continue;
@@ -164,13 +186,14 @@ interface CompraDbRow {
   importe: { toString(): string } | null;
   observac: string | null;
   comprobante: string | null;
+  detalle: string | null;
   esDistribuido: boolean;
   localId: number | null;
 }
 
 const SELECT_COMPRA = {
   rowId: true, codCga: true, fecha: true, codigo: true, concepto: true,
-  importe: true, observac: true, comprobante: true, esDistribuido: true, localId: true,
+  importe: true, observac: true, comprobante: true, detalle: true, esDistribuido: true, localId: true,
 } as const;
 
 async function conDetalleCompras<T extends { rowId: string }>(
@@ -202,6 +225,7 @@ async function exportarDetalle(pares: ParReconciliado[], porRowId: Map<string, C
         rowId: borrar.rowId,
         observac: borrar.observac,
         comprobante: borrar.comprobante,
+        detalle: borrar.detalle,
         importe: borrar.importe != null ? borrar.importe.toString() : null,
         fecha: borrar.fecha,
         localId: borrar.localId,
