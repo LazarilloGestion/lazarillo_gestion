@@ -21,8 +21,6 @@ export async function insertChunkWithRowFallback<T>(
 ): Promise<ETLRowError[]> {
   try {
     await prisma.$executeRaw(buildStatement(chunk));
-    onRowsInserted(chunk);
-    return [];
   } catch {
     const errors: ETLRowError[] = [];
     const inserted: T[] = [];
@@ -37,4 +35,6 @@ export async function insertChunkWithRowFallback<T>(
     onRowsInserted(inserted);
     return errors;
   }
+  onRowsInserted(chunk);
+  return [];
 }
