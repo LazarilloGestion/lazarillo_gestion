@@ -106,11 +106,14 @@ export function planReconciliacionDuplicados(compras: CompraParaReconciliar[]): 
 
     // Calculado una sola vez por grupo, MISMO predicado que usa la
     // reconciliación hacia adelante en normalizeCompras (compras.ts) — ver
-    // compra-identity.ts, esReconciliacionSegura. Dos motivos de exclusión
-    // (comprobantes_distintos, localId_distinto) aplican al grupo entero sin
-    // importar esDistribuido — se chequean ANTES de cualquier rama de abajo
-    // (hallazgos Critical #1 y #2 de la revisión final de rama,
-    // 29-sep-2026). El tercer motivo (sin_relacion_de_prefijo, caso
+    // compra-identity.ts, esReconciliacionSegura. Tres motivos de exclusión
+    // (comprobantes_distintos, localId_distinto, ambas_sin_comprobante)
+    // aplican al grupo entero sin importar esDistribuido — se chequean ANTES
+    // de cualquier rama de abajo (hallazgos Critical #1 y #2 de la revisión
+    // final de rama, 29-sep-2026, y el hallazgo del dry-run real del
+    // 29-sep-2026: comprobante null en AMBOS lados no es evidencia de
+    // duplicado — ver comentario de ambas_sin_comprobante en
+    // compra-identity.ts). El cuarto motivo (sin_relacion_de_prefijo, caso
     // Mochila/Válvula) sigue siendo contextual a cada rama, así que abajo se
     // reusa como `relacionDePrefijoOk` con el mismo criterio que antes.
     const seguridad = esReconciliacionSegura(a, b);
@@ -120,6 +123,10 @@ export function planReconciliacionDuplicados(compras: CompraParaReconciliar[]): 
     }
     if (!seguridad.segura && seguridad.motivo === "localId_distinto") {
       gruposExcluidos.push({ motivo: "localId distinto, revisar a mano", rowIds });
+      continue;
+    }
+    if (!seguridad.segura && seguridad.motivo === "ambas_sin_comprobante") {
+      gruposExcluidos.push({ motivo: "ambas filas sin comprobante, revisar a mano", rowIds });
       continue;
     }
     const relacionDePrefijoOk = seguridad.segura || seguridad.motivo !== "sin_relacion_de_prefijo";

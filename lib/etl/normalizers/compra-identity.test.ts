@@ -270,16 +270,38 @@ describe("esReconciliacionSegura", () => {
     expect(esReconciliacionSegura(a, b)).toEqual({ segura: true });
   });
 
-  it("localId distinto entre ambas filas: insegura aunque el resto coincida", () => {
+  it("localId distinto entre ambas filas: insegura aunque el resto coincida (XOR de comprobante, no ambas null — ver test dedicado de 'ambas sin comprobante' abajo)", () => {
     const a = { ...base, comprobante: null, observac: "Obs", localId: 1 };
-    const b = { ...base, comprobante: null, observac: "Obs", localId: 2 };
+    const b = { ...base, comprobante: "A060600761530", observac: "Obs", localId: 2 };
     expect(esReconciliacionSegura(a, b)).toEqual({ segura: false, motivo: "localId_distinto" });
   });
 
-  it("localId desconocido (null) de un lado: no bloquea, se trata como sin evidencia de conflicto", () => {
+  it("localId desconocido (null) de un lado: no bloquea, se trata como sin evidencia de conflicto (XOR de comprobante, no ambas null)", () => {
     const a = { ...base, comprobante: null, observac: "Obs", localId: null };
-    const b = { ...base, comprobante: null, observac: "Obs", localId: 2 };
+    const b = { ...base, comprobante: "A060600761530", observac: "Obs", localId: 2 };
     expect(esReconciliacionSegura(a, b)).toEqual({ segura: true });
+  });
+
+  // Hallazgo real, dry-run de scripts/reconciliar-duplicados-erp.ts contra
+  // producción (29-sep-2026): 654 de 706 pares (92.6%) que el script iba a
+  // fusionar tenían comprobante null en AMBOS lados — dos transacciones
+  // genuinamente distintas que nunca tuvieron comprobante (pagos en efectivo,
+  // adelantos de sueldo, honorarios informales) pueden coincidir en el ancla
+  // por casualidad. Ejemplo real: "Sergio Profe Fc" vs "Ricardo Profe Fc",
+  // mismo importe/día/centro de costo, pagos a docentes DISTINTOS. La regla
+  // anterior ("cualquiera de los dos null salta el chequeo de texto") solo es
+  // válida cuando es EXACTAMENTE un lado null (branch-flip real); con ambos
+  // null no hay comprobante que vincule nada y ninguna otra señal validada.
+  it("ambos comprobante null: insegura, sin importar si OBSERVAC no tiene relación (caso real Sergio/Ricardo Profe Fc)", () => {
+    const a = { ...base, comprobante: null, observac: "Sergio Profe Fc", localId: 1 };
+    const b = { ...base, comprobante: null, observac: "Ricardo Profe Fc", localId: 1 };
+    expect(esReconciliacionSegura(a, b)).toEqual({ segura: false, motivo: "ambas_sin_comprobante" });
+  });
+
+  it("ambos comprobante null con el MISMO OBSERVAC: sigue insegura — coincidir en ancla+texto no reemplaza la falta de comprobante", () => {
+    const a = { ...base, comprobante: null, observac: "Obs", localId: 1 };
+    const b = { ...base, comprobante: null, observac: "Obs", localId: 1 };
+    expect(esReconciliacionSegura(a, b)).toEqual({ segura: false, motivo: "ambas_sin_comprobante" });
   });
 });
 

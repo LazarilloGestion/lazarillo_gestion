@@ -436,6 +436,39 @@ describe("normalizeCompras", () => {
       expect(res.reconciliacionesAmbiguas[0].candidatos).toEqual(["huerfana-valvula"]);
     });
 
+    // Hallazgo real, dry-run de scripts/reconciliar-duplicados-erp.ts contra
+    // producción (29-sep-2026): comprobante null en AMBOS lados no es
+    // evidencia de que sea la misma compra editada por el ERP — dos
+    // transacciones genuinamente distintas sin comprobante (pagos a personas
+    // distintas, mismo importe/día/centro de costo) pueden coincidir en el
+    // ancla por casualidad. Antes de este fix, esReconciliacionSegura trataba
+    // "cualquiera de los dos null" como seguro (saltaba todo chequeo de
+    // texto), así que este candidato se fusionaba en silencio. Ver
+    // compra-identity.ts, esReconciliacionSegura, motivo ambas_sin_comprobante.
+    it("fila nueva con 1 candidato por ancla y comprobante null en AMBAS filas, OBSERVAC sin relación (caso real Sergio/Ricardo Profe Fc): NO fusiona, queda en reconciliacionesAmbiguas", async () => {
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+          if (args?.where?.rowId?.in) return [];
+          return [huerfana({
+            rowId: "huerfana-ricardo",
+            detalle: null,
+            comprobante: null,
+            observac: "Ricardo Profe Fc",
+          })];
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+      const filaNueva = baseRow({ DETALLE: null, OBSERVAC: "Sergio Profe Fc" });
+      const res = await normalizeCompras([filaNueva], db);
+      expect(compraModel.update).not.toHaveBeenCalled();
+      expect(res.created).toBe(1);
+      expect(res.updated).toBe(0);
+      expect(res.comprasReconciliadas).toEqual([]);
+      expect(res.reconciliacionesAmbiguas).toHaveLength(1);
+      expect(res.reconciliacionesAmbiguas[0].candidatos).toEqual(["huerfana-ricardo"]);
+    });
+
     // Prueba directa de que el mecanismo 1 (reconciliación hacia adelante)
     // corta la causa raíz: reimportar el MISMO archivo sin cambios después de
     // que ya reconcilió una vez no debe volver a intentar reconciliar ni

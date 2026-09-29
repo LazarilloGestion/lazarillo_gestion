@@ -184,7 +184,10 @@ export interface DatosSeguridadReconciliacion {
 
 export type ResultadoSeguridadReconciliacion =
   | { segura: true }
-  | { segura: false; motivo: "comprobantes_distintos" | "sin_relacion_de_prefijo" | "localId_distinto" };
+  | {
+      segura: false;
+      motivo: "comprobantes_distintos" | "sin_relacion_de_prefijo" | "localId_distinto" | "ambas_sin_comprobante";
+    };
 
 // Predicado único compartido entre la reconciliación hacia adelante (import
 // en vivo, ver normalizeCompras en compras.ts) y la limpieza retroactiva
@@ -202,13 +205,26 @@ export type ResultadoSeguridadReconciliacion =
 // 2) Ambas filas con el MISMO comprobante no nulo -> exige relación de
 //    prefijo entre observac (caso Mochila/Válvula: mismo comprobante, dos
 //    ítems reales distintos de una misma factura).
-// 3) Cualquier otro caso con comprobante (incluido "uno de los dos es null",
-//    el caso "comprobante aparece después" — el más inequívoco del diseño)
-//    no se bloquea por este chequeo.
-// 4) localId conocido de ambos lados y distinto -> insegura (hallazgo real:
+// 3) EXACTAMENTE un lado con comprobante null (XOR) -> es el caso "comprobante
+//    aparece después", el más inequívoco del diseño; no se bloquea por este
+//    chequeo (sigue sujeto al chequeo de localId de abajo).
+// 4) AMBOS lados con comprobante null -> insegura. La razón de (3) — "el ERP
+//    completó un comprobante que antes no tenía" — no aplica cuando ninguna
+//    de las dos filas tuvo nunca comprobante: no hay documento que vincule
+//    las dos filas como la misma transacción, y coincidir en el ancla
+//    (codCga+fecha+codigo+concepto+importe) no alcanza — dos transacciones
+//    genuinamente distintas sin comprobante (pagos en efectivo, adelantos de
+//    sueldo, honorarios informales) colisionan en el ancla por casualidad con
+//    más frecuencia de la esperada (hallazgo real: dry-run de
+//    reconciliar-duplicados-erp.ts contra producción, 29-sep-2026 — 654 de
+//    706 pares que el script iba a fusionar tenían comprobante null en AMBOS
+//    lados y NO eran duplicados reales, ej. "Sergio Profe Fc" vs "Ricardo
+//    Profe Fc", pagos a docentes distintos).
+// 5) localId conocido de ambos lados y distinto -> insegura (hallazgo real:
 //    ERPs de distintos locales pueden reusar código de proveedor/concepto
 //    para negocios no relacionados — ver memoria del proyecto, incidente
-//    Alta Nuñez-Comercio).
+//    Alta Nuñez-Comercio). Se evalúa solo si 1-4 no determinaron ya que es
+//    insegura.
 export function esReconciliacionSegura(
   a: DatosSeguridadReconciliacion,
   b: DatosSeguridadReconciliacion
@@ -220,6 +236,8 @@ export function esReconciliacionSegura(
     if (!tienenRelacionDePrefijo(a.observac, b.observac)) {
       return { segura: false, motivo: "sin_relacion_de_prefijo" };
     }
+  } else if (a.comprobante == null && b.comprobante == null) {
+    return { segura: false, motivo: "ambas_sin_comprobante" };
   }
   if (a.localId != null && b.localId != null && a.localId !== b.localId) {
     return { segura: false, motivo: "localId_distinto" };

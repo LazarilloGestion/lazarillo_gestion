@@ -23,41 +23,74 @@ function fila(overrides: Partial<CompraParaReconciliar> = {}): CompraParaReconci
 }
 
 describe("planReconciliacionDuplicados", () => {
-  it("grupo de 2 sin distribuidas: sobrevive la de OBSERVAC más largo, la otra va a rowIdABorrar", () => {
-    const corta = fila({ rowId: "corta", observac: "Turbina Inflable" });
-    const larga = fila({ rowId: "larga", observac: "Turbina Inflable Nuevo" });
+  // Hallazgo real, dry-run contra producción (29-sep-2026): 654 de 706 pares
+  // (92.6%) que este script iba a fusionar tenían comprobante null en AMBOS
+  // lados — dos transacciones genuinamente distintas sin comprobante (pagos
+  // en efectivo, adelantos de sueldo, honorarios informales) que coinciden en
+  // el ancla por casualidad. Este test reemplaza al que existía acá antes del
+  // fix (que asumía, incorrectamente, que "sobrevive el OBSERVAC más largo"
+  // era seguro incluso sin comprobante en ninguna fila — ver
+  // compra-identity.ts, esReconciliacionSegura, motivo ambas_sin_comprobante).
+  it("ambas filas sin comprobante y OBSERVAC sin relación (caso real Sergio/Ricardo Profe Fc): grupo excluido, ninguna se borra", () => {
+    const sergio = fila({ rowId: "sergio", observac: "Sergio Profe Fc" });
+    const ricardo = fila({ rowId: "ricardo", observac: "Ricardo Profe Fc" });
+    const plan = planReconciliacionDuplicados([sergio, ricardo]);
+    expect(plan.rowIdABorrar).toHaveLength(0);
+    expect(plan.paresReconciliados).toHaveLength(0);
+    expect(plan.gruposExcluidos).toHaveLength(1);
+    expect(plan.gruposExcluidos[0].motivo).toBe("ambas filas sin comprobante, revisar a mano");
+    expect(plan.gruposExcluidos[0].rowIds.sort()).toEqual(["ricardo", "sergio"]);
+  });
+
+  it("grupo de 2 sin distribuidas, MISMO comprobante no nulo: sobrevive la de OBSERVAC más largo, la otra va a rowIdABorrar", () => {
+    // Con comprobante compartido (no ambas null) la seguridad de esta fusión
+    // ya no depende del hallazgo de arriba — sigue siendo el caso "ERP
+    // corrigió/amplió la descripción" documentado en compra-identity.ts.
+    const corta = fila({ rowId: "corta", observac: "Turbina Inflable", comprobante: "0002-00009999" });
+    const larga = fila({ rowId: "larga", observac: "Turbina Inflable Nuevo", comprobante: "0002-00009999" });
     const plan = planReconciliacionDuplicados([corta, larga]);
     expect(plan.rowIdABorrar).toEqual(["corta"]);
     expect(plan.gruposExcluidos).toHaveLength(0);
   });
 
-  it("grupo de 2 con exactamente 1 esDistribuido=true: esa sobrevive siempre, aunque su OBSERVAC sea más corto", () => {
-    const distribuida = fila({ rowId: "distribuida", observac: "Cable Para Alargues Kids Park", esDistribuido: true });
-    const noDistribuida = fila({ rowId: "no-distribuida", observac: "Cable Para Alargues Kids Park 50%" });
+  it("grupo de 2 con exactamente 1 esDistribuido=true, MISMO comprobante no nulo: esa sobrevive siempre, aunque su OBSERVAC sea más corto", () => {
+    const distribuida = fila({
+      rowId: "distribuida", observac: "Cable Para Alargues Kids Park",
+      comprobante: "0003-00008888", esDistribuido: true,
+    });
+    const noDistribuida = fila({
+      rowId: "no-distribuida", observac: "Cable Para Alargues Kids Park 50%",
+      comprobante: "0003-00008888",
+    });
     const plan = planReconciliacionDuplicados([distribuida, noDistribuida]);
     expect(plan.rowIdABorrar).toEqual(["no-distribuida"]);
   });
 
-  it("empate de longitud de observac sin distribuidas: grupo excluido, no se borra nada", () => {
-    const a = fila({ rowId: "a", observac: "Mochila Baño Vestuario" });
-    const b = fila({ rowId: "b", observac: "Valvula Descarga Baños" }); // mismo largo (22) a propósito
+  it("empate de longitud de observac, MISMO comprobante no nulo, sin distribuidas: grupo excluido, no se borra nada", () => {
+    // El chequeo de empate de longitud corre ANTES que el de relación de
+    // prefijo dentro de la rama de 0 distribuidas (ver
+    // planReconciliacionDuplicados) — con comprobante compartido, dos
+    // OBSERVAC del mismo largo sin relación de prefijo caen igual en el
+    // empate, no en "sin relación de texto clara".
+    const a = fila({ rowId: "a", observac: "Mochila Baño Vestuario", comprobante: "0001-00007777" });
+    const b = fila({ rowId: "b", observac: "Valvula Descarga Baños", comprobante: "0001-00007777" }); // mismo largo (22) a propósito
     const plan = planReconciliacionDuplicados([a, b]);
     expect(plan.rowIdABorrar).toHaveLength(0);
     expect(plan.gruposExcluidos).toHaveLength(1);
     expect(plan.gruposExcluidos[0].motivo).toBe("empate de longitud de observac, revisar a mano");
   });
 
-  it("ambas filas con esDistribuido=true: grupo excluido, revisar a mano", () => {
-    const a = fila({ rowId: "a", esDistribuido: true });
-    const b = fila({ rowId: "b", esDistribuido: true });
+  it("ambas filas con esDistribuido=true, MISMO comprobante no nulo: grupo excluido, revisar a mano", () => {
+    const a = fila({ rowId: "a", comprobante: "0007-00006666", esDistribuido: true });
+    const b = fila({ rowId: "b", comprobante: "0007-00006666", esDistribuido: true });
     const plan = planReconciliacionDuplicados([a, b]);
     expect(plan.rowIdABorrar).toHaveLength(0);
     expect(plan.gruposExcluidos[0].motivo).toBe("ambas filas tienen esDistribuido=true, revisar a mano");
   });
 
-  it("la fila a descartar tiene detalle_compras propio: grupo excluido", () => {
-    const corta = fila({ rowId: "corta", observac: "A", tieneDetalleCompras: true });
-    const larga = fila({ rowId: "larga", observac: "AB" });
+  it("la fila a descartar tiene detalle_compras propio, MISMO comprobante no nulo: grupo excluido", () => {
+    const corta = fila({ rowId: "corta", observac: "A", comprobante: "0008-00005555", tieneDetalleCompras: true });
+    const larga = fila({ rowId: "larga", observac: "AB", comprobante: "0008-00005555" });
     const plan = planReconciliacionDuplicados([corta, larga]);
     expect(plan.rowIdABorrar).toHaveLength(0);
     expect(plan.gruposExcluidos[0].motivo).toBe("la fila a descartar tiene detalle_compras propio");
@@ -198,8 +231,11 @@ describe("planReconciliacionDuplicados", () => {
   // negocios reusan códigos de proveedor/concepto — ver memoria del
   // proyecto, incidente Alta Nuñez-Comercio) sin ser la misma transacción.
   it("localId distinto entre las dos filas del grupo: grupo excluido, revisar a mano", () => {
-    const a = fila({ rowId: "a", localId: 1 });
-    const b = fila({ rowId: "b", localId: 2 });
+    // XOR de comprobante (branch-flip real, no ambas null) para aislar el
+    // chequeo de localId del de ambas_sin_comprobante — con ambas null el
+    // grupo ya se excluye antes de llegar siquiera a mirar localId.
+    const a = fila({ rowId: "a", comprobante: null, localId: 1 });
+    const b = fila({ rowId: "b", comprobante: "A060600761530", localId: 2 });
     const plan = planReconciliacionDuplicados([a, b]);
     expect(plan.rowIdABorrar).toHaveLength(0);
     expect(plan.gruposExcluidos).toHaveLength(1);
