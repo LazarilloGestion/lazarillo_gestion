@@ -374,5 +374,33 @@ describe("normalizeCompras", () => {
       expect(compraModel.update).not.toHaveBeenCalled();
       expect(res.comprasReconciliadas).toEqual([]);
     });
+
+    it("reconciliación exitosa pero el $executeRaw del mismo chunk falla: no reporta la reconciliación (el chunk entero terminó en error)", async () => {
+      // Mismo criterio que el test de arriba "un fallo de $executeRaw se reporta
+      // en errors sin lanzar excepción", pero con una reconciliación de por medio:
+      // el rename (compra.update) sí corre y se resuelve OK, pero si el INSERT del
+      // chunk falla después, comprasReconciliadas no debe reportar esa fila como
+      // reconciliada — el chunk completo quedó en error, no en 0 created/updated
+      // con una reconciliación "exitosa" fantasma.
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+          if (args?.where?.rowId?.in) return [];
+          return [huerfana()];
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+      (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("constraint violation"));
+      const res = await normalizeCompras([baseRow()], db);
+      expect(compraModel.update).toHaveBeenCalledWith({
+        where: { rowId: "huerfana-rowid" },
+        data: { rowId: expect.any(String) },
+      });
+      expect(res.comprasReconciliadas).toEqual([]);
+      expect(res.created).toBe(0);
+      expect(res.updated).toBe(0);
+      expect(res.errors).toHaveLength(1);
+      expect(res.errors[0].message).toMatch(/constraint violation/);
+    });
   });
 });

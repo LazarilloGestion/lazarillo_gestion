@@ -204,6 +204,14 @@ export async function normalizeCompras(
       // Migra el rowId de la fila vieja al hash nuevo ANTES del INSERT...ON
       // CONFLICT de abajo, para que ese mismo INSERT la encuentre y actualice
       // sus campos normalmente en vez de crear una fila duplicada.
+      // Acumuladores LOCALES al chunk: si el $executeRaw de abajo (o un update
+      // de reconciliación de una fila posterior del mismo chunk) tira una
+      // excepción, el catch de este chunk no debe dejar reconciliaciones
+      // "fantasma" reportadas para un chunk que en los hechos terminó en
+      // error — mismo criterio que ya usan created/updated, que solo se
+      // incrementan después de que el INSERT confirma éxito.
+      const chunkReconciliados: string[] = [];
+      const chunkAmbiguas: { rowIdNuevo: string; candidatos: string[] }[] = [];
       for (const pr of chunk) {
         if (existingMap.has(pr.rowId)) continue;
         const anchor = computeCompraAnchor(compraIdentityFromRawRow(pr.row));
@@ -230,10 +238,10 @@ export async function normalizeCompras(
         const elegido = pickReconciliationCandidate(candidatos);
         if (elegido) {
           await prisma.compra.update({ where: { rowId: elegido.rowId }, data: { rowId: pr.rowId } });
-          comprasReconciliadas.push(elegido.rowId);
+          chunkReconciliados.push(elegido.rowId);
           existingMap.set(pr.rowId, elegido);
         } else {
-          reconciliacionesAmbiguas.push({ rowIdNuevo: pr.rowId, candidatos: candidatos.map((c) => c.rowId) });
+          chunkAmbiguas.push({ rowIdNuevo: pr.rowId, candidatos: candidatos.map((c) => c.rowId) });
         }
       }
 
@@ -303,6 +311,13 @@ export async function normalizeCompras(
           "puntoDeVentaId"   = COALESCE(compras."puntoDeVentaId", EXCLUDED."puntoDeVentaId")
           -- importeManual, fechaManual, conceptoCodigoManual: NO se sobreescriben (overrides manuales)
       `);
+
+      // Recién acá, con el INSERT confirmado, se vuelcan los acumuladores
+      // locales del chunk a los de la función — si algo de arriba tiró antes
+      // de llegar hasta acá, el catch de abajo atrapa la excepción y estas
+      // dos líneas nunca corren para este chunk.
+      comprasReconciliadas.push(...chunkReconciliados);
+      reconciliacionesAmbiguas.push(...chunkAmbiguas);
 
       for (const { rowId, data } of chunk) {
         const oldRow = existingMap.get(rowId);
