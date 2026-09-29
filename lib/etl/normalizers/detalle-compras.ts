@@ -6,6 +6,7 @@ import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 import type { ETLRow, ETLRowError, ETLSkippedRow } from "../types";
 import { detalleCompraRowSchema, type DetalleCompraRow } from "../schemas/detalle-compras";
 import { formatZodError } from "../schemas/common";
+import { insertChunkWithRowFallback } from "../chunked-upsert";
 
 const CHUNK_SIZE = 500;
 
@@ -106,85 +107,90 @@ export async function normalizeDetalleCompras(
       })).map((d) => d.rowId)
     );
 
-    try {
-      const localId = ctx?.localId ?? null;
+    const localId = ctx?.localId ?? null;
 
-      const rowValues = chunk.map(({ rowId, row, data }) => {
-        const articuloCodigo = artSet.has(data.CODIGO) ? data.CODIGO : null;
-        // proveedorId nunca se resuelve acá de forma independiente: esta tabla no
-        // tiene un campo de texto de proveedor contra el cual validar el CODIGO
-        // (a diferencia de compras.ts) — ver spec 2026-09-19-cruce-proveedorid-compras-design.md §3.3.
-        const proveedorId = null;
-        return Prisma.sql`(
-          ${rowId},
-          ${data.COD_PRO},
-          ${data.COD_CPB},
-          ${data.NUMERO1},
-          ${data.NUMERO2},
-          ${makeComprobante(row)},
-          ${data.FECHA},
-          ${data.CODIGO},
-          ${data.NOMBRE},
-          ${data.MEDIDA},
-          ${data.CANTIDAD}::numeric,
-          ${data.NETO}::numeric,
-          ${data.TOTALINS}::numeric,
-          ${data.IVATOT}::numeric,
-          ${data.IMPINTTOT}::numeric,
-          ${data.TASA}::numeric,
-          ${data.IVA}::numeric,
-          ${data.IMP_INT}::numeric,
-          ${data.PERCEP}::numeric,
-          ${data.OBSERVAC},
-          ${articuloCodigo},
-          ${proveedorId}::integer,
-          ${localId}::integer
-        )`;
-      });
+    const chunkErrors = await insertChunkWithRowFallback(
+      prisma,
+      chunk,
+      (rowsToInsert) => {
+        const rowValues = rowsToInsert.map(({ rowId, row, data }) => {
+          const articuloCodigo = artSet.has(data.CODIGO) ? data.CODIGO : null;
+          // proveedorId nunca se resuelve acá de forma independiente: esta tabla no
+          // tiene un campo de texto de proveedor contra el cual validar el CODIGO
+          // (a diferencia de compras.ts) — ver spec 2026-09-19-cruce-proveedorid-compras-design.md §3.3.
+          const proveedorId = null;
+          return Prisma.sql`(
+            ${rowId},
+            ${data.COD_PRO},
+            ${data.COD_CPB},
+            ${data.NUMERO1},
+            ${data.NUMERO2},
+            ${makeComprobante(row)},
+            ${data.FECHA},
+            ${data.CODIGO},
+            ${data.NOMBRE},
+            ${data.MEDIDA},
+            ${data.CANTIDAD}::numeric,
+            ${data.NETO}::numeric,
+            ${data.TOTALINS}::numeric,
+            ${data.IVATOT}::numeric,
+            ${data.IMPINTTOT}::numeric,
+            ${data.TASA}::numeric,
+            ${data.IVA}::numeric,
+            ${data.IMP_INT}::numeric,
+            ${data.PERCEP}::numeric,
+            ${data.OBSERVAC},
+            ${articuloCodigo},
+            ${proveedorId}::integer,
+            ${localId}::integer
+          )`;
+        });
 
-      await prisma.$executeRaw(Prisma.sql`
-        INSERT INTO detalle_compras (
-          "rowId", "codPro", "codCpb", numero1, numero2, comprobante, fecha, codigo,
-          nombre, medida, cantidad, neto, "totalIns", "ivaTot", "impNtTot", tasa, iva,
-          "impInt", percep, observac, "articuloCodigo", "proveedorId", "localId"
-        )
-        VALUES ${Prisma.join(rowValues)}
-        ON CONFLICT ("rowId") DO UPDATE SET
-          "codPro"        = EXCLUDED."codPro",
-          "codCpb"        = EXCLUDED."codCpb",
-          numero1         = EXCLUDED.numero1,
-          numero2         = EXCLUDED.numero2,
-          comprobante     = EXCLUDED.comprobante,
-          fecha           = EXCLUDED.fecha,
-          codigo          = EXCLUDED.codigo,
-          nombre          = EXCLUDED.nombre,
-          medida          = EXCLUDED.medida,
-          cantidad        = EXCLUDED.cantidad,
-          neto            = EXCLUDED.neto,
-          "totalIns"      = EXCLUDED."totalIns",
-          "ivaTot"        = EXCLUDED."ivaTot",
-          "impNtTot"      = EXCLUDED."impNtTot",
-          tasa            = EXCLUDED.tasa,
-          iva             = EXCLUDED.iva,
-          "impInt"        = EXCLUDED."impInt",
-          percep          = EXCLUDED.percep,
-          observac        = EXCLUDED.observac,
-          "articuloCodigo"= EXCLUDED."articuloCodigo",
-          "proveedorId"   = EXCLUDED."proveedorId",
-          -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
-          "localId"       = COALESCE(detalle_compras."localId", EXCLUDED."localId")
-      `);
-
-      for (const rowId of chunkRowIds) {
-        if (existingSet.has(rowId)) updated++; else created++;
-      }
-    } catch (err) {
-      errors.push({
+        return Prisma.sql`
+          INSERT INTO detalle_compras (
+            "rowId", "codPro", "codCpb", numero1, numero2, comprobante, fecha, codigo,
+            nombre, medida, cantidad, neto, "totalIns", "ivaTot", "impNtTot", tasa, iva,
+            "impInt", percep, observac, "articuloCodigo", "proveedorId", "localId"
+          )
+          VALUES ${Prisma.join(rowValues)}
+          ON CONFLICT ("rowId") DO UPDATE SET
+            "codPro"        = EXCLUDED."codPro",
+            "codCpb"        = EXCLUDED."codCpb",
+            numero1         = EXCLUDED.numero1,
+            numero2         = EXCLUDED.numero2,
+            comprobante     = EXCLUDED.comprobante,
+            fecha           = EXCLUDED.fecha,
+            codigo          = EXCLUDED.codigo,
+            nombre          = EXCLUDED.nombre,
+            medida          = EXCLUDED.medida,
+            cantidad        = EXCLUDED.cantidad,
+            neto            = EXCLUDED.neto,
+            "totalIns"      = EXCLUDED."totalIns",
+            "ivaTot"        = EXCLUDED."ivaTot",
+            "impNtTot"      = EXCLUDED."impNtTot",
+            tasa            = EXCLUDED.tasa,
+            iva             = EXCLUDED.iva,
+            "impInt"        = EXCLUDED."impInt",
+            percep          = EXCLUDED.percep,
+            observac        = EXCLUDED.observac,
+            "articuloCodigo"= EXCLUDED."articuloCodigo",
+            "proveedorId"   = EXCLUDED."proveedorId",
+            -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
+            "localId"       = COALESCE(detalle_compras."localId", EXCLUDED."localId")
+        `;
+      },
+      ({ data }, err) => ({
         rowIndex: i,
-        rawCodigo: chunk[0]?.data.CODIGO,
+        rawCodigo: data.CODIGO,
         message: err instanceof Error ? err.message : String(err),
-      });
-    }
+      }),
+      (insertedRows) => {
+        for (const { rowId } of insertedRows) {
+          if (existingSet.has(rowId)) updated++; else created++;
+        }
+      }
+    );
+    errors.push(...chunkErrors);
   }
 
   if (ctx?.localId != null && (created > 0 || updated > 0)) {
