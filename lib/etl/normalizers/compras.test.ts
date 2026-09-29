@@ -643,7 +643,15 @@ describe("normalizeCompras", () => {
       expect(res.created).toBe(500); // 499 relleno + filaY (fila distinta, NO se funde con X)
     });
 
-    it("dos filas en el mismo chunk: una reconcilia y su insert sobrevive el fallback, la otra falla — solo la exitosa se reporta como reconciliada", async () => {
+    // La fila que reconcilia (matchea el ancla de la huérfana, CODIGO "PROV1")
+    // es la MISMA fila cuyo INSERT falla — no una fila distinta sin
+    // candidatos. Esto es lo que realmente prueba el gateo por fila: si
+    // comprasReconciliadas se llenara por chunk completo (como antes de este
+    // fix) o apenas cualquier fila del chunk insertara con éxito, este test
+    // fallaría. El trigger de fallo usa IMPUTAC (values[12]), no CODIGO
+    // (values[5]) — CODIGO tiene que quedar fijo en "PROV1" para que la fila
+    // siga matcheando el ancla de la huérfana.
+    it("la fila que reconcilia es la misma cuyo insert falla: el rename ocurre pero no se reporta como reconciliada", async () => {
       const compraModel = {
         findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] }; codigo?: unknown } }) => {
           if (args?.where?.rowId?.in) return []; // sin match exacto por hash para ninguna de las dos
@@ -655,19 +663,47 @@ describe("normalizeCompras", () => {
       const db = createMockDb({ compra: compraModel });
       (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
         if (sql.values.length > 21) throw new Error("simulated batch failure");
-        if (sql.values[5] === "BAD") throw new Error("valor fuera de rango numérico");
+        if (sql.values[12] === "BAD") throw new Error("valor fuera de rango numérico"); // IMPUTAC
         return 1;
       });
-      const filaA = baseRow(); // CODIGO "PROV1" (default) — matchea el ancla de huerfana()
-      const filaB = baseRow({ CODIGO: "BAD", COD_CGA: "OTRO", CONCEPTO: "Otro concepto", DETALLE: null, IMPORTE: 999 });
+      const filaA = baseRow({ IMPUTAC: "BAD" }); // CODIGO "PROV1" (default) — matchea el ancla de huerfana(), pero su INSERT específico falla
+      const filaB = baseRow({ CODIGO: "OTRO", COD_CGA: "OTRO", CONCEPTO: "Otro concepto", DETALLE: null, IMPORTE: 999 }); // sin ancla compartida, su insert sobrevive
       const res = await normalizeCompras([filaA, filaB], db);
       expect(compraModel.update).toHaveBeenCalledWith({
         where: { rowId: "huerfana-rowid" },
         data: { rowId: expect.any(String) },
       });
-      expect(res.comprasReconciliadas).toEqual(["huerfana-rowid"]);
-      expect(res.updated).toBe(1);
-      expect(res.created).toBe(0);
+      expect(res.comprasReconciliadas).toEqual([]); // el rename ocurrió (update sí corrió) pero el INSERT de esa fila falló
+      expect(res.updated).toBe(0);
+      expect(res.created).toBe(1); // filaB
+      expect(res.errors).toHaveLength(1);
+      expect(res.errors[0].message).toMatch(/valor fuera de rango/);
+    });
+
+    // Mismo criterio que el test anterior, aplicado al camino ambiguo: la
+    // fila marcada como ambigua es la que falla su INSERT — no se reporta en
+    // reconciliacionesAmbiguas aunque la detección de ambigüedad haya ocurrido.
+    it("la fila marcada como ambigua es la misma cuyo insert falla: no se reporta en reconciliacionesAmbiguas", async () => {
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] }; codigo?: unknown } }) => {
+          if (args?.where?.rowId?.in) return [];
+          if (args?.where?.codigo === "PROV1") return [huerfana({ rowId: "huerfana-1" }), huerfana({ rowId: "huerfana-2" })];
+          return [];
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+      (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
+        if (sql.values.length > 21) throw new Error("simulated batch failure");
+        if (sql.values[12] === "BAD") throw new Error("valor fuera de rango numérico"); // IMPUTAC
+        return 1;
+      });
+      const filaA = baseRow({ IMPUTAC: "BAD" }); // CODIGO "PROV1" — matchea 2 candidatos (ambiguo), pero su INSERT falla
+      const filaB = baseRow({ CODIGO: "OTRO", COD_CGA: "OTRO", CONCEPTO: "Otro concepto", DETALLE: null, IMPORTE: 999 });
+      const res = await normalizeCompras([filaA, filaB], db);
+      expect(compraModel.update).not.toHaveBeenCalled();
+      expect(res.reconciliacionesAmbiguas).toEqual([]); // ambigua, pero su INSERT falló — no se reporta
+      expect(res.created).toBe(1); // filaB
       expect(res.errors).toHaveLength(1);
       expect(res.errors[0].message).toMatch(/valor fuera de rango/);
     });
