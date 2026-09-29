@@ -4,6 +4,7 @@ import { trim } from "../helpers";
 import type { ETLRow, ETLRowError } from "../types";
 import { proveedorRowSchema, type ProveedorRow } from "../schemas/proveedores";
 import { formatZodError } from "../schemas/common";
+import { insertChunkWithRowFallback } from "../chunked-upsert";
 
 const CHUNK_SIZE = 500;
 
@@ -17,7 +18,7 @@ export async function normalizeProveedores(
   // Dedup por CODIGO (last-wins) es intencional para maestros: una fila con el
   // mismo código en el mismo export es la misma entidad real, no una colisión
   // de hash entre dos entidades distintas (a diferencia de compras/ventas).
-  const parsedByCodigo = new Map<string, ProveedorRow>();
+  const parsedByCodigo = new Map<string, { data: ProveedorRow; idx: number }>();
 
   rows.forEach((r, idx) => {
     if (trim(r["CODIGO"]) == null) {
@@ -29,12 +30,12 @@ export async function normalizeProveedores(
       errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
       return;
     }
-    parsedByCodigo.set(parsed.data.CODIGO, parsed.data);
+    parsedByCodigo.set(parsed.data.CODIGO, { data: parsed.data, idx });
   });
 
   const deduped = Array.from(parsedByCodigo.values());
 
-  const allCodigos = deduped.map((d) => d.CODIGO);
+  const allCodigos = deduped.map((d) => d.data.CODIGO);
   const existingSet = new Set(
     (await prisma.proveedor.findMany({ where: { codigo: { in: allCodigos } }, select: { codigo: true } }))
       .map((x) => x.codigo)
@@ -44,65 +45,75 @@ export async function normalizeProveedores(
 
   for (let i = 0; i < deduped.length; i += CHUNK_SIZE) {
     const chunk = deduped.slice(i, i + CHUNK_SIZE);
-    try {
-      const values = chunk.map((data) => {
-        return Prisma.sql`(
-          ${data.CODIGO},
-          ${data.NOMBRE},
-          ${data.RAZON},
-          ${data.DIRECCION},
-          ${data.LOCALIDAD},
-          ${data.CONTACTO},
-          ${data.TELEFONO},
-          ${data.FAX},
-          ${data.CELULAR},
-          ${data.TIPO_IVA},
-          ${data.CUIT},
-          ${data.CBU},
-          ${data.ALIASCBU},
-          ${data.DIAS_VENC},
-          ${data.IVA != null ? (data.IVA ? 1 : 0) : null},
-          ${data.IVA_DIF != null ? (data.IVA_DIF ? 1 : 0) : null},
-          ${data.E_MAIL},
-          ${data.OBSERVAC},
-          ${data.DETPERC}
-        )`;
-      });
 
-      await prisma.$executeRaw(Prisma.sql`
-        INSERT INTO proveedores (
-          codigo, nombre, razon, direccion, localidad, contacto,
-          telefono, fax, celular, "tipoIva", cuit, cbu, "aliasCbu",
-          "diasVenc", iva, "ivaDif", email, observac, "detPerc"
-        )
-        VALUES ${Prisma.join(values)}
-        ON CONFLICT (codigo) DO UPDATE SET
-          nombre     = EXCLUDED.nombre,
-          razon      = EXCLUDED.razon,
-          direccion  = EXCLUDED.direccion,
-          localidad  = EXCLUDED.localidad,
-          contacto   = EXCLUDED.contacto,
-          telefono   = EXCLUDED.telefono,
-          fax        = EXCLUDED.fax,
-          celular    = EXCLUDED.celular,
-          "tipoIva"  = EXCLUDED."tipoIva",
-          cuit       = EXCLUDED.cuit,
-          cbu        = EXCLUDED.cbu,
-          "aliasCbu" = EXCLUDED."aliasCbu",
-          "diasVenc" = EXCLUDED."diasVenc",
-          iva        = EXCLUDED.iva,
-          "ivaDif"   = EXCLUDED."ivaDif",
-          email      = EXCLUDED.email,
-          observac   = EXCLUDED.observac,
-          "detPerc"  = EXCLUDED."detPerc"
-      `);
+    const chunkErrors = await insertChunkWithRowFallback(
+      prisma,
+      chunk,
+      (rowsToInsert) => {
+        const values = rowsToInsert.map(({ data }) => {
+          return Prisma.sql`(
+            ${data.CODIGO},
+            ${data.NOMBRE},
+            ${data.RAZON},
+            ${data.DIRECCION},
+            ${data.LOCALIDAD},
+            ${data.CONTACTO},
+            ${data.TELEFONO},
+            ${data.FAX},
+            ${data.CELULAR},
+            ${data.TIPO_IVA},
+            ${data.CUIT},
+            ${data.CBU},
+            ${data.ALIASCBU},
+            ${data.DIAS_VENC},
+            ${data.IVA != null ? (data.IVA ? 1 : 0) : null},
+            ${data.IVA_DIF != null ? (data.IVA_DIF ? 1 : 0) : null},
+            ${data.E_MAIL},
+            ${data.OBSERVAC},
+            ${data.DETPERC}
+          )`;
+        });
 
-      for (const data of chunk) {
-        if (existingSet.has(data.CODIGO)) updated++; else created++;
+        return Prisma.sql`
+          INSERT INTO proveedores (
+            codigo, nombre, razon, direccion, localidad, contacto,
+            telefono, fax, celular, "tipoIva", cuit, cbu, "aliasCbu",
+            "diasVenc", iva, "ivaDif", email, observac, "detPerc"
+          )
+          VALUES ${Prisma.join(values)}
+          ON CONFLICT (codigo) DO UPDATE SET
+            nombre     = EXCLUDED.nombre,
+            razon      = EXCLUDED.razon,
+            direccion  = EXCLUDED.direccion,
+            localidad  = EXCLUDED.localidad,
+            contacto   = EXCLUDED.contacto,
+            telefono   = EXCLUDED.telefono,
+            fax        = EXCLUDED.fax,
+            celular    = EXCLUDED.celular,
+            "tipoIva"  = EXCLUDED."tipoIva",
+            cuit       = EXCLUDED.cuit,
+            cbu        = EXCLUDED.cbu,
+            "aliasCbu" = EXCLUDED."aliasCbu",
+            "diasVenc" = EXCLUDED."diasVenc",
+            iva        = EXCLUDED.iva,
+            "ivaDif"   = EXCLUDED."ivaDif",
+            email      = EXCLUDED.email,
+            observac   = EXCLUDED.observac,
+            "detPerc"  = EXCLUDED."detPerc"
+        `;
+      },
+      ({ data, idx }, err) => ({
+        rowIndex: idx,
+        rawCodigo: data.CODIGO,
+        message: err instanceof Error ? err.message : String(err),
+      }),
+      (insertedRows) => {
+        for (const { data } of insertedRows) {
+          if (existingSet.has(data.CODIGO)) updated++; else created++;
+        }
       }
-    } catch (err) {
-      errors.push({ rowIndex: i, rawCodigo: chunk[0]?.CODIGO, message: err instanceof Error ? err.message : String(err) });
-    }
+    );
+    errors.push(...chunkErrors);
   }
 
   return { created, updated, skipped, errors };
