@@ -124,3 +124,39 @@ export function compraIdentityFromDbRecord(c: CompraDbIdentitySource): CompraIde
     importe: canonicalDecimal(c.importe != null ? c.importe.toString() : null),
   };
 }
+
+export interface CompraAnchor {
+  codCga: string | null;
+  fechaISO: string | null;
+  codigo: string | null;
+  concepto: string | null;
+  importe: string | null;
+}
+
+// Subconjunto estable de CompraIdentityInput usado para reconciliar una fila
+// "nueva" (hash de computeCompraRowId sin match) contra una fila existente
+// que sea la misma compra real editada por el ERP después de la carga
+// inicial — ver docs/superpowers/specs/2026-09-29-reconciliacion-identidad-
+// compras-design.md. Deliberadamente NO incluye comprobante/detalle/
+// observacNormalizado: son justamente los campos que el ERP edita post-carga
+// (comprobante que aparece, observación que se corrige) y por eso rompen el
+// hash de computeCompraRowId sin ser, en los hechos, una transacción nueva.
+export function computeCompraAnchor(input: CompraIdentityInput): CompraAnchor {
+  return {
+    codCga: input.codCga,
+    fechaISO: input.fechaISO,
+    codigo: input.codigo,
+    concepto: input.concepto,
+    importe: input.importe,
+  };
+}
+
+// Decide si una fila "nueva" debe reconciliarse con una de las filas
+// existentes que comparten su ancla. Exactamente 1 candidato -> se
+// reconcilia con esa. 0 candidatos -> nada que reconciliar (se maneja antes
+// de llamar a esta función). 2+ candidatos -> ambiguo, no se fusiona (evita
+// el caso real de una factura con más de un ítem que coincide en ancla —
+// ver spec, caso "mochila/válvula").
+export function pickReconciliationCandidate<T extends { rowId: string }>(candidatos: T[]): T | null {
+  return candidatos.length === 1 ? candidatos[0] : null;
+}

@@ -4,6 +4,8 @@ import {
   computeCompraRowId,
   compraIdentityFromRawRow,
   compraIdentityFromDbRecord,
+  computeCompraAnchor,
+  pickReconciliationCandidate,
 } from "./compra-identity";
 import type { ETLRow } from "../types";
 
@@ -199,5 +201,53 @@ describe("compraIdentityFromRawRow / compraIdentityFromDbRecord — equivalencia
     expect(fromRaw.comprobante).toBeNull();
     expect(fromDb.comprobante).toBeNull();
     expect(computeCompraRowId(fromRaw)).toBe(computeCompraRowId(fromDb));
+  });
+});
+
+describe("computeCompraAnchor", () => {
+  it("proyecta solo los campos estables (codCga, fechaISO, codigo, concepto, importe)", () => {
+    const input = {
+      codCga: "201", fechaISO: "2026-08-24", codigo: "68", concepto: "Servicio de Energia Electrica",
+      comprobante: "B002752273860", detalle: "B 0027-52273860", observacNormalizado: "Del 23/7 Al 24/8", importe: "1552076.41",
+    };
+    expect(computeCompraAnchor(input)).toEqual({
+      codCga: "201", fechaISO: "2026-08-24", codigo: "68", concepto: "Servicio de Energia Electrica", importe: "1552076.41",
+    });
+  });
+
+  // Regresión: hallazgo real en producción (29-sep-2026) — el comprobante
+  // aparece después de la carga inicial y cambia detalle/observac/comprobante,
+  // pero es la misma compra real. El ancla tiene que ignorar esos 3 campos
+  // para que la reconciliación los encuentre como la misma transacción.
+  it("dos inputs que solo difieren en comprobante/detalle/observacNormalizado dan el mismo ancla", () => {
+    const base = {
+      codCga: "201", fechaISO: "2026-08-24", codigo: "68", concepto: "Servicio de Energia Electrica",
+      comprobante: null, detalle: null, observacNormalizado: "Del 23/7 Al 24/8", importe: "1552076.41",
+    };
+    const conComprobante = { ...base, comprobante: "B002752273860", detalle: "B 0027-52273860" };
+    expect(computeCompraAnchor(base)).toEqual(computeCompraAnchor(conComprobante));
+  });
+
+  it("dos inputs que difieren en importe dan ancla distinta", () => {
+    const base = {
+      codCga: "201", fechaISO: "2026-08-24", codigo: "68", concepto: "Servicio de Energia Electrica",
+      comprobante: null, detalle: null, observacNormalizado: null, importe: "1000",
+    };
+    expect(computeCompraAnchor(base)).not.toEqual(computeCompraAnchor({ ...base, importe: "2000" }));
+  });
+});
+
+describe("pickReconciliationCandidate", () => {
+  it("0 candidatos: null", () => {
+    expect(pickReconciliationCandidate([])).toBeNull();
+  });
+
+  it("1 candidato: lo elige", () => {
+    const candidato = { rowId: "abc" };
+    expect(pickReconciliationCandidate([candidato])).toBe(candidato);
+  });
+
+  it("2+ candidatos: ambiguo, null (no fusiona)", () => {
+    expect(pickReconciliationCandidate([{ rowId: "a" }, { rowId: "b" }])).toBeNull();
   });
 });
