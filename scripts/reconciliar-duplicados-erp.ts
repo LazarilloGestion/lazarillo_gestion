@@ -34,6 +34,7 @@ export interface CompraParaReconciliar {
   concepto: string | null;
   importe: { toString(): string } | null;
   observac: string | null;
+  comprobante: string | null;
   esDistribuido: boolean;
   tieneDetalleCompras: boolean;
 }
@@ -43,8 +44,18 @@ export interface GrupoExcluido {
   rowIds: string[];
 }
 
+// Un par sobreviviente↔perdedor dentro de un grupo reconciliado — separado de
+// rowIdABorrar (que solo lleva el lado a borrar) para que el reporte que ve
+// un humano antes de aprobar --apply pueda mostrar ambos lados del grupo
+// (hallazgo Important #2 de code-review, 29-sep-2026).
+export interface ParReconciliado {
+  rowIdABorrar: string;
+  rowIdSobreviviente: string;
+}
+
 export interface PlanReconciliacion {
   rowIdABorrar: string[];
+  paresReconciliados: ParReconciliado[];
   gruposExcluidos: GrupoExcluido[];
 }
 
@@ -65,6 +76,10 @@ function claveAncla(c: CompraParaReconciliar): string {
 export function planReconciliacionDuplicados(compras: CompraParaReconciliar[]): PlanReconciliacion {
   const grupos = new Map<string, CompraParaReconciliar[]>();
   for (const c of compras) {
+    // Spec §4.1: si importe es null, no se intenta reconciliar (sin evidencia
+    // de duplicados con importe nulo). La fila queda simplemente fuera de
+    // todo agrupamiento — no es candidata a sobrevivir ni a borrarse.
+    if (c.importe == null) continue;
     const clave = claveAncla(c);
     const grupo = grupos.get(clave) ?? [];
     grupo.push(c);
@@ -72,6 +87,7 @@ export function planReconciliacionDuplicados(compras: CompraParaReconciliar[]): 
   }
 
   const rowIdABorrar: string[] = [];
+  const paresReconciliados: ParReconciliado[] = [];
   const gruposExcluidos: GrupoExcluido[] = [];
 
   for (const grupo of grupos.values()) {
@@ -101,6 +117,27 @@ export function planReconciliacionDuplicados(compras: CompraParaReconciliar[]): 
       }
       survivor = largoA > largoB ? a : b;
       loser = survivor === a ? b : a;
+
+      // Caso real que este criterio NO debe fusionar nunca (spec §1: Mochila
+      // Baño Vestuario / Valvula + Tecla Descarga Baño — misma factura, 2
+      // ítems distintos, no un duplicado). Cuando ambas filas comparten un
+      // comprobante no nulo, "gana el más largo" solo es seguro si el
+      // OBSERVAC más corto es un prefijo del más largo (el ERP agregando una
+      // aclaración al mismo texto) — si no hay esa relación, es evidencia de
+      // que son dos compras reales distintas con el mismo comprobante, no
+      // una edición del ERP sobre la misma fila.
+      const mismoComprobante = a.comprobante != null && a.comprobante === b.comprobante;
+      if (mismoComprobante) {
+        const observacLoser = loser.observac ?? "";
+        const observacSurvivor = survivor.observac ?? "";
+        if (!observacSurvivor.startsWith(observacLoser)) {
+          gruposExcluidos.push({
+            motivo: "ambas con comprobante, observaciones sin relación de texto clara — revisar a mano",
+            rowIds,
+          });
+          continue;
+        }
+      }
     } else {
       gruposExcluidos.push({ motivo: "ambas filas tienen esDistribuido=true, revisar a mano", rowIds });
       continue;
@@ -112,9 +149,10 @@ export function planReconciliacionDuplicados(compras: CompraParaReconciliar[]): 
     }
 
     rowIdABorrar.push(loser.rowId);
+    paresReconciliados.push({ rowIdABorrar: loser.rowId, rowIdSobreviviente: survivor.rowId });
   }
 
-  return { rowIdABorrar, gruposExcluidos };
+  return { rowIdABorrar, paresReconciliados, gruposExcluidos };
 }
 
 interface CompraDbRow {
@@ -125,13 +163,14 @@ interface CompraDbRow {
   concepto: string | null;
   importe: { toString(): string } | null;
   observac: string | null;
+  comprobante: string | null;
   esDistribuido: boolean;
   localId: number | null;
 }
 
 const SELECT_COMPRA = {
   rowId: true, codCga: true, fecha: true, codigo: true, concepto: true,
-  importe: true, observac: true, esDistribuido: true, localId: true,
+  importe: true, observac: true, comprobante: true, esDistribuido: true, localId: true,
 } as const;
 
 async function conDetalleCompras<T extends { rowId: string }>(
@@ -149,20 +188,47 @@ async function conDetalleCompras<T extends { rowId: string }>(
   return compras.map((c) => ({ ...c, tieneDetalleCompras: rowIdsConDetalle.has(c.rowId) }));
 }
 
-async function exportarDetalle(rowIdABorrar: string[], porRowId: Map<string, CompraDbRow>, archivo: string) {
-  const detalle = rowIdABorrar.map((rowId) => {
-    const c = porRowId.get(rowId)!;
+// Exporta ambos lados de cada par reconciliado — no solo la fila a borrar —
+// para que un humano revisando el JSON antes de aprobar --apply (Task 6)
+// pueda comparar observac/comprobante de las dos mitades y detectar a simple
+// vista un caso como Mochila/Válvula si llegara a colarse (hallazgo
+// Important #2 de code-review, 29-sep-2026).
+async function exportarDetalle(pares: ParReconciliado[], porRowId: Map<string, CompraDbRow>, archivo: string) {
+  const detalle = pares.map(({ rowIdABorrar, rowIdSobreviviente }) => {
+    const borrar = porRowId.get(rowIdABorrar)!;
+    const sobrevive = porRowId.get(rowIdSobreviviente)!;
     return {
-      rowId: c.rowId,
-      importe: c.importe != null ? c.importe.toString() : null,
-      fecha: c.fecha,
-      localId: c.localId,
+      borrar: {
+        rowId: borrar.rowId,
+        observac: borrar.observac,
+        comprobante: borrar.comprobante,
+        importe: borrar.importe != null ? borrar.importe.toString() : null,
+        fecha: borrar.fecha,
+        localId: borrar.localId,
+      },
+      sobrevive: {
+        rowId: sobrevive.rowId,
+        observac: sobrevive.observac,
+        comprobante: sobrevive.comprobante,
+      },
     };
   });
   const fs = await import("fs");
   fs.mkdirSync(path.dirname(archivo), { recursive: true });
   fs.writeFileSync(archivo, JSON.stringify(detalle, null, 2));
   return archivo;
+}
+
+// Compara dos planes de borrado por contenido, no solo por cantidad — una
+// coincidencia de longitud con contenido distinto (ej. una fila que entró y
+// otra que salió del plan entre el resumen y la ejecución) pasaría
+// desapercibida con una comparación de solo `.length` (hallazgo Important #3
+// de code-review, 29-sep-2026).
+function mismoConjunto(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const ordenadoA = [...a].sort();
+  const ordenadoB = [...b].sort();
+  return ordenadoA.every((v, i) => v === ordenadoB[i]);
 }
 
 async function main() {
@@ -181,10 +247,17 @@ async function main() {
     console.log(`  - ${g.motivo}: ${g.rowIds.join(", ")}`);
   }
 
-  const archivoDryRun = await exportarDetalle(plan.rowIdABorrar, porRowId, `${SCRATCHPAD_DIR}/reconciliar-duplicados-dry-run.json`);
-  console.log(`Detalle exportado a ${archivoDryRun}`);
-
   if (!apply) {
+    // El export de dry-run solo corre acá, dentro de la rama sin --apply —
+    // si no, una corrida con --apply pisaba el JSON de una corrida de
+    // dry-run anterior antes de que un humano llegara a revisarlo (hallazgo
+    // Minor de code-review, 29-sep-2026).
+    const archivoDryRun = await exportarDetalle(
+      plan.paresReconciliados,
+      porRowId,
+      `${SCRATCHPAD_DIR}/reconciliar-duplicados-dry-run.json`
+    );
+    console.log(`Detalle exportado a ${archivoDryRun}`);
     console.log("\nDry-run — no se escribió nada en la base. Re-ejecutar con --apply para aplicar.\n");
     return;
   }
@@ -199,11 +272,11 @@ async function main() {
   const planEnVivo = planReconciliacionDuplicados(comprasParaReconciliarEnVivo);
   const porRowIdEnVivo = new Map(comprasParaReconciliarEnVivo.map((c) => [c.rowId, c]));
 
-  if (planEnVivo.rowIdABorrar.length !== plan.rowIdABorrar.length) {
+  if (!mismoConjunto(planEnVivo.rowIdABorrar, plan.rowIdABorrar)) {
     throw new Error(
       `Plan cambió entre el resumen mostrado y la ejecución: ` +
-        `se esperaba borrar ${plan.rowIdABorrar.length} filas, ` +
-        `pero el recálculo en vivo encontró ${planEnVivo.rowIdABorrar.length}`
+        `se esperaba borrar [${[...plan.rowIdABorrar].sort().join(", ")}], ` +
+        `pero el recálculo en vivo encontró [${[...planEnVivo.rowIdABorrar].sort().join(", ")}]`
     );
   }
 
@@ -211,6 +284,8 @@ async function main() {
     console.log("\nNo hay nada para borrar — no se declara éxito de limpieza.\n");
     return;
   }
+
+  const rowIdsSobrevivientesEnVivo = planEnVivo.paresReconciliados.map((p) => p.rowIdSobreviviente);
 
   const { cantidadBorrada, totalAntes, totalDespues } = await prisma.$transaction(
     async (tx) => {
@@ -241,6 +316,35 @@ async function main() {
         );
       }
 
+      // La FK de detalle_compras.compraId es ON DELETE SET NULL, no
+      // CASCADE — si entre el recálculo en vivo de arriba y este punto
+      // alguna candidata pasó a tener detalle propio, borrarla igual
+      // huerfanaría ese detalle en silencio en vez de fallar (hallazgo
+      // Important #3 de code-review, 29-sep-2026).
+      const detalleABorrar = await tx.detalleCompra.count({
+        where: { compraId: { in: planEnVivo.rowIdABorrar } },
+      });
+      if (detalleABorrar > 0) {
+        throw new Error(
+          `No se puede proceder: ${detalleABorrar} filas de detalle_compras ahora ` +
+            `referencian (compraId) compras candidatas a borrar. Revisar manualmente estos casos.`
+        );
+      }
+
+      // Verificar que la mitad sobreviviente de cada par también sigue
+      // existiendo justo antes de borrar — si desapareció entremedio, el
+      // par ya no es seguro de reconciliar tal como se planeó.
+      const sobrevivientesAhora = await tx.compra.findMany({
+        where: { rowId: { in: rowIdsSobrevivientesEnVivo } },
+        select: { rowId: true },
+      });
+      if (sobrevivientesAhora.length !== rowIdsSobrevivientesEnVivo.length) {
+        throw new Error(
+          `Verificación falló: ${rowIdsSobrevivientesEnVivo.length} filas sobrevivientes esperadas, ` +
+            `${sobrevivientesAhora.length} encontradas justo antes de borrar — alguna desapareció entremedio.`
+        );
+      }
+
       const totalAntes = await tx.compra.count();
 
       const resultado = await tx.compra.deleteMany({ where: { rowId: { in: planEnVivo.rowIdABorrar } } });
@@ -264,7 +368,7 @@ async function main() {
   );
 
   const archivoAplicado = await exportarDetalle(
-    planEnVivo.rowIdABorrar,
+    planEnVivo.paresReconciliados,
     porRowIdEnVivo,
     `${SCRATCHPAD_DIR}/reconciliar-duplicados-aplicado.json`
   );

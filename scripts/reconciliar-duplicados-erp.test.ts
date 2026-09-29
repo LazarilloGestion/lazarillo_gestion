@@ -14,6 +14,7 @@ function fila(overrides: Partial<CompraParaReconciliar> = {}): CompraParaReconci
     ...BASE,
     rowId: "rowid-generico",
     observac: "Del 23/7 Al 24/8",
+    comprobante: null,
     esDistribuido: false,
     tieneDetalleCompras: false,
     ...overrides,
@@ -71,6 +72,37 @@ describe("planReconciliacionDuplicados", () => {
 
   it("sin duplicados: plan vacío", () => {
     const plan = planReconciliacionDuplicados([fila({ rowId: "unica" })]);
+    expect(plan.rowIdABorrar).toHaveLength(0);
+    expect(plan.gruposExcluidos).toHaveLength(0);
+  });
+
+  it("mismo comprobante y observaciones sin relación de prefijo: grupo excluido (caso real Mochila/Válvula, spec §1)", () => {
+    // Strings literales de la spec — 22 vs 29 caracteres, NO empatan en
+    // longitud. Sin el chequeo de prefijo, la regla de "gana el más largo"
+    // elegiría "Valvula..." y borraría "Mochila...", que es una compra real
+    // y distinta (misma factura, 2 ítems).
+    const mochila = fila({ rowId: "mochila", observac: "Mochila Baño Vestuario", comprobante: "0001-00001234" });
+    const valvula = fila({ rowId: "valvula", observac: "Valvula + Tecla Descarga Baño", comprobante: "0001-00001234" });
+    const plan = planReconciliacionDuplicados([mochila, valvula]);
+    expect(plan.rowIdABorrar).toHaveLength(0);
+    expect(plan.gruposExcluidos).toHaveLength(1);
+    expect(plan.gruposExcluidos[0].motivo).toBe(
+      "ambas con comprobante, observaciones sin relación de texto clara — revisar a mano"
+    );
+  });
+
+  it("mismo comprobante y observac corto es prefijo del largo: sigue reconciliando normal", () => {
+    const corta = fila({ rowId: "corta", observac: "Turbina Inflable", comprobante: "0002-00005678" });
+    const larga = fila({ rowId: "larga", observac: "Turbina Inflable Nuevo", comprobante: "0002-00005678" });
+    const plan = planReconciliacionDuplicados([corta, larga]);
+    expect(plan.rowIdABorrar).toEqual(["corta"]);
+    expect(plan.gruposExcluidos).toHaveLength(0);
+  });
+
+  it("importe nulo: la fila nunca entra en ningún grupo (ni sobrevive ni se borra)", () => {
+    const conImporteNulo1 = fila({ rowId: "nulo-1", importe: null });
+    const conImporteNulo2 = fila({ rowId: "nulo-2", importe: null });
+    const plan = planReconciliacionDuplicados([conImporteNulo1, conImporteNulo2]);
     expect(plan.rowIdABorrar).toHaveLength(0);
     expect(plan.gruposExcluidos).toHaveLength(0);
   });
