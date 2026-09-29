@@ -195,6 +195,7 @@ describe("normalizeCompras", () => {
     expect(res.created).toBe(1);
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0].message).toMatch(/valor fuera de rango/);
+    expect(res.errors[0].rowIndex).toBe(0);
   });
 
   it("con comprobante: dos filas con el mismo comprobante pero IMPORTE distinto son el mismo registro (mismo rowId) — se dedupean, no se insertan como transacciones distintas", async () => {

@@ -122,6 +122,7 @@ describe("normalizeDetalleCompras", () => {
     expect(res.created).toBe(1);
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0].message).toMatch(/valor fuera de rango/);
+    expect(res.errors[0].rowIndex).toBe(0);
   });
 
   it("sanity check: toda fila del archivo termina en exactamente un bucket (creada/actualizada/omitida/error)", async () => {

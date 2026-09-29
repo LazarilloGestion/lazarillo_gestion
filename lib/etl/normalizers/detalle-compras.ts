@@ -44,7 +44,7 @@ export async function normalizeDetalleCompras(
   const skippedRows: ETLSkippedRow[] = [];
   const errors: ETLRowError[] = [];
 
-  type ParsedRow = { rowId: string; row: ETLRow; data: DetalleCompraRow };
+  type ParsedRow = { rowId: string; row: ETLRow; data: DetalleCompraRow; idx: number };
   const parsedRows: ParsedRow[] = [];
 
   rows.forEach((r, idx) => {
@@ -63,7 +63,7 @@ export async function normalizeDetalleCompras(
       errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
       return;
     }
-    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data });
+    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data, idx });
   });
 
   // Dedup por rowId — last-wins, pero ahora la fila que se pisa se reporta en
@@ -179,8 +179,8 @@ export async function normalizeDetalleCompras(
             "localId"       = COALESCE(detalle_compras."localId", EXCLUDED."localId")
         `;
       },
-      ({ data }, err) => ({
-        rowIndex: i,
+      ({ idx, data }, err) => ({
+        rowIndex: idx,
         rawCodigo: data.CODIGO,
         message: err instanceof Error ? err.message : String(err),
       }),

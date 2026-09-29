@@ -72,7 +72,7 @@ export async function normalizeVentas(
 
   // Fila con TURNO/COD_COBRO presentes pero algún otro campo (ej. IMPORTE con
   // contenido no numérico) que no parsea → errors, no null en silencio.
-  type ParsedRow = { rowId: string; row: ETLRow; data: VentaRow };
+  type ParsedRow = { rowId: string; row: ETLRow; data: VentaRow; idx: number };
   const parsedRows: ParsedRow[] = [];
   filled.forEach((r, idx) => {
     const parsed = ventaRowSchema.safeParse(r);
@@ -80,7 +80,7 @@ export async function normalizeVentas(
       errors.push({ rowIndex: idx, rawCodigo: r["COMPROBANT"], message: formatZodError(parsed.error) });
       return;
     }
-    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data });
+    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data, idx });
   });
 
   // Dedup por rowId — last-wins, pero ahora la fila que se pisa se reporta en
@@ -183,8 +183,8 @@ export async function normalizeVentas(
             "puntoDeVentaId"  = COALESCE(ventas."puntoDeVentaId", EXCLUDED."puntoDeVentaId")
         `;
       },
-      ({ data }, err) => ({
-        rowIndex: i,
+      ({ idx, data }, err) => ({
+        rowIndex: idx,
         rawCodigo: data.COMPROBANT,
         message: err instanceof Error ? err.message : String(err),
       }),

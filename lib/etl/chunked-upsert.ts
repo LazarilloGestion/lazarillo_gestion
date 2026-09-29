@@ -11,6 +11,18 @@ import type { DbClient, ETLRowError } from "./types";
  * `onRowsInserted` se invoca solo con las filas que efectivamente se
  * persistieron — nunca con las que terminaron en `errors` — así que los
  * contadores created/updated que arma el caller quedan siempre correctos.
+ *
+ * `chunk` debe venir no-vacío — la función no guarda esa invariante; con un
+ * array vacío el comportamiento depende enteramente de qué SQL arme
+ * `buildStatement` para cero filas. Los 3 call sites actuales solo invocan
+ * esto dentro de un loop que nunca produce un chunk vacío.
+ *
+ * `prisma` debe ser un `PrismaClient` plano (o el cliente de `getEtlClient()`),
+ * nunca uno ya dentro de un `$transaction` activo: si el INSERT de lote falla
+ * estando en una transacción, Postgres la aborta y todos los reintentos fila
+ * por fila van a fallar también (no se pierde nada en silencio — cada fila
+ * termina en `errors` igual — pero el fallback no aporta ninguna recuperación
+ * en ese contexto).
  */
 export async function insertChunkWithRowFallback<T>(
   prisma: DbClient,
@@ -21,7 +33,11 @@ export async function insertChunkWithRowFallback<T>(
 ): Promise<ETLRowError[]> {
   try {
     await prisma.$executeRaw(buildStatement(chunk));
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[insertChunkWithRowFallback] batch insert de ${chunk.length} filas falló, reintentando fila por fila:`,
+      err instanceof Error ? err.message : String(err)
+    );
     const errors: ETLRowError[] = [];
     const inserted: T[] = [];
     for (const row of chunk) {

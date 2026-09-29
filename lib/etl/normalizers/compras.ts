@@ -120,7 +120,7 @@ export async function normalizeCompras(
   //    no sólo null (gap que existía en el chequeo anterior).
   // 2) Zod: fila con identificadores presentes pero algún campo (incluida FECHA
   //    corrupta, no sólo ausente) que no parsea → errors, no null en silencio.
-  type ParsedRow = { rowId: string; row: ETLRow; data: CompraRow };
+  type ParsedRow = { rowId: string; row: ETLRow; data: CompraRow; idx: number };
   const parsedRows: ParsedRow[] = [];
 
   rows.forEach((r, idx) => {
@@ -139,7 +139,7 @@ export async function normalizeCompras(
       errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
       return;
     }
-    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data });
+    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data, idx });
   });
 
   // Dedup por rowId — last-wins, pero ahora la fila que se pisa se reporta en
@@ -273,6 +273,10 @@ export async function normalizeCompras(
         ).segura;
 
         if (elegido && esSegura) {
+          // Sin transacción: si el INSERT de esta fila falla más abajo (fallback
+          // fila por fila), este rename ya quedó commiteado y no se reporta en
+          // comprasReconciliadas — se autocorrige en el próximo reimport (el hash
+          // vuelve a encontrarla), pero no queda visible en el reporte de este import.
           await prisma.compra.update({ where: { rowId: elegido.rowId }, data: { rowId: pr.rowId } });
           reconciliacionPorRowId.set(pr.rowId, { tipo: "reconciliada", rowIdViejo: elegido.rowId });
           existingMap.set(pr.rowId, elegido);
@@ -360,8 +364,8 @@ export async function normalizeCompras(
             -- importeManual, fechaManual, conceptoCodigoManual: NO se sobreescriben (overrides manuales)
         `;
       },
-      ({ data }, err) => ({
-        rowIndex: i,
+      ({ idx, data }, err) => ({
+        rowIndex: idx,
         rawCodigo: data.CODIGO,
         message: err instanceof Error ? err.message : String(err),
       }),
