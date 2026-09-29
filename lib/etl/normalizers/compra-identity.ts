@@ -160,3 +160,69 @@ export function computeCompraAnchor(input: CompraIdentityInput): CompraAnchor {
 export function pickReconciliationCandidate<T extends { rowId: string }>(candidatos: T[]): T | null {
   return candidatos.length === 1 ? candidatos[0] : null;
 }
+
+// "Relación de prefijo": el observac más corto de las dos filas es un
+// prefijo textual del más largo — señal de que el ERP amplió/corrigió la
+// misma descripción en vez de tratarse de dos compras reales distintas que
+// comparten comprobante por casualidad (caso Mochila/Válvula, spec §1).
+// Nota: un observac vacío/null del lado más corto pasa trivialmente
+// ("".startsWith(...) siempre da true) — no se bloquea acá porque el
+// llamador (esReconciliacionSegura) solo usa esta función cuando ya hay
+// comprobante compartido, una señal real por sí sola.
+function tienenRelacionDePrefijo(obsA: string | null, obsB: string | null): boolean {
+  const a = obsA ?? "";
+  const b = obsB ?? "";
+  const [corto, largo] = a.length <= b.length ? [a, b] : [b, a];
+  return largo.startsWith(corto);
+}
+
+export interface DatosSeguridadReconciliacion {
+  comprobante: string | null;
+  observac: string | null;
+  localId: number | null;
+}
+
+export type ResultadoSeguridadReconciliacion =
+  | { segura: true }
+  | { segura: false; motivo: "comprobantes_distintos" | "sin_relacion_de_prefijo" | "localId_distinto" };
+
+// Predicado único compartido entre la reconciliación hacia adelante (import
+// en vivo, ver normalizeCompras en compras.ts) y la limpieza retroactiva
+// (scripts/reconciliar-duplicados-erp.ts) — ambas rutas fusionan/borran
+// compras que comparten ancla (computeCompraAnchor) y ambas necesitan el
+// MISMO criterio de seguridad para no confundir dos compras reales
+// distintas con la misma compra editada por el ERP (hallazgo Critical +
+// Important de la revisión final de rama, 29-sep-2026):
+//
+// 1) Ambas filas con comprobante no nulo pero DISTINTO -> nunca es la misma
+//    compra real (ninguno de los dos mecanismos de este feature — comprobante
+//    que aparece después, observac que se corrige — produce dos comprobantes
+//    no nulos distintos para la misma compra real). Insegura siempre, sin
+//    importar esDistribuido ni el texto de observac.
+// 2) Ambas filas con el MISMO comprobante no nulo -> exige relación de
+//    prefijo entre observac (caso Mochila/Válvula: mismo comprobante, dos
+//    ítems reales distintos de una misma factura).
+// 3) Cualquier otro caso con comprobante (incluido "uno de los dos es null",
+//    el caso "comprobante aparece después" — el más inequívoco del diseño)
+//    no se bloquea por este chequeo.
+// 4) localId conocido de ambos lados y distinto -> insegura (hallazgo real:
+//    ERPs de distintos locales pueden reusar código de proveedor/concepto
+//    para negocios no relacionados — ver memoria del proyecto, incidente
+//    Alta Nuñez-Comercio).
+export function esReconciliacionSegura(
+  a: DatosSeguridadReconciliacion,
+  b: DatosSeguridadReconciliacion
+): ResultadoSeguridadReconciliacion {
+  if (a.comprobante != null && b.comprobante != null) {
+    if (a.comprobante !== b.comprobante) {
+      return { segura: false, motivo: "comprobantes_distintos" };
+    }
+    if (!tienenRelacionDePrefijo(a.observac, b.observac)) {
+      return { segura: false, motivo: "sin_relacion_de_prefijo" };
+    }
+  }
+  if (a.localId != null && b.localId != null && a.localId !== b.localId) {
+    return { segura: false, motivo: "localId_distinto" };
+  }
+  return { segura: true };
+}

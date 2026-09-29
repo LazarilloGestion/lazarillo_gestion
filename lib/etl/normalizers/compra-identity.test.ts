@@ -6,6 +6,7 @@ import {
   compraIdentityFromDbRecord,
   computeCompraAnchor,
   pickReconciliationCandidate,
+  esReconciliacionSegura,
 } from "./compra-identity";
 import type { ETLRow } from "../types";
 
@@ -234,6 +235,51 @@ describe("computeCompraAnchor", () => {
       comprobante: null, detalle: null, observacNormalizado: null, importe: "1000",
     };
     expect(computeCompraAnchor(base)).not.toEqual(computeCompraAnchor({ ...base, importe: "2000" }));
+  });
+});
+
+describe("esReconciliacionSegura", () => {
+  // Predicado compartido entre la reconciliación hacia adelante (compras.ts,
+  // en cada import en vivo) y el script de limpieza retroactiva
+  // (scripts/reconciliar-duplicados-erp.ts) — ver finding #4 de la revisión
+  // final de rama, 29-sep-2026. Un solo lugar decide si dos filas que
+  // comparten ancla son seguras de fusionar.
+  const base = { comprobante: null as string | null, observac: null as string | null, localId: null as number | null };
+
+  it("mismo comprobante y relación de prefijo entre OBSERVAC: segura", () => {
+    const a = { ...base, comprobante: "A060600761530", observac: "Turbina Inflable" };
+    const b = { ...base, comprobante: "A060600761530", observac: "Turbina Inflable Nuevo" };
+    expect(esReconciliacionSegura(a, b)).toEqual({ segura: true });
+  });
+
+  it("mismo comprobante y OBSERVAC sin relación de prefijo (caso real Mochila/Válvula, spec §1): insegura", () => {
+    const a = { ...base, comprobante: "0001-00001234", observac: "Mochila Baño Vestuario" };
+    const b = { ...base, comprobante: "0001-00001234", observac: "Valvula + Tecla Descarga Baño" };
+    expect(esReconciliacionSegura(a, b)).toEqual({ segura: false, motivo: "sin_relacion_de_prefijo" });
+  });
+
+  it("comprobante no nulo distinto entre ambas filas: insegura, sin importar el texto de OBSERVAC", () => {
+    const a = { ...base, comprobante: "A060600761530", observac: "Misma Descripcion" };
+    const b = { ...base, comprobante: "B000100000001", observac: "Misma Descripcion" };
+    expect(esReconciliacionSegura(a, b)).toEqual({ segura: false, motivo: "comprobantes_distintos" });
+  });
+
+  it("un lado con comprobante null (el otro lo tiene): segura si el localId coincide (caso 'comprobante aparece después')", () => {
+    const a = { ...base, comprobante: null, observac: "Obs", localId: 3 };
+    const b = { ...base, comprobante: "A060600761530", observac: "Obs distinta y mas larga", localId: 3 };
+    expect(esReconciliacionSegura(a, b)).toEqual({ segura: true });
+  });
+
+  it("localId distinto entre ambas filas: insegura aunque el resto coincida", () => {
+    const a = { ...base, comprobante: null, observac: "Obs", localId: 1 };
+    const b = { ...base, comprobante: null, observac: "Obs", localId: 2 };
+    expect(esReconciliacionSegura(a, b)).toEqual({ segura: false, motivo: "localId_distinto" });
+  });
+
+  it("localId desconocido (null) de un lado: no bloquea, se trata como sin evidencia de conflicto", () => {
+    const a = { ...base, comprobante: null, observac: "Obs", localId: null };
+    const b = { ...base, comprobante: null, observac: "Obs", localId: 2 };
+    expect(esReconciliacionSegura(a, b)).toEqual({ segura: true });
   });
 });
 
