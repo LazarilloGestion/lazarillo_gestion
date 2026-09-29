@@ -23,6 +23,7 @@ config({ path: ".env.local" });
 import { fileURLToPath } from "url";
 import * as path from "path";
 import { prisma } from "../lib/prisma";
+import { esReconciliacionSegura } from "../lib/etl/normalizers/compra-identity";
 
 const SCRATCHPAD_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "tmp", "reconciliar-duplicados-erp");
 
@@ -37,6 +38,7 @@ export interface CompraParaReconciliar {
   comprobante: string | null;
   esDistribuido: boolean;
   tieneDetalleCompras: boolean;
+  localId: number | null;
 }
 
 export interface GrupoExcluido {
@@ -67,23 +69,6 @@ function claveAncla(c: CompraParaReconciliar): string {
   const fechaISO = c.fecha ? c.fecha.toISOString().slice(0, 10) : "null";
   const importe = c.importe != null ? c.importe.toString() : "null";
   return [c.codCga, fechaISO, c.codigo, c.concepto, importe].join("|");
-}
-
-// "Relación de prefijo": el observac más corto de las dos filas es un
-// prefijo textual del más largo — señal de que el ERP amplió/corrigió la
-// misma descripción (mismo criterio de "gana el más largo" que ya usa la
-// rama de 0 distribuidas) en vez de tratarse de dos compras reales
-// distintas que comparten comprobante por casualidad (caso Mochila/Válvula,
-// spec §1). Nota: un observac vacío/null del lado más corto pasa
-// trivialmente (`"".startsWith(...)` siempre da true) — no se bloquea acá
-// porque el llamador solo usa esta función cuando ya hay comprobante
-// compartido, una señal real por sí sola (documentado con test, no
-// implícito).
-function tienenRelacionDePrefijo(a: CompraParaReconciliar, b: CompraParaReconciliar): boolean {
-  const obsA = a.observac ?? "";
-  const obsB = b.observac ?? "";
-  const [corto, largo] = obsA.length <= obsB.length ? [obsA, obsB] : [obsB, obsA];
-  return largo.startsWith(corto);
 }
 
 // Función pura, testable sin base de datos real. Nunca borra una fila con
@@ -119,17 +104,25 @@ export function planReconciliacionDuplicados(compras: CompraParaReconciliar[]): 
     const [a, b] = grupo;
     const distribuidas = grupo.filter((c) => c.esDistribuido);
 
-    // Calculado una sola vez por grupo — se reusa igual en la rama de 0 y en
-    // la de 1 esDistribuido para no duplicar el chequeo de seguridad del
-    // caso Mochila/Válvula (spec §1, hallazgo CRITICAL + Important de
-    // code-review, 29-sep-2026). Cuando el comprobante difiere o alguna de
-    // las dos filas no lo tiene (el caso "comprobante aparece después", 50
-    // de los 54 grupos reales), la fusión queda incondicional — ese caso es
-    // estructuralmente inequívoco y no necesita chequeo de texto (mismo
-    // criterio que usa la reconciliación hacia adelante de Task 2, que
-    // tampoco chequea texto en esa rama).
-    const mismoComprobante = a.comprobante != null && a.comprobante === b.comprobante;
-    const relacionDePrefijoOk = !mismoComprobante || tienenRelacionDePrefijo(a, b);
+    // Calculado una sola vez por grupo, MISMO predicado que usa la
+    // reconciliación hacia adelante en normalizeCompras (compras.ts) — ver
+    // compra-identity.ts, esReconciliacionSegura. Dos motivos de exclusión
+    // (comprobantes_distintos, localId_distinto) aplican al grupo entero sin
+    // importar esDistribuido — se chequean ANTES de cualquier rama de abajo
+    // (hallazgos Critical #1 y #2 de la revisión final de rama,
+    // 29-sep-2026). El tercer motivo (sin_relacion_de_prefijo, caso
+    // Mochila/Válvula) sigue siendo contextual a cada rama, así que abajo se
+    // reusa como `relacionDePrefijoOk` con el mismo criterio que antes.
+    const seguridad = esReconciliacionSegura(a, b);
+    if (!seguridad.segura && seguridad.motivo === "comprobantes_distintos") {
+      gruposExcluidos.push({ motivo: "comprobantes distintos, revisar a mano", rowIds });
+      continue;
+    }
+    if (!seguridad.segura && seguridad.motivo === "localId_distinto") {
+      gruposExcluidos.push({ motivo: "localId distinto, revisar a mano", rowIds });
+      continue;
+    }
+    const relacionDePrefijoOk = seguridad.segura || seguridad.motivo !== "sin_relacion_de_prefijo";
 
     let survivor: CompraParaReconciliar;
     let loser: CompraParaReconciliar;
@@ -145,21 +138,34 @@ export function planReconciliacionDuplicados(compras: CompraParaReconciliar[]): 
       survivor = distribuidas[0];
       loser = survivor === a ? b : a;
     } else if (distribuidas.length === 0) {
-      const largoA = a.observac?.length ?? 0;
-      const largoB = b.observac?.length ?? 0;
-      if (largoA === largoB) {
-        gruposExcluidos.push({ motivo: "empate de longitud de observac, revisar a mano", rowIds });
-        continue;
+      // Branch-flip: exactamente un lado tiene comprobante cargado (el otro
+      // sigue null) — es el caso más inequívoco del diseño, el ERP completó
+      // un comprobante que antes no tenía. El OBSERVAC suele quedar
+      // IDÉNTICO entre ambas filas en este caso real, así que la regla de
+      // "gana el más largo" de abajo caía casi siempre en el empate y el
+      // grupo nunca se limpiaba (hallazgo Important #5). Se resuelve ANTES
+      // del chequeo de longitud/empate, no interactúa con él.
+      const conComprobante = grupo.filter((c) => c.comprobante != null);
+      if (conComprobante.length === 1) {
+        survivor = conComprobante[0];
+        loser = survivor === a ? b : a;
+      } else {
+        const largoA = a.observac?.length ?? 0;
+        const largoB = b.observac?.length ?? 0;
+        if (largoA === largoB) {
+          gruposExcluidos.push({ motivo: "empate de longitud de observac, revisar a mano", rowIds });
+          continue;
+        }
+        if (!relacionDePrefijoOk) {
+          gruposExcluidos.push({
+            motivo: "ambas con comprobante, observaciones sin relación de texto clara — revisar a mano",
+            rowIds,
+          });
+          continue;
+        }
+        survivor = largoA > largoB ? a : b;
+        loser = survivor === a ? b : a;
       }
-      if (!relacionDePrefijoOk) {
-        gruposExcluidos.push({
-          motivo: "ambas con comprobante, observaciones sin relación de texto clara — revisar a mano",
-          rowIds,
-        });
-        continue;
-      }
-      survivor = largoA > largoB ? a : b;
-      loser = survivor === a ? b : a;
     } else {
       gruposExcluidos.push({ motivo: "ambas filas tienen esDistribuido=true, revisar a mano", rowIds });
       continue;
@@ -189,11 +195,13 @@ interface CompraDbRow {
   detalle: string | null;
   esDistribuido: boolean;
   localId: number | null;
+  puntoDeVentaId: number | null;
 }
 
 const SELECT_COMPRA = {
   rowId: true, codCga: true, fecha: true, codigo: true, concepto: true,
-  importe: true, observac: true, comprobante: true, detalle: true, esDistribuido: true, localId: true,
+  importe: true, observac: true, comprobante: true, detalle: true, esDistribuido: true,
+  localId: true, puntoDeVentaId: true,
 } as const;
 
 async function conDetalleCompras<T extends { rowId: string }>(
@@ -215,7 +223,10 @@ async function conDetalleCompras<T extends { rowId: string }>(
 // para que un humano revisando el JSON antes de aprobar --apply (Task 6)
 // pueda comparar observac/comprobante de las dos mitades y detectar a simple
 // vista un caso como Mochila/Válvula si llegara a colarse (hallazgo
-// Important #2 de code-review, 29-sep-2026).
+// Important #2 de code-review, 29-sep-2026). localId/puntoDeVentaId en AMBOS
+// lados (no solo `borrar`) para que ese mismo humano pueda confirmar a
+// simple vista que cada par comparte local — hallazgo Critical #2 de la
+// revisión final de rama, 29-sep-2026.
 async function exportarDetalle(pares: ParReconciliado[], porRowId: Map<string, CompraDbRow>, archivo: string) {
   const detalle = pares.map(({ rowIdABorrar, rowIdSobreviviente }) => {
     const borrar = porRowId.get(rowIdABorrar)!;
@@ -229,11 +240,14 @@ async function exportarDetalle(pares: ParReconciliado[], porRowId: Map<string, C
         importe: borrar.importe != null ? borrar.importe.toString() : null,
         fecha: borrar.fecha,
         localId: borrar.localId,
+        puntoDeVentaId: borrar.puntoDeVentaId,
       },
       sobrevive: {
         rowId: sobrevive.rowId,
         observac: sobrevive.observac,
         comprobante: sobrevive.comprobante,
+        localId: sobrevive.localId,
+        puntoDeVentaId: sobrevive.puntoDeVentaId,
       },
     };
   });

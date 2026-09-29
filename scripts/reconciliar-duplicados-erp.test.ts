@@ -17,6 +17,7 @@ function fila(overrides: Partial<CompraParaReconciliar> = {}): CompraParaReconci
     comprobante: null,
     esDistribuido: false,
     tieneDetalleCompras: false,
+    localId: 1,
     ...overrides,
   };
 }
@@ -162,6 +163,69 @@ describe("planReconciliacionDuplicados", () => {
     });
     const plan = planReconciliacionDuplicados([sinObservac, conObservac]);
     expect(plan.rowIdABorrar).toEqual(["sin-observac"]);
+    expect(plan.gruposExcluidos).toHaveLength(0);
+  });
+
+  // Hallazgo Critical #1 de la revisión final de rama, 29-sep-2026: el guard
+  // anterior (mismoComprobante = a.comprobante != null && a.comprobante ===
+  // b.comprobante) quedaba trivialmente OK cuando los comprobantes eran
+  // distintos (mismoComprobante daba false), dejando pasar la fusión sin
+  // chequeo. Dos comprobantes no nulos y distintos son evidencia fuerte de
+  // dos compras reales distintas — ninguno de los dos mecanismos de este
+  // feature (comprobante que aparece después, observac que se corrige)
+  // produce dos comprobantes no nulos distintos para la misma compra real.
+  it("comprobantes no nulos y distintos: grupo excluido, revisar a mano (sin importar esDistribuido ni el texto)", () => {
+    const a = fila({ rowId: "a", comprobante: "A060600761530" });
+    const b = fila({ rowId: "b", comprobante: "B000100000001" });
+    const plan = planReconciliacionDuplicados([a, b]);
+    expect(plan.rowIdABorrar).toHaveLength(0);
+    expect(plan.gruposExcluidos).toHaveLength(1);
+    expect(plan.gruposExcluidos[0].motivo).toBe("comprobantes distintos, revisar a mano");
+  });
+
+  it("comprobantes no nulos y distintos con 1 esDistribuido=true: sigue excluido, no gana la distribuida automáticamente", () => {
+    const a = fila({ rowId: "a", comprobante: "A060600761530", esDistribuido: true });
+    const b = fila({ rowId: "b", comprobante: "B000100000001" });
+    const plan = planReconciliacionDuplicados([a, b]);
+    expect(plan.rowIdABorrar).toHaveLength(0);
+    expect(plan.gruposExcluidos[0].motivo).toBe("comprobantes distintos, revisar a mano");
+  });
+
+  // Hallazgo Critical #2: ni computeCompraAnchor (reconciliación hacia
+  // adelante) ni claveAncla (este script) incluyen localId en el
+  // agrupamiento — dos compras de LOCALES distintos podrían compartir
+  // codCga+fecha+codigo+concepto+importe por casualidad (ERPs de distintos
+  // negocios reusan códigos de proveedor/concepto — ver memoria del
+  // proyecto, incidente Alta Nuñez-Comercio) sin ser la misma transacción.
+  it("localId distinto entre las dos filas del grupo: grupo excluido, revisar a mano", () => {
+    const a = fila({ rowId: "a", localId: 1 });
+    const b = fila({ rowId: "b", localId: 2 });
+    const plan = planReconciliacionDuplicados([a, b]);
+    expect(plan.rowIdABorrar).toHaveLength(0);
+    expect(plan.gruposExcluidos).toHaveLength(1);
+    expect(plan.gruposExcluidos[0].motivo).toBe("localId distinto, revisar a mano");
+  });
+
+  // Hallazgo Important #5: para el caso "comprobante aparece después" (una
+  // fila sin comprobante, la otra con el mismo OBSERVAC pero comprobante ya
+  // cargado, ninguna distribuida) la regla de "gana el observac más largo"
+  // caía casi siempre en el empate (mismo texto, solo cambió comprobante) y
+  // el grupo nunca se limpiaba — pese a ser el caso más inequívoco del
+  // diseño. La fila CON comprobante debe ganar sin importar longitud/empate.
+  it("branch-flip: una fila sin comprobante y la otra con comprobante, mismo OBSERVAC, ninguna distribuida: sobrevive la que tiene comprobante (ya no queda excluido por empate)", () => {
+    const sinComprobante = fila({ rowId: "sin-comprobante", comprobante: null, observac: "Servicio de luz" });
+    const conComprobante = fila({ rowId: "con-comprobante", comprobante: "A060600761530", observac: "Servicio de luz" });
+    const plan = planReconciliacionDuplicados([sinComprobante, conComprobante]);
+    expect(plan.rowIdABorrar).toEqual(["sin-comprobante"]);
+    expect(plan.paresReconciliados).toEqual([{ rowIdABorrar: "sin-comprobante", rowIdSobreviviente: "con-comprobante" }]);
+    expect(plan.gruposExcluidos).toHaveLength(0);
+  });
+
+  it("branch-flip: sigue ganando la fila con comprobante aunque su OBSERVAC sea más corto que el de la fila sin comprobante", () => {
+    const sinComprobante = fila({ rowId: "sin-comprobante", comprobante: null, observac: "Servicio de luz, período largo con detalle extra" });
+    const conComprobante = fila({ rowId: "con-comprobante", comprobante: "A060600761530", observac: "Servicio de luz" });
+    const plan = planReconciliacionDuplicados([sinComprobante, conComprobante]);
+    expect(plan.rowIdABorrar).toEqual(["sin-comprobante"]);
     expect(plan.gruposExcluidos).toHaveLength(0);
   });
 });
