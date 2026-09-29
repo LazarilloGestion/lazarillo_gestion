@@ -38,6 +38,11 @@ export interface ETLSkippedRow {
   motivo: "sin_datos" | "duplicado";
 }
 
+export interface ETLReconciliacionAmbigua {
+  rowIdNuevo: string;
+  candidatos: string[];
+}
+
 export interface ETLReport {
   fileType: ETLFileType;
   totalRows: number;
@@ -47,6 +52,8 @@ export interface ETLReport {
   skippedRows?: ETLSkippedRow[];
   errors: ETLRowError[];
   comprasDistribuidasModificadas?: string[];
+  comprasReconciliadas?: string[];
+  reconciliacionesAmbiguas?: ETLReconciliacionAmbigua[];
   durationMs: number;
   storagePath?: string;
 }
