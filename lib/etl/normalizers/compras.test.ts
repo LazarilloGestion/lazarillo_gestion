@@ -3,6 +3,7 @@ import { normalizeCompras } from "./compras";
 import { createMockDb, mockAllExisting } from "../test-utils/mock-db";
 import type { ETLRow } from "../types";
 import { excelDateToISO, safeDate } from "../helpers";
+import { computeCompraRowId, compraIdentityFromRawRow } from "./compra-identity";
 
 function baseRow(overrides: Partial<Record<string, unknown>> = {}): ETLRow {
   return {
@@ -278,5 +279,100 @@ describe("normalizeCompras", () => {
     const db = createMockDb(); // findMany devuelve [] por defecto — nada existe
     const res = await normalizeCompras([baseRow()], db);
     expect(res.comprasDistribuidasModificadas).toEqual([]);
+  });
+
+  describe("reconciliación de identidad (ERP edita comprobante/observac post-carga)", () => {
+    function huerfana(overrides: Partial<Record<string, unknown>> = {}) {
+      return {
+        rowId: "huerfana-rowid",
+        esDistribuido: false,
+        codCga: "GASTO1", concepto: "Alquiler", fecha: safeDate(45000), codigo: "PROV1",
+        proveedor: "Juan Perez", detalle: null, observac: "Obs vieja",
+        importe: { toString: () => "1000" }, impInt: { toString: () => "0" }, imputac: "X",
+        per1: { toString: () => "0" }, per2: { toString: () => "0" }, per3: { toString: () => "0" },
+        ...overrides,
+      };
+    }
+
+    it("fila nueva sin candidatos de reconciliación: se crea normal, no reconcilia", async () => {
+      const db = createMockDb();
+      const res = await normalizeCompras([baseRow()], db);
+      expect(res.created).toBe(1);
+      expect(res.comprasReconciliadas).toEqual([]);
+      expect(res.reconciliacionesAmbiguas).toEqual([]);
+    });
+
+    it("fila nueva que matchea el ancla de una huérfana existente: reconcilia (rename) en vez de crear", async () => {
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+          if (args?.where?.rowId?.in) return []; // sin match exacto por hash
+          return [huerfana()]; // match por ancla
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+      const res = await normalizeCompras([baseRow()], db);
+      expect(res.created).toBe(0);
+      expect(res.updated).toBe(1);
+      expect(res.comprasReconciliadas).toEqual(["huerfana-rowid"]);
+      expect(compraModel.update).toHaveBeenCalledWith({
+        where: { rowId: "huerfana-rowid" },
+        data: { rowId: expect.any(String) },
+      });
+    });
+
+    it("fila nueva con 2+ candidatos por el mismo ancla: no fusiona (ambiguo), se crea normal y queda reportado", async () => {
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+          if (args?.where?.rowId?.in) return [];
+          return [huerfana({ rowId: "huerfana-1" }), huerfana({ rowId: "huerfana-2" })];
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+      const res = await normalizeCompras([baseRow()], db);
+      expect(res.created).toBe(1);
+      expect(compraModel.update).not.toHaveBeenCalled();
+      expect(res.reconciliacionesAmbiguas).toHaveLength(1);
+      expect(res.reconciliacionesAmbiguas[0].candidatos.sort()).toEqual(["huerfana-1", "huerfana-2"]);
+    });
+
+    it("huérfana reconciliada con esDistribuido=true y campos ERP distintos: aparece también en comprasDistribuidasModificadas", async () => {
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+          if (args?.where?.rowId?.in) return [];
+          return [huerfana({ rowId: "huerfana-distribuida", esDistribuido: true })];
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+      const filaNueva = baseRow({ DETALLE: "A 0606-00761530" });
+      const res = await normalizeCompras([filaNueva], db);
+      expect(res.comprasReconciliadas).toEqual(["huerfana-distribuida"]);
+      // NO es "huerfana-distribuida": distribuciones_apertura.compraRowId tiene
+      // ON UPDATE CASCADE hacia compras.rowId (migración
+      // 20260819141156_apertura_gastos_schema), así que el rename de arriba ya
+      // dejó a esa fila de distribuciones_apertura apuntando al rowId NUEVO
+      // antes de que termine este normalizeCompras. sincronizarTrasImport
+      // (lib/apertura/reimportacion.ts) busca por ese id en comprasModificadas
+      // después del cascade — si acá se reportara el rowId viejo, esa búsqueda
+      // no encontraría nada y la reversión de la distribución nunca correría.
+      const rowIdNuevo = computeCompraRowId(compraIdentityFromRawRow(filaNueva));
+      expect(res.comprasDistribuidasModificadas).toEqual([rowIdNuevo]);
+    });
+
+    it("importe nulo en la fila: no intenta reconciliar (sin evidencia de este caso, ver spec)", async () => {
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+          if (args?.where?.rowId?.in) return [];
+          return [huerfana()];
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+      const res = await normalizeCompras([baseRow({ IMPORTE: null })], db);
+      expect(compraModel.update).not.toHaveBeenCalled();
+      expect(res.comprasReconciliadas).toEqual([]);
+    });
   });
 });

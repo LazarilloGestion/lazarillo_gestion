@@ -4,7 +4,13 @@ import { trim, toDecimalStr, excelDateToISO } from "../helpers";
 import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 import { compraRowSchema, type CompraRow } from "../schemas/compras";
 import { formatZodError } from "../schemas/common";
-import { parseComprobanteFromDetalle, computeCompraRowId, compraIdentityFromRawRow } from "./compra-identity";
+import {
+  parseComprobanteFromDetalle,
+  computeCompraRowId,
+  compraIdentityFromRawRow,
+  computeCompraAnchor,
+  pickReconciliationCandidate,
+} from "./compra-identity";
 import { camposErpCambiaron, type CompraErpFields } from "./compras-diff";
 import { canonicalDecimal } from "./compra-identity";
 import { resolveProveedorId, type ProveedorCandidato } from "./proveedor-match";
@@ -96,6 +102,8 @@ export async function normalizeCompras(
   skippedRows: ETLSkippedRow[];
   errors: ETLRowError[];
   comprasDistribuidasModificadas: string[];
+  comprasReconciliadas: string[];
+  reconciliacionesAmbiguas: { rowIdNuevo: string; candidatos: string[] }[];
 }> {
   const skippedRows: ETLSkippedRow[] = [];
   const errors: ETLRowError[] = [];
@@ -170,6 +178,8 @@ export async function normalizeCompras(
   let created = 0;
   let updated = 0;
   const comprasDistribuidasModificadas: string[] = [];
+  const comprasReconciliadas: string[] = [];
+  const reconciliacionesAmbiguas: { rowIdNuevo: string; candidatos: string[] }[] = [];
 
   for (let i = 0; i < filtered.length; i += CHUNK_SIZE) {
     const chunk = filtered.slice(i, i + CHUNK_SIZE);
@@ -187,6 +197,46 @@ export async function normalizeCompras(
     const existingMap = new Map(existingRows.map((r) => [r.rowId, r]));
 
     try {
+      // Reconciliación: una fila cuyo hash no matchea ninguna existente puede
+      // ser la misma compra real que el ERP editó después de la carga inicial
+      // (comprobante que aparece, observación corregida — ver
+      // docs/superpowers/specs/2026-09-29-reconciliacion-identidad-compras-design.md).
+      // Migra el rowId de la fila vieja al hash nuevo ANTES del INSERT...ON
+      // CONFLICT de abajo, para que ese mismo INSERT la encuentre y actualice
+      // sus campos normalmente en vez de crear una fila duplicada.
+      for (const pr of chunk) {
+        if (existingMap.has(pr.rowId)) continue;
+        const anchor = computeCompraAnchor(compraIdentityFromRawRow(pr.row));
+        if (anchor.importe == null || anchor.fechaISO == null) continue;
+
+        const candidatos = await prisma.compra.findMany({
+          where: {
+            codCga: anchor.codCga,
+            fecha: new Date(anchor.fechaISO),
+            codigo: anchor.codigo,
+            concepto: anchor.concepto,
+            importe: new Prisma.Decimal(anchor.importe),
+            rowId: { notIn: chunkRowIds },
+          },
+          select: {
+            rowId: true, esDistribuido: true,
+            codCga: true, concepto: true, fecha: true, codigo: true, proveedor: true,
+            detalle: true, observac: true, importe: true, impInt: true, imputac: true,
+            per1: true, per2: true, per3: true,
+          },
+        });
+        if (candidatos.length === 0) continue;
+
+        const elegido = pickReconciliationCandidate(candidatos);
+        if (elegido) {
+          await prisma.compra.update({ where: { rowId: elegido.rowId }, data: { rowId: pr.rowId } });
+          comprasReconciliadas.push(elegido.rowId);
+          existingMap.set(pr.rowId, elegido);
+        } else {
+          reconciliacionesAmbiguas.push({ rowIdNuevo: pr.rowId, candidatos: candidatos.map((c) => c.rowId) });
+        }
+      }
+
       const rowValues = chunk.map(({ rowId, row, data }) => {
         const proveedorId = resolveProveedorId(data.CODIGO, data.PROVEEDOR, provMap);
         const conceptoCodigo = conceptoSet.has(data.COD_CGA) ? data.COD_CGA : null;
@@ -274,5 +324,8 @@ export async function normalizeCompras(
     await linkDetalleComprasByComprobante(prisma, ctx.localId);
   }
 
-  return { created, updated, skipped, skippedRows, errors, comprasDistribuidasModificadas };
+  return {
+    created, updated, skipped, skippedRows, errors,
+    comprasDistribuidasModificadas, comprasReconciliadas, reconciliacionesAmbiguas,
+  };
 }

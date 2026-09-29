@@ -1,26 +1,32 @@
 import { vi } from "vitest";
 import type { DbClient } from "../types";
 
-type ModelMock = { findMany: ReturnType<typeof vi.fn> };
+type ModelMock = { findMany: ReturnType<typeof vi.fn>; update?: ReturnType<typeof vi.fn> };
 
 /**
  * DbClient falso para tests unitarios de normalizers — sin base de datos real.
- * findMany por defecto devuelve [] (nada existe todavía).
+ * findMany por defecto devuelve [] (nada existe todavía); update por defecto
+ * resuelve OK. Un override parcial (solo findMany, por ejemplo) se mergea
+ * sobre estos defaults, no los reemplaza entero — así ningún test existente
+ * que no conoce `.update()` se rompe al agregarlo acá.
  * $executeRaw por defecto resuelve OK; usar mockRejectedValueOnce para testear
  * el path de `errors` ante fallos de constraint.
  */
 export function createMockDb(overrides: Partial<Record<string, ModelMock>> = {}) {
-  const defaultModel = (): ModelMock => ({ findMany: vi.fn().mockResolvedValue([]) });
+  const defaultModel = (): Required<ModelMock> => ({
+    findMany: vi.fn().mockResolvedValue([]),
+    update: vi.fn().mockResolvedValue({}),
+  });
   const db = {
-    proveedor: overrides.proveedor ?? defaultModel(),
-    conceptoCaja: overrides.conceptoCaja ?? defaultModel(),
-    articulo: overrides.articulo ?? defaultModel(),
-    compra: overrides.compra ?? defaultModel(),
-    detalleCompra: overrides.detalleCompra ?? defaultModel(),
-    venta: overrides.venta ?? defaultModel(),
-    rubroArticulo: overrides.rubroArticulo ?? defaultModel(),
-    rubroConceptoCaja: overrides.rubroConceptoCaja ?? defaultModel(),
-    subrubroArticulo: overrides.subrubroArticulo ?? defaultModel(),
+    proveedor: { ...defaultModel(), ...overrides.proveedor },
+    conceptoCaja: { ...defaultModel(), ...overrides.conceptoCaja },
+    articulo: { ...defaultModel(), ...overrides.articulo },
+    compra: { ...defaultModel(), ...overrides.compra },
+    detalleCompra: { ...defaultModel(), ...overrides.detalleCompra },
+    venta: { ...defaultModel(), ...overrides.venta },
+    rubroArticulo: { ...defaultModel(), ...overrides.rubroArticulo },
+    rubroConceptoCaja: { ...defaultModel(), ...overrides.rubroConceptoCaja },
+    subrubroArticulo: { ...defaultModel(), ...overrides.subrubroArticulo },
     $executeRaw: vi.fn().mockResolvedValue(1),
   };
   return db as unknown as DbClient;
