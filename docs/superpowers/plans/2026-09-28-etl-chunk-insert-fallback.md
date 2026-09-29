@@ -171,16 +171,33 @@ git commit -m "feat(etl): agrega helper de fallback fila-por-fila para inserts e
 
 ### Task 2: Aplicar el fallback a `normalizeCompras`
 
+> **Nota de adaptación (29-sep-2026):** esta tarea fue reescrita respecto a la
+> versión original del plan. `compras.ts` incorporó, el mismo día que este
+> plan se escribió, una feature de "reconciliación de identidad" (rename de
+> filas huérfanas vía `prisma.compra.update`) dentro del mismo `try/catch` que
+> el INSERT. Ruling del usuario (29-sep-2026): adaptar el fix preservando la
+> reconciliación tal cual está, en vez de reescribir el plan desde cero o
+> saltear `compras.ts`. El loop de reconciliación queda con manejo de errores
+> a nivel de todo el chunk, sin cambios de comportamiento (si algo ahí tira,
+> el chunk entero se reporta como 1 error y ni siquiera llega al INSERT —
+> igual que hoy). Solo el INSERT gana aislamiento fila por fila. El reporte de
+> `comprasReconciliadas`/`reconciliacionesAmbiguas` se gatea por fila: una fila
+> reconciliada (el rename en DB ya ocurrió) solo se reporta como tal si su
+> INSERT específico también sobrevivió el fallback — mismo criterio que el
+> código ya aplicaba a nivel de chunk completo (ver comentario "Recién acá, con
+> el INSERT confirmado..." en la versión anterior de este archivo), ahora a
+> nivel de fila.
+
 **Files:**
-- Modify: `lib/etl/normalizers/compras.ts:1` (import) y `:174-271` (loop de inserción)
-- Modify: `lib/etl/normalizers/compras.test.ts:174-181` (ajustar test existente) y agregar un test nuevo
+- Modify: `lib/etl/normalizers/compras.ts:1-19` (import) y `:202-378` (loop de inserción, incluida la reconciliación)
+- Modify: `lib/etl/normalizers/compras.test.ts:175-182` y `:393` (ajustar 2 tests existentes) y agregar 2 tests nuevos
 
 **Interfaces:**
 - Consumes: `insertChunkWithRowFallback` (Task 1)
 
-- [ ] **Step 1: Escribir el test que falla + ajustar el test existente**
+- [ ] **Step 1: Escribir los tests que fallan + ajustar los 2 tests existentes**
 
-En `lib/etl/normalizers/compras.test.ts`, reemplazar el test existente (líneas 174-181):
+En `lib/etl/normalizers/compras.test.ts`, reemplazar el test existente en la línea 175-182:
 
 ```ts
   it("un fallo de $executeRaw se reporta en errors sin lanzar excepción", async () => {
@@ -195,7 +212,7 @@ En `lib/etl/normalizers/compras.test.ts`, reemplazar el test existente (líneas 
 
 (único cambio: `mockRejectedValueOnce` → `mockRejectedValue` — con el fallback, una fila genuinamente inválida se reintenta y debe seguir fallando en el reintento, no solo en el primer intento).
 
-Agregar inmediatamente después un test nuevo:
+Agregar inmediatamente después (antes del test "con comprobante: dos filas...") un test nuevo:
 
 ```ts
   it("cuando el insert en lote falla, reintenta fila por fila y aísla solo la fila inválida (no pierde las demás)", async () => {
@@ -215,20 +232,61 @@ Agregar inmediatamente después un test nuevo:
   });
 ```
 
-- [ ] **Step 2: Correr los tests y verificar que el nuevo falla**
+Dentro del `describe("reconciliación de identidad...")`, en el test "reconciliación exitosa pero el $executeRaw del mismo chunk falla..." (línea ~393), cambiar la única línea:
+
+```ts
+      (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("constraint violation"));
+```
+
+(mismo motivo: `mockRejectedValueOnce` → `mockRejectedValue`; con un chunk de 1 fila, el intento de lote y el reintento individual son la misma llamada — si solo rechaza una vez, el reintento la "arregla" y el test deja de representar una fila genuinamente inválida).
+
+Agregar al final del `describe("reconciliación de identidad...")` (después del test de "frontera de chunk") un test nuevo que cubre la interacción reconciliación + fallback parcial:
+
+```ts
+    it("dos filas en el mismo chunk: una reconcilia y su insert sobrevive el fallback, la otra falla — solo la exitosa se reporta como reconciliada", async () => {
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] }; codigo?: unknown } }) => {
+          if (args?.where?.rowId?.in) return []; // sin match exacto por hash para ninguna de las dos
+          if (args?.where?.codigo === "PROV1") return [huerfana()]; // ancla de filaA (CODIGO default)
+          return []; // filaB tiene ancla distinta, sin candidatos
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+      (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
+        if (sql.values.length > 21) throw new Error("simulated batch failure");
+        if (sql.values[5] === "BAD") throw new Error("valor fuera de rango numérico");
+        return 1;
+      });
+      const filaA = baseRow(); // CODIGO "PROV1" (default) — matchea el ancla de huerfana()
+      const filaB = baseRow({ CODIGO: "BAD", COD_CGA: "OTRO", CONCEPTO: "Otro concepto", DETALLE: null, IMPORTE: 999 });
+      const res = await normalizeCompras([filaA, filaB], db);
+      expect(compraModel.update).toHaveBeenCalledWith({
+        where: { rowId: "huerfana-rowid" },
+        data: { rowId: expect.any(String) },
+      });
+      expect(res.comprasReconciliadas).toEqual(["huerfana-rowid"]);
+      expect(res.updated).toBe(1);
+      expect(res.created).toBe(0);
+      expect(res.errors).toHaveLength(1);
+      expect(res.errors[0].message).toMatch(/valor fuera de rango/);
+    });
+```
+
+- [ ] **Step 2: Correr los tests y verificar que los nuevos fallan**
 
 Run: `npx vitest run lib/etl/normalizers/compras.test.ts`
-Expected: el test nuevo ("cuando el insert en lote falla...") FALLA con `res.created` = 0 (el código actual descarta las 2 filas del chunk cuando el INSERT de lote rechaza, no aísla la fila mala). El resto de los tests existentes debería seguir en PASS.
+Expected: los 2 tests nuevos FALLAN (el código actual descarta el chunk entero — ambas filas, o la reconciliación completa — cuando el INSERT de lote rechaza, no aísla la fila mala). Los tests existentes (incluidos los 2 recién ajustados) deberían seguir en PASS: con `mockRejectedValue` (siempre rechaza) el código actual sigue fallando en el primer y único intento, mismo resultado que antes.
 
 - [ ] **Step 3: Aplicar el fallback en la implementación**
 
-En `lib/etl/normalizers/compras.ts`, agregar el import (junto a los existentes, línea 1-11):
+En `lib/etl/normalizers/compras.ts`, agregar el import (junto a los existentes — el archivo ya importa varias cosas de `./compra-identity` en un bloque `{...}`, agregar `insertChunkWithRowFallback` como import nuevo separado):
 
 ```ts
 import { insertChunkWithRowFallback } from "../chunked-upsert";
 ```
 
-Reemplazar el bloque completo del loop (líneas 174-271, desde `for (let i = 0...` hasta el `}` que cierra el `catch` del loop) por:
+Reemplazar el bloque completo del loop (líneas 202-378, desde `for (let i = 0...` hasta el `}` que cierra el loop) por:
 
 ```ts
   for (let i = 0; i < filtered.length; i += CHUNK_SIZE) {
@@ -242,9 +300,70 @@ Reemplazar el bloque completo del loop (líneas 174-271, desde `for (let i = 0..
         codCga: true, concepto: true, fecha: true, codigo: true, proveedor: true,
         detalle: true, observac: true, importe: true, impInt: true, imputac: true,
         per1: true, per2: true, per3: true,
+        comprobante: true, localId: true,
       },
     });
     const existingMap = new Map(existingRows.map((r) => [r.rowId, r]));
+
+    // Reconciliación: sigue con manejo de errores a nivel de todo el chunk (sin
+    // cambios de comportamiento respecto a antes — si algo de acá tira, el
+    // chunk entero se reporta como error y ni siquiera llega al INSERT de
+    // abajo). Solo el INSERT gana aislamiento fila por fila más abajo.
+    const reconciliacionPorRowId = new Map<
+      string,
+      { tipo: "reconciliada"; rowIdViejo: string } | { tipo: "ambigua"; candidatos: string[] }
+    >();
+    try {
+      for (const pr of chunk) {
+        if (existingMap.has(pr.rowId)) continue;
+        const identidad = compraIdentityFromRawRow(pr.row);
+        const anchor = computeCompraAnchor(identidad);
+        if (anchor.importe == null || anchor.fechaISO == null) continue;
+
+        const candidatos = await prisma.compra.findMany({
+          where: {
+            codCga: anchor.codCga,
+            fecha: new Date(anchor.fechaISO),
+            codigo: anchor.codigo,
+            concepto: anchor.concepto,
+            importe: new Prisma.Decimal(anchor.importe),
+            // Excluye TODOS los rowId que este archivo va a computar, no solo
+            // los del chunk actual — ver comentario en rowIdsEnArchivo arriba.
+            rowId: { notIn: [...rowIdsEnArchivo] },
+          },
+          select: {
+            rowId: true, esDistribuido: true,
+            codCga: true, concepto: true, fecha: true, codigo: true, proveedor: true,
+            detalle: true, observac: true, importe: true, impInt: true, imputac: true,
+            per1: true, per2: true, per3: true,
+            comprobante: true, localId: true,
+          },
+        });
+        if (candidatos.length === 0) continue;
+
+        const elegido = pickReconciliationCandidate(candidatos);
+        const identidadCandidato = elegido ? compraIdentityFromDbRecord(elegido) : null;
+        const esSegura = elegido != null && identidadCandidato != null && esReconciliacionSegura(
+          { comprobante: identidad.comprobante, observac: identidad.observacNormalizado, localId },
+          { comprobante: identidadCandidato.comprobante, observac: identidadCandidato.observacNormalizado, localId: elegido.localId }
+        ).segura;
+
+        if (elegido && esSegura) {
+          await prisma.compra.update({ where: { rowId: elegido.rowId }, data: { rowId: pr.rowId } });
+          reconciliacionPorRowId.set(pr.rowId, { tipo: "reconciliada", rowIdViejo: elegido.rowId });
+          existingMap.set(pr.rowId, elegido);
+        } else {
+          reconciliacionPorRowId.set(pr.rowId, { tipo: "ambigua", candidatos: candidatos.map((c) => c.rowId) });
+        }
+      }
+    } catch (err) {
+      errors.push({
+        rowIndex: i,
+        rawCodigo: chunk[0]?.data.CODIGO,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
 
     const chunkErrors = await insertChunkWithRowFallback(
       prisma,
@@ -329,6 +448,12 @@ Reemplazar el bloque completo del loop (líneas 174-271, desde `for (let i = 0..
           if (oldRow?.esDistribuido && camposErpCambiaron(erpFieldsDesdeCompraExistente(oldRow), erpFieldsDesdeDatoParseado(data))) {
             comprasDistribuidasModificadas.push(rowId);
           }
+          const recon = reconciliacionPorRowId.get(rowId);
+          if (recon?.tipo === "reconciliada") {
+            comprasReconciliadas.push(recon.rowIdViejo);
+          } else if (recon?.tipo === "ambigua") {
+            reconciliacionesAmbiguas.push({ rowIdNuevo: rowId, candidatos: recon.candidatos });
+          }
         }
       }
     );
@@ -339,7 +464,7 @@ Reemplazar el bloque completo del loop (líneas 174-271, desde `for (let i = 0..
 - [ ] **Step 4: Correr los tests y verificar que todos pasan**
 
 Run: `npx vitest run lib/etl/normalizers/compras.test.ts`
-Expected: PASS (todos los tests, incluido el nuevo)
+Expected: PASS (todos los tests, incluidos los 4 tocados/agregados en este task)
 
 - [ ] **Step 5: Commit**
 
