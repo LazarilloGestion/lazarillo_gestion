@@ -5,6 +5,7 @@ import { trim, toDecimalStr, excelDateToISO } from "../helpers";
 import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 import { ventaRowSchema, type VentaRow } from "../schemas/ventas";
 import { formatZodError } from "../schemas/common";
+import { insertChunkWithRowFallback } from "../chunked-upsert";
 
 // Filas por chunk de INSERT ... ON CONFLICT. Con ~23 columnas: ~11.5k params/chunk < 65535.
 const CHUNK_SIZE = 500;
@@ -71,7 +72,7 @@ export async function normalizeVentas(
 
   // Fila con TURNO/COD_COBRO presentes pero algún otro campo (ej. IMPORTE con
   // contenido no numérico) que no parsea → errors, no null en silencio.
-  type ParsedRow = { rowId: string; row: ETLRow; data: VentaRow };
+  type ParsedRow = { rowId: string; row: ETLRow; data: VentaRow; idx: number };
   const parsedRows: ParsedRow[] = [];
   filled.forEach((r, idx) => {
     const parsed = ventaRowSchema.safeParse(r);
@@ -79,7 +80,7 @@ export async function normalizeVentas(
       errors.push({ rowIndex: idx, rawCodigo: r["COMPROBANT"], message: formatZodError(parsed.error) });
       return;
     }
-    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data });
+    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data, idx });
   });
 
   // Dedup por rowId — last-wins, pero ahora la fila que se pisa se reporta en
@@ -117,78 +118,83 @@ export async function normalizeVentas(
       })).map((v) => v.rowId)
     );
 
-    try {
-      const rowValues = chunk.map(({ rowId, data }) => {
-        return Prisma.sql`(
-          ${rowId},
-          ${data.TURNO},
-          ${data.COMPROBANT},
-          ${data.HORA},
-          ${data.TIPO},
-          ${data.MESA},
-          ${data.MOZO},
-          ${data.CUB},
-          ${data.COBRO},
-          ${data.COD_COBRO},
-          ${data.IMPORTE}::numeric,
-          ${data.IMPORTE}::numeric,
-          ${data.TOTAL}::numeric,
-          ${data.DESCUENTO}::numeric,
-          ${data.CLINOMBRE},
-          ${data.CLIRAZON},
-          ${data.CLICUIT},
-          ${data.FECHA},
-          ${data.COD_SUC},
-          ${data.NOMBRESUC},
-          ${data.CUPON},
-          ${localId}::integer,
-          ${puntoDeVentaId}::integer
-        )`;
-      });
+    const chunkErrors = await insertChunkWithRowFallback(
+      prisma,
+      chunk,
+      (rowsToInsert) => {
+        const rowValues = rowsToInsert.map(({ rowId, data }) => {
+          return Prisma.sql`(
+            ${rowId},
+            ${data.TURNO},
+            ${data.COMPROBANT},
+            ${data.HORA},
+            ${data.TIPO},
+            ${data.MESA},
+            ${data.MOZO},
+            ${data.CUB},
+            ${data.COBRO},
+            ${data.COD_COBRO},
+            ${data.IMPORTE}::numeric,
+            ${data.IMPORTE}::numeric,
+            ${data.TOTAL}::numeric,
+            ${data.DESCUENTO}::numeric,
+            ${data.CLINOMBRE},
+            ${data.CLIRAZON},
+            ${data.CLICUIT},
+            ${data.FECHA},
+            ${data.COD_SUC},
+            ${data.NOMBRESUC},
+            ${data.CUPON},
+            ${localId}::integer,
+            ${puntoDeVentaId}::integer
+          )`;
+        });
 
-      await prisma.$executeRaw(Prisma.sql`
-        INSERT INTO ventas (
-          "rowId", turno, comprobant, hora, tipo, mesa, mozo, cub, cobro, "codCobro",
-          importe, "importeTrabajado", total, descuento, "cliNombre", "cliRazon", "cliCut",
-          fecha, "codSuc", "nombreSuc", cupon, "localId", "puntoDeVentaId"
-        )
-        VALUES ${Prisma.join(rowValues)}
-        ON CONFLICT ("rowId") DO UPDATE SET
-          turno             = EXCLUDED.turno,
-          comprobant        = EXCLUDED.comprobant,
-          hora              = EXCLUDED.hora,
-          tipo              = EXCLUDED.tipo,
-          mesa              = EXCLUDED.mesa,
-          mozo              = EXCLUDED.mozo,
-          cub               = EXCLUDED.cub,
-          cobro             = EXCLUDED.cobro,
-          "codCobro"        = EXCLUDED."codCobro",
-          importe           = EXCLUDED.importe,
-          -- importeTrabajado: NO se sobreescribe (override manual, igual que compras)
-          total             = EXCLUDED.total,
-          descuento         = EXCLUDED.descuento,
-          "cliNombre"       = EXCLUDED."cliNombre",
-          "cliRazon"        = EXCLUDED."cliRazon",
-          "cliCut"          = EXCLUDED."cliCut",
-          fecha             = EXCLUDED.fecha,
-          "codSuc"          = EXCLUDED."codSuc",
-          "nombreSuc"       = EXCLUDED."nombreSuc",
-          cupon             = EXCLUDED.cupon,
-          -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
-          "localId"         = COALESCE(ventas."localId", EXCLUDED."localId"),
-          "puntoDeVentaId"  = COALESCE(ventas."puntoDeVentaId", EXCLUDED."puntoDeVentaId")
-      `);
-
-      for (const rowId of chunkRowIds) {
-        if (existingSet.has(rowId)) updated++; else created++;
-      }
-    } catch (err) {
-      errors.push({
-        rowIndex: i,
-        rawCodigo: `chunk[${i}..${i + chunk.length - 1}] — primero: ${chunk[0]?.data.COMPROBANT}`,
+        return Prisma.sql`
+          INSERT INTO ventas (
+            "rowId", turno, comprobant, hora, tipo, mesa, mozo, cub, cobro, "codCobro",
+            importe, "importeTrabajado", total, descuento, "cliNombre", "cliRazon", "cliCut",
+            fecha, "codSuc", "nombreSuc", cupon, "localId", "puntoDeVentaId"
+          )
+          VALUES ${Prisma.join(rowValues)}
+          ON CONFLICT ("rowId") DO UPDATE SET
+            turno             = EXCLUDED.turno,
+            comprobant        = EXCLUDED.comprobant,
+            hora              = EXCLUDED.hora,
+            tipo              = EXCLUDED.tipo,
+            mesa              = EXCLUDED.mesa,
+            mozo              = EXCLUDED.mozo,
+            cub               = EXCLUDED.cub,
+            cobro             = EXCLUDED.cobro,
+            "codCobro"        = EXCLUDED."codCobro",
+            importe           = EXCLUDED.importe,
+            -- importeTrabajado: NO se sobreescribe (override manual, igual que compras)
+            total             = EXCLUDED.total,
+            descuento         = EXCLUDED.descuento,
+            "cliNombre"       = EXCLUDED."cliNombre",
+            "cliRazon"        = EXCLUDED."cliRazon",
+            "cliCut"          = EXCLUDED."cliCut",
+            fecha             = EXCLUDED.fecha,
+            "codSuc"          = EXCLUDED."codSuc",
+            "nombreSuc"       = EXCLUDED."nombreSuc",
+            cupon             = EXCLUDED.cupon,
+            -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
+            "localId"         = COALESCE(ventas."localId", EXCLUDED."localId"),
+            "puntoDeVentaId"  = COALESCE(ventas."puntoDeVentaId", EXCLUDED."puntoDeVentaId")
+        `;
+      },
+      ({ idx, data }, err) => ({
+        rowIndex: idx,
+        rawCodigo: data.COMPROBANT,
         message: err instanceof Error ? err.message : String(err),
-      });
-    }
+      }),
+      (insertedRows) => {
+        for (const { rowId } of insertedRows) {
+          if (existingSet.has(rowId)) updated++; else created++;
+        }
+      }
+    );
+    errors.push(...chunkErrors);
   }
 
   return { created, updated, skipped, skippedRows, errors };
