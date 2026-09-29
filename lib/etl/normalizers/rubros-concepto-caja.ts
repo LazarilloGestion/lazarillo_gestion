@@ -4,6 +4,7 @@ import { trim } from "../helpers";
 import type { ETLRow, ETLRowError } from "../types";
 import { rubroConceptoCajaRowSchema, type RubroConceptoCajaRow } from "../schemas/rubros-concepto-caja";
 import { formatZodError } from "../schemas/common";
+import { insertChunkWithRowFallback } from "../chunked-upsert";
 
 const CHUNK_SIZE = 500;
 
@@ -15,7 +16,7 @@ export async function normalizeRubrosConceptoCaja(
   let skipped = 0;
 
   // Deduplicar por codigo — last wins (intencional para maestros).
-  const parsedByCodigo = new Map<string, RubroConceptoCajaRow>();
+  const parsedByCodigo = new Map<string, { data: RubroConceptoCajaRow; idx: number }>();
 
   rows.forEach((r, idx) => {
     if (trim(r["CODIGO"]) == null) {
@@ -27,12 +28,12 @@ export async function normalizeRubrosConceptoCaja(
       errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
       return;
     }
-    parsedByCodigo.set(parsed.data.CODIGO, parsed.data);
+    parsedByCodigo.set(parsed.data.CODIGO, { data: parsed.data, idx });
   });
 
   const deduped = Array.from(parsedByCodigo.values());
 
-  const allCodigos = deduped.map((d) => d.CODIGO);
+  const allCodigos = deduped.map((d) => d.data.CODIGO);
   const existingSet = new Set(
     (await prisma.rubroConceptoCaja.findMany({ where: { codigo: { in: allCodigos } }, select: { codigo: true } }))
       .map((x) => x.codigo)
@@ -42,30 +43,40 @@ export async function normalizeRubrosConceptoCaja(
 
   for (let i = 0; i < deduped.length; i += CHUNK_SIZE) {
     const chunk = deduped.slice(i, i + CHUNK_SIZE);
-    try {
-      const values = chunk.map((data) => {
-        return Prisma.sql`(
-          ${data.CODIGO},
-          ${data.NOMBRE ?? "(sin nombre)"},
-          ${data.CALC_RENT}
-        )`;
-      });
 
-      await prisma.$executeRaw(Prisma.sql`
-        INSERT INTO rubros_concepto_caja (codigo, nombre, "calcRent")
-        VALUES ${Prisma.join(values)}
-        ON CONFLICT (codigo) DO UPDATE SET
-          nombre     = EXCLUDED.nombre,
-          "calcRent" = EXCLUDED."calcRent"
-          -- visibleEnDashboard: NO se sobreescribe (config manual del usuario)
-      `);
+    const chunkErrors = await insertChunkWithRowFallback(
+      prisma,
+      chunk,
+      (rowsToInsert) => {
+        const values = rowsToInsert.map(({ data }) => {
+          return Prisma.sql`(
+            ${data.CODIGO},
+            ${data.NOMBRE ?? "(sin nombre)"},
+            ${data.CALC_RENT}
+          )`;
+        });
 
-      for (const data of chunk) {
-        if (existingSet.has(data.CODIGO)) updated++; else created++;
+        return Prisma.sql`
+          INSERT INTO rubros_concepto_caja (codigo, nombre, "calcRent")
+          VALUES ${Prisma.join(values)}
+          ON CONFLICT (codigo) DO UPDATE SET
+            nombre     = EXCLUDED.nombre,
+            "calcRent" = EXCLUDED."calcRent"
+            -- visibleEnDashboard: NO se sobreescribe (config manual del usuario)
+        `;
+      },
+      ({ data, idx }, err) => ({
+        rowIndex: idx,
+        rawCodigo: data.CODIGO,
+        message: err instanceof Error ? err.message : String(err),
+      }),
+      (insertedRows) => {
+        for (const { data } of insertedRows) {
+          if (existingSet.has(data.CODIGO)) updated++; else created++;
+        }
       }
-    } catch (err) {
-      errors.push({ rowIndex: i, rawCodigo: chunk[0]?.CODIGO, message: err instanceof Error ? err.message : String(err) });
-    }
+    );
+    errors.push(...chunkErrors);
   }
 
   return { created, updated, skipped, errors };
