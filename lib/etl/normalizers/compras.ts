@@ -8,8 +8,10 @@ import {
   parseComprobanteFromDetalle,
   computeCompraRowId,
   compraIdentityFromRawRow,
+  compraIdentityFromDbRecord,
   computeCompraAnchor,
   pickReconciliationCandidate,
+  esReconciliacionSegura,
 } from "./compra-identity";
 import { camposErpCambiaron, type CompraErpFields } from "./compras-diff";
 import { canonicalDecimal } from "./compra-identity";
@@ -71,6 +73,10 @@ interface CompraExistenteRow {
   per1: { toString(): string } | null;
   per2: { toString(): string } | null;
   per3: { toString(): string } | null;
+  // Solo usados por la reconciliación por ancla (predicado esReconciliacionSegura) —
+  // no por erpFieldsDesdeCompraExistente, que ignora estos dos campos.
+  comprobante: string | null;
+  localId: number | null;
 }
 
 function erpFieldsDesdeCompraExistente(row: CompraExistenteRow): CompraErpFields {
@@ -155,6 +161,18 @@ export async function normalizeCompras(
   const filtered = Array.from(rowIdMap.values());
   const skipped = skippedRows.length;
 
+  // Todos los rowId que este archivo va a computar, de punta a punta — no solo
+  // los del chunk que se esté procesando. La búsqueda de candidatos de
+  // reconciliación (más abajo) tiene que excluir este conjunto COMPLETO, no
+  // solo el del chunk actual: si no, una fila de un chunk posterior que
+  // todavía no se procesó (pero cuyo hash SÍ va a aparecer en este mismo
+  // archivo) puede ser "robada" por error como huérfana de otra fila de un
+  // chunk anterior que comparte ancla — y cuando esa fila posterior por fin
+  // se procesa en su propio chunk, ya no encuentra su lugar (fue renombrado)
+  // y termina insertándose de nuevo como duplicado. Ver hallazgo Important
+  // #3 de la revisión final de rama, 29-sep-2026.
+  const rowIdsEnArchivo = new Set(filtered.map((pr) => pr.rowId));
+
   // Lookup tables — una sola query cada una para todo el archivo
   const codigosProv = [...new Set(filtered.map((pr) => pr.data.CODIGO).filter((v): v is string => v != null))];
   const provMap = new Map<string, ProveedorCandidato>(
@@ -192,6 +210,7 @@ export async function normalizeCompras(
         codCga: true, concepto: true, fecha: true, codigo: true, proveedor: true,
         detalle: true, observac: true, importe: true, impInt: true, imputac: true,
         per1: true, per2: true, per3: true,
+        comprobante: true, localId: true,
       },
     });
     const existingMap = new Map(existingRows.map((r) => [r.rowId, r]));
@@ -214,7 +233,8 @@ export async function normalizeCompras(
       const chunkAmbiguas: { rowIdNuevo: string; candidatos: string[] }[] = [];
       for (const pr of chunk) {
         if (existingMap.has(pr.rowId)) continue;
-        const anchor = computeCompraAnchor(compraIdentityFromRawRow(pr.row));
+        const identidad = compraIdentityFromRawRow(pr.row);
+        const anchor = computeCompraAnchor(identidad);
         if (anchor.importe == null || anchor.fechaISO == null) continue;
 
         const candidatos = await prisma.compra.findMany({
@@ -224,19 +244,41 @@ export async function normalizeCompras(
             codigo: anchor.codigo,
             concepto: anchor.concepto,
             importe: new Prisma.Decimal(anchor.importe),
-            rowId: { notIn: chunkRowIds },
+            // Excluye TODOS los rowId que este archivo va a computar, no solo
+            // los del chunk actual — ver comentario en rowIdsEnArchivo arriba.
+            rowId: { notIn: [...rowIdsEnArchivo] },
           },
           select: {
             rowId: true, esDistribuido: true,
             codCga: true, concepto: true, fecha: true, codigo: true, proveedor: true,
             detalle: true, observac: true, importe: true, impInt: true, imputac: true,
             per1: true, per2: true, per3: true,
+            comprobante: true, localId: true,
           },
         });
         if (candidatos.length === 0) continue;
 
         const elegido = pickReconciliationCandidate(candidatos);
-        if (elegido) {
+        // Exactamente 1 candidato no alcanza: además tiene que ser seguro
+        // fusionarlo (mismo predicado que usa el script de limpieza
+        // retroactiva — ver compra-identity.ts, esReconciliacionSegura). Si
+        // no lo es, se trata igual que 2+ candidatos: ambiguo, se reporta en
+        // vez de fusionarse en silencio (hallazgo Important #4 de la
+        // revisión final de rama, 29-sep-2026).
+        // Nota: elegido.comprobante pasa por compraIdentityFromDbRecord (no
+        // se usa crudo) para aplicar la MISMA regla de "Tic no es
+        // comprobante confiable" que ya se le aplicó a `identidad` del lado
+        // de la fila nueva — sin esto, un Tic reutilizado del lado del
+        // candidato se comparaba crudo contra un lado ya filtrado,
+        // asimetría que podía dejar pasar (o bloquear) casos por el motivo
+        // equivocado.
+        const identidadCandidato = elegido ? compraIdentityFromDbRecord(elegido) : null;
+        const esSegura = elegido != null && identidadCandidato != null && esReconciliacionSegura(
+          { comprobante: identidad.comprobante, observac: identidad.observacNormalizado, localId },
+          { comprobante: identidadCandidato.comprobante, observac: identidadCandidato.observacNormalizado, localId: elegido.localId }
+        ).segura;
+
+        if (elegido && esSegura) {
           await prisma.compra.update({ where: { rowId: elegido.rowId }, data: { rowId: pr.rowId } });
           chunkReconciliados.push(elegido.rowId);
           existingMap.set(pr.rowId, elegido);

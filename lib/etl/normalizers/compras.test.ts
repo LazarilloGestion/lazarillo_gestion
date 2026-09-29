@@ -402,5 +402,196 @@ describe("normalizeCompras", () => {
       expect(res.errors).toHaveLength(1);
       expect(res.errors[0].message).toMatch(/constraint violation/);
     });
+
+    // Hallazgo Important #4 de la revisión final de rama, 29-sep-2026: la
+    // reconciliación hacia adelante no tenía NINGUNA de las guardas de
+    // seguridad del script de limpieza retroactiva (Task 5) — un par con la
+    // forma real Mochila/Válvula (mismo comprobante, dos ítems reales
+    // distintos de una misma factura) que llegara por un import EN VIVO se
+    // fusionaba en silencio con cero chequeo. Ahora usa el mismo predicado
+    // esReconciliacionSegura que el script — ver compra-identity.ts.
+    it("fila nueva con 1 candidato por ancla pero comprobante compartido sin relación de prefijo (caso real Mochila/Válvula): NO fusiona, queda en reconciliacionesAmbiguas", async () => {
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+          if (args?.where?.rowId?.in) return [];
+          // DETALLE default de baseRow() ("A 0606-00761530") parsea al mismo
+          // comprobante "A060600761530" que la fila nueva de abajo produce.
+          return [huerfana({
+            rowId: "huerfana-valvula",
+            comprobante: "A060600761530",
+            detalle: "A 0606-00761530",
+            observac: "Valvula + Tecla Descarga Baño",
+          })];
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+      const filaNueva = baseRow({ OBSERVAC: "Mochila Baño Vestuario" });
+      const res = await normalizeCompras([filaNueva], db);
+      expect(compraModel.update).not.toHaveBeenCalled();
+      expect(res.created).toBe(1);
+      expect(res.updated).toBe(0);
+      expect(res.comprasReconciliadas).toEqual([]);
+      expect(res.reconciliacionesAmbiguas).toHaveLength(1);
+      expect(res.reconciliacionesAmbiguas[0].candidatos).toEqual(["huerfana-valvula"]);
+    });
+
+    // Prueba directa de que el mecanismo 1 (reconciliación hacia adelante)
+    // corta la causa raíz: reimportar el MISMO archivo sin cambios después de
+    // que ya reconcilió una vez no debe volver a intentar reconciliar ni
+    // crear una fila nueva — tiene que encontrar la fila (ya renombrada al
+    // hash nuevo) por su propio hash y solo actualizarla. Sin este fix, la
+    // reconciliación se dispararía en cada reimport porque la fila "vieja"
+    // (rowId original) nunca deja de aparecer como huérfana.
+    it("reimport tras reconciliar: la segunda importación (misma fila, sin cambios) encuentra la fila por su propio hash y actualiza, no vuelve a reconciliar", async () => {
+      const huerfanaSeed = {
+        rowId: "huerfana-rowid",
+        esDistribuido: false,
+        codCga: "GASTO1", concepto: "Alquiler", fecha: safeDate(45000), codigo: "PROV1",
+        proveedor: "Juan Perez", detalle: null, comprobante: null, localId: null,
+        observac: "Obs vieja",
+        importe: { toString: () => "1000" }, impInt: { toString: () => "0" }, imputac: "X",
+        per1: { toString: () => "0" }, per2: { toString: () => "0" }, per3: { toString: () => "0" },
+      };
+      const tabla = new Map<string, typeof huerfanaSeed>([[huerfanaSeed.rowId, huerfanaSeed]]);
+
+      const findMany = vi.fn(async (args: {
+        where?: {
+          rowId?: { in?: string[]; notIn?: string[] };
+          codCga?: unknown; codigo?: unknown; concepto?: unknown;
+          fecha?: Date; importe?: { toString(): string };
+        };
+      }) => {
+        const where = args?.where ?? {};
+        let filas = Array.from(tabla.values());
+        if (where.rowId?.in) {
+          const set = new Set(where.rowId.in);
+          filas = filas.filter((f) => set.has(f.rowId));
+        }
+        if (where.rowId?.notIn) {
+          const set = new Set(where.rowId.notIn);
+          filas = filas.filter((f) => !set.has(f.rowId));
+        }
+        if (where.codCga !== undefined) filas = filas.filter((f) => f.codCga === where.codCga);
+        if (where.codigo !== undefined) filas = filas.filter((f) => f.codigo === where.codigo);
+        if (where.concepto !== undefined) filas = filas.filter((f) => f.concepto === where.concepto);
+        if (where.fecha !== undefined) filas = filas.filter((f) => f.fecha?.getTime() === where.fecha!.getTime());
+        if (where.importe !== undefined) filas = filas.filter((f) => f.importe.toString() === where.importe!.toString());
+        return filas.map((f) => ({ ...f }));
+      });
+      const update = vi.fn(async (args: { where: { rowId: string }; data: Record<string, unknown> }) => {
+        const existente = tabla.get(args.where.rowId);
+        if (!existente) throw new Error(`no existe: ${args.where.rowId}`);
+        tabla.delete(args.where.rowId);
+        const actualizada = { ...existente, ...args.data } as typeof huerfanaSeed;
+        tabla.set(actualizada.rowId, actualizada);
+        return actualizada;
+      });
+      const db = createMockDb({ compra: { findMany, update } });
+
+      const fila = baseRow(); // DETALLE default -> comprobante "A060600761530"
+      const rowIdEsperado = computeCompraRowId(compraIdentityFromRawRow(fila));
+
+      const primera = await normalizeCompras([fila], db);
+      expect(primera.comprasReconciliadas).toEqual(["huerfana-rowid"]);
+      expect(primera.created).toBe(0);
+      expect(primera.updated).toBe(1);
+      // La fila vieja ya no existe bajo su rowId original — quedó renombrada
+      // al hash nuevo, que es justo el que la segunda importación va a
+      // recomputar para la misma fila sin cambios.
+      expect(tabla.has("huerfana-rowid")).toBe(false);
+      expect(tabla.has(rowIdEsperado)).toBe(true);
+
+      const segunda = await normalizeCompras([fila], db);
+      expect(segunda.comprasReconciliadas).toEqual([]); // no vuelve a reconciliar
+      expect(segunda.reconciliacionesAmbiguas).toEqual([]);
+      expect(segunda.created).toBe(0);
+      expect(segunda.updated).toBe(1); // encontrada de una por su propio hash
+      expect(update).toHaveBeenCalledTimes(1); // solo el rename de la primera vez, no un segundo
+    });
+
+    // Hallazgo Important #3: la exclusión de candidatos de reconciliación
+    // usaba solo el rowId del CHUNK actual (chunkRowIds), no de todo el
+    // archivo. Con CHUNK_SIZE=500, una fila realmente huérfana (X, ya
+    // existente en la base) que aparece SIN CAMBIOS en un chunk posterior
+    // del mismo archivo podía ser "robada" por una fila de ancla compartida
+    // (Y) que se procesa antes en un chunk anterior — porque, desde el punto
+    // de vista de Y, X no parecía excluible (su chunkRowIds no la incluía).
+    // El resultado real: la fila de Y termina pisando el lugar de X, y el
+    // contenido real y distinto de X se pierde (o, según el orden, termina
+    // creándose una fila de más) — ver comentario de rowIdsEnArchivo en
+    // compras.ts para el detalle completo del mecanismo.
+    it("frontera de chunk (CHUNK_SIZE=500): una fila huérfana real (X, en un chunk posterior) y una fila distinta que comparte su ancla (Y, en un chunk anterior) no se funden entre sí", async () => {
+      const filaX = baseRow({
+        COD_CGA: "GASTOX", CODIGO: "PROVX", CONCEPTO: "ConceptoX", FECHA: 45100,
+        DETALLE: null, OBSERVAC: "Version Original", IMPORTE: 500,
+      });
+      const filaY = baseRow({
+        COD_CGA: "GASTOX", CODIGO: "PROVX", CONCEPTO: "ConceptoX", FECHA: 45100,
+        DETALLE: null, OBSERVAC: "Version Corregida", IMPORTE: 500,
+      });
+      const identidadX = compraIdentityFromRawRow(filaX);
+      const rowIdX = computeCompraRowId(identidadX);
+
+      const seedX = {
+        rowId: rowIdX,
+        esDistribuido: false,
+        codCga: identidadX.codCga,
+        concepto: identidadX.concepto,
+        fecha: new Date(identidadX.fechaISO!),
+        codigo: identidadX.codigo,
+        proveedor: "Juan Perez",
+        detalle: identidadX.detalle,
+        comprobante: null,
+        localId: null,
+        observac: identidadX.observacNormalizado,
+        importe: { toString: () => identidadX.importe! },
+        impInt: { toString: () => "0" }, imputac: "X",
+        per1: { toString: () => "0" }, per2: { toString: () => "0" }, per3: { toString: () => "0" },
+      };
+
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: {
+          where?: {
+            rowId?: { in?: string[]; notIn?: string[] };
+            codCga?: unknown; codigo?: unknown; concepto?: unknown;
+            fecha?: Date; importe?: { toString(): string };
+          };
+        }) => {
+          const where = args?.where ?? {};
+          if (where.rowId?.in) {
+            return where.rowId.in.includes(rowIdX) ? [seedX] : [];
+          }
+          const matchaAncla =
+            where.codCga === seedX.codCga &&
+            where.codigo === seedX.codigo &&
+            where.concepto === seedX.concepto &&
+            where.fecha?.getTime() === seedX.fecha.getTime() &&
+            where.importe?.toString() === seedX.importe.toString();
+          if (!matchaAncla) return [];
+          const excluida = where.rowId?.notIn?.includes(rowIdX) ?? false;
+          return excluida ? [] : [seedX];
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+
+      // X va primero (índice 0, cae en el chunk 1); 499 filas de relleno con
+      // ancla propia y distinta; Y al final (índice 500, cae en el chunk 2)
+      // — así se fuerza el corte real de CHUNK_SIZE=500 entre ambas.
+      const relleno = Array.from({ length: 499 }, (_, i) =>
+        baseRow({ CODIGO: `RELLENO${i}`, CONCEPTO: `Relleno ${i}`, OBSERVAC: `Relleno ${i}` })
+      );
+      const rows = [filaX, ...relleno, filaY];
+      expect(rows.length).toBe(501);
+
+      const res = await normalizeCompras(rows, db);
+
+      expect(res.errors).toEqual([]);
+      expect(compraModel.update).not.toHaveBeenCalled();
+      expect(res.comprasReconciliadas).toEqual([]); // X no es huérfana: la encuentra su propio hash en su chunk.
+      expect(res.updated).toBe(1); // filaX, match directo por hash
+      expect(res.created).toBe(500); // 499 relleno + filaY (fila distinta, NO se funde con X)
+    });
   });
 });
