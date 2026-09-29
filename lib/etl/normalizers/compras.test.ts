@@ -174,11 +174,27 @@ describe("normalizeCompras", () => {
 
   it("un fallo de $executeRaw se reporta en errors sin lanzar excepción", async () => {
     const db = createMockDb();
-    (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("constraint violation"));
+    (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("constraint violation"));
     const res = await normalizeCompras([baseRow()], db);
     expect(res.created).toBe(0);
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0].message).toMatch(/constraint violation/);
+  });
+
+  it("cuando el insert en lote falla, reintenta fila por fila y aísla solo la fila inválida (no pierde las demás)", async () => {
+    const db = createMockDb();
+    (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
+      if (sql.values.length > 21) throw new Error("simulated batch failure");
+      if (sql.values[5] === "BAD") throw new Error("valor fuera de rango numérico");
+      return 1;
+    });
+    const res = await normalizeCompras(
+      [baseRow({ CODIGO: "BAD", DETALLE: null, IMPORTE: 100 }), baseRow({ CODIGO: "OK", DETALLE: null, IMPORTE: 200 })],
+      db
+    );
+    expect(res.created).toBe(1);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].message).toMatch(/valor fuera de rango/);
   });
 
   it("con comprobante: dos filas con el mismo comprobante pero IMPORTE distinto son el mismo registro (mismo rowId) — se dedupean, no se insertan como transacciones distintas", async () => {
@@ -390,7 +406,7 @@ describe("normalizeCompras", () => {
         update: vi.fn().mockResolvedValue({}),
       };
       const db = createMockDb({ compra: compraModel });
-      (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("constraint violation"));
+      (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("constraint violation"));
       const res = await normalizeCompras([baseRow()], db);
       expect(compraModel.update).toHaveBeenCalledWith({
         where: { rowId: "huerfana-rowid" },
@@ -625,6 +641,35 @@ describe("normalizeCompras", () => {
       expect(res.comprasReconciliadas).toEqual([]); // X no es huérfana: la encuentra su propio hash en su chunk.
       expect(res.updated).toBe(1); // filaX, match directo por hash
       expect(res.created).toBe(500); // 499 relleno + filaY (fila distinta, NO se funde con X)
+    });
+
+    it("dos filas en el mismo chunk: una reconcilia y su insert sobrevive el fallback, la otra falla — solo la exitosa se reporta como reconciliada", async () => {
+      const compraModel = {
+        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] }; codigo?: unknown } }) => {
+          if (args?.where?.rowId?.in) return []; // sin match exacto por hash para ninguna de las dos
+          if (args?.where?.codigo === "PROV1") return [huerfana()]; // ancla de filaA (CODIGO default)
+          return []; // filaB tiene ancla distinta, sin candidatos
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      };
+      const db = createMockDb({ compra: compraModel });
+      (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
+        if (sql.values.length > 21) throw new Error("simulated batch failure");
+        if (sql.values[5] === "BAD") throw new Error("valor fuera de rango numérico");
+        return 1;
+      });
+      const filaA = baseRow(); // CODIGO "PROV1" (default) — matchea el ancla de huerfana()
+      const filaB = baseRow({ CODIGO: "BAD", COD_CGA: "OTRO", CONCEPTO: "Otro concepto", DETALLE: null, IMPORTE: 999 });
+      const res = await normalizeCompras([filaA, filaB], db);
+      expect(compraModel.update).toHaveBeenCalledWith({
+        where: { rowId: "huerfana-rowid" },
+        data: { rowId: expect.any(String) },
+      });
+      expect(res.comprasReconciliadas).toEqual(["huerfana-rowid"]);
+      expect(res.updated).toBe(1);
+      expect(res.created).toBe(0);
+      expect(res.errors).toHaveLength(1);
+      expect(res.errors[0].message).toMatch(/valor fuera de rango/);
     });
   });
 });

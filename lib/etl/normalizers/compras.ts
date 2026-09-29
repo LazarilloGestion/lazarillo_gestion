@@ -17,6 +17,7 @@ import { camposErpCambiaron, type CompraErpFields } from "./compras-diff";
 import { canonicalDecimal } from "./compra-identity";
 import { resolveProveedorId, type ProveedorCandidato } from "./proveedor-match";
 import { normalizarProveedorTexto } from "../../text-normalize";
+import { insertChunkWithRowFallback } from "../chunked-upsert";
 
 import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 
@@ -215,22 +216,15 @@ export async function normalizeCompras(
     });
     const existingMap = new Map(existingRows.map((r) => [r.rowId, r]));
 
+    // Reconciliación: sigue con manejo de errores a nivel de todo el chunk (sin
+    // cambios de comportamiento respecto a antes — si algo de acá tira, el
+    // chunk entero se reporta como error y ni siquiera llega al INSERT de
+    // abajo). Solo el INSERT gana aislamiento fila por fila más abajo.
+    const reconciliacionPorRowId = new Map<
+      string,
+      { tipo: "reconciliada"; rowIdViejo: string } | { tipo: "ambigua"; candidatos: string[] }
+    >();
     try {
-      // Reconciliación: una fila cuyo hash no matchea ninguna existente puede
-      // ser la misma compra real que el ERP editó después de la carga inicial
-      // (comprobante que aparece, observación corregida — ver
-      // docs/superpowers/specs/2026-09-29-reconciliacion-identidad-compras-design.md).
-      // Migra el rowId de la fila vieja al hash nuevo ANTES del INSERT...ON
-      // CONFLICT de abajo, para que ese mismo INSERT la encuentre y actualice
-      // sus campos normalmente en vez de crear una fila duplicada.
-      // Acumuladores LOCALES al chunk: si el $executeRaw de abajo (o un update
-      // de reconciliación de una fila posterior del mismo chunk) tira una
-      // excepción, el catch de este chunk no debe dejar reconciliaciones
-      // "fantasma" reportadas para un chunk que en los hechos terminó en
-      // error — mismo criterio que ya usan created/updated, que solo se
-      // incrementan después de que el INSERT confirma éxito.
-      const chunkReconciliados: string[] = [];
-      const chunkAmbiguas: { rowIdNuevo: string; candidatos: string[] }[] = [];
       for (const pr of chunk) {
         if (existingMap.has(pr.rowId)) continue;
         const identidad = compraIdentityFromRawRow(pr.row);
@@ -280,92 +274,10 @@ export async function normalizeCompras(
 
         if (elegido && esSegura) {
           await prisma.compra.update({ where: { rowId: elegido.rowId }, data: { rowId: pr.rowId } });
-          chunkReconciliados.push(elegido.rowId);
+          reconciliacionPorRowId.set(pr.rowId, { tipo: "reconciliada", rowIdViejo: elegido.rowId });
           existingMap.set(pr.rowId, elegido);
         } else {
-          chunkAmbiguas.push({ rowIdNuevo: pr.rowId, candidatos: candidatos.map((c) => c.rowId) });
-        }
-      }
-
-      const rowValues = chunk.map(({ rowId, row, data }) => {
-        const proveedorId = resolveProveedorId(data.CODIGO, data.PROVEEDOR, provMap);
-        const conceptoCodigo = conceptoSet.has(data.COD_CGA) ? data.COD_CGA : null;
-        // Solo se calcula cuando NO hay proveedorId real — es la dimensión de
-        // matching que usa el motor de Apertura para nivel "proveedor" cuando
-        // el ERP no linkeó un proveedor real (ver lib/apertura/motor.ts).
-        const proveedorTextoNormalizado = proveedorId == null
-          ? normalizarProveedorTexto(data.PROVEEDOR)
-          : null;
-
-        return Prisma.sql`(
-          ${rowId},
-          ${data.COD_CGA},
-          ${data.CONCEPTO},
-          ${parseComprobanteFromDetalle(row["DETALLE"])},
-          ${data.FECHA},
-          ${data.CODIGO},
-          ${data.PROVEEDOR},
-          ${data.DETALLE},
-          ${data.OBSERVAC},
-          ${data.IMPORTE}::numeric,
-          ${data.IMPORTE}::numeric,
-          ${data.IMP_INT}::numeric,
-          ${data.IMPUTAC},
-          ${data.PER1}::numeric,
-          ${data.PER2}::numeric,
-          ${data.PER3}::numeric,
-          ${proveedorId}::integer,
-          ${conceptoCodigo},
-          ${localId}::integer,
-          ${puntoDeVentaId}::integer,
-          ${proveedorTextoNormalizado}
-        )`;
-      });
-
-      await prisma.$executeRaw(Prisma.sql`
-        INSERT INTO compras (
-          "rowId", "codCga", concepto, comprobante, fecha, codigo, proveedor, detalle, observac,
-          importe, "importeTrabajado", "impInt", imputac, per1, per2, per3,
-          "proveedorId", "conceptoCodigo", "localId", "puntoDeVentaId", "proveedorTextoNormalizado"
-        )
-        VALUES ${Prisma.join(rowValues)}
-        ON CONFLICT ("rowId") DO UPDATE SET
-          "codCga"           = EXCLUDED."codCga",
-          concepto           = EXCLUDED.concepto,
-          comprobante        = EXCLUDED.comprobante,
-          fecha              = EXCLUDED.fecha,
-          codigo             = EXCLUDED.codigo,
-          proveedor          = EXCLUDED.proveedor,
-          detalle            = EXCLUDED.detalle,
-          observac           = EXCLUDED.observac,
-          importe            = EXCLUDED.importe,
-          "importeTrabajado" = EXCLUDED."importeTrabajado",
-          "impInt"           = EXCLUDED."impInt",
-          imputac            = EXCLUDED.imputac,
-          per1               = EXCLUDED.per1,
-          per2               = EXCLUDED.per2,
-          per3               = EXCLUDED.per3,
-          "proveedorId"      = EXCLUDED."proveedorId",
-          "conceptoCodigo"   = EXCLUDED."conceptoCodigo",
-          "proveedorTextoNormalizado" = EXCLUDED."proveedorTextoNormalizado",
-          -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
-          "localId"          = COALESCE(compras."localId", EXCLUDED."localId"),
-          "puntoDeVentaId"   = COALESCE(compras."puntoDeVentaId", EXCLUDED."puntoDeVentaId")
-          -- importeManual, fechaManual, conceptoCodigoManual: NO se sobreescriben (overrides manuales)
-      `);
-
-      // Recién acá, con el INSERT confirmado, se vuelcan los acumuladores
-      // locales del chunk a los de la función — si algo de arriba tiró antes
-      // de llegar hasta acá, el catch de abajo atrapa la excepción y estas
-      // dos líneas nunca corren para este chunk.
-      comprasReconciliadas.push(...chunkReconciliados);
-      reconciliacionesAmbiguas.push(...chunkAmbiguas);
-
-      for (const { rowId, data } of chunk) {
-        const oldRow = existingMap.get(rowId);
-        if (oldRow) updated++; else created++;
-        if (oldRow?.esDistribuido && camposErpCambiaron(erpFieldsDesdeCompraExistente(oldRow), erpFieldsDesdeDatoParseado(data))) {
-          comprasDistribuidasModificadas.push(rowId);
+          reconciliacionPorRowId.set(pr.rowId, { tipo: "ambigua", candidatos: candidatos.map((c) => c.rowId) });
         }
       }
     } catch (err) {
@@ -374,7 +286,102 @@ export async function normalizeCompras(
         rawCodigo: chunk[0]?.data.CODIGO,
         message: err instanceof Error ? err.message : String(err),
       });
+      continue;
     }
+
+    const chunkErrors = await insertChunkWithRowFallback(
+      prisma,
+      chunk,
+      (rowsToInsert) => {
+        const rowValues = rowsToInsert.map(({ rowId, row, data }) => {
+          const proveedorId = resolveProveedorId(data.CODIGO, data.PROVEEDOR, provMap);
+          const conceptoCodigo = conceptoSet.has(data.COD_CGA) ? data.COD_CGA : null;
+          // Solo se calcula cuando NO hay proveedorId real — es la dimensión de
+          // matching que usa el motor de Apertura para nivel "proveedor" cuando
+          // el ERP no linkeó un proveedor real (ver lib/apertura/motor.ts).
+          const proveedorTextoNormalizado = proveedorId == null
+            ? normalizarProveedorTexto(data.PROVEEDOR)
+            : null;
+
+          return Prisma.sql`(
+            ${rowId},
+            ${data.COD_CGA},
+            ${data.CONCEPTO},
+            ${parseComprobanteFromDetalle(row["DETALLE"])},
+            ${data.FECHA},
+            ${data.CODIGO},
+            ${data.PROVEEDOR},
+            ${data.DETALLE},
+            ${data.OBSERVAC},
+            ${data.IMPORTE}::numeric,
+            ${data.IMPORTE}::numeric,
+            ${data.IMP_INT}::numeric,
+            ${data.IMPUTAC},
+            ${data.PER1}::numeric,
+            ${data.PER2}::numeric,
+            ${data.PER3}::numeric,
+            ${proveedorId}::integer,
+            ${conceptoCodigo},
+            ${localId}::integer,
+            ${puntoDeVentaId}::integer,
+            ${proveedorTextoNormalizado}
+          )`;
+        });
+
+        return Prisma.sql`
+          INSERT INTO compras (
+            "rowId", "codCga", concepto, comprobante, fecha, codigo, proveedor, detalle, observac,
+            importe, "importeTrabajado", "impInt", imputac, per1, per2, per3,
+            "proveedorId", "conceptoCodigo", "localId", "puntoDeVentaId", "proveedorTextoNormalizado"
+          )
+          VALUES ${Prisma.join(rowValues)}
+          ON CONFLICT ("rowId") DO UPDATE SET
+            "codCga"           = EXCLUDED."codCga",
+            concepto           = EXCLUDED.concepto,
+            comprobante        = EXCLUDED.comprobante,
+            fecha              = EXCLUDED.fecha,
+            codigo             = EXCLUDED.codigo,
+            proveedor          = EXCLUDED.proveedor,
+            detalle            = EXCLUDED.detalle,
+            observac           = EXCLUDED.observac,
+            importe            = EXCLUDED.importe,
+            "importeTrabajado" = EXCLUDED."importeTrabajado",
+            "impInt"           = EXCLUDED."impInt",
+            imputac            = EXCLUDED.imputac,
+            per1               = EXCLUDED.per1,
+            per2               = EXCLUDED.per2,
+            per3               = EXCLUDED.per3,
+            "proveedorId"      = EXCLUDED."proveedorId",
+            "conceptoCodigo"   = EXCLUDED."conceptoCodigo",
+            "proveedorTextoNormalizado" = EXCLUDED."proveedorTextoNormalizado",
+            -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
+            "localId"          = COALESCE(compras."localId", EXCLUDED."localId"),
+            "puntoDeVentaId"   = COALESCE(compras."puntoDeVentaId", EXCLUDED."puntoDeVentaId")
+            -- importeManual, fechaManual, conceptoCodigoManual: NO se sobreescriben (overrides manuales)
+        `;
+      },
+      ({ data }, err) => ({
+        rowIndex: i,
+        rawCodigo: data.CODIGO,
+        message: err instanceof Error ? err.message : String(err),
+      }),
+      (insertedRows) => {
+        for (const { rowId, data } of insertedRows) {
+          const oldRow = existingMap.get(rowId);
+          if (oldRow) updated++; else created++;
+          if (oldRow?.esDistribuido && camposErpCambiaron(erpFieldsDesdeCompraExistente(oldRow), erpFieldsDesdeDatoParseado(data))) {
+            comprasDistribuidasModificadas.push(rowId);
+          }
+          const recon = reconciliacionPorRowId.get(rowId);
+          if (recon?.tipo === "reconciliada") {
+            comprasReconciliadas.push(recon.rowIdViejo);
+          } else if (recon?.tipo === "ambigua") {
+            reconciliacionesAmbiguas.push({ rowIdNuevo: rowId, candidatos: recon.candidatos });
+          }
+        }
+      }
+    );
+    errors.push(...chunkErrors);
   }
 
   if (ctx?.localId != null && (created > 0 || updated > 0)) {
