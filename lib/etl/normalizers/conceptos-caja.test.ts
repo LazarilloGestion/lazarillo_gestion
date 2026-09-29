@@ -62,12 +62,13 @@ describe("normalizeConceptosCaja", () => {
       return 1;
     });
     const res = await normalizeConceptosCaja(
-      [baseRow({ CODIGO: "BAD" }), baseRow({ CODIGO: "OK" })],
+      [baseRow({ CODIGO: "OK" }), baseRow({ CODIGO: "BAD" })],
       db
     );
     expect(res.created).toBe(1);
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0].message).toMatch(/valor fuera de rango/);
-    expect(res.errors[0].rowIndex).toBe(0);
+    expect(res.errors[0].rowIndex).toBe(1);
+    expect(res.errors[0].rawCodigo).toBe("BAD");
   });
 });
