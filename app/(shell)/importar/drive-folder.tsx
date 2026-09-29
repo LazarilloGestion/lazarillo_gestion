@@ -276,6 +276,9 @@ function ReportCard({ report }: { report: ETLReport }) {
         {report.skipped > 0 && (
           <Badge variant="outline" className="text-xs">{report.skipped} omitidos</Badge>
         )}
+        {report.comprasReconciliadas && report.comprasReconciliadas.length > 0 && (
+          <Badge variant="secondary" className="text-xs">{report.comprasReconciliadas.length} reconciliados</Badge>
+        )}
         {report.errors.length > 0 && (
           <Badge variant="destructive" className="text-xs">{report.errors.length} errores</Badge>
         )}
@@ -320,6 +323,21 @@ function ReportCard({ report }: { report: ETLReport }) {
             {report.errors.map((e, i) => (
               <li key={i} className="font-mono text-zinc-500 dark:text-zinc-400">
                 Fila {e.rowIndex + 1} · {String(e.rawCodigo ?? "?")} · {translateError(e.message)}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {report.reconciliacionesAmbiguas && report.reconciliacionesAmbiguas.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-medium transition-colors">
+            Ver {report.reconciliacionesAmbiguas.length} reconciliaciones ambiguas
+          </summary>
+          <ul className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+            {report.reconciliacionesAmbiguas.map((r, i) => (
+              <li key={i} className="font-mono text-zinc-500 dark:text-zinc-400">
+                Posible duplicado sin resolver — {r.candidatos.length} candidatos encontrados, revisar manualmente
               </li>
             ))}
           </ul>
