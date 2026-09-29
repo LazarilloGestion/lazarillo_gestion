@@ -145,7 +145,7 @@ export async function GET(request: NextRequest) {
   // de destino, así que primero un SELECT DISTINCT por (concepto, mes, compra)
   // y recién después el SUM.
   const composicionOriginalesQuery = prisma.$queryRaw<ComposicionOriginalRow[]>(Prisma.sql`
-    SELECT concepto_codigo, proveedor_id, proveedor_nombre, mes, SUM(importe_original) AS importe_original
+    SELECT concepto_codigo, proveedor_id, proveedor_nombre, proveedor_codigo, mes, SUM(importe_original) AS importe_original
     FROM (
       SELECT DISTINCT
         COALESCE(cc.codigo, '__sin_concepto')                       AS concepto_codigo,
