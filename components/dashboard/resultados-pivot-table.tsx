@@ -9,7 +9,7 @@ import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { pctSobreIngresos } from "@/lib/dashboard/resultados-calc";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { useReglasActivasPorNivel } from "@/hooks/use-reglas-activas-por-nivel";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ComposicionTooltip } from "./composicion-tooltip";
 import { PivotLoading, PivotError } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
 import { CajaRows } from "./caja-rows";
@@ -243,11 +243,9 @@ export function ResultadosPivotTable() {
                             />
                           </div>
                         </StickyCardCell>
-                        {months.map((mes) => {
-                          const comp = concepto.composicion?.[mes];
-                          const cell = (
+                        {months.map((mes) => (
+                          <ComposicionTooltip key={mes} comp={concepto.composicion?.[mes]}>
                             <td
-                              key={mes}
                               className={cn(
                                 "text-right px-3 py-2 tabular-nums text-muted-foreground",
                                 cardCellClasses(rowPosition, "mid"),
@@ -261,24 +259,8 @@ export function ResultadosPivotTable() {
                             >
                               {fmtARS(concepto.values[mes])}
                             </td>
-                          );
-                          if (!comp) return cell;
-                          return (
-                            <Tooltip key={mes}>
-                              <TooltipTrigger asChild>{cell}</TooltipTrigger>
-                              <TooltipContent className="text-xs">
-                                <div className="flex flex-col items-start gap-0.5">
-                                  <div className="font-medium">100% · {fmtARS(comp.total)}</div>
-                                  {comp.destinos.map((d, i) => (
-                                    <div key={i} className="text-background/70">
-                                      {d.pct}% {d.nombre} {fmtARS(d.importe)}
-                                    </div>
-                                  ))}
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          );
-                        })}
+                          </ComposicionTooltip>
+                        ))}
                         <td
                           className={cn("text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold cursor-pointer hover:text-foreground", cardCellClasses(rowPosition, "mid"))}
                           onClick={(e) => {
