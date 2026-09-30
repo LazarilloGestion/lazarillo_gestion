@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useResultadosData } from "@/hooks/use-resultados-data";
 import { ExpandableButton } from "@/components/ui/expandable-button";
 import { ChevronDown, ChevronUp, Inbox, ListTree } from "lucide-react";
@@ -8,7 +8,7 @@ import { MONTHS } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { pctSobreIngresos } from "@/lib/dashboard/resultados-calc";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
-import { origenAlcanza } from "@/lib/apertura/validaciones";
+import { useReglasActivasPorNivel } from "@/hooks/use-reglas-activas-por-nivel";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PivotLoading, PivotError } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
@@ -42,26 +42,7 @@ export function ResultadosPivotTable() {
     origenPdvId: number | null;
   } | null>(null);
   const { reglas } = useReglasApertura();
-  // Mismo cálculo que pivot-table-por-concepto.tsx — un solo pase sobre las
-  // reglas activas alcanzables por el filtro actual, separado por nivel.
-  const reglasActivasPorNivel = useMemo(() => {
-    const activas = reglas.filter((r) => r.estado === "activa");
-    const alcanzaFiltro = (r: (typeof activas)[number]) => {
-      if (pdvId == null && localId == null) return true;
-      if (pdvId != null) {
-        return origenAlcanza(
-          { localId: r.origenLocalId, puntoDeVentaId: r.origenPuntoDeVentaId },
-          { localId: localId ?? r.origenLocalId, puntoDeVentaId: pdvId }
-        );
-      }
-      return r.origenLocalId === localId;
-    };
-    const alcanzadas = activas.filter(alcanzaFiltro);
-    return {
-      concepto: new Set(alcanzadas.filter((r) => r.nivel === "concepto").map((r) => r.entidadId)),
-      registro: new Set(alcanzadas.filter((r) => r.nivel === "registro").map((r) => r.entidadId)),
-    };
-  }, [reglas, localId, pdvId]);
+  const reglasActivasPorNivel = useReglasActivasPorNivel(reglas, localId, pdvId);
 
   if (operacion.isLoading || isLoading) return <PivotLoading />;
   if (operacion.error || error) return <PivotError />;

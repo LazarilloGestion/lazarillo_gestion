@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
 import { usePivotScreenDataPorProveedor } from "@/hooks/use-pivot-screen-data-por-proveedor";
 import { ExpandableButton } from "@/components/ui/expandable-button";
@@ -9,7 +9,7 @@ import { MONTHS, RUBRO_GASTOS_EN_PERSONAL_CODIGO } from "@/lib/dashboard/constan
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
-import { origenAlcanza } from "@/lib/apertura/validaciones";
+import { useReglasActivasPorNivel } from "@/hooks/use-reglas-activas-por-nivel";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import { KpiBlock } from "./kpi-block";
@@ -63,29 +63,9 @@ export function PivotTableByProveedor() {
     origenPdvId: number | null;
   } | null>(null);
   const { reglas } = useReglasApertura();
-
-  // Un solo pase sobre las reglas activas alcanzables por el filtro actual,
-  // separado por nivel — reemplaza conceptosConReglaActiva (Fase 1) ahora que
-  // hay 3 niveles que pueden mostrar el ícono coloreado.
-  const reglasActivasPorNivel = useMemo(() => {
-    const activas = reglas.filter((r) => r.estado === "activa");
-    const alcanzaFiltro = (r: (typeof activas)[number]) => {
-      if (pdvId == null && localId == null) return true;
-      if (pdvId != null) {
-        return origenAlcanza(
-          { localId: r.origenLocalId, puntoDeVentaId: r.origenPuntoDeVentaId },
-          { localId: localId ?? r.origenLocalId, puntoDeVentaId: pdvId }
-        );
-      }
-      return r.origenLocalId === localId;
-    };
-    const alcanzadas = activas.filter(alcanzaFiltro);
-    return {
-      concepto: new Set(alcanzadas.filter((r) => r.nivel === "concepto").map((r) => r.entidadId)),
-      proveedor: new Set(alcanzadas.filter((r) => r.nivel === "proveedor").map((r) => r.entidadId)),
-      registro: new Set(alcanzadas.filter((r) => r.nivel === "registro").map((r) => r.entidadId)),
-    };
-  }, [reglas, localId, pdvId]);
+  // Reemplaza conceptosConReglaActiva (Fase 1) ahora que hay 3 niveles que
+  // pueden mostrar el ícono coloreado.
+  const reglasActivasPorNivel = useReglasActivasPorNivel(reglas, localId, pdvId);
 
   const { data, isLoading, error, ventasData, ventasLoading } = useOperacionKpis<PivotDataPorProveedor>({
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
