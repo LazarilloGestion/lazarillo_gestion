@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { isAllowedEmail } from "@/lib/auth/allowed-emails";
 
 function isSafeRedirect(next: string): boolean {
   if (!next.startsWith("/") || next.startsWith("//")) return false;
@@ -25,6 +26,15 @@ export async function GET(request: NextRequest) {
 
     if (!error && data.session) {
       const { session } = data;
+
+      // Chequear el email ANTES de cualquier escritura con service-role —
+      // sin esto, cualquier cuenta de Google podía completar el OAuth y
+      // persistir un refresh_token real en user_drive_config antes de ser
+      // rechazada recién en el siguiente request por proxy.ts.
+      if (!isAllowedEmail(session.user.email)) {
+        await supabase.auth.signOut();
+        return NextResponse.redirect(`${origin}/login?error=unauthorized`);
+      }
 
       // Persistir refresh token de Google para poder renovar el access token de Drive
       // provider_refresh_token solo viene en el primer consentimiento — guardarlo siempre que esté presente

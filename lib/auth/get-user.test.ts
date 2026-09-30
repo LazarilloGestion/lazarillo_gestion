@@ -11,8 +11,8 @@ function mockSupabaseUser(user: { id: string; email: string } | null, error: unk
 }
 
 describe("getAuthUser", () => {
-  it("devuelve el usuario cuando la sesión es válida", async () => {
-    mockSupabaseUser({ id: "u1", email: "a@b.com" });
+  it("devuelve el usuario cuando la sesión es válida y el email está permitido", async () => {
+    mockSupabaseUser({ id: "u1", email: "lazarillogestion@gmail.com" });
     const user = await getAuthUser();
     expect(user?.id).toBe("u1");
   });
@@ -24,6 +24,11 @@ describe("getAuthUser", () => {
 
   it("devuelve null cuando supabase.auth.getUser() devuelve error", async () => {
     mockSupabaseUser(null, new Error("invalid token"));
+    expect(await getAuthUser()).toBeNull();
+  });
+
+  it("devuelve null cuando el email no está en la allowlist", async () => {
+    mockSupabaseUser({ id: "u2", email: "otro@gmail.com" });
     expect(await getAuthUser()).toBeNull();
   });
 });
