@@ -108,11 +108,28 @@ describe("normalizeVentas", () => {
 
   it("un fallo de $executeRaw se reporta en errors sin lanzar excepción", async () => {
     const db = createMockDb();
-    (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("constraint violation"));
+    (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("constraint violation"));
     const res = await normalizeVentas([baseRow()], db);
     expect(res.created).toBe(0);
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0].message).toMatch(/constraint violation/);
+  });
+
+  it("cuando el insert en lote falla, reintenta fila por fila y aísla solo la fila inválida (no pierde las demás)", async () => {
+    const db = createMockDb();
+    (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
+      if (sql.values.length > 23) throw new Error("simulated batch failure");
+      if (sql.values[2] === "BAD") throw new Error("valor fuera de rango numérico");
+      return 1;
+    });
+    const res = await normalizeVentas(
+      [baseRow({ COMPROBANT: "BAD", TURNO: "1" }), baseRow({ COMPROBANT: "OK", TURNO: "2" })],
+      db
+    );
+    expect(res.created).toBe(1);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].message).toMatch(/valor fuera de rango/);
+    expect(res.errors[0].rowIndex).toBe(0);
   });
 
   it("sanity check: toda fila del archivo termina en exactamente un bucket (creada/actualizada/omitida/error)", async () => {

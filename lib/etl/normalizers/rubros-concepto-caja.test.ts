@@ -37,10 +37,28 @@ describe("normalizeRubrosConceptoCaja", () => {
 
   it("un fallo de $executeRaw se reporta en errors sin lanzar excepción", async () => {
     const db = createMockDb();
-    (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("constraint violation"));
+    (db.$executeRaw as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("constraint violation"));
     const res = await normalizeRubrosConceptoCaja([baseRow()], db);
     expect(res.created).toBe(0);
     expect(res.errors).toHaveLength(1);
     expect(res.errors[0].message).toMatch(/constraint violation/);
+  });
+
+  it("cuando el insert en lote falla, reintenta fila por fila y aísla solo la fila inválida (no pierde las demás)", async () => {
+    const db = createMockDb();
+    (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
+      if (sql.values.length > 3) throw new Error("simulated batch failure");
+      if (sql.values[0] === "BAD") throw new Error("valor fuera de rango numérico");
+      return 1;
+    });
+    const res = await normalizeRubrosConceptoCaja(
+      [baseRow({ CODIGO: "OK" }), baseRow({ CODIGO: "BAD" })],
+      db
+    );
+    expect(res.created).toBe(1);
+    expect(res.errors).toHaveLength(1);
+    expect(res.errors[0].message).toMatch(/valor fuera de rango/);
+    expect(res.errors[0].rowIndex).toBe(1);
+    expect(res.errors[0].rawCodigo).toBe("BAD");
   });
 });
