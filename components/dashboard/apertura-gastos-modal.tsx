@@ -346,8 +346,14 @@ export function AperturaGastosModal({
     try {
       const res = await fetch(`/api/apertura/reglas/${reglaAEliminar.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
+      const payload = await res.json().catch(() => null);
+      const erroresCascada = payload?.erroresCascada as string[] | undefined;
       await refetchDependientes();
-      notify.registroActualizado();
+      if (erroresCascada && erroresCascada.length > 0) {
+        notify.aperturaSincronizacionConErrores(erroresCascada.length);
+      } else {
+        notify.registroActualizado();
+      }
       setReglaAEliminar(null);
     } catch {
       notify.errorActualizar(entidadNombre);

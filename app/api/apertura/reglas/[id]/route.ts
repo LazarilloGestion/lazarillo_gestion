@@ -199,6 +199,12 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
       }
     } catch (err) {
       console.error("[DELETE /api/apertura/reglas/[id]] la cascada de reaplicación falló por completo (la regla ya se eliminó)", err);
+      // Antes acá erroresCascada quedaba en [] — la respuesta al cliente era
+      // indistinguible de "cascada corrió limpia, 0 errores" cuando en
+      // realidad no se reaplicó ninguna regla. Ver hallazgo de code-review.
+      erroresCascada = [
+        "La cascada de reaplicación de reglas falló por completo tras eliminar esta regla — revisar manualmente qué compras quedaron sin redistribuir.",
+      ];
     }
 
     return NextResponse.json({ ok: true, comprasRevertidas, erroresCascada });
