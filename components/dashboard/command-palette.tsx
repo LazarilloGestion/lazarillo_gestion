@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/command";
 import type { Suggestion } from "@/app/api/search/suggestions/route";
 import type { ObservacionResult } from "@/app/api/search/observaciones/route";
+import { fmtARS } from "@/lib/utils";
 
 type SuggestionType = Suggestion["type"] | "observacion";
 
@@ -255,7 +256,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                           ? `${obs.fecha.slice(8, 10)}/${obs.fecha.slice(5, 7)}`
                           : null;
                         const importePart = obs.importe != null
-                          ? `$${Number(obs.importe).toLocaleString("es-AR")}`
+                          ? fmtARS(Number(obs.importe))
                           : null;
                         const meta = [dateParts, obs.proveedorNombre ?? obs.conceptoNombre, importePart].filter(Boolean).join(" · ");
                         return (

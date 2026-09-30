@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { cn, fmtARS } from "@/lib/utils";
 import type { ETLReport } from "@/lib/etl/types";
 import { translateError } from "@/lib/etl/error-messages";
 import type { DriveFile } from "@/lib/drive/types";
@@ -296,7 +296,7 @@ function ReportCard({ report }: { report: ETLReport }) {
                   <span className="font-mono">
                     {row.fecha ?? "—"}
                     {row.proveedor ? ` · ${row.proveedor}` : row.concepto ? ` · ${row.concepto}` : ""}
-                    {row.importe ? ` · $${Number(row.importe).toLocaleString("es-AR")}` : ""}
+                    {row.importe ? ` · ${fmtARS(Number(row.importe))}` : ""}
                   </span>
                   <span className="text-zinc-400 dark:text-zinc-500">
                     {row.motivo === "sin_datos"
