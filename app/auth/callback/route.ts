@@ -32,7 +32,10 @@ export async function GET(request: NextRequest) {
       // persistir un refresh_token real en user_drive_config antes de ser
       // rechazada recién en el siguiente request por proxy.ts.
       if (!isAllowedEmail(session.user.email)) {
-        await supabase.auth.signOut();
+        const { error: signOutError } = await supabase.auth.signOut();
+        if (signOutError) {
+          console.error("[auth/callback] Error al cerrar sesión de cuenta no autorizada:", signOutError);
+        }
         return NextResponse.redirect(`${origin}/login?error=unauthorized`);
       }
 

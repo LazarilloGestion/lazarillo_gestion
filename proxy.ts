@@ -22,15 +22,30 @@ export async function proxy(request: NextRequest) {
     (p) => pathname === p || pathname.startsWith(p + "/")
   );
 
+  // Cualquier NextResponse que no sea `response` pierde las cookies que
+  // createMiddlewareClient/signOut ya escribieron ahí (refresh de sesión,
+  // borrado de sesión rechazada) — copiarlas explícitamente antes de devolver.
+  const withUpdatedCookies = (res: NextResponse): NextResponse => {
+    for (const cookie of response.cookies.getAll()) {
+      res.cookies.set(cookie);
+    }
+    return res;
+  };
+
   // Email no autorizado → cerrar sesión y redirigir
   if (user && !isAllowedEmail(user.email)) {
-    await supabase.auth.signOut();
-    return NextResponse.redirect(new URL("/login?error=unauthorized", request.url));
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      console.error("[proxy] Error al cerrar sesión de cuenta no autorizada:", signOutError);
+    }
+    return withUpdatedCookies(
+      NextResponse.redirect(new URL("/login?error=unauthorized", request.url))
+    );
   }
 
   // Autenticado + intenta /login → redirigir al dashboard
   if (user && pathname === "/login") {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return withUpdatedCookies(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
   // No autenticado + ruta protegida:
@@ -39,13 +54,13 @@ export async function proxy(request: NextRequest) {
   // - páginas: redirect a /login preservando destino.
   if (!user && !isPublic) {
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+      return withUpdatedCookies(NextResponse.json({ error: "No autorizado" }, { status: 401 }));
     }
     const loginUrl = new URL("/login", request.url);
     // Solo pasar pathname + search para prevenir open redirect
     const next = pathname + (searchParams.toString() ? `?${searchParams}` : "");
     loginUrl.searchParams.set("next", next);
-    return NextResponse.redirect(loginUrl);
+    return withUpdatedCookies(NextResponse.redirect(loginUrl));
   }
 
   // Retornar response con cookies actualizadas (refresh token automático)
@@ -54,6 +69,10 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // La exclusión por extensión de archivo NO aplica bajo /api/ — una ruta
+    // dinámica como /api/dashboard/compras/[rowId] puede coincidir por
+    // casualidad (ej. un rowId que termine en ".png") y saltear el
+    // middleware por completo si no se excluye explícitamente ese prefijo.
+    "/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest|(?!api/).*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
