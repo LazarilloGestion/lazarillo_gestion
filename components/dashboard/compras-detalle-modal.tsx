@@ -19,6 +19,7 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { cn, fmtARS, fmtDate, normalize } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { buildComprasDetalleUrl } from "@/lib/dashboard/params";
+import { parseImporteManual } from "@/lib/dashboard/parse-importe-manual";
 import { SIN_RUBRO_CODE, SIN_RUBRO_NOMBRE } from "@/lib/dashboard/constants";
 import type { DetalleFilter, DetalleResponse, CompraDetalle } from "@/lib/dashboard/types";
 import type { SortState } from "@/hooks/use-sort-state";
@@ -488,16 +489,25 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   );
 
   const guardarConfirmado = useCallback(async (state: EditState) => {
+    // En una compra distribuida el importe se reparte por regla — no se
+    // manda importeManual para no pisar la compra base con la fracción de
+    // un destino (el input queda bloqueado en el formulario), así que no
+    // hace falta validarlo en ese caso.
+    let importeManual: number | null = null;
+    if (!state.esDistribuida) {
+      const importeResult = parseImporteManual(state.importeManual);
+      if (!importeResult.ok) {
+        setSaveError("El importe ingresado no es un número válido.");
+        return;
+      }
+      importeManual = importeResult.value;
+    }
+
     setSaving(true);
     setSaveError(null);
     try {
       const requestBody = {
-        // En una compra distribuida el importe se reparte por regla — no se
-        // manda importeManual para no pisar la compra base con la fracción de
-        // un destino (el input queda bloqueado en el formulario).
-        ...(state.esDistribuida
-          ? {}
-          : { importeManual: state.importeManual !== "" ? parseFloat(state.importeManual) : null }),
+        ...(state.esDistribuida ? {} : { importeManual }),
         fechaManual:          state.fechaManual !== "" ? new Date(state.fechaManual + "T12:00:00Z").toISOString() : null,
         conceptoCodigoManual: state.conceptoCodigoManual !== "" ? state.conceptoCodigoManual : null,
         observacManual:       state.observacManual !== "" ? state.observacManual : null,
