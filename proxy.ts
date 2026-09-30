@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMiddlewareClient } from "@/lib/supabase/middleware";
+import { isAllowedEmail } from "@/lib/auth/allowed-emails";
 
 const PUBLIC_PATHS = ["/login", "/auth/callback"];
-const ALLOWED_EMAILS = ["lazarillogestion@gmail.com"];
 
 export async function proxy(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
@@ -23,7 +23,7 @@ export async function proxy(request: NextRequest) {
   );
 
   // Email no autorizado → cerrar sesión y redirigir
-  if (user && !ALLOWED_EMAILS.includes(user.email ?? "")) {
+  if (user && !isAllowedEmail(user.email)) {
     await supabase.auth.signOut();
     return NextResponse.redirect(new URL("/login?error=unauthorized", request.url));
   }
@@ -33,8 +33,14 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  // No autenticado + ruta protegida → login preservando destino
+  // No autenticado + ruta protegida:
+  // - /api/*: 401 JSON — el cliente (fetch) espera JSON, no un redirect que
+  //   termina devolviendo el HTML de /login con status 200.
+  // - páginas: redirect a /login preservando destino.
   if (!user && !isPublic) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
     const loginUrl = new URL("/login", request.url);
     // Solo pasar pathname + search para prevenir open redirect
     const next = pathname + (searchParams.toString() ? `?${searchParams}` : "");
