@@ -100,7 +100,11 @@ export default async function LoginPage({ searchParams }: Props) {
 
           <LoginForm
             next={params.next ?? "/dashboard"}
-            hasError={params.error === "auth_callback_error"}
+            error={
+              params.error === "auth_callback_error" || params.error === "unauthorized"
+                ? params.error
+                : null
+            }
           />
 
           <p className="text-xs text-zinc-400 dark:text-zinc-600 text-center">

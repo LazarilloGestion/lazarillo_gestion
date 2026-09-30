@@ -28,12 +28,19 @@ function GoogleIcon() {
   );
 }
 
+type LoginError = "auth_callback_error" | "unauthorized" | null;
+
 interface LoginFormProps {
   next: string;
-  hasError: boolean;
+  error: LoginError;
 }
 
-export function LoginForm({ next, hasError }: LoginFormProps) {
+const ERROR_MESSAGES: Record<Exclude<LoginError, null>, string> = {
+  auth_callback_error: "Error al autenticar con Google. Intentá nuevamente.",
+  unauthorized: "Tu cuenta no tiene acceso a esta aplicación.",
+};
+
+export function LoginForm({ next, error: loginError }: LoginFormProps) {
   const [loading, setLoading] = useState(false);
   const supabase = useMemo(() => createClient(), []);
 
@@ -47,8 +54,12 @@ export function LoginForm({ next, hasError }: LoginFormProps) {
         redirectTo,
         scopes: "openid email profile https://www.googleapis.com/auth/drive.readonly",
         queryParams: {
-          // "consent" fuerza re-emisión del refresh_token en cada login,
-          // necesario para recuperar acceso si el token fue revocado.
+          // "select_account" solo fuerza el selector de cuenta de Google, NO
+          // reemite el refresh_token en cada login (eso requeriría
+          // prompt=consent, con el costo de mostrar la pantalla de
+          // consentimiento siempre). Si el refresh_token se revoca, hay que
+          // recuperarlo manualmente con "Reconectar con Google Drive"
+          // (importar/page.tsx), que sí usa prompt=consent.
           prompt: "select_account",
           access_type: "offline",
         },
@@ -63,11 +74,11 @@ export function LoginForm({ next, hasError }: LoginFormProps) {
 
   return (
     <div className="space-y-4">
-      {hasError && (
+      {loginError && (
         <div className="flex items-start gap-3 rounded-lg border border-destructive/25 bg-destructive/10 p-3">
           <AlertCircle className="size-4 text-destructive flex-shrink-0 mt-0.5" />
           <p className="text-sm text-destructive leading-snug">
-            Error al autenticar con Google. Intentá nuevamente.
+            {ERROR_MESSAGES[loginError]}
           </p>
         </div>
       )}
