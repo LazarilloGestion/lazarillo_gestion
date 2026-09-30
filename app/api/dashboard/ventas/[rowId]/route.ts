@@ -39,6 +39,7 @@ export async function PATCH(
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025") {
       return NextResponse.json({ error: "Registro no encontrado" }, { status: 404 });
     }
+    console.error("[PATCH /api/dashboard/ventas/[rowId]]", err);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
