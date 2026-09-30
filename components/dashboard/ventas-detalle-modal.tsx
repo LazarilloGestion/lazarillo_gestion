@@ -7,6 +7,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { fmtARS, fmtDate, normalize } from "@/lib/utils";
 import { buildVentasDetalleUrl } from "@/lib/dashboard/params";
+import { parseImporteManual } from "@/lib/dashboard/parse-importe-manual";
 import type { VentasDetalleFilter, VentaDetalle, DetalleResponse } from "@/lib/dashboard/types";
 import type { SortState } from "@/hooks/use-sort-state";
 import type { ColDef } from "./compras-detalle-modal";
@@ -139,6 +140,12 @@ export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleF
   }, [stableFilter]);
 
   const handleSave = useCallback(async (state: EditState) => {
+    const importeResult = parseImporteManual(state.importeManual);
+    if (!importeResult.ok) {
+      setSaveError("El importe ingresado no es un número válido.");
+      return;
+    }
+
     setSaving(true);
     setSaveError(null);
     try {
@@ -146,7 +153,7 @@ export function VentasDetalleModal({ filter, onClose }: { filter: VentasDetalleF
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          importeManual: state.importeManual !== "" ? parseFloat(state.importeManual) : null,
+          importeManual: importeResult.value,
         }),
       });
       if (!res.ok) throw new Error("Error al guardar");
