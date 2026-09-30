@@ -29,15 +29,6 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const params = parseDashboardParams(searchParams);
 
-  if (
-    (params.localId !== undefined && isNaN(params.localId)) ||
-    (params.pdvId !== undefined && isNaN(params.pdvId)) ||
-    (params.proveedorId !== undefined && isNaN(params.proveedorId)) ||
-    (params.observacionQuery !== undefined && params.observacionQuery.length > 256)
-  ) {
-    return NextResponse.json({ error: "Invalid numeric parameter" }, { status: 400 });
-  }
-
   const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months, vista, agrupacion } = params;
   const visibilidadCol = vista === "resultados" ? "visibleEnResultados" : "visibleEnDashboard";
 

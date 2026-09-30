@@ -25,13 +25,6 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const params = parseVentasParams(searchParams);
 
-  if (
-    (params.localId !== undefined && isNaN(params.localId)) ||
-    (params.pdvId !== undefined && isNaN(params.pdvId))
-  ) {
-    return NextResponse.json({ error: "Invalid numeric parameter" }, { status: 400 });
-  }
-
   const { year, localId, pdvId, months } = params;
 
   try {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildRangoAniosUrl, parseDashboardParams, buildDashboardUrl, buildComprasDetalleUrl } from "./params";
+import { buildRangoAniosUrl, parseDashboardParams, parseVentasParams, buildDashboardUrl, buildComprasDetalleUrl } from "./params";
 
 describe("buildRangoAniosUrl", () => {
   it("sin filtros: ruta sin query string", () => {
@@ -33,6 +33,80 @@ describe("parseDashboardParams — agrupacion", () => {
   it("valor inválido: undefined, no rompe", () => {
     const params = parseDashboardParams(new URLSearchParams("agrupacion=lo-que-sea"));
     expect(params.agrupacion).toBeUndefined();
+  });
+});
+
+describe("parseDashboardParams — validación Zod, valores inválidos", () => {
+  it("localId no numérico: undefined, no rompe (descarte silencioso)", () => {
+    const params = parseDashboardParams(new URLSearchParams("localId=abc"));
+    expect(params.localId).toBeUndefined();
+  });
+
+  it("localId vacío en la URL: undefined", () => {
+    const params = parseDashboardParams(new URLSearchParams("localId="));
+    expect(params.localId).toBeUndefined();
+  });
+
+  it("localId numérico válido: se parsea a number", () => {
+    const params = parseDashboardParams(new URLSearchParams("localId=3"));
+    expect(params.localId).toBe(3);
+  });
+
+  it("pdvId no numérico: undefined, no rompe", () => {
+    const params = parseDashboardParams(new URLSearchParams("pdvId=xyz"));
+    expect(params.pdvId).toBeUndefined();
+  });
+
+  it("proveedorId no numérico: undefined, no rompe", () => {
+    const params = parseDashboardParams(new URLSearchParams("proveedorId=nope"));
+    expect(params.proveedorId).toBeUndefined();
+  });
+
+  it("year fuera de rango: usa el año actual", () => {
+    const params = parseDashboardParams(new URLSearchParams("year=1899"));
+    expect(params.year).toBe(new Date().getFullYear());
+  });
+
+  it("year no numérico: usa el año actual", () => {
+    const params = parseDashboardParams(new URLSearchParams("year=abc"));
+    expect(params.year).toBe(new Date().getFullYear());
+  });
+
+  it("year ausente: usa el año actual", () => {
+    const params = parseDashboardParams(new URLSearchParams());
+    expect(params.year).toBe(new Date().getFullYear());
+  });
+
+  it("rubroCodigo vacío explícito en la URL: se preserva como string vacío (no undefined)", () => {
+    const params = parseDashboardParams(new URLSearchParams("rubroCodigo="));
+    expect(params.rubroCodigo).toBe("");
+  });
+
+  it("rubroCodigo más largo que 64: se trunca", () => {
+    const params = parseDashboardParams(new URLSearchParams(`rubroCodigo=${"a".repeat(100)}`));
+    expect(params.rubroCodigo).toHaveLength(64);
+  });
+
+  it("months con entradas no numéricas: se descartan, quedan solo las válidas", () => {
+    const params = parseDashboardParams(new URLSearchParams("months=1,abc,3"));
+    expect(params.months).toEqual([1, 3]);
+  });
+
+  it("months con las 12 entradas: undefined (equivale a sin filtro)", () => {
+    const params = parseDashboardParams(new URLSearchParams("months=1,2,3,4,5,6,7,8,9,10,11,12"));
+    expect(params.months).toBeUndefined();
+  });
+});
+
+describe("parseVentasParams — validación Zod, valores inválidos", () => {
+  it("localId no numérico: undefined, no rompe", () => {
+    const params = parseVentasParams(new URLSearchParams("localId=abc"));
+    expect(params.localId).toBeUndefined();
+  });
+
+  it("year fuera de rango: usa el año actual", () => {
+    const params = parseVentasParams(new URLSearchParams("year=1899"));
+    expect(params.year).toBe(new Date().getFullYear());
   });
 });
 

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DetalleFilter, VentasDetalleFilter } from "./types";
 
 export type Vista = "compras" | "resultados";
@@ -23,52 +24,92 @@ export interface VentasDashboardParams {
   months?: number[];
 }
 
-function toInt(s: string | null): number | undefined {
-  if (!s) return undefined;
-  const n = Number(s);
+// Todo query param de estas rutas es dato externo (CLAUDE.md §2) — se valida
+// con Zod en vez de checks manuales. Los `preprocess` reproducen a propósito
+// el comportamiento previo (descarte silencioso de valores inválidos, no
+// error 400) para no cambiar el contrato de la API en este fix; un id
+// inválido o fuera de rango sigue tratándose como "sin filtro".
+
+// Distinto de yearParam/monthsParam: acá "" (param presente pero vacío)
+// también cuenta como "sin filtro" — igual que un id ausente o no-numérico.
+const optionalIntParam = z.preprocess((v) => {
+  if (typeof v !== "string" || v === "") return undefined;
+  const n = Number(v);
   return Number.isInteger(n) ? n : undefined;
-}
+}, z.number().int().optional());
 
-function parseMonths(s: string | null): number[] | undefined {
-  if (!s) return undefined;
-  const parsed = s.split(",").map(Number).filter((n) => n >= 1 && n <= 12);
+// A diferencia de optionalIntParam, "" acá NO se trata como ausente —
+// preserva el comportamiento previo de `sp.get(x)?.slice(n) ?? undefined`,
+// donde un string vacío explícito en la URL pasaba igual como "".
+const truncatedStringParam = (maxLength: number) =>
+  z.preprocess((v) => {
+    if (typeof v !== "string") return undefined;
+    return v.slice(0, maxLength);
+  }, z.string().optional());
+
+const yearParam = z.preprocess((v) => {
+  const raw = Number(typeof v === "string" ? v : null);
+  return Number.isInteger(raw) && raw >= 2000 && raw <= 2100 ? raw : new Date().getFullYear();
+}, z.number());
+
+const monthsParam = z.preprocess((v) => {
+  if (typeof v !== "string" || v === "") return undefined;
+  const parsed = v.split(",").map(Number).filter((n) => n >= 1 && n <= 12);
   return parsed.length > 0 && parsed.length < 12 ? parsed : undefined;
-}
+}, z.array(z.number().int().min(1).max(12)).optional());
 
-function parseVista(s: string | null): Vista | undefined {
-  return s === "resultados" ? "resultados" : undefined;
-}
+const vistaParam = z.preprocess(
+  (v) => (v === "resultados" ? "resultados" : undefined),
+  z.literal("resultados").optional()
+);
 
-function parseAgrupacion(s: string | null): AgrupacionCompras | undefined {
-  return s === "proveedor" ? "proveedor" : undefined;
-}
+const agrupacionParam = z.preprocess(
+  (v) => (v === "proveedor" ? "proveedor" : undefined),
+  z.literal("proveedor").optional()
+);
+
+const dashboardParamsSchema = z.object({
+  year: yearParam,
+  localId: optionalIntParam,
+  pdvId: optionalIntParam,
+  rubroCodigo: truncatedStringParam(64),
+  conceptoCodigo: truncatedStringParam(64),
+  proveedorId: optionalIntParam,
+  observacionQuery: truncatedStringParam(256),
+  months: monthsParam,
+  vista: vistaParam,
+  agrupacion: agrupacionParam,
+});
+
+const ventasParamsSchema = z.object({
+  year: yearParam,
+  localId: optionalIntParam,
+  pdvId: optionalIntParam,
+  months: monthsParam,
+});
 
 export function parseDashboardParams(sp: URLSearchParams): DashboardParams {
-  const raw = Number(sp.get("year"));
-  const year = Number.isInteger(raw) && raw >= 2000 && raw <= 2100 ? raw : new Date().getFullYear();
-  return {
-    year,
-    localId: toInt(sp.get("localId")),
-    pdvId: toInt(sp.get("pdvId")),
-    rubroCodigo: sp.get("rubroCodigo")?.slice(0, 64) ?? undefined,
-    conceptoCodigo: sp.get("conceptoCodigo")?.slice(0, 64) ?? undefined,
-    proveedorId: toInt(sp.get("proveedorId")),
-    observacionQuery: sp.get("observacionQuery")?.slice(0, 256) ?? undefined,
-    months: parseMonths(sp.get("months")),
-    vista: parseVista(sp.get("vista")),
-    agrupacion: parseAgrupacion(sp.get("agrupacion")),
-  };
+  return dashboardParamsSchema.parse({
+    year: sp.get("year"),
+    localId: sp.get("localId"),
+    pdvId: sp.get("pdvId"),
+    rubroCodigo: sp.get("rubroCodigo"),
+    conceptoCodigo: sp.get("conceptoCodigo"),
+    proveedorId: sp.get("proveedorId"),
+    observacionQuery: sp.get("observacionQuery"),
+    months: sp.get("months"),
+    vista: sp.get("vista"),
+    agrupacion: sp.get("agrupacion"),
+  });
 }
 
 export function parseVentasParams(sp: URLSearchParams): VentasDashboardParams {
-  const raw = Number(sp.get("year"));
-  const year = Number.isInteger(raw) && raw >= 2000 && raw <= 2100 ? raw : new Date().getFullYear();
-  return {
-    year,
-    localId: toInt(sp.get("localId")),
-    pdvId: toInt(sp.get("pdvId")),
-    months: parseMonths(sp.get("months")),
-  };
+  return ventasParamsSchema.parse({
+    year: sp.get("year"),
+    localId: sp.get("localId"),
+    pdvId: sp.get("pdvId"),
+    months: sp.get("months"),
+  });
 }
 
 export function buildDashboardUrl(base: string, params: DashboardParams): string {
