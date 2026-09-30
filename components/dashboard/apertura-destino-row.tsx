@@ -4,7 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { X } from "lucide-react";
 import { montoDesdePct, pctDesdeMonto } from "@/lib/apertura/conversion";
-import type { DestinoBasico } from "@/lib/apertura/validaciones";
+import { destinosSuperpuestos, type DestinoBasico } from "@/lib/apertura/validaciones";
 import type { Local } from "@/lib/types/domain";
 
 export interface DestinoFormState {
@@ -43,13 +43,15 @@ export function AperturaDestinoRow({
   const puntosDeVenta = localSeleccionado?.puntosDeVenta ?? [];
   const monto = total !== null ? montoDesdePct(destino.porcentaje, total) : null;
 
-  // Otras filas que ya usan el MISMO local — cualquiera de ellas (sea "todo
-  // el local" o un punto de venta específico) compite por la misma plata que
-  // "todo el local" acá, así que basta con que exista una para bloquearlo.
-  const otrasDelMismoLocal = destino.localId != null ? otrosDestinos.filter((o) => o.localId === destino.localId) : [];
-  const todoElLocalDeshabilitado = otrasDelMismoLocal.length > 0;
+  // ¿Alguna otra fila ya usa un destino que compite por la misma plata que
+  // `candidato` acá? (ver destinosSuperpuestos).
+  function superpuestoConOtraFila(candidato: DestinoBasico): boolean {
+    return otrosDestinos.some((o) => destinosSuperpuestos(candidato, o));
+  }
+  const todoElLocalDeshabilitado =
+    destino.localId != null && superpuestoConOtraFila({ localId: destino.localId, puntoDeVentaId: null });
   function puntoDeVentaDeshabilitado(puntoDeVentaId: number): boolean {
-    return otrasDelMismoLocal.some((o) => o.puntoDeVentaId === null || o.puntoDeVentaId === puntoDeVentaId);
+    return superpuestoConOtraFila({ localId: destino.localId, puntoDeVentaId });
   }
 
   // Campo %↔$ bidireccional: cada input tiene su propio borrador de texto que
