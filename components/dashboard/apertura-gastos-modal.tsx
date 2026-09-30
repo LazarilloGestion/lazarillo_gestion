@@ -350,7 +350,7 @@ export function AperturaGastosModal({
       const erroresCascada = payload?.erroresCascada as string[] | undefined;
       await refetchDependientes();
       if (erroresCascada && erroresCascada.length > 0) {
-        notify.aperturaSincronizacionConErrores(erroresCascada.length);
+        notify.aperturaCascadaTrasEliminarConErrores(erroresCascada.length);
       } else {
         notify.registroActualizado();
       }

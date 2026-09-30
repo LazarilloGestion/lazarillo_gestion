@@ -25,4 +25,16 @@ describe("parseImporteManual", () => {
   it("texto no numérico: ok false", () => {
     expect(parseImporteManual("abc")).toEqual({ ok: false });
   });
+
+  it("texto con número al principio pero basura después: ok false (Number no hace parseo parcial como parseFloat)", () => {
+    expect(parseImporteManual("12abc")).toEqual({ ok: false });
+  });
+
+  it("dos puntos decimales: ok false", () => {
+    expect(parseImporteManual("1.2.3")).toEqual({ ok: false });
+  });
+
+  it("solo espacios en blanco: ok, value null (se trata igual que vacío)", () => {
+    expect(parseImporteManual("   ")).toEqual({ ok: true, value: null });
+  });
 });

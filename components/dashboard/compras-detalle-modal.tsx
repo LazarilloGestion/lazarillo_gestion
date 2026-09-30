@@ -331,8 +331,8 @@ function ComprasRow({
             </Tooltip>
           ) : (
             <Input
-              type="number"
-              step="0.01"
+              type="text"
+              inputMode="decimal"
               className="h-7 text-xs w-28 text-right"
               value={editing!.importeManual}
               onChange={e => onEdit({ ...editing!, importeManual: e.target.value })}
