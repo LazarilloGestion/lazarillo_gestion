@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { X } from "lucide-react";
 import { montoDesdePct, pctDesdeMonto } from "@/lib/apertura/conversion";
+import { formatearMonto, formatearMontoTipeado, parsearMonto, posicionTrasFormatear } from "@/lib/apertura/formato-monto";
 import { destinosSuperpuestos, type DestinoBasico } from "@/lib/apertura/validaciones";
 import type { Local } from "@/lib/types/domain";
 
@@ -63,7 +64,7 @@ export function AperturaDestinoRow({
   // rama, Fase C).
   const [campoActivo, setCampoActivo] = useState<"pct" | "monto" | null>(null);
   const [pctDraft, setPctDraft] = useState(() => String(destino.porcentaje));
-  const [montoDraft, setMontoDraft] = useState(() => (monto !== null ? String(monto) : ""));
+  const [montoDraft, setMontoDraft] = useState(() => (monto !== null ? formatearMonto(monto) : ""));
 
   // Re-sincronización de borradores desde las props: ajuste durante el render
   // (mismo patrón que apertura-gastos-modal.tsx usa para resetear estado) en
@@ -77,7 +78,7 @@ export function AperturaDestinoRow({
   const [montoSincronizado, setMontoSincronizado] = useState(monto);
   if (campoActivo !== "monto" && montoSincronizado !== monto) {
     setMontoSincronizado(monto);
-    setMontoDraft(monto !== null ? String(monto) : "");
+    setMontoDraft(monto !== null ? formatearMonto(monto) : "");
   }
 
   function desenfocar(campo: "pct" | "monto") {
@@ -88,7 +89,7 @@ export function AperturaDestinoRow({
     // ("" o "12.") nunca se llegó a commitear hacia arriba y quedaría mostrando
     // algo distinto del estado real del destino.
     if (campo === "pct") setPctDraft(String(destino.porcentaje));
-    else setMontoDraft(monto !== null ? String(monto) : "");
+    else setMontoDraft(monto !== null ? formatearMonto(monto) : "");
   }
 
   function handlePctChange(texto: string) {
@@ -104,15 +105,25 @@ export function AperturaDestinoRow({
     onChange({ ...destino, porcentaje: Number(texto) });
   }
 
-  function handleMontoChange(texto: string) {
-    setMontoDraft(texto);
+  function handleMontoChange(input: HTMLInputElement) {
+    const crudo = input.value;
+    const formateado = formatearMontoTipeado(crudo);
+    setMontoDraft(formateado);
+
+    // El texto se reformatea en cada tecla (puntos de miles), lo que manda el
+    // cursor al final; se lo devuelve al mismo dígito después del render.
+    const significativosAntes = crudo.slice(0, input.selectionStart ?? crudo.length).replace(/[^\d,]/g, "").length;
+    const cursor = posicionTrasFormatear(formateado, significativosAntes);
+    requestAnimationFrame(() => input.setSelectionRange(cursor, cursor));
+
     if (total === null) return;
-    if (texto.trim() === "") {
+    if (formateado === "") {
       onChange({ ...destino, porcentaje: 0 });
       return;
     }
-    if (!esNumeroValido(texto)) return;
-    onChange({ ...destino, porcentaje: pctDesdeMonto(Number(texto), total) });
+    const valor = parsearMonto(formateado);
+    if (valor === null) return;
+    onChange({ ...destino, porcentaje: pctDesdeMonto(valor, total) });
   }
 
   // Sin flechitas nativas del type="number": en Chrome/Safari le restan ancho
@@ -180,9 +191,9 @@ export function AperturaDestinoRow({
           w-24 arbitrario que se queda corto con totales grandes. */}
       <div className="flex min-w-0 flex-1 items-center gap-1">
         <Input
-          type="number"
-          step="0.01"
-          className={`h-7 min-w-0 flex-1 text-xs text-right ${sinSpinner}`}
+          type="text"
+          inputMode="decimal"
+          className="h-7 min-w-0 flex-1 text-xs text-right"
           // Sin total conocido no hay contra qué convertir: se muestra "—" en
           // vez de un $0 que parecería dato real (mismo criterio que el total
           // agregado del modal).
@@ -191,7 +202,7 @@ export function AperturaDestinoRow({
           value={total === null ? "" : montoDraft}
           onFocus={() => setCampoActivo("monto")}
           onBlur={() => desenfocar("monto")}
-          onChange={(e) => handleMontoChange(e.target.value)}
+          onChange={(e) => handleMontoChange(e.target)}
         />
         <span className="shrink-0 text-xs text-muted-foreground">$</span>
       </div>
