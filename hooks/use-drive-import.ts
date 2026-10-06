@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { notify } from "@/lib/toast";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import type { ETLReport } from "@/lib/etl/types";
@@ -40,6 +41,7 @@ function notificarApertura(apertura: { errores?: string[]; omitidas?: string[] }
  * que los maestros estén cargados).
  */
 export function useDriveImport() {
+  const queryClient = useQueryClient();
   const maestrosQuery = useFetchQuery<{ loaded: boolean }>(
     ["maestros-status"],
     "/api/etl/maestros-status"
@@ -198,6 +200,11 @@ export function useDriveImport() {
         console.error("[useDriveImport] Error finalizando sincronización de apertura", err);
       }
     }
+
+    // Un maestro importado puede haber renombrado un concepto/rubro/proveedor;
+    // sin esto el desplegable de edición de Gastos sigue mostrando el nombre
+    // viejo hasta que vence el staleTime de 5 min de ["suggestions"].
+    await queryClient.invalidateQueries({ queryKey: ["suggestions"] });
 
     return { errors: totalErrors, unsupported: totalUnsupported, total: files.length, records: totalRecords };
   }
