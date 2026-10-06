@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPivotConditions } from "./query-builders";
+import { buildPivotConditions, sinRubroVisibleSql } from "./query-builders";
 
 const sqlDe = (conds: ReturnType<typeof buildPivotConditions>) => conds.map((c) => c.sql).join(" AND ");
 
@@ -32,5 +32,43 @@ describe("buildPivotConditions — origen", () => {
     expect(sql).toContain(`c."localId" =`);
     expect(sql).toContain(`c."puntoDeVentaId" =`);
     expect(conds.flatMap((c) => c.values)).toEqual(expect.arrayContaining([3, 7]));
+  });
+});
+
+describe("buildPivotConditions — visibilidad de Sin Rubro", () => {
+  it("Compras: consulta sin_rubro_config con la columna del dashboard y default true", () => {
+    const sql = sqlDe(buildPivotConditions({ tableAlias: "c", filterRubrosOcultos: true }));
+    expect(sql).toContain("sin_rubro_config");
+    expect(sql).toContain(`s."visibleEnDashboard"`);
+    expect(sql).toMatch(/,\s*true\)/);
+  });
+
+  it("Resultados: consulta la columna de resultados y default false", () => {
+    const sql = sqlDe(buildPivotConditions({ tableAlias: "c", filterRubrosOcultos: true, visibilidadCol: "visibleEnResultados" }));
+    expect(sql).toContain(`s."visibleEnResultados"`);
+    expect(sql).not.toContain(`s."visibleEnDashboard"`);
+    expect(sql).toMatch(/,\s*false\)/);
+  });
+
+  it("ya no deja Sin Rubro incondicionalmente visible (rc.codigo IS NULL va atado al flag)", () => {
+    const sql = sqlDe(buildPivotConditions({ tableAlias: "c", filterRubrosOcultos: true }));
+    expect(sql).toContain("rc.codigo IS NULL AND");
+  });
+
+  it("sin filterRubrosOcultos no consulta la config", () => {
+    expect(sqlDe(buildPivotConditions({ tableAlias: "c" }))).not.toContain("sin_rubro_config");
+  });
+
+  it("con rubroCodigo explícito no consulta la config (el usuario pidió ese bucket)", () => {
+    const sql = sqlDe(buildPivotConditions({ tableAlias: "c", filterRubrosOcultos: true, rubroCodigo: "__sin_rubro" }));
+    expect(sql).not.toContain("sin_rubro_config");
+  });
+});
+
+describe("sinRubroVisibleSql", () => {
+  it("una columna fuera de la whitelist cae al dashboard, nunca se interpola cruda", () => {
+    const frag = sinRubroVisibleSql("x; DROP TABLE compras" as never);
+    expect(frag.sql).toContain(`s."visibleEnDashboard"`);
+    expect(frag.sql).not.toContain("DROP");
   });
 });

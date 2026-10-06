@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { mesSchema, yearSchema, idSchema, codigoSchema, textoLibreSchema } from "@/lib/dashboard/schemas";
-import { buildDateRange } from "@/lib/dashboard/query-builders";
+import { buildDateRange, sinRubroVisibleSql } from "@/lib/dashboard/query-builders";
 
 export const dynamic = "force-dynamic";
 
@@ -250,7 +250,9 @@ export async function GET(request: NextRequest) {
     // en el Prisma.CompraWhereInput anterior) para decidir visibilidad, no el
     // efectivo — replicar exactamente, no "corregir" una inconsistencia que
     // ya existía y está fuera de alcance de este plan.
-    conditions.push(Prisma.sql`(rc."visibleEnDashboard" = true OR c."conceptoCodigo" IS NULL)`);
+    conditions.push(
+      Prisma.sql`(rc."visibleEnDashboard" = true OR (c."conceptoCodigo" IS NULL AND ${sinRubroVisibleSql("visibleEnDashboard")}))`
+    );
   }
 
   const where = Prisma.join(conditions, " AND ");

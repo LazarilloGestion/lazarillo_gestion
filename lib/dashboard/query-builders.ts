@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { VISIBILIDAD_FIELDS, type VisibilidadField } from "./constants";
+import { SIN_RUBRO_VISIBILIDAD_DEFAULT, VISIBILIDAD_FIELDS, type VisibilidadField } from "./constants";
 
 export function buildDateRange(year: number, mes?: number): { fechaStart: Date; fechaEnd: Date } {
   const fechaStart = mes ? new Date(Date.UTC(year, mes - 1, 1)) : new Date(Date.UTC(year, 0, 1));
@@ -22,6 +22,15 @@ interface PivotConditionParams {
   observacionQuery?: string;
   filterRubrosOcultos?: boolean;
   visibilidadCol?: VisibilidadField;
+}
+
+// Flag de visibilidad del bucket "Sin Rubro" (sin_rubro_config, una sola fila). COALESCE al default
+// si la fila falta: ante una config rota preferimos mostrar el dato antes que ocultarlo en silencio.
+// El literal del default sale de una constante nuestra (no de input), por eso va con Prisma.raw.
+export function sinRubroVisibleSql(col: VisibilidadField): Prisma.Sql {
+  const safe: VisibilidadField = VISIBILIDAD_FIELDS.includes(col) ? col : "visibleEnDashboard";
+  const fallback = SIN_RUBRO_VISIBILIDAD_DEFAULT[safe] ? "true" : "false";
+  return Prisma.sql`COALESCE((SELECT s."${Prisma.raw(safe)}" FROM sin_rubro_config s WHERE s.id = 1), ${Prisma.raw(fallback)})`;
 }
 
 export function buildPivotConditions({
@@ -71,7 +80,9 @@ export function buildPivotConditions({
     const col: VisibilidadField = VISIBILIDAD_FIELDS.includes(visibilidadCol as VisibilidadField)
       ? (visibilidadCol as VisibilidadField)
       : "visibleEnDashboard";
-    conditions.push(Prisma.sql`(rc."${Prisma.raw(col)}" = true OR rc.codigo IS NULL)`);
+    conditions.push(
+      Prisma.sql`(rc."${Prisma.raw(col)}" = true OR (rc.codigo IS NULL AND ${sinRubroVisibleSql(col)}))`
+    );
   }
   if (conceptoCodigo) conditions.push(Prisma.sql`COALESCE(cc.codigo, '__sin_concepto') = ${conceptoCodigo}`);
   if (proveedorId) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
