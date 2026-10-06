@@ -1,6 +1,6 @@
 import { origenAlcanza } from "./validaciones";
 import { fechaEnVigencia, type ReglaVigencia } from "./vigencia";
-import { revertirCompra, aplicarReglaACompra, type AperturaDbClient } from "./motor";
+import { revertirCompra, aplicarReglaACompra, tomarLockDeAplicacion, type AperturaDbClient } from "./motor";
 import { normalizarProveedorTexto } from "../text-normalize";
 import { construirEntidadIdProveedorTexto, candidatosEntidadIdProveedor } from "../proveedor-entidad-id";
 
@@ -68,6 +68,10 @@ export async function reevaluarCompra(
   prisma: AperturaDbClient,
   rowId: string
 ): Promise<{ reevaluada: boolean; distribuidaAhora: boolean }> {
+  // Antes de leer y revertir: dos reevaluaciones simultáneas de la misma compra
+  // (doble click en Guardar) revertirían ambas y reinsertarían ambas.
+  await tomarLockDeAplicacion(prisma);
+
   const compra = await prisma.compra.findUnique({
     where: { rowId },
     select: {
