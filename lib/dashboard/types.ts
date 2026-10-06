@@ -246,6 +246,9 @@ export type CompraDetalle = {
   esDistribuido: boolean;
   fecha: string | null;
   importe: string | number | null;
+  // Total de la compra base. En una fila aperturada `importe` es solo la
+  // fracción del destino; este es el valor que el modal de edición corrige.
+  importeBase: string | number | null;
   importeManual: string | number | null;
   fechaManual: string | null;
   conceptoCodigoManual: string | null;
