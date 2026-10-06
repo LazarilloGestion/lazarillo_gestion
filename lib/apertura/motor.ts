@@ -4,6 +4,7 @@ import { resolverVigencia, vigenciaToSql, FECHA_EFECTIVA_COMPRA_SQL, type ReglaV
 import { encontrarSuperposicion, origenesSuperpuestos } from "./validaciones";
 import type { NivelRegla } from "./schemas";
 import { parsearEntidadIdProveedorTexto } from "../proveedor-entidad-id";
+import { seleccionarReglasCandidatas, type CompraLiberada } from "./cascada";
 
 // Orden fijo de prioridad cuando una compra matchea reglas de más de un
 // nivel — spec v2 sección 2, no negociable. Número más alto = gana.
@@ -86,6 +87,7 @@ interface AplicarReglaInput {
   vigencia: ReglaVigencia;
   destinos: DestinoPct[];
   origen: { origenLocalId: number | null; origenPuntoDeVentaId: number | null };
+  soloRowIds?: string[];
 }
 
 interface DestinoInput {
@@ -229,7 +231,10 @@ export function condicionComprasElegibles(
   entidadId: string,
   vigenciaSql: Prisma.Sql,
   origen: { origenLocalId: number | null; origenPuntoDeVentaId: number | null },
-  reglaEnEdicionId?: number | null
+  reglaEnEdicionId?: number | null,
+  // Acota la búsqueda a estas compras — lo usa la cascada tras eliminar/editar
+  // una regla, que solo necesita reevaluar las compras recién liberadas.
+  soloRowIds?: string[]
 ): Prisma.Sql {
   const filtroDistribuido =
     reglaEnEdicionId != null
@@ -246,6 +251,8 @@ export function condicionComprasElegibles(
       ? Prisma.sql`c."puntoDeVentaId" = ${origen.origenPuntoDeVentaId}`
       : Prisma.sql`c."localId" = ${origen.origenLocalId}`;
 
+  const filtroRowIds = soloRowIds != null ? Prisma.sql`AND c."rowId" = ANY(${soloRowIds}::text[])` : Prisma.empty;
+
   return Prisma.sql`
     SELECT c."rowId", COALESCE(c."importeManual", c.importe) AS "importeBase", ${FECHA_EFECTIVA_COMPRA_SQL} AS "fechaEfectiva"
     FROM compras c
@@ -255,6 +262,7 @@ export function condicionComprasElegibles(
       AND ${filtroOrigen}
       AND COALESCE(c."importeManual", c.importe) IS NOT NULL
       AND (${vigenciaSql})
+      ${filtroRowIds}
   `;
 }
 
@@ -323,7 +331,7 @@ export async function aplicarRegla(
   const vigenciaSql = vigenciaToSql(cond, FECHA_EFECTIVA_COMPRA_SQL);
 
   const compras = await prisma.$queryRaw<{ rowId: string; importeBase: Prisma.Decimal }[]>(
-    condicionComprasElegibles(input.nivel, input.entidadId, vigenciaSql, input.origen)
+    condicionComprasElegibles(input.nivel, input.entidadId, vigenciaSql, input.origen, null, input.soloRowIds)
   );
 
   if (compras.length === 0) return { comprasAfectadas: 0 };
@@ -424,14 +432,17 @@ export async function aplicarReglaACompra(
 // IMPORTANTE: al igual que aplicarRegla, debe llamarse SIEMPRE con un cliente
 // de transacción — nunca con el `prisma` export a secas (fix de review,
 // ronda 1, hallazgo 5).
-export async function revertirRegla(prisma: AperturaDbClient, reglaId: number): Promise<{ comprasRevertidas: number }> {
+export async function revertirRegla(
+  prisma: AperturaDbClient,
+  reglaId: number
+): Promise<{ comprasRevertidas: number; rowIds: string[] }> {
   const afectadas = await prisma.$queryRaw<{ rowId: string }[]>(Prisma.sql`
     SELECT DISTINCT "compraRowId" AS "rowId" FROM distribuciones_apertura WHERE "reglaId" = ${reglaId}
   `);
 
   await prisma.$executeRaw(Prisma.sql`DELETE FROM distribuciones_apertura WHERE "reglaId" = ${reglaId}`);
 
-  if (afectadas.length === 0) return { comprasRevertidas: 0 };
+  if (afectadas.length === 0) return { comprasRevertidas: 0, rowIds: [] };
 
   const rowIds = afectadas.map((c) => c.rowId);
   await prisma.$executeRaw(Prisma.sql`
@@ -445,7 +456,7 @@ export async function revertirRegla(prisma: AperturaDbClient, reglaId: number): 
     WHERE c."rowId" = ANY(${rowIds}::text[])
   `);
 
-  return { comprasRevertidas: afectadas.length };
+  return { comprasRevertidas: afectadas.length, rowIds };
 }
 
 // Revierte la distribución de UNA sola compra (no toda una regla): borra sus
@@ -496,13 +507,31 @@ export function compararPrioridadNivel(a: { nivel: NivelRegla }, b: { nivel: Niv
 // Verificado contra datos reales de producción: una compra migró
 // correctamente concepto → proveedor → registro → proveedor → concepto,
 // mismo importe distribuido en cada paso (17-sep-2026).
+//
+// Con `opciones.rowIds` (cascada tras eliminar/editar UNA regla) reevalúa solo
+// esas compras recién liberadas, y solo con las reglas que pueden reclamarlas:
+// reaplicar las ~200 reglas activas por cada borrado tardaba más que el
+// maxDuration de la request y fallaba a mitad de camino. Asume el invariante de
+// que, fuera de lo recién liberado, ninguna compra elegible queda sin
+// distribuir — la reimportación (sin rowIds) sigue reaplicando todo y lo sana.
 export async function reaplicarReglasActivas(
-  prisma: PrismaClient
+  prisma: PrismaClient,
+  opciones: { rowIds?: string[] } = {}
 ): Promise<{ reglasReaplicadas: number; errores: string[] }> {
-  const reglasActivas = await prisma.reglaApertura.findMany({
+  const soloRowIds = opciones.rowIds;
+  if (soloRowIds !== undefined && soloRowIds.length === 0) return { reglasReaplicadas: 0, errores: [] };
+
+  const todasActivas = await prisma.reglaApertura.findMany({
     where: { estado: "activa" },
     include: { destinos: true },
   });
+  const reglasActivas =
+    soloRowIds === undefined
+      ? todasActivas
+      : seleccionarReglasCandidatas(
+          todasActivas.map((r) => ({ ...r, nivel: r.nivel as NivelRegla })),
+          await cargarComprasLiberadas(prisma, soloRowIds)
+        );
 
   // la columna DB no tiene enum — nivelReglaSchema ya validó el valor cuando se
   // creó cada regla. Se castea una sola vez acá para que tanto el sort de abajo
@@ -537,6 +566,7 @@ export async function reaplicarReglasActivas(
             vigencia,
             origen: { origenLocalId: regla.origenLocalId, origenPuntoDeVentaId: regla.origenPuntoDeVentaId },
             destinos: regla.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
+            soloRowIds,
           });
         },
         // 15s, no 55s: esta función puede correr dentro de un caller con
@@ -556,4 +586,17 @@ export async function reaplicarReglasActivas(
   }
 
   return { reglasReaplicadas, errores };
+}
+
+// Claves de matching de las compras liberadas — mismas columnas (y mismo
+// COALESCE de concepto) que condicionMatchNivel, para que el prefiltro de
+// seleccionarReglasCandidatas nunca diverja de la query que decide de verdad.
+async function cargarComprasLiberadas(prisma: PrismaClient, rowIds: string[]): Promise<CompraLiberada[]> {
+  return prisma.$queryRaw<CompraLiberada[]>(Prisma.sql`
+    SELECT c."rowId",
+           COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") AS "conceptoEfectivo",
+           c."proveedorId", c."proveedorTextoNormalizado", c."codigo"
+    FROM compras c
+    WHERE c."rowId" = ANY(${rowIds}::text[])
+  `);
 }

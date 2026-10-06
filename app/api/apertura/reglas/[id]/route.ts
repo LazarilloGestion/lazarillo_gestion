@@ -52,7 +52,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   };
 
   try {
-    const { regla, comprasAfectadas } = await prisma.$transaction(
+    const { regla, comprasAfectadas, rowIdsLiberados } = await prisma.$transaction(
       async (tx) => {
         // Si vino solo puntoDeVentaId, completa origenLocalId antes de chequear
         // superposición y persistir — el filtro del motor usa origenLocalId
@@ -74,7 +74,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           id
         );
 
-        await revertirRegla(tx, id);
+        const { rowIds: rowIdsLiberados } = await revertirRegla(tx, id);
         await tx.destinoRegla.deleteMany({ where: { reglaId: id } });
 
         const destinosResueltos = await resolverLocalIdDestinos(
@@ -130,7 +130,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           destinos: regla.destinos.map((d) => ({ id: d.id, porcentaje: Number(d.porcentaje.toString()) })),
         });
 
-        return { regla, comprasAfectadas: resultado.comprasAfectadas };
+        return { regla, comprasAfectadas: resultado.comprasAfectadas, rowIdsLiberados };
       },
       { timeout: 55000 }
     );
@@ -144,7 +144,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     // misma razón corre DESPUÉS de la transacción, no dentro: un reaplique
     // amplio no debería compartir el presupuesto de timeout de la transacción
     // de edición.
-    const { errores: erroresCascada } = await reaplicarReglasActivas(prisma);
+    //
+    // Acotada a rowIdsLiberados: reaplicar las ~200 reglas activas en cada
+    // edición tardaba tanto como para exceder maxDuration.
+    const { errores: erroresCascada } = await reaplicarReglasActivas(prisma, { rowIds: rowIdsLiberados });
     if (erroresCascada.length > 0) {
       console.error("[PATCH /api/apertura/reglas/[id]] errores en la cascada de reaplicación", erroresCascada);
     }
@@ -174,7 +177,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   if (!existente) return NextResponse.json({ error: "Regla no encontrada" }, { status: 404 });
 
   try {
-    const { comprasRevertidas } = await prisma.$transaction(
+    const { comprasRevertidas, rowIds } = await prisma.$transaction(
       async (tx) => {
         const resultado = await revertirRegla(tx, id);
         await tx.destinoRegla.deleteMany({ where: { reglaId: id } });
@@ -192,7 +195,10 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
     // funcionó (hallazgo de la revisión final de rama).
     let erroresCascada: string[] = [];
     try {
-      const resultado = await reaplicarReglasActivas(prisma);
+      // Solo las compras que esta regla acaba de liberar — reaplicar todas las
+      // reglas activas excedía maxDuration y devolvía error con el borrado ya
+      // commiteado.
+      const resultado = await reaplicarReglasActivas(prisma, { rowIds });
       erroresCascada = resultado.errores;
       if (erroresCascada.length > 0) {
         console.error("[DELETE /api/apertura/reglas/[id]] errores en la cascada de reaplicación", erroresCascada);

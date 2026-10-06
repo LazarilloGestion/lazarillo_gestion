@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { compararPrioridadNivel, condicionMatchNivel } from "./motor";
+import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
+import { compararPrioridadNivel, condicionMatchNivel, condicionComprasElegibles, reaplicarReglasActivas } from "./motor";
 
 describe("compararPrioridadNivel", () => {
   it("registro va antes que proveedor", () => {
@@ -53,5 +55,80 @@ describe("condicionMatchNivel", () => {
     const cond = condicionMatchNivel("proveedor", "texto:diego");
     expect(cond.sql).not.toContain('"codigo" = ?');
     expect(cond.values).toEqual(["diego"]);
+  });
+});
+
+describe("condicionComprasElegibles — soloRowIds", () => {
+  const origen = { origenLocalId: 1, origenPuntoDeVentaId: null };
+  const vigencia = Prisma.sql`true`;
+
+  it("sin soloRowIds no agrega ningún filtro por rowId (comportamiento de siempre)", () => {
+    const cond = condicionComprasElegibles("concepto", "GASTO1", vigencia, origen);
+    expect(cond.sql).not.toContain('c."rowId" = ANY');
+  });
+
+  it("con soloRowIds acota la query a esas compras, con un único parámetro array", () => {
+    const cond = condicionComprasElegibles("concepto", "GASTO1", vigencia, origen, null, ["a", "b"]);
+    expect(cond.sql).toContain('c."rowId" = ANY(?::text[])');
+    expect(cond.values).toContainEqual(["a", "b"]);
+  });
+});
+
+// Cliente falso mínimo: no hay base de test, y lo que se verifica acá es QUÉ
+// reglas se reaplican y con qué acotación — no el SQL (cubierto arriba).
+function prismaFalso(reglas: unknown[], compras: unknown[]) {
+  const consultasEnTx: Prisma.Sql[] = [];
+  const tx = {
+    $queryRaw: async (q: Prisma.Sql) => { consultasEnTx.push(q); return []; },
+    $executeRaw: async () => 0,
+  };
+  let transacciones = 0;
+  const prisma = {
+    reglaApertura: { findMany: async () => reglas },
+    $queryRaw: async () => compras,
+    $transaction: async (fn: (t: typeof tx) => Promise<unknown>) => { transacciones++; return fn(tx); },
+  } as unknown as PrismaClient;
+  return { prisma, consultasEnTx, transacciones: () => transacciones };
+}
+
+function reglaActiva(id: number, nivel: string, entidadId: string) {
+  return {
+    id, nivel, entidadId, estado: "activa", modo: "historico", fechaDesde: null, fechaHasta: null,
+    extremosInclusivos: true, origenLocalId: 1, origenPuntoDeVentaId: null,
+    destinos: [{ id: id * 10, porcentaje: 100 }],
+  };
+}
+
+describe("reaplicarReglasActivas — acotada a compras liberadas", () => {
+  const compraConcepto = { rowId: "c1", conceptoEfectivo: "GASTO2", proveedorId: null, proveedorTextoNormalizado: null, codigo: null };
+  const reglas = [reglaActiva(1, "concepto", "GASTO1"), reglaActiva(2, "concepto", "GASTO2"), reglaActiva(3, "proveedor", "999")];
+
+  it("sin rowIds reaplica todas las reglas activas (reimportación)", async () => {
+    const { prisma, transacciones } = prismaFalso(reglas, []);
+    const r = await reaplicarReglasActivas(prisma);
+    expect(transacciones()).toBe(3);
+    expect(r.reglasReaplicadas).toBe(3);
+  });
+
+  it("con rowIds reaplica solo las reglas que pueden reclamar esas compras", async () => {
+    const { prisma, transacciones } = prismaFalso(reglas, [compraConcepto]);
+    const r = await reaplicarReglasActivas(prisma, { rowIds: ["c1"] });
+    expect(transacciones()).toBe(1);
+    expect(r.reglasReaplicadas).toBe(1);
+  });
+
+  it("con rowIds acota la búsqueda de elegibles a esas compras", async () => {
+    const { prisma, consultasEnTx } = prismaFalso(reglas, [compraConcepto]);
+    await reaplicarReglasActivas(prisma, { rowIds: ["c1"] });
+    expect(consultasEnTx).toHaveLength(1);
+    expect(consultasEnTx[0].sql).toContain('c."rowId" = ANY(?::text[])');
+    expect(consultasEnTx[0].values).toContainEqual(["c1"]);
+  });
+
+  it("con rowIds vacío no reaplica nada (no se liberó ninguna compra)", async () => {
+    const { prisma, transacciones } = prismaFalso(reglas, []);
+    const r = await reaplicarReglasActivas(prisma, { rowIds: [] });
+    expect(transacciones()).toBe(0);
+    expect(r).toEqual({ reglasReaplicadas: 0, errores: [] });
   });
 });
