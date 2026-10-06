@@ -18,6 +18,7 @@ import { canonicalDecimal } from "./compra-identity";
 import { resolveProveedorId, type ProveedorCandidato } from "./proveedor-match";
 import { normalizarProveedorTexto } from "../../text-normalize";
 import { insertChunkWithRowFallback } from "../chunked-upsert";
+import { normalizarSignoNotaCredito } from "./nota-credito";
 
 import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 
@@ -139,7 +140,11 @@ export async function normalizeCompras(
       errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
       return;
     }
-    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data, idx });
+    // El signo se normaliza DESPUÉS de calcular la identidad: rowId y ancla salen
+    // de la fila cruda, así que invertir el importe no cambia a qué registro
+    // existente apunta una NC al reimportar.
+    const data = { ...parsed.data, IMPORTE: normalizarSignoNotaCredito(parsed.data.DETALLE, parsed.data.IMPORTE) };
+    parsedRows.push({ rowId: makeRowId(r), row: r, data, idx });
   });
 
   // Dedup por rowId — last-wins, pero ahora la fila que se pisa se reporta en
@@ -228,7 +233,13 @@ export async function normalizeCompras(
       for (const pr of chunk) {
         if (existingMap.has(pr.rowId)) continue;
         const identidad = compraIdentityFromRawRow(pr.row);
-        const anchor = computeCompraAnchor(identidad);
+        // El ancla busca contra lo persistido, donde una NC ya está en negativo:
+        // con el importe crudo (positivo) nunca encontraría su fila vieja y el
+        // ERP editando su OBSERVAC la duplicaría en vez de reconciliarla.
+        const anchor = computeCompraAnchor({
+          ...identidad,
+          importe: canonicalDecimal(normalizarSignoNotaCredito(identidad.detalle, identidad.importe)),
+        });
         if (anchor.importe == null || anchor.fechaISO == null) continue;
 
         const candidatos = await prisma.compra.findMany({

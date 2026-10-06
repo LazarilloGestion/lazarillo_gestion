@@ -709,4 +709,54 @@ describe("normalizeCompras", () => {
       expect(res.errors[0].message).toMatch(/valor fuera de rango/);
     });
   });
+
+  describe("notas de crédito (el ERP exporta NcA/NcB con importe positivo)", () => {
+    const ncB = () => baseRow({ DETALLE: "NcB 0004-00004607", IMPORTE: 287999 });
+
+    it("NcB con IMPORTE positivo se inserta en negativo (importe e importeTrabajado)", async () => {
+      const db = createMockDb();
+      const res = await normalizeCompras([ncB()], db);
+      expect(res.created).toBe(1);
+      const call = (db.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0][0] as { values: unknown[] };
+      expect(call.values.filter((v) => v === "-287999")).toHaveLength(2);
+      expect(call.values).not.toContain("287999");
+    });
+
+    it("NC que ya viene negativa se inserta igual, sin doble inversión", async () => {
+      const db = createMockDb();
+      await normalizeCompras([baseRow({ DETALLE: "NC 0008-00000237", IMPORTE: -61705 })], db);
+      const call = (db.$executeRaw as ReturnType<typeof vi.fn>).mock.calls[0][0] as { values: unknown[] };
+      expect(call.values.filter((v) => v === "-61705")).toHaveLength(2);
+    });
+
+    it("reimport de una NcB ya guardada en negativo, distribuida: no se reporta como modificada (el diff compara contra el importe normalizado)", async () => {
+      const db = createMockDb({
+        compra: {
+          findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] } } }) => {
+            const ids = args?.where?.rowId?.in ?? [];
+            return ids.map((rowId) => ({
+              rowId,
+              esDistribuido: true,
+              codCga: "GASTO1", concepto: "Alquiler", fecha: safeDate(45000),
+              codigo: "PROV1", proveedor: "Juan Perez", detalle: "NcB 0004-00004607", observac: "Obs",
+              importe: { toString: () => "-287999" }, impInt: { toString: () => "0" }, imputac: "X",
+              per1: { toString: () => "0" }, per2: { toString: () => "0" }, per3: { toString: () => "0" },
+            }));
+          }),
+        },
+      });
+      const res = await normalizeCompras([ncB()], db);
+      expect(res.comprasDistribuidasModificadas).toEqual([]);
+    });
+
+    it("el ancla de reconciliación busca por el importe normalizado (negativo), no por el crudo del Excel", async () => {
+      const findMany = vi.fn().mockResolvedValue([]);
+      const db = createMockDb({ compra: { findMany } });
+      await normalizeCompras([ncB()], db);
+      const consultaAncla = findMany.mock.calls
+        .map((c) => c[0] as { where: { importe?: { toString(): string } } })
+        .find((a) => a.where.importe != null);
+      expect(consultaAncla?.where.importe?.toString()).toBe("-287999");
+    });
+  });
 });
