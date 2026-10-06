@@ -17,6 +17,7 @@ import {
 import type { Suggestion } from "@/app/api/search/suggestions/route";
 import type { ObservacionResult } from "@/app/api/search/observaciones/route";
 import { fmtARS } from "@/lib/utils";
+import { anioDeFecha, formatFechaConAnio } from "@/lib/dashboard/fecha-observacion";
 
 type SuggestionType = Suggestion["type"] | "observacion";
 
@@ -44,15 +45,26 @@ interface Props {
 }
 
 export function CommandPalette({ open, onOpenChange }: Props) {
-  const { setSearch } = useDashboard();
+  const { setSearch, setYear, localId, pdvId } = useDashboard();
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<SuggestionType | null>(null);
+
+  // Todas las búsquedas se acotan al local/PDV que se está mirando; el año no se acota
+  // (al elegir una observación se navega a su año).
+  const searchUrl = (path: string, q?: string) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (localId) params.set("localId", String(localId));
+    if (pdvId) params.set("pdvId", String(pdvId));
+    const qs = params.toString();
+    return qs ? `${path}?${qs}` : path;
+  };
 
   // Preview inicial (pantalla "Buscar en" antes de tipear) — acotado, no es la búsqueda real.
   // Cacheado por TanStack Query: no vuelve a pedirse en cada apertura del diálogo.
   const { data: suggestionsData, isLoading: loading } = useFetchQuery<Suggestion[]>(
-    ["search-suggestions-preview"],
-    open ? "/api/search/suggestions" : null
+    ["search-suggestions-preview", localId, pdvId],
+    open ? searchUrl("/api/search/suggestions") : null
   );
   const suggestions = suggestionsData ?? EMPTY_SUGGESTIONS;
 
@@ -67,16 +79,16 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   }, [query]);
 
   const { data: searchResultsData, isFetching: searchLoading } = useFetchQuery<Suggestion[]>(
-    ["search-suggestions", debouncedQuery],
-    debouncedQuery ? `/api/search/suggestions?q=${encodeURIComponent(debouncedQuery)}` : null
+    ["search-suggestions", debouncedQuery, localId, pdvId],
+    debouncedQuery ? searchUrl("/api/search/suggestions", debouncedQuery) : null
   );
   const searchResults = searchResultsData ?? EMPTY_SUGGESTIONS;
 
   // Observaciones — mismo debounce; además se apaga si hay otra categoría filtrada.
   const obsEnabled = debouncedQuery.length >= 2 && (typeFilter === null || typeFilter === "observacion");
   const { data: observacionesData, isFetching: obsLoading } = useFetchQuery<ObservacionResult[]>(
-    ["search-observaciones", debouncedQuery],
-    obsEnabled ? `/api/search/observaciones?q=${encodeURIComponent(debouncedQuery)}` : null
+    ["search-observaciones", debouncedQuery, localId, pdvId],
+    obsEnabled ? searchUrl("/api/search/observaciones", debouncedQuery) : null
   );
   const observaciones = observacionesData ?? EMPTY_OBSERVACIONES;
 
@@ -98,10 +110,14 @@ export function CommandPalette({ open, onOpenChange }: Props) {
 
   const handleSelectObservacion = useCallback(
     (result: ObservacionResult) => {
+      // El resultado puede ser de otro año que el que se está mirando; sin esto la tabla
+      // quedaría filtrada por una observación que en ese año no existe.
+      const anio = anioDeFecha(result.fecha);
+      if (anio !== null) setYear(anio);
       setSearch("observacionQuery", result.label, result.label);
       handleClose(false);
     },
-    [setSearch, handleClose]
+    [setSearch, setYear, handleClose]
   );
 
   // La query de observaciones puede seguir "enabled" un instante con datos viejos mientras
@@ -252,9 +268,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                       {visibleObservaciones.map((obs) => {
                         const cfg = TYPE_CONFIG.observacion;
                         const Icon = cfg.icon;
-                        const dateParts = obs.fecha
-                          ? `${obs.fecha.slice(8, 10)}/${obs.fecha.slice(5, 7)}`
-                          : null;
+                        const dateParts = formatFechaConAnio(obs.fecha);
                         const importePart = obs.importe != null
                           ? fmtARS(Number(obs.importe))
                           : null;

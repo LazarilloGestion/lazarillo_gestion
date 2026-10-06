@@ -8,7 +8,8 @@ export function buildDateRange(year: number, mes?: number): { fechaStart: Date; 
 }
 
 interface PivotConditionParams {
-  year: number;
+  // Sin año no se acota por año: lo usa la búsqueda, que recorre todos los años.
+  year?: number;
   tableAlias: string;
   hasFechaManual?: boolean;
   hasImporteManual?: boolean;
@@ -51,11 +52,11 @@ export function buildPivotConditions({
     : Prisma.sql`${Prisma.raw(t)}.importe`;
 
   const conditions: Prisma.Sql[] = [
-    Prisma.sql`EXTRACT(YEAR FROM ${fechaExpr}) = ${year}`,
     dateGuard,
     Prisma.sql`${Prisma.raw(t)}.importe IS NOT NULL`,
     Prisma.sql`${importeExpr} != 0`,
   ];
+  if (year !== undefined) conditions.unshift(Prisma.sql`EXTRACT(YEAR FROM ${fechaExpr}) = ${year}`);
   if (localId) conditions.push(Prisma.sql`${Prisma.raw(t)}."localId" = ${localId}`);
   if (pdvId) conditions.push(Prisma.sql`${Prisma.raw(t)}."puntoDeVentaId" = ${pdvId}`);
   if (months?.length) {
