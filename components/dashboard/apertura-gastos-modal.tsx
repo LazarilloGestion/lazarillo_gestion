@@ -343,22 +343,41 @@ export function AperturaGastosModal({
   async function handleEliminar() {
     if (!reglaAEliminar) return;
     setEliminando(true);
+    let erroresCascada: string[] | undefined;
+    let eliminadoOk = false;
     try {
       const res = await fetch(`/api/apertura/reglas/${reglaAEliminar.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
+      eliminadoOk = true;
       const payload = await res.json().catch(() => null);
-      const erroresCascada = payload?.erroresCascada as string[] | undefined;
-      await refetchDependientes();
+      erroresCascada = payload?.erroresCascada as string[] | undefined;
+    } catch {
+      notify.errorActualizar(entidadNombre);
+    } finally {
+      setEliminando(false);
+    }
+
+    // Se refresca siempre, también si el DELETE falló: un corte de red o un
+    // timeout pueden dejar la regla ya borrada en el servidor, y sin esto la
+    // lista seguiría mostrándola.
+    //
+    // Fuera del try de arriba a propósito (mismo criterio que handleGuardar):
+    // el servidor YA eliminó. Si el refetch falla, lo peor es una pantalla
+    // stale — no "no se pudo eliminar". Tampoco se espera al refetch antes de
+    // avisar y cerrar: pivot/detalle son consultas pesadas y bloqueaban el
+    // diálogo varios segundos.
+    if (eliminadoOk) {
+      setReglaAEliminar(null);
       if (erroresCascada && erroresCascada.length > 0) {
         notify.aperturaCascadaTrasEliminarConErrores(erroresCascada.length);
       } else {
         notify.registroActualizado();
       }
-      setReglaAEliminar(null);
-    } catch {
-      notify.errorActualizar(entidadNombre);
-    } finally {
-      setEliminando(false);
+    }
+    try {
+      await refetchDependientes();
+    } catch (err) {
+      console.error("[apertura] no se pudieron refrescar los datos tras eliminar la regla", err);
     }
   }
 
