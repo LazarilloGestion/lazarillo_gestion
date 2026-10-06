@@ -73,6 +73,31 @@ export function condicionMatchNivel(nivel: NivelRegla, entidadId: string): Prism
 // revertirRegla funcionan igual pasadas directo o dentro de $transaction.
 export type AperturaDbClient = Omit<PrismaClient, "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends">;
 
+// Clave del advisory lock que serializa TODAS las corridas que distribuyen
+// compras (aplicarRegla, reevaluarCompra). Número fijo y arbitrario, solo tiene
+// que ser el mismo en cada caller y no chocar con otro uso de advisory locks
+// (hoy no hay ninguno en el repo).
+const APERTURA_LOCK_KEY = 7281001;
+
+// Serializa las corridas del motor: sin esto, dos corridas concurrentes (dos
+// imports de Drive solapados, dos pestañas, un reintento tras timeout) leen las
+// MISMAS compras con esDistribuido = false (READ COMMITTED, sin lock de fila) e
+// insertan cada una su copia — y distribuciones_apertura no tiene UNIQUE que lo
+// frene. Pasó dos veces en producción (28-sep y 3-oct-2026): 1.569 compras de
+// Ramos Mejía con el importe ×2/×3.
+//
+// Es un lock de TRANSACCIÓN (xact): se suelta solo al commit/rollback, así que
+// no hay nada que liberar a mano ni riesgo de dejarlo colgado si algo falla. La
+// segunda corrida espera a que la primera commitee y recién ahí lee, ya con
+// esDistribuido = true. Debe llamarse ANTES de la primera lectura de la
+// corrida, y siempre dentro de una $transaction (mismo contrato que
+// aplicarRegla). Si la espera supera el timeout de la transacción, esa corrida
+// falla con error visible (no en silencio) y se reintenta sola en el próximo
+// sync.
+export async function tomarLockDeAplicacion(prisma: AperturaDbClient): Promise<void> {
+  await prisma.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${APERTURA_LOCK_KEY}::bigint)`);
+}
+
 // Filas de INSERT ... VALUES por flush — chunking por CANTIDAD DE FILAS, no de
 // compras: cada compra emite una fila por destino, así que con muchos destinos
 // por regla, contar por compra podía superar el límite de 65535 params de
@@ -327,6 +352,8 @@ export async function aplicarRegla(
   prisma: AperturaDbClient,
   input: AplicarReglaInput
 ): Promise<{ comprasAfectadas: number }> {
+  await tomarLockDeAplicacion(prisma);
+
   const cond = resolverVigencia(input.vigencia);
   const vigenciaSql = vigenciaToSql(cond, FECHA_EFECTIVA_COMPRA_SQL);
 
