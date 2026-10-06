@@ -54,6 +54,16 @@ model RubroConceptoCaja {
   @@map("rubros_concepto_caja")
 }
 
+// Visibilidad del bucket sintético "Sin Rubro" (compras sin rubro asignado): no existe como fila
+// de RubroConceptoCaja, así que su toggle vive acá. Tabla de una sola fila (id = 1).
+model SinRubroConfig {
+  id                  Int     @id @default(1)
+  visibleEnDashboard  Boolean @default(true)
+  visibleEnResultados Boolean @default(false)
+
+  @@map("sin_rubro_config")
+}
+
 model ConceptoCaja {
   id     Int     @id @default(autoincrement())
   codigo String  @unique
