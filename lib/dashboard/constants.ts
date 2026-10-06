@@ -26,3 +26,10 @@ export const RUBRO_GASTOS_EN_PERSONAL_CODIGO = "3";
 // Única fuente de verdad — no redeclarar este union en otros archivos.
 export const VISIBILIDAD_FIELDS = ["visibleEnDashboard", "visibleEnResultados"] as const;
 export type VisibilidadField = typeof VISIBILIDAD_FIELDS[number];
+
+// "Sin Rubro" no es fila de rubros_concepto_caja, su toggle vive en sin_rubro_config. Estos defaults
+// copian los de las columnas de los rubros reales y se usan si esa fila no existe (nunca ocultar en silencio).
+export const SIN_RUBRO_VISIBILIDAD_DEFAULT: Record<VisibilidadField, boolean> = {
+  visibleEnDashboard: true,
+  visibleEnResultados: false,
+};
