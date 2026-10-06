@@ -8,7 +8,6 @@ import type { NivelRegla } from "@/lib/apertura/schemas";
 import { AperturaGastosModal } from "./apertura-gastos-modal";
 import { AperturaSplitButton } from "./apertura-split-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Command, CommandEmpty, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
@@ -19,7 +18,7 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { cn, fmtARS, fmtDate, normalize } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { buildComprasDetalleUrl } from "@/lib/dashboard/params";
-import { parseImporteManual } from "@/lib/dashboard/parse-importe-manual";
+import { resolverImporteParaPatch } from "@/lib/dashboard/importe-para-patch";
 import { SIN_RUBRO_CODE, SIN_RUBRO_NOMBRE } from "@/lib/dashboard/constants";
 import type { DetalleFilter, DetalleResponse, CompraDetalle } from "@/lib/dashboard/types";
 import type { SortState } from "@/hooks/use-sort-state";
@@ -54,11 +53,12 @@ type EditState = {
   // edición para que el formulario no aparezca en las N a la vez.
   distribucionId: number | null;
   // La fila de fan-out solo trae su porción del importe (importeCalculado del
-  // destino), no el importe de la compra base — con esto el guardado omite
-  // importeManual para no pisar la compra base con una fracción, y el input de
-  // importe queda bloqueado en edición.
+  // destino): el input de importe se precarga con el total de la compra base
+  // (`importeBase`), y el guardado solo lo manda si cambió respecto de
+  // `importeInicial` (ver resolverImporteParaPatch).
   esDistribuida: boolean;
   importeManual: string;
+  importeInicial: string;
   fechaManual: string;
   conceptoCodigoManual: string;
   observacManual: string;
@@ -311,32 +311,19 @@ function ComprasRow({
           />
         </td>
         <td className="px-3 py-1.5 text-right">
-          {editing!.esDistribuida ? (
-            // El importe de una compra distribuida se maneja desde la regla de
-            // apertura (reparto por porcentaje), no editándolo acá — esta fila
-            // solo conoce su fracción.
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-block">
-                  <Input
-                    type="number"
-                    step="0.01"
-                    disabled
-                    className="h-7 text-xs w-28 text-right"
-                    value={editing!.importeManual}
-                  />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>El importe de una compra distribuida se ajusta desde la regla de apertura, no acá.</TooltipContent>
-            </Tooltip>
-          ) : (
-            <Input
-              type="text"
-              inputMode="decimal"
-              className="h-7 text-xs w-28 text-right"
-              value={editing!.importeManual}
-              onChange={e => onEdit({ ...editing!, importeManual: e.target.value })}
-            />
+          <Input
+            type="text"
+            inputMode="decimal"
+            className="h-7 text-xs w-28 text-right"
+            value={editing!.importeManual}
+            onChange={e => onEdit({ ...editing!, importeManual: e.target.value })}
+          />
+          {editing!.esDistribuida && (
+            // La tabla muestra la fracción de esta fila, pero acá se corrige el
+            // total de la compra: al guardar se reparte de nuevo entre destinos.
+            <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+              Total de la compra, se reparte según la regla
+            </p>
           )}
         </td>
         <td className="px-2 py-1.5">
@@ -391,6 +378,9 @@ function ComprasRow({
           <EditTriggerButton
             onClick={() => {
               const esDistribuida = item.esDistribuido || item.distribucionId != null;
+              const importeInicial = toEditString(
+                esDistribuida ? item.importeBase : item.importeManual ?? item.importe
+              );
               const initialConcepto = item.conceptoCodigoManual ?? item.conceptoCaja?.codigo ?? "";
               const initialRubro = conceptoOptions.find(o => o.codigo === initialConcepto)?.rubroCodigo ?? SIN_RUBRO_CODE;
               onEdit({
@@ -398,9 +388,9 @@ function ComprasRow({
                 distribucionId: item.distribucionId,
                 esDistribuida,
                 // En una fila de fan-out `item.importe` es solo la porción del
-                // destino — no se prellena para no dar a entender que ese es el
-                // importe editable de la compra base.
-                importeManual: esDistribuida ? "" : toEditString(item.importeManual ?? item.importe),
+                // destino: se prellena con el total de la compra base.
+                importeManual: importeInicial,
+                importeInicial,
                 fechaManual: toDateInputValue(item.fechaManual ?? item.fecha),
                 conceptoCodigoManual: initialConcepto,
                 observacManual: item.observacManual ?? "",
@@ -489,25 +479,21 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   );
 
   const guardarConfirmado = useCallback(async (state: EditState) => {
-    // En una compra distribuida el importe se reparte por regla — no se
-    // manda importeManual para no pisar la compra base con la fracción de
-    // un destino (el input queda bloqueado en el formulario), así que no
-    // hace falta validarlo en ese caso.
-    let importeManual: number | null = null;
-    if (!state.esDistribuida) {
-      const importeResult = parseImporteManual(state.importeManual);
-      if (!importeResult.ok) {
-        setSaveError("El importe ingresado no es un número válido.");
-        return;
-      }
-      importeManual = importeResult.value;
+    const importeResult = resolverImporteParaPatch({
+      esDistribuida: state.esDistribuida,
+      importeInput: state.importeManual,
+      importeInicial: state.importeInicial,
+    });
+    if (!importeResult.ok) {
+      setSaveError("El importe ingresado no es un número válido.");
+      return;
     }
 
     setSaving(true);
     setSaveError(null);
     try {
       const requestBody = {
-        ...(state.esDistribuida ? {} : { importeManual }),
+        ...(importeResult.incluir ? { importeManual: importeResult.value } : {}),
         fechaManual:          state.fechaManual !== "" ? new Date(state.fechaManual + "T12:00:00Z").toISOString() : null,
         conceptoCodigoManual: state.conceptoCodigoManual !== "" ? state.conceptoCodigoManual : null,
         observacManual:       state.observacManual !== "" ? state.observacManual : null,

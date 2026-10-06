@@ -4,80 +4,9 @@ import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { mesSchema, yearSchema, idSchema, codigoSchema, textoLibreSchema } from "@/lib/dashboard/schemas";
 import { buildDateRange, sinRubroVisibleSql } from "@/lib/dashboard/query-builders";
+import { reshapeDetalle, type DetalleSqlRow } from "@/lib/dashboard/reshape-detalle";
 
 export const dynamic = "force-dynamic";
-
-interface DetalleSqlRow {
-  rowId: string;
-  distribucionId: number | null;
-  esDistribuido: boolean;
-  fecha: Date | null;
-  fechaManual: Date | null;
-  importe: Prisma.Decimal | null;
-  importeManual: Prisma.Decimal | null;
-  conceptoCodigoManual: string | null;
-  concepto: string | null;
-  detalle: string | null;
-  observac: string | null;
-  observacManual: string | null;
-  proveedorTexto: string | null;
-  proveedorId: number | null;
-  proveedorNombre: string | null;
-  proveedorRazon: string | null;
-  localNombre: string | null;
-  pdvNombre: string | null;
-  localIdOrigen: number | null;
-  puntoDeVentaIdOrigen: number | null;
-  conceptoCajaCodigo: string | null;
-  conceptoCajaNombre: string | null;
-  conceptoCajaRubroNombre: string | null;
-  conceptoCajaManualCodigo: string | null;
-  conceptoCajaManualNombre: string | null;
-  conceptoCajaManualRubroNombre: string | null;
-}
-
-function reshapeDetalle(r: DetalleSqlRow) {
-  return {
-    rowId: r.rowId,
-    // distribucionId: null cuando la compra no está distribuida (100% de los
-    // casos hasta que exista una regla activa — Fase B no la puede crear sin
-    // pasar por la API, ver Task 9). rowId se mantiene SIEMPRE como el de la
-    // compra original (no un compuesto) — compra-lineas/[compraId] y el
-    // endpoint puntual de compras/[rowId] siguen necesitando el rowId real
-    // para funcionar. Fase C es quien debe usar `distribucionId ?? rowId`
-    // como key de UI una vez que existan filas distribuidas (riesgo anotado
-    // en la sección 4 del diseño, "Riesgo para Fase C").
-    distribucionId: r.distribucionId,
-    esDistribuido: r.esDistribuido,
-    fecha: r.fecha,
-    importe: r.importe,
-    importeManual: r.importeManual,
-    fechaManual: r.fechaManual,
-    conceptoCodigoManual: r.conceptoCodigoManual,
-    concepto: r.concepto,
-    detalle: r.detalle,
-    observac: r.observac,
-    observacManual: r.observacManual,
-    proveedor: r.proveedorTexto,
-    proveedorRef: r.proveedorId != null ? { id: r.proveedorId, nombre: r.proveedorNombre, razon: r.proveedorRazon } : null,
-    local: r.localNombre != null ? { nombre: r.localNombre } : null,
-    puntoDeVenta: r.pdvNombre != null ? { nombre: r.pdvNombre } : null,
-    localIdOrigen: r.localIdOrigen,
-    puntoDeVentaIdOrigen: r.puntoDeVentaIdOrigen,
-    conceptoCaja:
-      r.conceptoCajaCodigo != null
-        ? { codigo: r.conceptoCajaCodigo, nombre: r.conceptoCajaNombre, rubro: r.conceptoCajaRubroNombre != null ? { nombre: r.conceptoCajaRubroNombre } : null }
-        : null,
-    conceptoCajaManual:
-      r.conceptoCajaManualCodigo != null
-        ? {
-            codigo: r.conceptoCajaManualCodigo,
-            nombre: r.conceptoCajaManualNombre,
-            rubro: r.conceptoCajaManualRubroNombre != null ? { nombre: r.conceptoCajaManualRubroNombre } : null,
-          }
-        : null,
-  };
-}
 
 // SELECT + JOINs compartidos entre la lista (WHERE dinámico, con el join
 // cc_ef/rc_ef extra para filtrar por concepto/rubro efectivo) y el lookup
@@ -91,6 +20,7 @@ const DETALLE_SELECT_JOIN = Prisma.sql`
     c."rowId",
     c."distribucionId",
     (c."distribucionId" IS NOT NULL) AS "esDistribuido",
+    COALESCE(cb."importeManual", cb.importe) AS "importeBase",
     c.fecha,
     c."fechaManual",
     c.importe,
@@ -115,6 +45,9 @@ const DETALLE_SELECT_JOIN = Prisma.sql`
     ccm.nombre          AS "conceptoCajaManualNombre",
     rcm.nombre          AS "conceptoCajaManualRubroNombre"
   FROM v_compras_distribuidas c
+  -- Compra base: en una fila de fan-out la vista trae solo la fracción del
+  -- destino, y el modal de edición necesita el total para poder corregirlo.
+  JOIN compras cb                    ON cb."rowId" = c."rowId"
   LEFT JOIN proveedores p            ON c."proveedorId" = p.id
   LEFT JOIN locales l                ON c."localId" = l.id
   LEFT JOIN puntos_de_venta pdv      ON c."puntoDeVentaId" = pdv.id
