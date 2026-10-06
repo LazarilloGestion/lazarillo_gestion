@@ -175,7 +175,7 @@ const COMPRAS_COLS: ColDef[] = [
   { label: "Fecha",       icon: CalendarDays,   color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "fecha"     },
   { label: "Local",       icon: Building2,      color: "text-muted-foreground",   bg: "bg-muted",                right: false                        },
   { label: "Proveedor",   icon: Truck,          color: "text-cat-proveedor",      bg: "bg-cat-proveedor/12",     right: false, sortKey: "proveedor"  },
-  { label: "Detalle",     icon: FileText,       color: "text-muted-foreground",   bg: "bg-muted",                right: false                        },
+  { label: "Detalle",     icon: FileText,       color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "detalle"    },
   { label: "Observación", icon: MessageSquare,  color: "text-cat-observacion",    bg: "bg-cat-observacion/12",   right: false, sortKey: "observacion"},
   { label: "Rubro",       icon: Layers,         color: "text-cat-rubro",          bg: "bg-cat-rubro/12",         right: false                        },
   { label: "Concepto",    icon: Tag,            color: "text-cat-concepto",       bg: "bg-cat-concepto/12",      right: false, sortKey: "concepto"   },
@@ -201,6 +201,9 @@ function sortCompras(a: CompraDetalle, b: CompraDetalle, sort: SortState): numbe
   } else if (sort.key === "concepto") {
     va = String((a.conceptoCajaManual ?? a.conceptoCaja)?.nombre ?? "");
     vb = String((b.conceptoCajaManual ?? b.conceptoCaja)?.nombre ?? "");
+  } else if (sort.key === "detalle") {
+    va = String(a.detalle ?? "");
+    vb = String(b.detalle ?? "");
   } else if (sort.key === "observacion") {
     va = String(a.observacManual ?? a.observac ?? "");
     vb = String(b.observacManual ?? b.observac ?? "");
