@@ -103,11 +103,35 @@ describe("reaplicarReglasActivas — acotada a compras liberadas", () => {
   const compraConcepto = { rowId: "c1", conceptoEfectivo: "GASTO2", proveedorId: null, proveedorTextoNormalizado: null, codigo: null };
   const reglas = [reglaActiva(1, "concepto", "GASTO1"), reglaActiva(2, "concepto", "GASTO2"), reglaActiva(3, "proveedor", "999")];
 
-  it("sin rowIds reaplica todas las reglas activas (reimportación)", async () => {
+  it("sin rowIds (reimportación) reaplica solo las reglas que pueden reclamar compras sin distribuir", async () => {
+    // 200 reglas activas en 60 s de maxDuration: reaplicar todas dejaba sin
+    // procesar las del final (compras nuevas de Bar sin abrir, 3-oct-2026).
+    const { prisma, transacciones } = prismaFalso(reglas, [compraConcepto]);
+    const r = await reaplicarReglasActivas(prisma);
+    expect(transacciones()).toBe(1);
+    expect(r.reglasReaplicadas).toBe(1);
+  });
+
+  it("sin rowIds y sin compras sin distribuir no abre ninguna transacción", async () => {
     const { prisma, transacciones } = prismaFalso(reglas, []);
     const r = await reaplicarReglasActivas(prisma);
-    expect(transacciones()).toBe(3);
-    expect(r.reglasReaplicadas).toBe(3);
+    expect(transacciones()).toBe(0);
+    expect(r).toEqual({ reglasReaplicadas: 0, errores: [] });
+  });
+
+  it("sin rowIds mantiene el orden de prioridad entre las reglas seleccionadas", async () => {
+    const compraMixta = { rowId: "c1", conceptoEfectivo: "GASTO2", proveedorId: 999, proveedorTextoNormalizado: null, codigo: null };
+    const { prisma, consultasEnTx } = prismaFalso(reglas, [compraMixta]);
+    await reaplicarReglasActivas(prisma);
+    // proveedor (#3) corre antes que concepto (#2): si no, concepto se la queda
+    expect(consultasEnTx.map((q) => q.values.some((v) => v === "999") ? "proveedor" : "concepto")).toEqual(["proveedor", "concepto"]);
+  });
+
+  it("sin rowIds una regla de registro entra si su compra está sin distribuir", async () => {
+    const compraRegistro = { rowId: "reg1", conceptoEfectivo: null, proveedorId: null, proveedorTextoNormalizado: null, codigo: null };
+    const { prisma, transacciones } = prismaFalso([reglaActiva(7, "registro", "reg1"), reglaActiva(8, "registro", "otra")], [compraRegistro]);
+    await reaplicarReglasActivas(prisma);
+    expect(transacciones()).toBe(1);
   });
 
   it("con rowIds reaplica solo las reglas que pueden reclamar esas compras", async () => {

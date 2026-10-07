@@ -552,13 +552,16 @@ export async function reaplicarReglasActivas(
     where: { estado: "activa" },
     include: { destinos: true },
   });
-  const reglasActivas =
+  // Con la reimportación (sin rowIds) también se acota: ~200 reglas, cada una en
+  // su propia transacción con lock, no entran en los 60 s de maxDuration del
+  // finalizar del import — las del final (compras nuevas de Bar, 3-oct-2026)
+  // quedaban sin abrir y sin ningún aviso.
+  const reglasActivas = seleccionarReglasCandidatas(
+    todasActivas.map((r) => ({ ...r, nivel: r.nivel as NivelRegla })),
     soloRowIds === undefined
-      ? todasActivas
-      : seleccionarReglasCandidatas(
-          todasActivas.map((r) => ({ ...r, nivel: r.nivel as NivelRegla })),
-          await cargarComprasLiberadas(prisma, soloRowIds)
-        );
+      ? await cargarComprasSinDistribuir(prisma, todasActivas)
+      : await cargarComprasLiberadas(prisma, soloRowIds)
+  );
 
   // la columna DB no tiene enum — nivelReglaSchema ya validó el valor cuando se
   // creó cada regla. Se castea una sola vez acá para que tanto el sort de abajo
@@ -613,6 +616,38 @@ export async function reaplicarReglasActivas(
   }
 
   return { reglasReaplicadas, errores };
+}
+
+// Claves de matching de TODAS las compras sin distribuir, para el prefiltro de la
+// reimportación. Hay decenas de miles (la mayoría no tiene regla), así que se
+// agrupa por las claves de matching en vez de traer una fila por compra; el
+// rowId (MIN) es solo de relleno — las reglas de nivel registro, las únicas que
+// matchean por rowId, se resuelven con una segunda query acotada a sus entidadId.
+async function cargarComprasSinDistribuir(
+  prisma: PrismaClient,
+  reglasActivas: { nivel: string; entidadId: string }[]
+): Promise<CompraLiberada[]> {
+  const porClaves = await prisma.$queryRaw<CompraLiberada[]>(Prisma.sql`
+    SELECT MIN(c."rowId") AS "rowId",
+           COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") AS "conceptoEfectivo",
+           c."proveedorId", c."proveedorTextoNormalizado", c."codigo"
+    FROM compras c
+    WHERE c."esDistribuido" = false AND c."esBloqueado" = false
+    GROUP BY 2, 3, 4, 5
+  `);
+
+  const rowIdsRegistro = reglasActivas.filter((r) => r.nivel === "registro").map((r) => r.entidadId);
+  if (rowIdsRegistro.length === 0) return porClaves;
+
+  const registros = await prisma.$queryRaw<CompraLiberada[]>(Prisma.sql`
+    SELECT c."rowId",
+           COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") AS "conceptoEfectivo",
+           c."proveedorId", c."proveedorTextoNormalizado", c."codigo"
+    FROM compras c
+    WHERE c."esDistribuido" = false AND c."esBloqueado" = false
+      AND c."rowId" = ANY(${rowIdsRegistro}::text[])
+  `);
+  return [...porClaves, ...registros];
 }
 
 // Claves de matching de las compras liberadas — mismas columnas (y mismo
