@@ -66,6 +66,13 @@ export const notify = {
       closeButton: true,
     }),
 
+  aperturaSincronizacionFallida: (motivo: string) =>
+    toast.error("Apertura de gastos — la sincronización no terminó", {
+      description: `El import se guardó, pero no se pudo confirmar que las reglas de apertura se aplicaron a las compras nuevas (${motivo}). Volvé a importar para reintentar.`,
+      duration: Infinity,
+      closeButton: true,
+    }),
+
   aperturaCascadaTrasEliminarConErrores: (count: number) =>
     toast.warning("Regla eliminada, pero la reaplicación de otras reglas falló", {
       description:

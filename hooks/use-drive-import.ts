@@ -8,6 +8,7 @@ import type { ETLReport } from "@/lib/etl/types";
 import type { DriveFile } from "@/lib/drive/types";
 import { parseImportResponse } from "./parse-import-response";
 import { accumulateAperturaInputs } from "./accumulate-apertura-inputs";
+import { parseFinalizarResponse } from "./parse-finalizar-response";
 import { chunk } from "@/lib/chunk";
 
 // 5 → 3 → 1 el mismo día (28-sep-2026). Con 3 volvió a fallar: ventas corre
@@ -194,10 +195,19 @@ export function useDriveImport() {
             hubo_compras_tocadas: huboComprasTocadas,
           }),
         });
-        const json = await res.json();
-        notificarApertura(json.apertura);
+        // Un timeout de Vercel responde con un cuerpo que no es JSON: se parsea
+        // aparte para distinguir "no se pudo leer" de un fallo de red.
+        const json = await res.json().catch(() => null);
+        const resultado = parseFinalizarResponse(res.ok, res.status, json);
+        if (resultado.tipo === "fallo") {
+          console.error("[useDriveImport] Falló la sincronización de apertura", resultado.motivo);
+          notify.aperturaSincronizacionFallida(resultado.motivo);
+        } else {
+          notificarApertura(resultado.apertura);
+        }
       } catch (err) {
         console.error("[useDriveImport] Error finalizando sincronización de apertura", err);
+        notify.aperturaSincronizacionFallida(err instanceof Error ? err.message : String(err));
       }
     }
 
