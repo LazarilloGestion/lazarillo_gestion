@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPivotConditions, sinRubroVisibleSql } from "./query-builders";
+import { buildPivotConditions, observacionCondition, sinRubroVisibleSql } from "./query-builders";
 
 const sqlDe = (conds: ReturnType<typeof buildPivotConditions>) => conds.map((c) => c.sql).join(" AND ");
 
@@ -84,5 +84,18 @@ describe("sinRubroVisibleSql", () => {
     const frag = sinRubroVisibleSql("x; DROP TABLE compras" as never);
     expect(frag.sql).toContain(`s."visibleEnDashboard"`);
     expect(frag.sql).not.toContain("DROP");
+  });
+});
+
+describe("observacionCondition", () => {
+  it("compara la observación efectiva sin acentos, con los comodines escapados", () => {
+    const cond = observacionCondition("c", "Eléctrico 50%_a");
+    expect(cond.sql).toContain(`translate(COALESCE(c."observacManual", c.observac),`);
+    expect(cond.sql).toContain("ILIKE");
+    expect(cond.values).toContain("%Electrico 50\\%\\_a%");
+  });
+
+  it("escapa también la barra invertida", () => {
+    expect(observacionCondition("c", "a\\b").values).toContain("%a\\\\b%");
   });
 });
