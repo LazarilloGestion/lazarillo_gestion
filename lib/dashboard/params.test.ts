@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildRangoAniosUrl, parseDashboardParams, parseVentasParams, buildDashboardUrl, buildComprasDetalleUrl, monthsParam } from "./params";
+import { buildRangoAniosUrl, parseDashboardParams, parseVentasParams, buildDashboardUrl, buildComprasDetalleUrl, monthsParam, parseObservacionQuery } from "./params";
 
 describe("buildRangoAniosUrl", () => {
   it("sin filtros: ruta sin query string", () => {
@@ -217,5 +217,20 @@ describe("monthsParam", () => {
 
   it("un mes no entero falla el safeParse (la ruta lo trata como sin filtro)", () => {
     expect(monthsParam.safeParse("1.5").success).toBe(false);
+  });
+});
+
+describe("parseObservacionQuery", () => {
+  it("ausente o vacío: sin filtro", () => {
+    expect(parseObservacionQuery(null)).toBeUndefined();
+    expect(parseObservacionQuery("")).toBeUndefined();
+  });
+
+  it("texto corto pasa intacto", () => {
+    expect(parseObservacionQuery("luz")).toBe("luz");
+  });
+
+  it("trunca a 256 en vez de descartar el filtro", () => {
+    expect(parseObservacionQuery("a".repeat(300))).toBe("a".repeat(256));
   });
 });

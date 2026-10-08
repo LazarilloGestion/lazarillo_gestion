@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { mesSchema, yearSchema, idSchema, codigoSchema, textoLibreSchema } from "@/lib/dashboard/schemas";
-import { monthsParam } from "@/lib/dashboard/params";
+import { monthsParam, parseObservacionQuery } from "@/lib/dashboard/params";
 import { buildDetalleConditions } from "@/lib/dashboard/detalle-conditions";
 import { recortarConHasMore } from "@/lib/dashboard/recortar-has-more";
 import { DETALLE_COMPRAS_LIMITE } from "@/lib/dashboard/constants";
@@ -140,8 +140,7 @@ export async function GET(request: NextRequest) {
   const conceptoCodigo = conceptoCodigoRaw ? codigoSchema.safeParse(conceptoCodigoRaw).data : undefined;
   const rubroCodigo = rubroCodigoRaw ? codigoSchema.safeParse(rubroCodigoRaw).data : undefined;
   const meses = monthsParam.safeParse(searchParams.get("months")).data;
-  const observacionRaw = searchParams.get("observacionQuery");
-  const observacionQuery = observacionRaw ? textoLibreSchema.safeParse(observacionRaw).data : undefined;
+  const observacionQuery = parseObservacionQuery(searchParams.get("observacionQuery"));
 
   const where = Prisma.join(
     buildDetalleConditions({
@@ -158,7 +157,9 @@ export async function GET(request: NextRequest) {
       LEFT JOIN conceptos_caja cc_ef        ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc_ef.codigo
       LEFT JOIN rubros_concepto_caja rc_ef  ON cc_ef."codRga" = rc_ef.codigo
       WHERE ${where}
-      ORDER BY c.fecha ASC
+      -- Fecha efectiva (con manual) + desempate por id: define qué filas
+      -- sobreviven al corte de DETALLE_COMPRAS_LIMITE, debe ser estable.
+      ORDER BY COALESCE(c."fechaManual", c.fecha) ASC, c."rowId", c."distribucionId"
       LIMIT ${DETALLE_COMPRAS_LIMITE + 1}
     `);
 
