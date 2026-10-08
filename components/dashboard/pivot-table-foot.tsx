@@ -13,7 +13,9 @@ interface PivotTableFootProps {
   onTotalClick?: () => void;
 }
 
-const CLICKABLE = "cursor-pointer hover:text-primary transition-colors";
+// hover:bg-accent y no hover:text-primary: la celda de total ya es text-primary
+// (sin cambio visible) y el fondo del footer es bg-muted.
+const CLICKABLE = "cursor-pointer hover:bg-accent transition-colors";
 
 // <tfoot> completo de la tabla pivot de compras — idéntico byte a byte entre
 // pivot-table-por-concepto.tsx y pivot-table-por-proveedor.tsx antes de esta

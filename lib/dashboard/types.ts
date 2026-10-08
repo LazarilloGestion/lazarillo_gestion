@@ -178,10 +178,11 @@ export type VentasDetalleFilter = BaseDashboardFilter & {
   cobroCodigo?: string;
 };
 
-// Respuesta genérica de endpoints de detalle (indica si hay más de 500 registros)
+// Respuesta genérica de endpoints de detalle. `hasMore` solo lo devuelve el
+// detalle de compras cuando corta en DETALLE_COMPRAS_LIMITE; detalle-ventas no lo envía.
 export type DetalleResponse<T> = {
   data: T[];
-  hasMore: boolean;
+  hasMore?: boolean;
 };
 
 // --- Forma del resultado de la raw query en /api/dashboard/pivot ---
