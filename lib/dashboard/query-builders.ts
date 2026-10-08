@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { SIN_RUBRO_VISIBILIDAD_DEFAULT, VISIBILIDAD_FIELDS, type VisibilidadField } from "./constants";
+import { ACENTOS_DESDE, ACENTOS_HACIA, quitarAcentos } from "./observacion-busqueda";
 
 export function buildDateRange(year: number, mes?: number): { fechaStart: Date; fechaEnd: Date } {
   const fechaStart = mes ? new Date(Date.UTC(year, mes - 1, 1)) : new Date(Date.UTC(year, 0, 1));
@@ -87,8 +88,10 @@ export function buildPivotConditions({
   if (conceptoCodigo) conditions.push(Prisma.sql`COALESCE(cc.codigo, '__sin_concepto') = ${conceptoCodigo}`);
   if (proveedorId) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
   if (observacionQuery) {
-    const q = `%${observacionQuery.replace(/[%_\\]/g, "\\$&")}%`;
-    conditions.push(Prisma.sql`COALESCE(${Prisma.raw(t)}."observacManual", ${Prisma.raw(t)}.observac) ILIKE ${q}`);
+    const q = `%${quitarAcentos(observacionQuery).replace(/[%_\\]/g, "\\$&")}%`;
+    conditions.push(
+      Prisma.sql`translate(COALESCE(${Prisma.raw(t)}."observacManual", ${Prisma.raw(t)}.observac), ${ACENTOS_DESDE}, ${ACENTOS_HACIA}) ILIKE ${q}`
+    );
   }
   return conditions;
 }
