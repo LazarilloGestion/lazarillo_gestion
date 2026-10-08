@@ -18,6 +18,8 @@ import type { Suggestion } from "@/app/api/search/suggestions/route";
 import type { ObservacionResult } from "@/app/api/search/observaciones/route";
 import { fmtARS } from "@/lib/utils";
 import { anioDeFecha, formatFechaConAnio } from "@/lib/dashboard/fecha-observacion";
+import { opcionContiene } from "@/lib/dashboard/observacion-busqueda";
+import { filtroSinAcentos } from "./palette-filter";
 
 type SuggestionType = Suggestion["type"] | "observacion";
 
@@ -120,6 +122,16 @@ export function CommandPalette({ open, onOpenChange }: Props) {
     [setSearch, setYear, handleClose]
   );
 
+  // A diferencia de elegir una compra puntual, no cambia de año: el filtro por contenido
+  // aplica al año que se está mirando.
+  const handleSelectContiene = useCallback(
+    (opcion: { query: string; label: string }) => {
+      setSearch("observacionQuery", opcion.query, opcion.label);
+      handleClose(false);
+    },
+    [setSearch, handleClose]
+  );
+
   // La query de observaciones puede seguir "enabled" un instante con datos viejos mientras
   // debouncedQuery se pone al día; se ignora acá salvo que la query/categoría actual la habiliten.
   const visibleObservaciones = useMemo(
@@ -129,6 +141,9 @@ export function CommandPalette({ open, onOpenChange }: Props) {
         : [],
     [query, typeFilter, observaciones]
   );
+
+  // Solo se ofrece si hay al menos una observación que contiene lo tipeado.
+  const contiene = visibleObservaciones.length > 0 ? opcionContiene(query) : null;
 
   const counts = useMemo(
     () => ({
@@ -164,7 +179,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
       <DialogContent className="overflow-hidden p-0 gap-0 border-border/60 shadow-2xl sm:max-w-2xl rounded-xl">
         <DialogTitle className="sr-only">Buscador</DialogTitle>
 
-        <Command className="bg-transparent [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4">
+        <Command filter={filtroSinAcentos} className="bg-transparent [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4">
           {/* Input */}
           <CommandInput
             placeholder="Buscar rubro, concepto, proveedor u observación…"
@@ -265,6 +280,20 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                       heading="Observaciones"
                       className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground/40 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2"
                     >
+                      {contiene && (
+                        <CommandItem
+                          value={`observacion ${contiene.query}`}
+                          onSelect={() => handleSelectContiene(contiene)}
+                          className="mx-1 rounded-lg px-2 py-2 gap-3 cursor-pointer"
+                        >
+                          <span className={`flex h-6 w-6 items-center justify-center rounded-md shrink-0 ${TYPE_CONFIG.observacion.bg}`}>
+                            <MessageSquare className={`h-3 w-3 ${TYPE_CONFIG.observacion.color}`} />
+                          </span>
+                          <span className="flex-1 min-w-0 text-sm text-foreground/90 truncate">
+                            Todas las observaciones que {contiene.label}
+                          </span>
+                        </CommandItem>
+                      )}
                       {visibleObservaciones.map((obs) => {
                         const cfg = TYPE_CONFIG.observacion;
                         const Icon = cfg.icon;

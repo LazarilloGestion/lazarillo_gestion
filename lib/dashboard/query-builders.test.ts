@@ -19,6 +19,20 @@ describe("buildPivotConditions — año", () => {
   });
 });
 
+describe("buildPivotConditions — observación", () => {
+  it("busca por contenido ignorando acentos en la observación efectiva", () => {
+    const conds = buildPivotConditions({ tableAlias: "c", observacionQuery: "eléctrico" });
+    expect(sqlDe(conds)).toContain(`translate(COALESCE(c."observacManual", c.observac),`);
+    expect(sqlDe(conds)).toContain("ILIKE");
+    expect(conds.flatMap((c) => c.values)).toContain("%electrico%");
+  });
+
+  it("escapa los comodines de LIKE tipeados por el usuario", () => {
+    const conds = buildPivotConditions({ tableAlias: "c", observacionQuery: "50%_a" });
+    expect(conds.flatMap((c) => c.values)).toContain("%50\\%\\_a%");
+  });
+});
+
 describe("buildPivotConditions — origen", () => {
   it("sin local ni PDV no agrega predicados de origen", () => {
     const sql = sqlDe(buildPivotConditions({ tableAlias: "c" }));
