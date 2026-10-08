@@ -42,6 +42,7 @@ export function PivotTableByConcepto() {
     flatRows, detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   } = usePivotScreenData({
     data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery,
+    rubroCodigo, activeMonths,
   });
 
   // usePctMode llama a useState internamente — tiene que ejecutarse antes de
