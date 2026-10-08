@@ -33,3 +33,7 @@ export const SIN_RUBRO_VISIBILIDAD_DEFAULT: Record<VisibilidadField, boolean> = 
   visibleEnDashboard: true,
   visibleEnResultados: false,
 };
+
+// Tope de filas del modal de detalle de compras. Un año completo sin filtro de rubro puede superar
+// el tope viejo (2000); por encima de este, el modal avisa (hasMore) en vez de cortar callado.
+export const DETALLE_COMPRAS_LIMITE = 5000;
