@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { TriangleAlert } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { SearchInput } from "@/components/ui/search-input";
@@ -88,6 +89,14 @@ export function DetalleModalShell<T>({
         {error && <div className="py-12 text-center text-sm text-destructive">Error al cargar los datos.</div>}
         {!isLoading && !error && count === 0 && (
           <div className="py-12 text-center text-sm text-muted-foreground">Sin registros para la selección.</div>
+        )}
+
+        {/* La API recorta en DETALLE_COMPRAS_LIMITE: el corte nunca puede pasar callado. */}
+        {!isLoading && !error && response?.hasMore && (
+          <div className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-6 py-2 text-xs text-foreground shrink-0">
+            <TriangleAlert className="size-3.5 shrink-0 text-warning" />
+            Se muestran los primeros {count.toLocaleString("es-AR")} registros — filtrá por mes para ver el resto.
+          </div>
         )}
 
         {!isLoading && !error && count > 0 && (

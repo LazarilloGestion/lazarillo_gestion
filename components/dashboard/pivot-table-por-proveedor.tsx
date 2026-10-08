@@ -320,6 +320,8 @@ export function PivotTableByProveedor() {
             grandTotal={data.grandTotal}
             pctMode={pctMode}
             fmtPct={fmtPct}
+            onMonthClick={(mes) => openDetalle({ mes })}
+            onTotalClick={() => openDetalle({})}
           />
         </table>
       </div>
