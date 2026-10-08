@@ -166,6 +166,11 @@ export type DetalleFilter = BaseDashboardFilter & {
   sinProveedor?: boolean;
   rowId?: string;
   distribucionId?: number;
+  // Búsqueda por contenido en la observación — filtro global del dashboard, para que el modal
+  // muestre las mismas compras que suma la celda clickeada.
+  observacionQuery?: string;
+  // Selección parcial de meses del dashboard. Se ignora si viene `mes` (la celda de un mes puntual).
+  meses?: number[];
 };
 
 export type VentasDetalleFilter = BaseDashboardFilter & {
