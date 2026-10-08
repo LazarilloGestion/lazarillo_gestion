@@ -128,8 +128,9 @@ componentes de tabla de compras pasan esos valores (ya los tienen de
   `onTotalClick={() => openDetalle({})}`. Con la precedencia de §1, el
   total anual con selección parcial de meses abre exactamente esos meses.
 - `DetalleModalShell`: si `response.hasMore`, muestra un aviso visible
-  arriba de la tabla: "Se muestran las primeras 5.000 compras — filtrá por
-  mes para ver el resto."
+  arriba de la tabla: "Se muestran los primeros 5.000 registros — filtrá
+  por mes para ver el resto." ("registros" porque el shell es genérico,
+  también lo usa Ventas.)
 
 ## Manejo de errores
 
@@ -156,3 +157,7 @@ componentes de tabla de compras pasan esos valores (ya los tienen de
   (`visibleEnDashboard`), no `visibleEnResultados` (ya existía).
 - Más de 5000 compras en un período: el modal avisa pero no permite verlas
   todas; el usuario tiene que acotar por mes.
+- Vista por proveedor: el click en una fila de proveedor (y en sus celdas)
+  no acota por el rubro bajo el que está la fila. Si un proveedor aparece en
+  dos rubros, el modal muestra las compras de ambos (ya existía; hallado al
+  escribir el plan, pendiente de decisión).
