@@ -32,6 +32,7 @@ export function useResultadosData() {
     detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   } = usePivotScreenData({
     data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery,
+    rubroCodigo, activeMonths,
   });
 
   return {

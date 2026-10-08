@@ -52,11 +52,18 @@ const yearParam = z.preprocess((v) => {
   return Number.isInteger(raw) && raw >= 2000 && raw <= 2100 ? raw : new Date().getFullYear();
 }, z.number());
 
-const monthsParam = z.preprocess((v) => {
+export const monthsParam = z.preprocess((v) => {
   if (typeof v !== "string" || v === "") return undefined;
   const parsed = v.split(",").map(Number).filter((n) => n >= 1 && n <= 12);
   return parsed.length > 0 && parsed.length < 12 ? parsed : undefined;
 }, z.array(z.number().int().min(1).max(12)).optional());
+
+// Trunca a 256 (igual que `observacionQuery` en el pivot) en vez de rechazar:
+// la paleta guarda el texto completo de la observación (hasta 500), y si el
+// detalle descartara el filtro mostraría más compras que la celda clickeada.
+export function parseObservacionQuery(raw: string | null): string | undefined {
+  return raw ? raw.slice(0, 256) : undefined;
+}
 
 const vistaParam = z.preprocess(
   (v) => (v === "resultados" ? "resultados" : undefined),
@@ -139,6 +146,8 @@ export function buildComprasDetalleUrl(filter: DetalleFilter): string {
   if (filter.localId) params.set("localId", String(filter.localId));
   if (filter.pdvId) params.set("pdvId", String(filter.pdvId));
   if (filter.mes) params.set("mes", String(filter.mes));
+  else if (filter.meses?.length) params.set("months", filter.meses.join(","));
+  if (filter.observacionQuery) params.set("observacionQuery", filter.observacionQuery);
   if (filter.rubroCodigo) params.set("rubroCodigo", filter.rubroCodigo);
   if (filter.conceptoCodigo) params.set("conceptoCodigo", filter.conceptoCodigo);
   if (filter.proveedorId) params.set("proveedorId", String(filter.proveedorId));

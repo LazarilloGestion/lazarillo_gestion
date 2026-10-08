@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { flattenRows, sortPivotRows, type SortCol, type SortDir } from "@/lib/dashboard/pivot-utils";
 import type { PivotData, DetalleFilter, VentasDetalleFilter } from "@/lib/dashboard/types";
+import { buildDetalleFilter, type DetalleFilterExtra } from "@/lib/dashboard/detalle-filter";
 
 interface UsePivotScreenDataParams {
   data: PivotData | undefined;
@@ -14,13 +15,15 @@ interface UsePivotScreenDataParams {
   conceptoCodigo?: string;
   proveedorId?: number;
   observacionQuery?: string;
+  rubroCodigo?: string;
+  activeMonths?: number[];
 }
 
 // Estado/orquestación compartido entre PivotTable (Compras) y useResultadosData (Resultados):
 // auto-expandir en filtro, drill-down (openDetalle), orden/aplanado del árbol pivot, colapso
 // de conceptos con click derecho. Extraído tras aparecer duplicado byte a byte en ambas pantallas.
 export function usePivotScreenData({
-  data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery,
+  data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery, rubroCodigo, activeMonths,
 }: UsePivotScreenDataParams) {
   const { expanded, setExpanded, toggle: toggleRow, collapseAll } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
@@ -47,8 +50,14 @@ export function usePivotScreenData({
     }
   }, [data, conceptoCodigo, proveedorId, observacionQuery, setExpanded]);
 
-  function openDetalle(extra: Omit<DetalleFilter, "year" | "localId" | "pdvId">) {
-    setDetalleFilter({ year, localId, pdvId, ...extra });
+  // Los totales del pivot vienen acotados por los filtros del dashboard; el modal tiene que mostrar
+  // las mismas compras (ver buildDetalleFilter).
+  function openDetalle(extra: DetalleFilterExtra) {
+    setDetalleFilter(buildDetalleFilter(
+      { year, localId, pdvId },
+      { rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, activeMonths },
+      extra,
+    ));
   }
 
   const sortedRows = useMemo(

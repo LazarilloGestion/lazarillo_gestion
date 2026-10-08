@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
 import { flattenRowsPorProveedor, sortPivotRowsPorProveedor, type SortCol, type SortDir } from "@/lib/dashboard/pivot-utils";
 import type { PivotDataPorProveedor, DetalleFilter, VentasDetalleFilter } from "@/lib/dashboard/types";
+import { buildDetalleFilter, type DetalleFilterExtra } from "@/lib/dashboard/detalle-filter";
 
 interface UsePivotScreenDataPorProveedorParams {
   data: PivotDataPorProveedor | undefined;
@@ -14,6 +15,8 @@ interface UsePivotScreenDataPorProveedorParams {
   conceptoCodigo?: string;
   proveedorId?: number;
   observacionQuery?: string;
+  rubroCodigo?: string;
+  activeMonths?: number[];
 }
 
 // Hermano de usePivotScreenData (lib/dashboard/pivot-utils.ts), para el árbol
@@ -21,7 +24,7 @@ interface UsePivotScreenDataPorProveedorParams {
 // Misma forma de retorno a propósito, para que PivotTableByProveedor consuma
 // este hook igual que PivotTableByConcepto consume el original.
 export function usePivotScreenDataPorProveedor({
-  data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery,
+  data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery, rubroCodigo, activeMonths,
 }: UsePivotScreenDataPorProveedorParams) {
   const { expanded, setExpanded, toggle: toggleRow, collapseAll } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
@@ -51,8 +54,14 @@ export function usePivotScreenDataPorProveedor({
     }
   }, [data, conceptoCodigo, proveedorId, observacionQuery, setExpanded]);
 
-  function openDetalle(extra: Omit<DetalleFilter, "year" | "localId" | "pdvId">) {
-    setDetalleFilter({ year, localId, pdvId, ...extra });
+  // Los totales del pivot vienen acotados por los filtros del dashboard; el modal tiene que mostrar
+  // las mismas compras (ver buildDetalleFilter).
+  function openDetalle(extra: DetalleFilterExtra) {
+    setDetalleFilter(buildDetalleFilter(
+      { year, localId, pdvId },
+      { rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, activeMonths },
+      extra,
+    ));
   }
 
   const sortedRows = useMemo(

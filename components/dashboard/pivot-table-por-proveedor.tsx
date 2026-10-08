@@ -43,6 +43,7 @@ export function PivotTableByProveedor() {
     flatRows, detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   } = usePivotScreenDataPorProveedor({
     data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery,
+    rubroCodigo, activeMonths,
   });
 
   // Ver la misma nota en pivot-table-por-concepto.tsx: usePctMode es un hook
@@ -319,6 +320,8 @@ export function PivotTableByProveedor() {
             grandTotal={data.grandTotal}
             pctMode={pctMode}
             fmtPct={fmtPct}
+            onMonthClick={(mes) => openDetalle({ mes })}
+            onTotalClick={() => openDetalle({})}
           />
         </table>
       </div>

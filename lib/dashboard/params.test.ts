@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildRangoAniosUrl, parseDashboardParams, parseVentasParams, buildDashboardUrl, buildComprasDetalleUrl } from "./params";
+import { buildRangoAniosUrl, parseDashboardParams, parseVentasParams, buildDashboardUrl, buildComprasDetalleUrl, monthsParam, parseObservacionQuery } from "./params";
 
 describe("buildRangoAniosUrl", () => {
   it("sin filtros: ruta sin query string", () => {
@@ -174,5 +174,63 @@ describe("buildDashboardUrl — agrupacion", () => {
   it("agrupacion proveedor: se agrega a la query", () => {
     const url = buildDashboardUrl("/api/dashboard/pivot", { year: 2026, agrupacion: "proveedor" });
     expect(url).toContain("agrupacion=proveedor");
+  });
+});
+
+describe("buildComprasDetalleUrl — meses y observación", () => {
+  it("serializa meses como months coma-separado", () => {
+    const sp = new URL(buildComprasDetalleUrl({ year: 2026, meses: [1, 2, 3] }), "http://x").searchParams;
+    expect(sp.get("months")).toBe("1,2,3");
+  });
+
+  it("con mes, manda mes y no months (el mes clickeado gana)", () => {
+    const sp = new URL(buildComprasDetalleUrl({ year: 2026, mes: 2, meses: [1, 2, 3] }), "http://x").searchParams;
+    expect(sp.get("mes")).toBe("2");
+    expect(sp.has("months")).toBe(false);
+  });
+
+  it("serializa observacionQuery", () => {
+    const sp = new URL(buildComprasDetalleUrl({ year: 2026, observacionQuery: "luz 50%" }), "http://x").searchParams;
+    expect(sp.get("observacionQuery")).toBe("luz 50%");
+  });
+
+  it("sin meses ni observación no agrega esos params", () => {
+    const url = buildComprasDetalleUrl({ year: 2026 });
+    expect(url).not.toContain("months");
+    expect(url).not.toContain("observacionQuery");
+  });
+});
+
+describe("monthsParam", () => {
+  it("parsea una lista válida", () => {
+    expect(monthsParam.safeParse("1,3").data).toEqual([1, 3]);
+  });
+
+  it("los 12 meses equivalen a sin filtro", () => {
+    expect(monthsParam.safeParse("1,2,3,4,5,6,7,8,9,10,11,12").data).toBeUndefined();
+  });
+
+  it("ausente o vacío: sin filtro", () => {
+    expect(monthsParam.safeParse(null).data).toBeUndefined();
+    expect(monthsParam.safeParse("").data).toBeUndefined();
+  });
+
+  it("un mes no entero falla el safeParse (la ruta lo trata como sin filtro)", () => {
+    expect(monthsParam.safeParse("1.5").success).toBe(false);
+  });
+});
+
+describe("parseObservacionQuery", () => {
+  it("ausente o vacío: sin filtro", () => {
+    expect(parseObservacionQuery(null)).toBeUndefined();
+    expect(parseObservacionQuery("")).toBeUndefined();
+  });
+
+  it("texto corto pasa intacto", () => {
+    expect(parseObservacionQuery("luz")).toBe("luz");
+  });
+
+  it("trunca a 256 en vez de descartar el filtro", () => {
+    expect(parseObservacionQuery("a".repeat(300))).toBe("a".repeat(256));
   });
 });

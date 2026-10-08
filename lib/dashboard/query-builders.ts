@@ -34,6 +34,14 @@ export function sinRubroVisibleSql(col: VisibilidadField): Prisma.Sql {
   return Prisma.sql`COALESCE((SELECT s."${Prisma.raw(safe)}" FROM sin_rubro_config s WHERE s.id = 1), ${Prisma.raw(fallback)})`;
 }
 
+// Búsqueda por contenido en la observación efectiva (manual si existe), sin acentos de ningún lado y
+// con los comodines de LIKE escapados. Compartida entre el pivot y el detalle: si filtraran distinto,
+// la suma del modal no coincidiría con el total clickeado.
+export function observacionCondition(t: string, query: string): Prisma.Sql {
+  const q = `%${quitarAcentos(query).replace(/[%_\\]/g, "\\$&")}%`;
+  return Prisma.sql`translate(COALESCE(${Prisma.raw(t)}."observacManual", ${Prisma.raw(t)}.observac), ${ACENTOS_DESDE}, ${ACENTOS_HACIA}) ILIKE ${q}`;
+}
+
 export function buildPivotConditions({
   year,
   tableAlias: t,
@@ -87,11 +95,6 @@ export function buildPivotConditions({
   }
   if (conceptoCodigo) conditions.push(Prisma.sql`COALESCE(cc.codigo, '__sin_concepto') = ${conceptoCodigo}`);
   if (proveedorId) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
-  if (observacionQuery) {
-    const q = `%${quitarAcentos(observacionQuery).replace(/[%_\\]/g, "\\$&")}%`;
-    conditions.push(
-      Prisma.sql`translate(COALESCE(${Prisma.raw(t)}."observacManual", ${Prisma.raw(t)}.observac), ${ACENTOS_DESDE}, ${ACENTOS_HACIA}) ILIKE ${q}`
-    );
-  }
+  if (observacionQuery) conditions.push(observacionCondition(t, observacionQuery));
   return conditions;
 }
