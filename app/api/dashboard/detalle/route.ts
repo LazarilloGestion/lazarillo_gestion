@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { mesSchema, yearSchema, idSchema, codigoSchema, textoLibreSchema } from "@/lib/dashboard/schemas";
-import { buildDateRange, sinRubroVisibleSql } from "@/lib/dashboard/query-builders";
+import { monthsParam } from "@/lib/dashboard/params";
+import { buildDetalleConditions } from "@/lib/dashboard/detalle-conditions";
+import { recortarConHasMore } from "@/lib/dashboard/recortar-has-more";
+import { DETALLE_COMPRAS_LIMITE } from "@/lib/dashboard/constants";
 import { reshapeDetalle, type DetalleSqlRow } from "@/lib/dashboard/reshape-detalle";
 
 export const dynamic = "force-dynamic";
@@ -91,7 +94,7 @@ export async function GET(request: NextRequest) {
         WHERE c."rowId" = ${rowId} AND c."distribucionId" = ${distribucionId}
         LIMIT 1
       `);
-      return NextResponse.json({ data: rows.map(reshapeDetalle) });
+      return NextResponse.json({ data: rows.map(reshapeDetalle), hasMore: false });
     }
 
     // (b) Sin distribucionId: comportamiento original intacto, usado por
@@ -119,7 +122,7 @@ export async function GET(request: NextRequest) {
         conceptoCajaManual: { select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } } },
       },
     });
-    return NextResponse.json({ data: compra ? [{ ...compra, distribucionId: null }] : [] });
+    return NextResponse.json({ data: compra ? [{ ...compra, distribucionId: null }] : [], hasMore: false });
   }
 
   const localId = idSchema.safeParse(searchParams.get("localId")).data;
@@ -136,59 +139,17 @@ export async function GET(request: NextRequest) {
   const rubroCodigoRaw = searchParams.get("rubroCodigo");
   const conceptoCodigo = conceptoCodigoRaw ? codigoSchema.safeParse(conceptoCodigoRaw).data : undefined;
   const rubroCodigo = rubroCodigoRaw ? codigoSchema.safeParse(rubroCodigoRaw).data : undefined;
+  const meses = monthsParam.safeParse(searchParams.get("months")).data;
+  const observacionRaw = searchParams.get("observacionQuery");
+  const observacionQuery = observacionRaw ? textoLibreSchema.safeParse(observacionRaw).data : undefined;
 
-  const { fechaStart, fechaEnd } = buildDateRange(year, mes);
-
-  const conditions: Prisma.Sql[] = [
-    Prisma.sql`COALESCE(c."fechaManual", c.fecha) >= ${fechaStart} AND COALESCE(c."fechaManual", c.fecha) < ${fechaEnd}`,
-    Prisma.sql`(c.fecha IS NOT NULL OR c."fechaManual" IS NOT NULL)`,
-    Prisma.sql`COALESCE(c."importeManual", c.importe) IS NOT NULL AND COALESCE(c."importeManual", c.importe) != 0`,
-  ];
-  if (localId !== undefined) conditions.push(Prisma.sql`c."localId" = ${localId}`);
-  if (pdvId !== undefined) conditions.push(Prisma.sql`c."puntoDeVentaId" = ${pdvId}`);
-  if (proveedorId !== undefined) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
-  else if (proveedorTexto !== undefined) {
-    // codigo es un AND adicional, no un reemplazo de proveedorTexto — dos
-    // personas con el mismo proveedorTexto (ej. dos "Abril") solo se separan
-    // si también se filtra por su código real (ver spec de la revisión final
-    // de rama). Sin codigo en la URL (compatibilidad con proveedores de texto
-    // crudo sin código), el filtro queda igual que antes.
-    conditions.push(
-      codigo !== undefined
-        ? Prisma.sql`c."proveedorId" IS NULL AND c.proveedor = ${proveedorTexto} AND c.codigo = ${codigo}`
-        : Prisma.sql`c."proveedorId" IS NULL AND c.proveedor = ${proveedorTexto}`
-    );
-  }
-  else if (sinProveedor) conditions.push(Prisma.sql`c."proveedorId" IS NULL AND c.proveedor IS NULL`);
-
-  // cc_ef/rc_ef (concepto EFECTIVO, mismo join que pivot usa: COALESCE(manual,
-  // original)) es solo para filtrar — replica exactamente el comportamiento
-  // original de detalle (Prisma: `OR: [{conceptoCodigoManual: X}, {conceptoCodigoManual: null, conceptoCodigo: X}]`)
-  // y el de pivot. Filtrar por el concepto NO-coalescido sería un bug: una
-  // compra reclasificada a mano a otro rubro/concepto dejaría de aparecer al
-  // filtrar por su rubro nuevo, o seguiría apareciendo en el rubro viejo.
-  if (rubroCodigo && !conceptoCodigo) {
-    // Mismo criterio que el pivot (query-builders.ts) y el SELECT de
-    // /api/dashboard/pivot: el bucket "Sin Rubro" es sintético
-    // ('__sin_rubro'), no existe como código real en rubros_concepto_caja.
-    // Sin el COALESCE, rc_ef.codigo es NULL para esas compras y
-    // `NULL = '__sin_rubro'` nunca matchea — el modal abre vacío.
-    conditions.push(Prisma.sql`COALESCE(rc_ef.codigo, '__sin_rubro') = ${rubroCodigo}`);
-  } else if (conceptoCodigo) {
-    conditions.push(Prisma.sql`COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = ${conceptoCodigo}`);
-  } else {
-    // Sin filtro de rubro/concepto: excluir rubros ocultos. A diferencia de
-    // los dos filtros de arriba, esta rama del detalle ORIGINAL (antes de
-    // este plan) usa el concepto NO-manual (`conceptoCaja`/`conceptoCodigo`
-    // en el Prisma.CompraWhereInput anterior) para decidir visibilidad, no el
-    // efectivo — replicar exactamente, no "corregir" una inconsistencia que
-    // ya existía y está fuera de alcance de este plan.
-    conditions.push(
-      Prisma.sql`(rc."visibleEnDashboard" = true OR (c."conceptoCodigo" IS NULL AND ${sinRubroVisibleSql("visibleEnDashboard")}))`
-    );
-  }
-
-  const where = Prisma.join(conditions, " AND ");
+  const where = Prisma.join(
+    buildDetalleConditions({
+      year, localId, pdvId, mes, meses, proveedorId, proveedorTexto, codigo, sinProveedor,
+      rubroCodigo, conceptoCodigo, observacionQuery,
+    }),
+    " AND "
+  );
 
   try {
     const rows = await prisma.$queryRaw<DetalleSqlRow[]>(Prisma.sql`
@@ -198,10 +159,11 @@ export async function GET(request: NextRequest) {
       LEFT JOIN rubros_concepto_caja rc_ef  ON cc_ef."codRga" = rc_ef.codigo
       WHERE ${where}
       ORDER BY c.fecha ASC
-      LIMIT 2000
+      LIMIT ${DETALLE_COMPRAS_LIMITE + 1}
     `);
 
-    return NextResponse.json({ data: rows.map(reshapeDetalle) });
+    const { data, hasMore } = recortarConHasMore(rows, DETALLE_COMPRAS_LIMITE);
+    return NextResponse.json({ data: data.map(reshapeDetalle), hasMore });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
