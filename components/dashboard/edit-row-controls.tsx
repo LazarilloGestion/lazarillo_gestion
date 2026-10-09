@@ -61,7 +61,7 @@ export function AperturaDot() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-info" />
+        <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
       </TooltipTrigger>
       <TooltipContent>Apertura de gastos aplicada</TooltipContent>
     </Tooltip>
