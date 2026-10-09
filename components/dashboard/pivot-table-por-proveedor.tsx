@@ -5,6 +5,7 @@ import { ExpandableButton } from "@/components/ui/expandable-button";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { RUBRO_GASTOS_EN_PERSONAL_CODIGO } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
+import { filtroFilaProveedor } from "@/lib/dashboard/filtro-fila-proveedor";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { useReglasActivasPorNivel } from "@/hooks/use-reglas-activas-por-nivel";
@@ -106,11 +107,7 @@ export function PivotTableByProveedor() {
               if (item.type === "proveedorSub") {
                 const proveedor = item.data as PivotProveedorSubRow;
                 const isExpanded = expanded.has(proveedor.id);
-                const filtroProveedor = proveedor.proveedorId != null
-                  ? { proveedorId: proveedor.proveedorId }
-                  : proveedor.proveedorTexto != null
-                    ? { proveedorTexto: proveedor.proveedorTexto, codigo: proveedor.codigo ?? undefined }
-                    : { sinProveedor: true as const };
+                const filtroProveedor = filtroFilaProveedor(proveedor);
                 // Bajo Gastos En Personal los "proveedores" suelen ser personas de
                 // planilla con nombres ambiguos — el código del ERP los desambigua.
                 // En el resto de rubros el nombre ya alcanza, así que no se antepone.
