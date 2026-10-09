@@ -37,3 +37,6 @@ export const SIN_RUBRO_VISIBILIDAD_DEFAULT: Record<VisibilidadField, boolean> = 
 // Tope de filas del modal de detalle de compras. Un año completo sin filtro de rubro puede superar
 // el tope viejo (2000); por encima de este, el modal avisa (hasMore) en vez de cortar callado.
 export const DETALLE_COMPRAS_LIMITE = 5000;
+
+// Mismo criterio para el modal de detalle de ventas: antes cortaba en 2000 sin avisar.
+export const DETALLE_VENTAS_LIMITE = 5000;

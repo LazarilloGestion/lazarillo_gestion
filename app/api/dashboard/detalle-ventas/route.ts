@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { parseVentasParams } from "@/lib/dashboard/params";
-import { SIN_TIPO_CODE, SIN_COBRO_CODE } from "@/lib/dashboard/constants";
+import { SIN_TIPO_CODE, SIN_COBRO_CODE, DETALLE_VENTAS_LIMITE } from "@/lib/dashboard/constants";
 import { mesSchema, yearSchema, codigoSchema } from "@/lib/dashboard/schemas";
 import { buildDateRange } from "@/lib/dashboard/query-builders";
+import { recortarConHasMore } from "@/lib/dashboard/recortar-has-more";
 
 export const dynamic = "force-dynamic";
 
@@ -61,9 +62,11 @@ export async function GET(request: NextRequest) {
       local: { select: { nombre: true } },
       puntoDeVenta: { select: { nombre: true } },
     },
-    orderBy: { fecha: "asc" },
-    take: 2000,
+    // Desempate por rowId: con fechas repetidas, qué ventas sobreviven al corte tiene que ser estable.
+    orderBy: [{ fecha: "asc" }, { rowId: "asc" }],
+    take: DETALLE_VENTAS_LIMITE + 1,
   });
 
-  return NextResponse.json({ data: ventas });
+  const { data, hasMore } = recortarConHasMore(ventas, DETALLE_VENTAS_LIMITE);
+  return NextResponse.json({ data, hasMore });
 }
