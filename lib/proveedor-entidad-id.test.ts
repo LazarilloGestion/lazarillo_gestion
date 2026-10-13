@@ -11,6 +11,9 @@ describe("construirEntidadIdProveedorTexto", () => {
   it("sinproveedor: nunca lleva sufijo aunque haya codigo", () => {
     expect(construirEntidadIdProveedorTexto("sinproveedor", "999")).toBe("texto:sinproveedor");
   });
+  it("gastosvarios: nunca lleva sufijo aunque haya codigo", () => {
+    expect(construirEntidadIdProveedorTexto("gastosvarios", "101")).toBe("texto:gastosvarios");
+  });
 });
 
 describe("parsearEntidadIdProveedorTexto", () => {

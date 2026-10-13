@@ -50,6 +50,10 @@ describe("resolverEntidadIdProveedor", () => {
     expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: null, codigo: "999" })).toBe("texto:sinproveedor");
   });
 
+  it("GASTOS VARIOS con codigo: 'texto:gastosvarios' sin sufijo — mismo nodo que arma el pivot", () => {
+    expect(resolverEntidadIdProveedor({ proveedorId: null, proveedor: "GASTOS VARIOS", codigo: "101" })).toBe("texto:gastosvarios");
+  });
+
   it("dos personas con mismo nombre y codigo distinto resuelven a entidadId distinto", () => {
     const a = resolverEntidadIdProveedor({ proveedorId: null, proveedor: "Abril", codigo: "368" });
     const b = resolverEntidadIdProveedor({ proveedorId: null, proveedor: "Abril", codigo: "670" });
