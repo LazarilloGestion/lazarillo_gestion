@@ -43,6 +43,8 @@ export async function GET(
       medida: true,
       neto: true,
       totalIns: true,
+      ivaTot: true,
+      impNtTot: true,
       observac: true,
     },
     orderBy: { rowId: "asc" },
