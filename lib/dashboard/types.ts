@@ -292,5 +292,7 @@ export type DetalleCompraLinea = {
   medida: string | null;
   neto: string | number | null;
   totalIns: string | number | null;
+  ivaTot: string | number | null;
+  impNtTot: string | number | null;
   observac: string | null;
 };
