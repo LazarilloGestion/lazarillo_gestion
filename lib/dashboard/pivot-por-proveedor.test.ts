@@ -346,4 +346,21 @@ describe("buildPivotDataByProveedor", () => {
     expect(proveedor.composicion).toBeUndefined();
     expect(proveedor.composicionTotal).toBeUndefined();
   });
+
+  it("GASTOS VARIOS no se fragmenta por codigo: un solo nodo con sus conceptos debajo, sin codigo para el drill-down", () => {
+    const rows: SqlRow[] = [
+      row({ proveedor_id: null, proveedor_nombre: "GASTOS VARIOS", proveedor_texto_crudo: "GASTOS VARIOS", proveedor_codigo: "101", concepto_codigo: "C1", row_id: "g1", total: 10 }),
+      row({ proveedor_id: null, proveedor_nombre: "GASTOS VARIOS", proveedor_texto_crudo: "GASTOS VARIOS", proveedor_codigo: "102", concepto_codigo: "C2", concepto_nombre: "Concepto 2", row_id: "g2", total: 20 }),
+      row({ proveedor_id: null, proveedor_nombre: "GASTOS VARIOS", proveedor_texto_crudo: "GASTOS VARIOS", proveedor_codigo: "103", concepto_codigo: "C2", concepto_nombre: "Concepto 2", row_id: "g3", total: 5 }),
+    ];
+    const data = buildPivotDataByProveedor(rows, {});
+    expect(data.rows[0].children).toHaveLength(1);
+    const proveedor = data.rows[0].children[0];
+    expect(proveedor.entidadIdProveedor).toBe("texto:gastosvarios");
+    expect(proveedor.rowTotal).toBe(35);
+    expect(proveedor.children.map((c) => c.conceptoCodigo)).toEqual(["C1", "C2"]);
+    // El código de una sola compra filtraría el drill-down a esa compra y el modal no sumaría lo de la celda.
+    expect(proveedor.codigo).toBeNull();
+    expect(proveedor.children.every((c) => c.codigo === null)).toBe(true);
+  });
 });

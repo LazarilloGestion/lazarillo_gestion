@@ -1,5 +1,5 @@
 import { normalizarTexto } from "../text-normalize";
-import { construirEntidadIdProveedorTexto } from "../proveedor-entidad-id";
+import { construirEntidadIdProveedorTexto, codigoIdentidadProveedorTexto } from "../proveedor-entidad-id";
 import { mergeComposiciones } from "./apertura-composicion";
 import type {
   SqlRow,
@@ -66,6 +66,11 @@ export function buildPivotDataByProveedor(
     const provKeyOriginal = proveedor_id != null
       ? String(proveedor_id)
       : construirEntidadIdProveedorTexto(normalizarTexto(proveedor_nombre), proveedor_codigo);
+    // En un balde genérico (GASTOS VARIOS) el código de esta compra no es el
+    // del nodo — ver codigoIdentidadProveedorTexto.
+    const codigoNodo = proveedor_id != null
+      ? proveedor_codigo
+      : codigoIdentidadProveedorTexto(normalizarTexto(proveedor_nombre), proveedor_codigo);
     const provKey = `${rubro_codigo}|${provKeyOriginal}`;
     const concKey = `${provKey}|${concepto_codigo}`;
 
@@ -101,7 +106,7 @@ export function buildPivotDataByProveedor(
         // byte-idénticos por construcción (docs/superpowers/specs/2026-09-20-
         // apertura-proveedor-texto-crudo-design.md §4.3).
         entidadIdProveedor: provKeyOriginal,
-        codigo: proveedor_codigo,
+        codigo: codigoNodo,
         rubroCodigo: rubro_codigo,
         values: {},
         rowTotal: 0,
@@ -122,7 +127,7 @@ export function buildPivotDataByProveedor(
         proveedorId: proveedor_id,
         // Misma fuente que el nodo de proveedor (ver comentario arriba).
         proveedorTexto: proveedor_id != null ? null : proveedor_texto_crudo,
-        codigo: proveedor_codigo,
+        codigo: codigoNodo,
         values: {},
         rowTotal: 0,
         children: [],

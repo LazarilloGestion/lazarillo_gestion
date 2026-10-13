@@ -81,7 +81,8 @@ describe("buildComposicionPorProveedor", () => {
     ];
     const result = buildComposicionPorProveedor(destinoRows, originalRows);
     expect(result["3|texto:diego|codigo:120"][1].destinos).toEqual([{ nombre: "Local A", pct: 100, importe: 100 }]);
-    expect(result["3|texto:gastosvarios|codigo:555"][1].destinos).toEqual([{ nombre: "Local B", pct: 100, importe: 200 }]);
+    // GASTOS VARIOS es balde genérico: su clave no lleva código (ver BALDES_SIN_CODIGO).
+    expect(result["3|texto:gastosvarios"][1].destinos).toEqual([{ nombre: "Local B", pct: 100, importe: 200 }]);
   });
 
   it("mismo nombre, codigo distinto: NO se mezclan en la misma composición", () => {
