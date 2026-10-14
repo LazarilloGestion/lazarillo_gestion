@@ -14,10 +14,10 @@ export function SortableTableHead({
 }) {
   return (
     <>
-      {cols.map(({ label, icon: Icon, color, bg, right, sortKey }) => (
+      {cols.map(({ label, icon: Icon, color, bg, right, sortKey, width }) => (
         <th
           key={label}
-          className={`px-3 py-3 ${right ? "text-right" : "text-left"} ${sortKey ? "cursor-pointer select-none" : ""}`}
+          className={`px-3 py-3 ${right ? "text-right" : "text-left"} ${sortKey ? "cursor-pointer select-none" : ""} ${width ?? ""}`}
           onClick={sortKey ? () => onSort(sortKey) : undefined}
         >
           <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider ${sort?.key === sortKey ? "text-foreground" : "text-muted-foreground"}`}>

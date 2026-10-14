@@ -93,14 +93,16 @@ export function DetalleModalShell<T>({
 
         {/* La API recorta en DETALLE_COMPRAS_LIMITE: el corte nunca puede pasar callado. */}
         {!isLoading && !error && response?.hasMore && (
-          <div className="flex items-center gap-2 border-b border-warning/40 bg-warning/10 px-6 py-2 text-xs text-foreground shrink-0">
+          <div className="flex items-center gap-2 rounded-t-xl border-b border-warning/40 bg-warning/10 px-6 py-2 text-xs text-foreground shrink-0">
             <TriangleAlert className="size-3.5 shrink-0 text-warning" />
             Se muestran los primeros {count.toLocaleString("es-AR")} registros — filtrá por mes para ver el resto.
           </div>
         )}
 
         {!isLoading && !error && count > 0 && (
-          <div className={cn("overflow-auto flex-1 min-h-0", filtered.length > 1 && "pb-2")}>
+          // rounded-t-xl: en edición el modal pasa a overflow-visible y deja de
+          // recortar sus esquinas; el fondo del thead sticky asomaría cuadrado.
+          <div className={cn("overflow-auto flex-1 min-h-0 rounded-t-xl", filtered.length > 1 && "pb-2")}>
             <table className="text-xs min-w-max w-full">
               <thead className="sticky top-0 z-10 bg-popover">
                 <tr>
