@@ -326,14 +326,6 @@ function ComprasRow({
             value={editing!.importeManual}
             onChange={e => onEdit({ ...editing!, importeManual: e.target.value })}
           />
-          {editing!.esDistribuida && (
-            // La tabla muestra la fracción de esta fila, pero acá se corrige el
-            // total de la compra: al guardar se reparte de nuevo entre destinos.
-            // w-28 = ancho del input: sin tope, el texto ensancha la columna.
-            <p className="mt-0.5 ml-auto w-28 text-[10px] leading-tight text-muted-foreground">
-              Total de la compra, se reparte según la regla
-            </p>
-          )}
         </td>
         <td className="px-2 py-1.5">
           <EditActionButtons onSave={() => onSave(editing!)} onCancel={onCancel} saving={saving} />
@@ -595,6 +587,10 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         sortFn={sortCompras}
         saveError={saveError}
         isEditing={editing !== null}
+        // La tabla muestra la fracción de esta fila, pero el input corrige el
+        // total de la compra: al guardar se reparte de nuevo entre destinos.
+        // Va en el pie y no bajo el input para no agrandar la fila.
+        footerNote={editing?.esDistribuida ? "El importe es el total de la compra, se reparte según la regla" : null}
         renderRow={(item, portalContainer) => (
           // distribucionId ?? rowId: una compra distribuida en N destinos
           // genera N objetos CompraDetalle con el mismo rowId (fan-out de
