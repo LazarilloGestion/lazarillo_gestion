@@ -72,7 +72,7 @@ Script `scripts/reimportar-detalle-compras.ts`, con `--dry-run` por defecto y `-
 - **Duplicados reales en el archivo del ERP.** Si el ERP exportara dos veces la misma línea por error, ahora se guardarían las dos y el detalle sumaría de más. Contra eso hay evidencia: en los casos verificados, las líneas repetidas son reales (la suma coincide con Compras).
 - **Tiempo de corrida.** Son unas 90.000 líneas; el ETL actual las procesa en chunks de 500. Se corre por local y se mide en el dry-run.
 
-## 4. Decisiones pendientes del usuario
+## 4. Decisiones
 
-1. OK para correr `--apply` contra producción después de revisar el dry-run.
-2. Confirmar que no hay archivos de detalle fuera del bucket (por ejemplo, años importados a mano antes del 24-ago) que el paso 3 pudiera borrar sin reemplazo. El chequeo del dry-run lo detecta, pero conviene saberlo antes.
+- **Confirmado por el usuario (14-oct-2026):** no hay archivos de detalle importados por fuera de Drive. Toda la historia está en el bucket, así que el paso 3 no borra nada sin reemplazo. El chequeo del dry-run se mantiene como resguardo.
+- **Pendiente:** OK del usuario para correr `--apply` contra producción después de revisar el dry-run.
