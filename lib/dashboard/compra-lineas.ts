@@ -22,6 +22,22 @@ export function totalComprobante(lineas: DetalleCompraLinea[]): number | null {
   return totales.reduce((acc, t) => acc + t, 0);
 }
 
+type CompraRef = { comprobante: string | null; localId: number | null; codigo: string | null };
+
+// Se busca por comprobante (no por compraId) para mostrar la factura completa
+// aunque esté dividida en varias filas de compras — ver el route. El proveedor
+// entra en el filtro porque un mismo número de ticket se repite entre
+// proveedores distintos (821 comprobantes en producción, 14-oct-2026): sin él
+// el modal mezclaba líneas de facturas ajenas.
+export function whereLineasDeCompra(compra: CompraRef | null, compraId: string) {
+  if (!compra?.comprobante) return { compraId };
+  return {
+    comprobante: compra.comprobante,
+    localId: compra.localId,
+    ...(compra.codigo ? { codPro: compra.codigo } : {}),
+  };
+}
+
 const NUMERIC_KEYS = {
   cantidad: (l: DetalleCompraLinea) => toNum(l.cantidad),
   neto: (l: DetalleCompraLinea) => toNum(l.neto),

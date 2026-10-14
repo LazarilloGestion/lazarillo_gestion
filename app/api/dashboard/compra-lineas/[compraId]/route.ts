@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
+import { whereLineasDeCompra } from "@/lib/dashboard/compra-lineas";
 
 export const dynamic = "force-dynamic";
 
@@ -23,15 +24,14 @@ export async function GET(
   // cualquiera de sus filas divididas en vez de un desglose que no se puede
   // sostener. `localId` evita mezclar facturas de distintos locales que por
   // azar compartan el mismo número de comprobante (mismo resguardo que usa el
-  // link de ETL en linkDetalleComprasByComprobante).
+  // link de ETL en linkDetalleComprasByComprobante). El proveedor se filtra
+  // también — ver whereLineasDeCompra.
   const compra = await prisma.compra.findUnique({
     where: { rowId: compraId },
-    select: { comprobante: true, localId: true },
+    select: { comprobante: true, localId: true, codigo: true },
   });
 
-  const where = compra?.comprobante
-    ? { comprobante: compra.comprobante, localId: compra.localId }
-    : { compraId };
+  const where = whereLineasDeCompra(compra, compraId);
 
   const lineas = await prisma.detalleCompra.findMany({
     where,

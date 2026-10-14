@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { totalLinea, totalComprobante, sortCompraLineas } from "./compra-lineas";
+import { totalLinea, totalComprobante, sortCompraLineas, whereLineasDeCompra } from "./compra-lineas";
 import type { DetalleCompraLinea } from "./types";
 
 function linea(overrides: Partial<DetalleCompraLinea>): DetalleCompraLinea {
@@ -97,5 +97,30 @@ describe("sortCompraLineas", () => {
     const textos = [linea({ rowId: "a", observac: null }), linea({ rowId: "b", observac: "x" })];
     expect(sortBy(textos, "observac", "asc")).toEqual(["b", "a"]);
     expect(sortBy(textos, "observac", "desc")).toEqual(["b", "a"]);
+  });
+});
+
+describe("whereLineasDeCompra", () => {
+  it("filtra por comprobante, local y proveedor (mismo número de ticket entre proveedores)", () => {
+    expect(whereLineasDeCompra({ comprobante: "Z000100000001", localId: 1, codigo: "194" }, "c1")).toEqual({
+      comprobante: "Z000100000001",
+      localId: 1,
+      codPro: "194",
+    });
+  });
+
+  it("sin proveedor en la compra no filtra por proveedor (no esconde líneas)", () => {
+    expect(whereLineasDeCompra({ comprobante: "Z000100000001", localId: 1, codigo: null }, "c1")).toEqual({
+      comprobante: "Z000100000001",
+      localId: 1,
+    });
+  });
+
+  it("sin comprobante cae al vínculo directo por compraId", () => {
+    expect(whereLineasDeCompra({ comprobante: null, localId: 1, codigo: "194" }, "c1")).toEqual({ compraId: "c1" });
+  });
+
+  it("compra inexistente cae al vínculo directo por compraId", () => {
+    expect(whereLineasDeCompra(null, "c1")).toEqual({ compraId: "c1" });
   });
 });
