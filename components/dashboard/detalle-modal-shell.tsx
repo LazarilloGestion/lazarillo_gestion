@@ -24,6 +24,7 @@ interface DetalleModalShellProps<T> {
   renderRow: (item: T, portalContainer: HTMLElement | null) => React.ReactNode;
   saveError?: string | null;
   isEditing?: boolean;
+  footerNote?: string | null;
 }
 
 export function DetalleModalShell<T>({
@@ -38,6 +39,7 @@ export function DetalleModalShell<T>({
   renderRow,
   saveError,
   isEditing,
+  footerNote,
 }: DetalleModalShellProps<T>) {
   const { sort, handleSortClick } = useSortState();
   // Portal container para popovers/selects anidados: sin esto, montan en document.body
@@ -129,10 +131,13 @@ export function DetalleModalShell<T>({
           <div className="border-t border-destructive/30 px-6 py-2 text-xs text-destructive">{saveError}</div>
         )}
         {count > 0 && (
-          <div className="border-t border-border/60 px-6 py-2.5 shrink-0 text-[11px] text-muted-foreground/60">
-            {query
-              ? `${filtered.length} de ${count} registro${count !== 1 ? "s" : ""}`
-              : `${count} registro${count !== 1 ? "s" : ""}`}
+          <div className="flex items-center justify-between gap-4 border-t border-border/60 px-6 py-2.5 shrink-0 text-[11px]">
+            <span className="text-muted-foreground/60">
+              {query
+                ? `${filtered.length} de ${count} registro${count !== 1 ? "s" : ""}`
+                : `${count} registro${count !== 1 ? "s" : ""}`}
+            </span>
+            {footerNote && <span className="text-muted-foreground">{footerNote}</span>}
           </div>
         )}
       </DialogContent>
