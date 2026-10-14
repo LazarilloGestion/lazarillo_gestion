@@ -117,7 +117,9 @@ export function DetalleModalShell<T>({
                 </tr>
                 <tr className="border-b border-border/60">
                   <SortableTableHead cols={cols} sort={sort} onSort={handleSortClick} />
-                  <th className="w-8" />
+                  {/* Ancho de EditActionButtons (2 × w-6 + gap-1) + px-2: la columna
+                      no cambia al pasar de lápiz+split (más angostos) a ✓/✕. */}
+                  <th className="w-[4.25rem]" />
                 </tr>
               </thead>
               <tbody>
