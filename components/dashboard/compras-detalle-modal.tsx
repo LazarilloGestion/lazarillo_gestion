@@ -38,6 +38,9 @@ export interface ColDef {
   bg: string;
   right: boolean;
   sortKey?: string;
+  /** Ancho reservado (clase Tailwind) para que la columna no crezca al entrar
+   *  en edición: el modal es w-fit, así que cualquier reflow lo ensancha. */
+  width?: string;
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -171,15 +174,17 @@ function ConceptoCombobox({
 
 // ─── Column definitions ───────────────────────────────────────────────────────
 
+// Los `width` = ancho del control de edición de esa columna (ver ComprasRow) +
+// px-3 de la celda. Si cambia el ancho de un input, actualizar acá también.
 const COMPRAS_COLS: ColDef[] = [
-  { label: "Fecha",       icon: CalendarDays,   color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "fecha"     },
-  { label: "Local",       icon: Building2,      color: "text-muted-foreground",   bg: "bg-muted",                right: false                        },
-  { label: "Proveedor",   icon: Truck,          color: "text-cat-proveedor",      bg: "bg-cat-proveedor/12",     right: false, sortKey: "proveedor"  },
-  { label: "Detalle",     icon: FileText,       color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "detalle"    },
-  { label: "Observación", icon: MessageSquare,  color: "text-cat-observacion",    bg: "bg-cat-observacion/12",   right: false, sortKey: "observacion"},
-  { label: "Rubro",       icon: Layers,         color: "text-cat-rubro",          bg: "bg-cat-rubro/12",         right: false                        },
-  { label: "Concepto",    icon: Tag,            color: "text-cat-concepto",       bg: "bg-cat-concepto/12",      right: false, sortKey: "concepto"   },
-  { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground",   bg: "bg-muted",                right: true,  sortKey: "importe"    },
+  { label: "Fecha",       icon: CalendarDays,   color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "fecha",       width: "w-[9.5rem]"  },
+  { label: "Local",       icon: Building2,      color: "text-muted-foreground",   bg: "bg-muted",                right: false                                             },
+  { label: "Proveedor",   icon: Truck,          color: "text-cat-proveedor",      bg: "bg-cat-proveedor/12",     right: false, sortKey: "proveedor"                       },
+  { label: "Detalle",     icon: FileText,       color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "detalle"                         },
+  { label: "Observación", icon: MessageSquare,  color: "text-cat-observacion",    bg: "bg-cat-observacion/12",   right: false, sortKey: "observacion", width: "w-[10.5rem]" },
+  { label: "Rubro",       icon: Layers,         color: "text-cat-rubro",          bg: "bg-cat-rubro/12",         right: false,                         width: "w-[10.5rem]" },
+  { label: "Concepto",    icon: Tag,            color: "text-cat-concepto",       bg: "bg-cat-concepto/12",      right: false, sortKey: "concepto",    width: "w-[12.5rem]" },
+  { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground",   bg: "bg-muted",                right: true,  sortKey: "importe",     width: "w-[8.5rem]"  },
 ];
 
 // ─── Sort ─────────────────────────────────────────────────────────────────────
@@ -324,7 +329,8 @@ function ComprasRow({
           {editing!.esDistribuida && (
             // La tabla muestra la fracción de esta fila, pero acá se corrige el
             // total de la compra: al guardar se reparte de nuevo entre destinos.
-            <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
+            // w-28 = ancho del input: sin tope, el texto ensancha la columna.
+            <p className="mt-0.5 ml-auto w-28 text-[10px] leading-tight text-muted-foreground">
               Total de la compra, se reparte según la regla
             </p>
           )}
