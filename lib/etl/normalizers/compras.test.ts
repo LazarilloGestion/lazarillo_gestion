@@ -5,6 +5,29 @@ import type { ETLRow } from "../types";
 import { excelDateToISO, safeDate } from "../helpers";
 import { computeCompraRowId, compraIdentityFromRawRow } from "./compra-identity";
 
+// Forma de la consulta de candidatos de reconciliación: desde el fix de
+// 21-oct-2026 (timeout en Vercel) va UNA consulta por lote de anclas, con
+// `where.OR = [ancla, ancla, ...]` (cada ancla = codCga/fecha/codigo/concepto/
+// importe) y `where.rowId.notIn` común. Estos helpers leen esa forma en los
+// mocks sin acoplarse al orden ni al tamaño del lote.
+type AnclaWhere = { codCga?: unknown; codigo?: unknown; concepto?: unknown; fecha?: Date; importe?: { toString(): string } };
+type CompraWhere = { rowId?: { in?: string[]; notIn?: string[] }; OR?: AnclaWhere[] };
+function anclasDe(where: CompraWhere | undefined): AnclaWhere[] {
+  return where?.OR ?? [];
+}
+function filaMatcheaAncla(
+  f: { codCga: unknown; codigo: unknown; concepto: unknown; fecha: Date | null; importe: { toString(): string } },
+  a: AnclaWhere
+): boolean {
+  return (
+    f.codCga === a.codCga &&
+    f.codigo === a.codigo &&
+    f.concepto === a.concepto &&
+    f.fecha?.getTime() === a.fecha?.getTime() &&
+    f.importe.toString() === a.importe?.toString()
+  );
+}
+
 function baseRow(overrides: Partial<Record<string, unknown>> = {}): ETLRow {
   return {
     COD_CGA: "GASTO1",
@@ -505,13 +528,7 @@ describe("normalizeCompras", () => {
       };
       const tabla = new Map<string, typeof huerfanaSeed>([[huerfanaSeed.rowId, huerfanaSeed]]);
 
-      const findMany = vi.fn(async (args: {
-        where?: {
-          rowId?: { in?: string[]; notIn?: string[] };
-          codCga?: unknown; codigo?: unknown; concepto?: unknown;
-          fecha?: Date; importe?: { toString(): string };
-        };
-      }) => {
+      const findMany = vi.fn(async (args: { where?: CompraWhere }) => {
         const where = args?.where ?? {};
         let filas = Array.from(tabla.values());
         if (where.rowId?.in) {
@@ -522,11 +539,10 @@ describe("normalizeCompras", () => {
           const set = new Set(where.rowId.notIn);
           filas = filas.filter((f) => !set.has(f.rowId));
         }
-        if (where.codCga !== undefined) filas = filas.filter((f) => f.codCga === where.codCga);
-        if (where.codigo !== undefined) filas = filas.filter((f) => f.codigo === where.codigo);
-        if (where.concepto !== undefined) filas = filas.filter((f) => f.concepto === where.concepto);
-        if (where.fecha !== undefined) filas = filas.filter((f) => f.fecha?.getTime() === where.fecha!.getTime());
-        if (where.importe !== undefined) filas = filas.filter((f) => f.importe.toString() === where.importe!.toString());
+        if (where.OR) {
+          const anclas = anclasDe(where);
+          filas = filas.filter((f) => anclas.some((a) => filaMatcheaAncla(f, a)));
+        }
         return filas.map((f) => ({ ...f }));
       });
       const update = vi.fn(async (args: { where: { rowId: string }; data: Record<string, unknown> }) => {
@@ -601,23 +617,15 @@ describe("normalizeCompras", () => {
       };
 
       const compraModel = {
-        findMany: vi.fn().mockImplementation(async (args: {
-          where?: {
-            rowId?: { in?: string[]; notIn?: string[] };
-            codCga?: unknown; codigo?: unknown; concepto?: unknown;
-            fecha?: Date; importe?: { toString(): string };
-          };
-        }) => {
+        findMany: vi.fn().mockImplementation(async (args: { where?: CompraWhere }) => {
           const where = args?.where ?? {};
           if (where.rowId?.in) {
             return where.rowId.in.includes(rowIdX) ? [seedX] : [];
           }
-          const matchaAncla =
-            where.codCga === seedX.codCga &&
-            where.codigo === seedX.codigo &&
-            where.concepto === seedX.concepto &&
-            where.fecha?.getTime() === seedX.fecha.getTime() &&
-            where.importe?.toString() === seedX.importe.toString();
+          // El lote de anclas del chunk de Y incluye el ancla de X (la
+          // comparten); el mock devuelve a X como candidata y es el
+          // `rowId.notIn` (todo el archivo) lo que tiene que excluirla.
+          const matchaAncla = anclasDe(where).some((a) => filaMatcheaAncla(seedX, a));
           if (!matchaAncla) return [];
           const excluida = where.rowId?.notIn?.includes(rowIdX) ?? false;
           return excluida ? [] : [seedX];
@@ -654,10 +662,13 @@ describe("normalizeCompras", () => {
     // siga matcheando el ancla de la huérfana.
     it("la fila que reconcilia es la misma cuyo insert falla: el rename ocurre pero no se reporta como reconciliada", async () => {
       const compraModel = {
-        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] }; codigo?: unknown } }) => {
+        findMany: vi.fn().mockImplementation(async (args: { where?: CompraWhere }) => {
           if (args?.where?.rowId?.in) return []; // sin match exacto por hash para ninguna de las dos
-          if (args?.where?.codigo === "PROV1") return [huerfana()]; // ancla de filaA (CODIGO default)
-          return []; // filaB tiene ancla distinta, sin candidatos
+          // Un solo lote con las anclas de filaA y filaB: la huérfana matchea
+          // el ancla de filaA (CODIGO default "PROV1"); el normalizer la
+          // reparte en memoria solo a filaA — filaB tiene ancla distinta.
+          if (anclasDe(args?.where).some((a) => a.codigo === "PROV1")) return [huerfana()];
+          return [];
         }),
         update: vi.fn().mockResolvedValue({}),
       };
@@ -686,9 +697,9 @@ describe("normalizeCompras", () => {
     // reconciliacionesAmbiguas aunque la detección de ambigüedad haya ocurrido.
     it("la fila marcada como ambigua es la misma cuyo insert falla: no se reporta en reconciliacionesAmbiguas", async () => {
       const compraModel = {
-        findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] }; codigo?: unknown } }) => {
+        findMany: vi.fn().mockImplementation(async (args: { where?: CompraWhere }) => {
           if (args?.where?.rowId?.in) return [];
-          if (args?.where?.codigo === "PROV1") return [huerfana({ rowId: "huerfana-1" }), huerfana({ rowId: "huerfana-2" })];
+          if (anclasDe(args?.where).some((a) => a.codigo === "PROV1")) return [huerfana({ rowId: "huerfana-1" }), huerfana({ rowId: "huerfana-2" })];
           return [];
         }),
         update: vi.fn().mockResolvedValue({}),
@@ -707,6 +718,75 @@ describe("normalizeCompras", () => {
       expect(res.created).toBe(1); // filaB
       expect(res.errors).toHaveLength(1);
       expect(res.errors[0].message).toMatch(/valor fuera de rango/);
+    });
+  });
+
+  describe("consulta de candidatos en lote (fix timeout Vercel, 21-oct-2026)", () => {
+    function huerfanaLote(overrides: Partial<Record<string, unknown>> = {}) {
+      return {
+        rowId: "huerfana-lote",
+        esDistribuido: false,
+        codCga: "GASTO1", concepto: "Alquiler", fecha: safeDate(45000), codigo: "PROV1",
+        proveedor: "Juan Perez", detalle: null, observac: "Obs", comprobante: null, localId: null,
+        importe: { toString: () => "1000" }, impInt: { toString: () => "0" }, imputac: "X",
+        per1: { toString: () => "0" }, per2: { toString: () => "0" }, per3: { toString: () => "0" },
+        ...overrides,
+      };
+    }
+
+    it("N filas nuevas con anclas distintas → UNA consulta de candidatos por chunk (no una por fila)", async () => {
+      const findMany = vi.fn().mockResolvedValue([]);
+      const db = createMockDb({ compra: { findMany, update: vi.fn() } });
+      const rows = Array.from({ length: 50 }, (_, i) =>
+        baseRow({ CODIGO: `PROV${i}`, CONCEPTO: `Concepto ${i}`, OBSERVAC: `Obs ${i}`, IMPORTE: 1000 + i })
+      );
+      const res = await normalizeCompras(rows, db);
+      expect(res.created).toBe(50);
+      const consultasAncla = findMany.mock.calls.filter((c) => (c[0] as { where: CompraWhere }).where.OR != null);
+      expect(consultasAncla).toHaveLength(1);
+      expect(anclasDe((consultasAncla[0][0] as { where: CompraWhere }).where)).toHaveLength(50);
+      // El notIn sigue cubriendo TODO el archivo, no solo el chunk.
+      expect((consultasAncla[0][0] as { where: CompraWhere }).where.rowId?.notIn).toHaveLength(50);
+    });
+
+    it("dos filas nuevas que comparten ancla y UNA huérfana: solo la primera reconcilia, la segunda se crea (misma semántica que fila por fila)", async () => {
+      const findMany = vi.fn().mockImplementation(async (args: { where?: CompraWhere }) => {
+        if (args?.where?.rowId?.in) return [];
+        return anclasDe(args?.where).some((a) => filaMatcheaAncla(huerfanaLote(), a)) ? [huerfanaLote()] : [];
+      });
+      const update = vi.fn().mockResolvedValue({});
+      const db = createMockDb({ compra: { findMany, update } });
+      // Mismo ancla (codCga/fecha/codigo/concepto/importe); OBSERVAC distinta
+      // con relación de prefijo con "Obs" → ambas serían fusionables por sí solas.
+      const filaA = baseRow({ OBSERVAC: "Obs ampliada A" });
+      const filaB = baseRow({ OBSERVAC: "Obs ampliada B" });
+      const res = await normalizeCompras([filaA, filaB], db);
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(update).toHaveBeenCalledWith({
+        where: { rowId: "huerfana-lote" },
+        data: { rowId: computeCompraRowId(compraIdentityFromRawRow(filaA)) },
+      });
+      expect(res.comprasReconciliadas).toEqual(["huerfana-lote"]);
+      expect(res.updated).toBe(1);
+      expect(res.created).toBe(1);
+      expect(res.reconciliacionesAmbiguas).toEqual([]);
+    });
+
+    it("los candidatos devueltos en lote se reparten por ancla: una fila no ve candidatos de otra ancla", async () => {
+      const findMany = vi.fn().mockImplementation(async (args: { where?: CompraWhere }) => {
+        if (args?.where?.rowId?.in) return [];
+        // El mock devuelve la huérfana para cualquier lote que incluya su ancla,
+        // aunque el lote también traiga el ancla de la otra fila.
+        return anclasDe(args?.where).length > 0 ? [huerfanaLote()] : [];
+      });
+      const update = vi.fn().mockResolvedValue({});
+      const db = createMockDb({ compra: { findMany, update } });
+      const filaOtroAncla = baseRow({ CODIGO: "PROV9", CONCEPTO: "Otro", OBSERVAC: "Obs x", IMPORTE: 77 });
+      const res = await normalizeCompras([filaOtroAncla], db);
+      expect(update).not.toHaveBeenCalled();
+      expect(res.created).toBe(1);
+      expect(res.comprasReconciliadas).toEqual([]);
+      expect(res.reconciliacionesAmbiguas).toEqual([]);
     });
   });
 
@@ -754,9 +834,10 @@ describe("normalizeCompras", () => {
       const db = createMockDb({ compra: { findMany } });
       await normalizeCompras([ncB()], db);
       const consultaAncla = findMany.mock.calls
-        .map((c) => c[0] as { where: { importe?: { toString(): string } } })
-        .find((a) => a.where.importe != null);
-      expect(consultaAncla?.where.importe?.toString()).toBe("-287999");
+        .map((c) => c[0] as { where: CompraWhere })
+        .find((a) => a.where.OR != null);
+      const importes = anclasDe(consultaAncla?.where).map((a) => a.importe?.toString());
+      expect(importes).toEqual(["-287999"]);
     });
   });
 });
