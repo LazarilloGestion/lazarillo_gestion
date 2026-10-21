@@ -12,6 +12,8 @@ import {
   computeCompraAnchor,
   pickReconciliationCandidate,
   esReconciliacionSegura,
+  type CompraIdentityInput,
+  type CompraAnchor,
 } from "./compra-identity";
 import { camposErpCambiaron, type CompraErpFields } from "./compras-diff";
 import { canonicalDecimal } from "./compra-identity";
@@ -24,6 +26,30 @@ import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 
 // Filas por chunk de INSERT ... ON CONFLICT. Con ~18 columnas: ~9k params/chunk < 65535.
 const CHUNK_SIZE = 500;
+
+// Anclas distintas por consulta de reconciliación (OR). 5 columnas por ancla
+// + el notIn de rowIdsEnArchivo (todo el archivo, unos miles) → bien por
+// debajo del límite de 65535 parámetros de Postgres.
+const ANCHOR_BATCH = 200;
+
+// Clave de agrupación en memoria para repartir los candidatos devueltos por la
+// consulta en lote entre las filas nuevas que comparten ancla. Usa los MISMOS
+// cinco campos que computeCompraAnchor, canonizados igual de ambos lados
+// (fecha ISO, importe vía canonicalDecimal) para que la fila cruda y el
+// registro persistido produzcan la misma clave.
+function claveAncla(a: CompraAnchor): string {
+  return [a.codCga, a.fechaISO, a.codigo, a.concepto, a.importe].map((v) => v ?? "").join("|");
+}
+
+function anclaDesdeCompraExistente(c: CompraExistenteRow): CompraAnchor {
+  return {
+    codCga: c.codCga,
+    fechaISO: c.fecha ? c.fecha.toISOString().slice(0, 10) : null,
+    codigo: c.codigo,
+    concepto: c.concepto,
+    importe: canonicalDecimal(c.importe != null ? c.importe.toString() : null),
+  };
+}
 
 function formatFechaDisplay(val: unknown): string | undefined {
   const iso = excelDateToISO(val);
@@ -219,7 +245,7 @@ export async function normalizeCompras(
         comprobante: true, localId: true,
       },
     });
-    const existingMap = new Map(existingRows.map((r) => [r.rowId, r]));
+    const existingMap = new Map<string, CompraExistenteRow>(existingRows.map((r) => [r.rowId, r]));
 
     // Reconciliación: sigue con manejo de errores a nivel de todo el chunk (sin
     // cambios de comportamiento respecto a antes — si algo de acá tira, el
@@ -230,28 +256,50 @@ export async function normalizeCompras(
       { tipo: "reconciliada"; rowIdViejo: string } | { tipo: "ambigua"; candidatos: string[] }
     >();
     try {
+      // 1) Ancla de cada fila NUEVA del chunk (sin match exacto por hash).
+      //    El ancla busca contra lo persistido, donde una NC ya está en negativo:
+      //    con el importe crudo (positivo) nunca encontraría su fila vieja y el
+      //    ERP editando su OBSERVAC la duplicaría en vez de reconciliarla.
+      const filasNuevas: { pr: ParsedRow; identidad: CompraIdentityInput; anchor: CompraAnchor; clave: string }[] = [];
       for (const pr of chunk) {
         if (existingMap.has(pr.rowId)) continue;
         const identidad = compraIdentityFromRawRow(pr.row);
-        // El ancla busca contra lo persistido, donde una NC ya está en negativo:
-        // con el importe crudo (positivo) nunca encontraría su fila vieja y el
-        // ERP editando su OBSERVAC la duplicaría en vez de reconciliarla.
         const anchor = computeCompraAnchor({
           ...identidad,
           importe: canonicalDecimal(normalizarSignoNotaCredito(identidad.detalle, identidad.importe)),
         });
         if (anchor.importe == null || anchor.fechaISO == null) continue;
+        filasNuevas.push({ pr, identidad, anchor, clave: claveAncla(anchor) });
+      }
 
-        const candidatos = await prisma.compra.findMany({
+      // 2) Candidatos de reconciliación para TODAS las anclas del chunk en
+      //    pocas consultas (OR de anclas distintas, en lotes de ANCHOR_BATCH),
+      //    en vez de una consulta por fila nueva. Con cientos de filas nuevas
+      //    (p. ej. un mes nuevo del informe 14, o las percepciones por
+      //    comprobante que agregó gen14) la versión fila-por-fila superaba el
+      //    maxDuration de Vercel (60 s en plan Hobby) y el import quedaba a
+      //    medias — hallazgo 21-oct-2026, archivo 14 BAR_2026.
+      //    La búsqueda sigue excluyendo TODOS los rowId del archivo (ver
+      //    rowIdsEnArchivo) y los resultados se reparten en memoria por ancla,
+      //    así que cada fila ve exactamente los mismos candidatos que antes.
+      const anclasDistintas = new Map<string, CompraAnchor>();
+      for (const f of filasNuevas) anclasDistintas.set(f.clave, f.anchor);
+      const candidatosPorAncla = new Map<string, CompraExistenteRow[]>();
+      const anclas = [...anclasDistintas.values()];
+      for (let j = 0; j < anclas.length; j += ANCHOR_BATCH) {
+        const lote = anclas.slice(j, j + ANCHOR_BATCH);
+        const encontrados = await prisma.compra.findMany({
           where: {
-            codCga: anchor.codCga,
-            fecha: new Date(anchor.fechaISO),
-            codigo: anchor.codigo,
-            concepto: anchor.concepto,
-            importe: new Prisma.Decimal(anchor.importe),
             // Excluye TODOS los rowId que este archivo va a computar, no solo
             // los del chunk actual — ver comentario en rowIdsEnArchivo arriba.
             rowId: { notIn: [...rowIdsEnArchivo] },
+            OR: lote.map((a) => ({
+              codCga: a.codCga,
+              fecha: new Date(a.fechaISO as string),
+              codigo: a.codigo,
+              concepto: a.concepto,
+              importe: new Prisma.Decimal(a.importe as string),
+            })),
           },
           select: {
             rowId: true, esDistribuido: true,
@@ -261,6 +309,20 @@ export async function normalizeCompras(
             comprobante: true, localId: true,
           },
         });
+        for (const c of encontrados) {
+          const clave = claveAncla(anclaDesdeCompraExistente(c));
+          const lista = candidatosPorAncla.get(clave);
+          if (lista) lista.push(c); else candidatosPorAncla.set(clave, [c]);
+        }
+      }
+
+      // 3) Resolución fila por fila, en el mismo orden y con la misma regla
+      //    que antes. Un candidato ya fusionado con una fila anterior del
+      //    chunk no se vuelve a ofrecer (antes quedaba excluido solo porque su
+      //    rowId renombrado ya pertenecía a rowIdsEnArchivo).
+      const candidatosUsados = new Set<string>();
+      for (const { pr, identidad, clave } of filasNuevas) {
+        const candidatos = (candidatosPorAncla.get(clave) ?? []).filter((c) => !candidatosUsados.has(c.rowId));
         if (candidatos.length === 0) continue;
 
         const elegido = pickReconciliationCandidate(candidatos);
@@ -289,6 +351,7 @@ export async function normalizeCompras(
           // comprasReconciliadas — se autocorrige en el próximo reimport (el hash
           // vuelve a encontrarla), pero no queda visible en el reporte de este import.
           await prisma.compra.update({ where: { rowId: elegido.rowId }, data: { rowId: pr.rowId } });
+          candidatosUsados.add(elegido.rowId);
           reconciliacionPorRowId.set(pr.rowId, { tipo: "reconciliada", rowIdViejo: elegido.rowId });
           existingMap.set(pr.rowId, elegido);
         } else {
