@@ -132,6 +132,7 @@ export function PivotTableByProveedor() {
                           variant="block"
                           puedeAperturar={localId != null && pdvId != null}
                           tieneReglaActiva={candidatosEntidadIdProveedor(proveedor.entidadIdProveedor).some((c) => reglasActivasPorNivel.proveedor.has(c))}
+                          reglaVencida={candidatosEntidadIdProveedor(proveedor.entidadIdProveedor).some((c) => reglasActivasPorNivel.vencidas.proveedor.has(c))}
                           onClick={() => setApertura({
                             nivel: "proveedor",
                             entidadId: proveedor.entidadIdProveedor,
@@ -202,6 +203,7 @@ export function PivotTableByProveedor() {
                           variant="block"
                           puedeAperturar={localId != null && pdvId != null}
                           tieneReglaActiva={reglasActivasPorNivel.concepto.has(concepto.conceptoCodigo)}
+                          reglaVencida={reglasActivasPorNivel.vencidas.concepto.has(concepto.conceptoCodigo)}
                           onClick={() => setApertura({
                             nivel: "concepto",
                             entidadId: concepto.conceptoCodigo,

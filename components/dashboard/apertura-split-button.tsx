@@ -10,11 +10,17 @@ import { cn } from "@/lib/utils";
 export function AperturaSplitButton({
   puedeAperturar,
   tieneReglaActiva,
+  reglaVencida = false,
   onClick,
   variant = "row",
 }: {
   puedeAperturar: boolean;
   tieneReglaActiva: boolean;
+  // La entidad tuvo reglas y ninguna cubre hoy (todas vencidas): los gastos
+  // nuevos ya no se aperturan. Se pinta en rojo para que se vea desde la
+  // tabla sin abrir el modal (pedido de Diego, 21/10/2026). Ignorado si
+  // tieneReglaActiva es true.
+  reglaVencida?: boolean;
   onClick: () => void;
   // "block": nivel concepto/proveedor, siempre visible.
   // "row": nivel registro, aparece al hacer hover de la fila (requiere que el
@@ -22,11 +28,12 @@ export function AperturaSplitButton({
   variant?: "block" | "row";
 }) {
   if (!puedeAperturar) return null;
+  const vencida = reglaVencida && !tieneReglaActiva;
 
   return (
     <button
       type="button"
-      title="Apertura de gastos"
+      title={vencida ? "Apertura de gastos — regla vencida: los gastos nuevos no se aperturan" : "Apertura de gastos"}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
@@ -36,13 +43,19 @@ export function AperturaSplitButton({
         variant === "block"
           ? cn(
               "h-5 w-5 transition-colors",
-              tieneReglaActiva ? "text-primary" : "text-muted-foreground/40 hover:text-muted-foreground"
+              tieneReglaActiva
+                ? "text-primary"
+                : vencida
+                  ? "text-destructive hover:text-destructive"
+                  : "text-muted-foreground/40 hover:text-muted-foreground"
             )
           : cn(
               "h-4 w-4 transition-opacity focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
               tieneReglaActiva
                 ? "text-primary opacity-100"
-                : "text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                : vencida
+                  ? "text-destructive opacity-100"
+                  : "text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
             )
       )}
     >
