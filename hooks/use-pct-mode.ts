@@ -1,5 +1,28 @@
 "use client";
 import { useState } from "react";
+import { fmtARS } from "@/lib/utils";
+
+export type ModoCelda = "importe" | "pct";
+
+// Celda mensual en modo "% ing" (punto 6 de Pendientes_desarrollo_etapa3):
+// peso del valor sobre los ingresos de ESE mes. Sin ingresos del mes (todavía
+// cargando o mes sin ventas) → "—", igual que una celda vacía. Puro, testeable.
+export function computePctCelda(valor: number | undefined | null, ingresosMes: number | undefined | null): string {
+  if (valor == null) return "—";
+  if (ingresosMes == null || ingresosMes <= 0) return "—";
+  return `${((valor / ingresosMes) * 100).toFixed(1)}%`;
+}
+
+// Formateador de celda mensual según el toggle $ / % ing. La columna Total y
+// la fila de Ingresos siguen en $ siempre (referencia).
+export function makeFmtCelda(
+  modo: ModoCelda,
+  ingresosPorMes: Record<number, number>,
+  ingresosReady: boolean
+): (valor: number | undefined | null, mes: number) => string {
+  if (modo === "importe") return (valor) => fmtARS(valor);
+  return (valor, mes) => (!ingresosReady && valor != null ? "…" : computePctCelda(valor, ingresosPorMes[mes]));
+}
 
 // Separada de usePctMode para poder testearla directo con Vitest — no hay
 // infraestructura de test de hooks de React en este proyecto.

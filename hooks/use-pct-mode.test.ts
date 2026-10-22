@@ -1,20 +1,28 @@
 import { describe, it, expect } from "vitest";
-import { computePctLabel } from "./use-pct-mode";
+import { computePctCelda, computePctLabel, makeFmtCelda } from "./use-pct-mode";
 
-describe("computePctLabel", () => {
-  it("denominador 0: devuelve guion, sin dividir por cero", () => {
-    expect(computePctLabel(500, 0, false)).toBe("—");
+describe("computePctCelda (toggle $ / % ing, punto 6 Etapa 3)", () => {
+  it("peso del valor sobre los ingresos del mes, un decimal", () => {
+    expect(computePctCelda(31953330, 74736646)).toBe("42.8%");
   });
-
-  it("denominador positivo: devuelve porcentaje con 1 decimal", () => {
-    expect(computePctLabel(50, 200, false)).toBe("25.0%");
+  it("sin valor o sin ingresos del mes → —", () => {
+    expect(computePctCelda(undefined, 74736646)).toBe("—");
+    expect(computePctCelda(1000, undefined)).toBe("—");
+    expect(computePctCelda(1000, 0)).toBe("—");
   });
-
-  it("isLoadingIngresos=true: devuelve el indicador de carga sin importar el resto", () => {
-    expect(computePctLabel(50, 200, true)).toBe("…");
+  it("misma convención que el % ing de la columna Total", () => {
+    expect(computePctCelda(284919214, 727271704)).toBe(computePctLabel(284919214, 727271704, false));
   });
+});
 
-  it("rowTotal 0 con denominador positivo: 0.0%, no guion", () => {
-    expect(computePctLabel(0, 200, false)).toBe("0.0%");
+describe("makeFmtCelda", () => {
+  const ingresos = { 5: 74736646, 6: 68484819 };
+  it("modo importe → pesos", () => {
+    expect(makeFmtCelda("importe", ingresos, true)(31953330, 5)).toMatch(/^\$\s?31\.953\.330$/);
+  });
+  it("modo pct → % del mes; mientras cargan los ingresos muestra …", () => {
+    expect(makeFmtCelda("pct", ingresos, true)(31953330, 5)).toBe("42.8%");
+    expect(makeFmtCelda("pct", ingresos, true)(undefined, 5)).toBe("—");
+    expect(makeFmtCelda("pct", {}, false)(31953330, 5)).toBe("…");
   });
 });

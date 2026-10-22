@@ -9,7 +9,7 @@ import { filtroFilaProveedor } from "@/lib/dashboard/filtro-fila-proveedor";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { useReglasActivasPorNivel } from "@/hooks/use-reglas-activas-por-nivel";
-import { usePctMode } from "@/hooks/use-pct-mode";
+import { usePctMode, makeFmtCelda } from "@/hooks/use-pct-mode";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import { PivotTableHead } from "./pivot-table-head";
 import { PivotTableFoot } from "./pivot-table-foot";
@@ -25,7 +25,7 @@ export function PivotTableByProveedor() {
   const {
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     months, activeMonths, sortCol, sortDir, handleSortClick,
-    rubroConfigVersion, agrupacionCompras, setAgrupacionCompras,
+    rubroConfigVersion, agrupacionCompras, setAgrupacionCompras, modoCelda, setModoCelda,
   } = useDashboard();
 
   const [apertura, setApertura] = useAperturaModalState();
@@ -61,6 +61,7 @@ export function PivotTableByProveedor() {
   if (!data || data.rows.length === 0) return <PivotEmpty />;
 
   const ingresosPorMes = ventasData?.columnTotals ?? {};
+  const fmtCelda = makeFmtCelda(modoCelda, ingresosPorMes, !!ventasData);
   const egresosPorMes = data.columnTotals;
 
   return (
@@ -74,6 +75,8 @@ export function PivotTableByProveedor() {
             onSortClick={handleSortClick}
             agrupacionCompras={agrupacionCompras}
             onAgrupacionChange={setAgrupacionCompras}
+            modoCelda={modoCelda}
+            onModoCeldaChange={setModoCelda}
             pctMode={pctMode}
             onTogglePctMode={togglePctMode}
             ingresosPorMes={ingresosPorMes}
@@ -100,6 +103,7 @@ export function PivotTableByProveedor() {
                     onCellClick={(mes, rubroCodigo) => openDetalle({ mes, rubroCodigo })}
                     onTotalClick={(rubroCodigo) => openDetalle({ rubroCodigo })}
                     fmtPct={fmtPct}
+                    fmtCelda={fmtCelda}
                   />
                 );
               }
@@ -156,7 +160,7 @@ export function PivotTableByProveedor() {
                               openDetalle({ mes, ...filtroProveedor });
                           }}
                         >
-                          {fmtARS(proveedor.values[mes])}
+                          {fmtCelda(proveedor.values[mes], mes)}
                         </td>
                       </ComposicionTooltip>
                     ))}
@@ -227,7 +231,7 @@ export function PivotTableByProveedor() {
                               openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo, ...filtroProveedorConcepto });
                           }}
                         >
-                          {fmtARS(concepto.values[mes])}
+                          {fmtCelda(concepto.values[mes], mes)}
                         </td>
                       </ComposicionTooltip>
                     ))}
@@ -295,7 +299,7 @@ export function PivotTableByProveedor() {
                           openDetalle({ rowId: linea.rowId, distribucionId: linea.distribucionId ?? undefined });
                       }}
                     >
-                      {fmtARS(linea.values[mes])}
+                      {fmtCelda(linea.values[mes], mes)}
                     </td>
                   ))}
                   <td
@@ -319,6 +323,7 @@ export function PivotTableByProveedor() {
             grandTotal={data.grandTotal}
             pctMode={pctMode}
             fmtPct={fmtPct}
+            fmtCelda={fmtCelda}
             onMonthClick={(mes) => openDetalle({ mes })}
             onTotalClick={() => openDetalle({})}
           />
