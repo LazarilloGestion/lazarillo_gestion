@@ -66,3 +66,16 @@ describe("buildDetalleConditions — observación y proveedor", () => {
     expect(valuesDe(conds)).toEqual(expect.arrayContaining(["Abril", "368"]));
   });
 });
+
+describe("buildDetalleConditions — histórico (punto 2 Etapa 3)", () => {
+  it("historico: sin acotar por fecha ni por meses, el resto igual", () => {
+    const sql = buildDetalleConditions({ year: 2026, meses: [1, 2], sinProveedor: false, historico: true }).map((c) => c.sql).join(" AND ");
+    expect(sql).not.toContain(">=");
+    expect(sql).not.toContain("EXTRACT(MONTH");
+    expect(sql).toContain("IS NOT NULL");
+  });
+  it("sin historico sigue acotando por año", () => {
+    const sql = buildDetalleConditions({ year: 2026, sinProveedor: false }).map((c) => c.sql).join(" AND ");
+    expect(sql).toContain(">=");
+  });
+});

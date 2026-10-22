@@ -16,6 +16,8 @@ export interface DetalleConditionParams {
   conceptoCodigo?: string;
   observacionQuery?: string;
   importeQuery?: string;
+  // Todos los años (toggle Histórico del modal): sin acotar por fecha.
+  historico?: boolean;
 }
 
 // WHERE de la lista de /api/dashboard/detalle. Extraído de la ruta para poder testearlo: el modal
@@ -24,16 +26,18 @@ export interface DetalleConditionParams {
 // p (proveedores), rc_ef (rubro del concepto efectivo).
 export function buildDetalleConditions({
   year, localId, pdvId, mes, meses, proveedorId, proveedorTexto, codigo, sinProveedor,
-  rubroCodigo, conceptoCodigo, observacionQuery, importeQuery,
+  rubroCodigo, conceptoCodigo, observacionQuery, importeQuery, historico = false,
 }: DetalleConditionParams): Prisma.Sql[] {
   const { fechaStart, fechaEnd } = buildDateRange(year, mes);
 
   const conditions: Prisma.Sql[] = [
-    Prisma.sql`COALESCE(c."fechaManual", c.fecha) >= ${fechaStart} AND COALESCE(c."fechaManual", c.fecha) < ${fechaEnd}`,
+    ...(historico
+      ? []
+      : [Prisma.sql`COALESCE(c."fechaManual", c.fecha) >= ${fechaStart} AND COALESCE(c."fechaManual", c.fecha) < ${fechaEnd}`]),
     Prisma.sql`(c.fecha IS NOT NULL OR c."fechaManual" IS NOT NULL)`,
     Prisma.sql`COALESCE(c."importeManual", c.importe) IS NOT NULL AND COALESCE(c."importeManual", c.importe) != 0`,
   ];
-  if (!mes && meses?.length) {
+  if (!historico && !mes && meses?.length) {
     conditions.push(Prisma.sql`EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int IN (${Prisma.join(meses)})`);
   }
   if (localId !== undefined) conditions.push(Prisma.sql`c."localId" = ${localId}`);

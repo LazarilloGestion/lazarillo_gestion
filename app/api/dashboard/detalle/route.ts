@@ -142,11 +142,12 @@ export async function GET(request: NextRequest) {
   const meses = monthsParam.safeParse(searchParams.get("months")).data;
   const observacionQuery = parseObservacionQuery(searchParams.get("observacionQuery"));
   const importeQuery = parseImporteQuery(searchParams.get("importeQuery"));
+  const historico = searchParams.get("historico") === "1";
 
   const where = Prisma.join(
     buildDetalleConditions({
       year, localId, pdvId, mes, meses, proveedorId, proveedorTexto, codigo, sinProveedor,
-      rubroCodigo, conceptoCodigo, observacionQuery, importeQuery,
+      rubroCodigo, conceptoCodigo, observacionQuery, importeQuery, historico,
     }),
     " AND "
   );
