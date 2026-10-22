@@ -40,8 +40,10 @@ export interface ColDef {
   bg: string;
   right: boolean;
   sortKey?: string;
-  /** Ancho reservado (clase Tailwind) para que la columna no crezca al entrar
-   *  en edición: el modal es w-fit, así que cualquier reflow lo ensancha. */
+  /** Clave del filtro por columna (ver DetalleModalShell.columnFields). */
+  filterKey?: string;
+  /** Ancho reservado (clase Tailwind). La tabla es table-fixed: las columnas
+   *  sin ancho se reparten el resto y se comprimen con puntos suspensivos. */
   width?: string;
 }
 
@@ -178,15 +180,17 @@ function ConceptoCombobox({
 
 // Los `width` = ancho del control de edición de esa columna (ver ComprasRow) +
 // px-3 de la celda. Si cambia el ancho de un input, actualizar acá también.
+// Anchos en % (table-fixed): Fecha/Local/Importe fijos y angostos; el resto se
+// reparte lo que queda y se comprime con puntos suspensivos + tooltip.
 const COMPRAS_COLS: ColDef[] = [
-  { label: "Fecha",       icon: CalendarDays,   color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "fecha",       width: "w-[9.5rem]"  },
-  { label: "Local",       icon: Building2,      color: "text-muted-foreground",   bg: "bg-muted",                right: false                                             },
-  { label: "Proveedor",   icon: Truck,          color: "text-cat-proveedor",      bg: "bg-cat-proveedor/12",     right: false, sortKey: "proveedor"                       },
-  { label: "Detalle",     icon: FileText,       color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "detalle"                         },
-  { label: "Observación", icon: MessageSquare,  color: "text-cat-observacion",    bg: "bg-cat-observacion/12",   right: false, sortKey: "observacion", width: "w-[10.5rem]" },
-  { label: "Rubro",       icon: Layers,         color: "text-cat-rubro",          bg: "bg-cat-rubro/12",         right: false,                         width: "w-[10.5rem]" },
-  { label: "Concepto",    icon: Tag,            color: "text-cat-concepto",       bg: "bg-cat-concepto/12",      right: false, sortKey: "concepto",    width: "w-[12.5rem]" },
-  { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground",   bg: "bg-muted",                right: true,  sortKey: "importe",     width: "w-[8.5rem]"  },
+  { label: "Fecha",       icon: CalendarDays,   color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "fecha",       filterKey: "fecha",       width: "w-[8.5rem]"  },
+  { label: "Local",       icon: Building2,      color: "text-muted-foreground",   bg: "bg-muted",                right: false,                         filterKey: "local",       width: "w-[8.5rem]"  },
+  { label: "Proveedor",   icon: Truck,          color: "text-cat-proveedor",      bg: "bg-cat-proveedor/12",     right: false, sortKey: "proveedor",   filterKey: "proveedor"                         },
+  { label: "Detalle",     icon: FileText,       color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "detalle",     filterKey: "detalle"                           },
+  { label: "Observación", icon: MessageSquare,  color: "text-cat-observacion",    bg: "bg-cat-observacion/12",   right: false, sortKey: "observacion", filterKey: "observacion"                       },
+  { label: "Rubro",       icon: Layers,         color: "text-cat-rubro",          bg: "bg-cat-rubro/12",         right: false,                         filterKey: "rubro"                             },
+  { label: "Concepto",    icon: Tag,            color: "text-cat-concepto",       bg: "bg-cat-concepto/12",      right: false, sortKey: "concepto",    filterKey: "concepto"                          },
+  { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground",   bg: "bg-muted",                right: true,  sortKey: "importe",     filterKey: "importe",     width: "w-[8rem]"    },
 ];
 
 // ─── Sort ─────────────────────────────────────────────────────────────────────
@@ -345,10 +349,10 @@ function ComprasRow({
         </span>
       </td>
       <td className="px-3 py-1.5 truncate">{normalize(item.local?.nombre)}</td>
-      <td className="px-3 py-1.5 truncate">
+      <td className="px-3 py-1.5 truncate" title={normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}>
         {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
       </td>
-      <td className="px-3 py-1.5">
+      <td className="px-3 py-1.5 truncate" title={item.detalle ?? undefined}>
         {!item.detalle ? (
           <span className="text-muted-foreground">—</span>
         ) : (
@@ -357,15 +361,15 @@ function ComprasRow({
           // muestra el detalle original de la factura, no el de aperturar.
           <button
             onClick={() => onOpenLineas(item.rowId, item.detalle)}
-            className="text-muted-foreground hover:text-foreground hover:underline font-mono text-xs whitespace-nowrap"
+            className="max-w-full truncate text-muted-foreground hover:text-foreground hover:underline font-mono text-xs whitespace-nowrap"
           >
             {item.detalle}
           </button>
         )}
       </td>
-      <td className="px-3 py-1.5 max-w-[12rem] whitespace-normal break-words text-muted-foreground">{normalize(item.observacManual ?? item.observac)}</td>
-      <td className="px-3 py-1.5 truncate">{normalize(effectiveConcepto?.rubro?.nombre)}</td>
-      <td className="px-3 py-1.5 truncate">{normalize(effectiveConcepto?.nombre)}</td>
+      <td className="px-3 py-1.5 truncate text-muted-foreground" title={normalize(item.observacManual ?? item.observac)}>{normalize(item.observacManual ?? item.observac)}</td>
+      <td className="px-3 py-1.5 truncate" title={normalize(effectiveConcepto?.rubro?.nombre)}>{normalize(effectiveConcepto?.rubro?.nombre)}</td>
+      <td className="px-3 py-1.5 truncate" title={normalize(effectiveConcepto?.nombre)}>{normalize(effectiveConcepto?.nombre)}</td>
       <td className="px-3 py-1.5 text-right tabular-nums font-medium whitespace-nowrap">
         {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
       </td>
@@ -582,6 +586,22 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     item.local?.nombre,
   ], []);
 
+  // Valor de cada columna para el filtro por columna (mismos textos que se ven en la fila).
+  const columnFields = useCallback((item: CompraDetalle): Record<string, string | null | undefined> => {
+    const concepto = item.conceptoCajaManual ?? item.conceptoCaja;
+    const importe = item.importeManual ?? item.importe;
+    return {
+      fecha: fmtDate(item.fechaManual ?? item.fecha),
+      local: item.local?.nombre,
+      proveedor: item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon,
+      detalle: item.detalle,
+      observacion: item.observacManual ?? item.observac,
+      rubro: concepto?.rubro?.nombre,
+      concepto: concepto?.nombre,
+      importe: importe != null ? `${fmtARS(Number(importe))} ${String(importe)}` : "",
+    };
+  }, []);
+
   const handleClose = useCallback(() => {
     setEditing(null);
     setSelectedLineas(null);
@@ -598,6 +618,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         queryKey={queryKey}
         queryFn={queryFn}
         searchFields={searchFields}
+        columnFields={columnFields}
         sortFn={sortCompras}
         saveError={saveError}
         isEditing={editing !== null}
