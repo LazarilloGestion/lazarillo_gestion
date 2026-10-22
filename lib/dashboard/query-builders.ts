@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { SIN_RUBRO_VISIBILIDAD_DEFAULT, VISIBILIDAD_FIELDS, type VisibilidadField } from "./constants";
 import { ACENTOS_DESDE, ACENTOS_HACIA, quitarAcentos } from "./observacion-busqueda";
+import { parsearImporte } from "./importe-busqueda";
 
 export function buildDateRange(year: number, mes?: number): { fechaStart: Date; fechaEnd: Date } {
   const fechaStart = mes ? new Date(Date.UTC(year, mes - 1, 1)) : new Date(Date.UTC(year, 0, 1));
@@ -21,6 +22,8 @@ interface PivotConditionParams {
   conceptoCodigo?: string;
   proveedorId?: number;
   observacionQuery?: string;
+  // Texto tal como se tipeó en el palette ("811.980", "811980,50"); se parsea acá.
+  importeQuery?: string;
   filterRubrosOcultos?: boolean;
   visibilidadCol?: VisibilidadField;
 }
@@ -42,6 +45,23 @@ export function observacionCondition(t: string, query: string): Prisma.Sql {
   return Prisma.sql`translate(COALESCE(${Prisma.raw(t)}."observacManual", ${Prisma.raw(t)}.observac), ${ACENTOS_DESDE}, ${ACENTOS_HACIA}) ILIKE ${q}`;
 }
 
+// Búsqueda por importe (punto 9 de Etapa 3): compras cuyo importe COMPLETO coincide con lo
+// tipeado — exacto si se tiparon centavos, por parte entera si no; el signo se ignora para
+// encontrar también notas de crédito. Va por subconsulta sobre `compras` y no sobre el alias:
+// en v_compras_distribuidas una compra aperturada aparece con la parte de cada destino, y lo
+// que se rastrea es el total del gasto (el que figura en el banco). Compartida entre pivot,
+// detalle y el buscador. Devuelve null si lo tipeado no es un importe (se ignora el filtro).
+export function importeCondition(t: string, query: string): Prisma.Sql | null {
+  const buscado = parsearImporte(query);
+  if (!buscado) return null;
+  const valor = new Prisma.Decimal(buscado.valor);
+  const abs = Prisma.sql`ABS(COALESCE(co."importeManual", co.importe))`;
+  const match = buscado.conCentavos
+    ? Prisma.sql`${abs} = ${valor}`
+    : Prisma.sql`${abs} >= ${valor} AND ${abs} < ${valor.plus(1)}`;
+  return Prisma.sql`${Prisma.raw(t)}."rowId" IN (SELECT co."rowId" FROM compras co WHERE ${match})`;
+}
+
 export function buildPivotConditions({
   year,
   tableAlias: t,
@@ -54,6 +74,7 @@ export function buildPivotConditions({
   conceptoCodigo,
   proveedorId,
   observacionQuery,
+  importeQuery,
   filterRubrosOcultos = false,
   visibilidadCol = "visibleEnDashboard",
 }: PivotConditionParams): Prisma.Sql[] {
@@ -96,5 +117,9 @@ export function buildPivotConditions({
   if (conceptoCodigo) conditions.push(Prisma.sql`COALESCE(cc.codigo, '__sin_concepto') = ${conceptoCodigo}`);
   if (proveedorId) conditions.push(Prisma.sql`p.id = ${proveedorId}`);
   if (observacionQuery) conditions.push(observacionCondition(t, observacionQuery));
+  if (importeQuery) {
+    const cond = importeCondition(t, importeQuery);
+    if (cond) conditions.push(cond);
+  }
   return conditions;
 }

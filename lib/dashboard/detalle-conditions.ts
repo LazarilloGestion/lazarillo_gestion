@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { buildDateRange, observacionCondition, sinRubroVisibleSql } from "./query-builders";
+import { buildDateRange, observacionCondition, importeCondition, sinRubroVisibleSql } from "./query-builders";
 
 export interface DetalleConditionParams {
   year: number;
@@ -15,6 +15,7 @@ export interface DetalleConditionParams {
   rubroCodigo?: string;
   conceptoCodigo?: string;
   observacionQuery?: string;
+  importeQuery?: string;
 }
 
 // WHERE de la lista de /api/dashboard/detalle. Extraído de la ruta para poder testearlo: el modal
@@ -23,7 +24,7 @@ export interface DetalleConditionParams {
 // p (proveedores), rc_ef (rubro del concepto efectivo).
 export function buildDetalleConditions({
   year, localId, pdvId, mes, meses, proveedorId, proveedorTexto, codigo, sinProveedor,
-  rubroCodigo, conceptoCodigo, observacionQuery,
+  rubroCodigo, conceptoCodigo, observacionQuery, importeQuery,
 }: DetalleConditionParams): Prisma.Sql[] {
   const { fechaStart, fechaEnd } = buildDateRange(year, mes);
 
@@ -78,6 +79,10 @@ export function buildDetalleConditions({
   }
 
   if (observacionQuery) conditions.push(observacionCondition("c", observacionQuery));
+  if (importeQuery) {
+    const cond = importeCondition("c", importeQuery);
+    if (cond) conditions.push(cond);
+  }
 
   return conditions;
 }
