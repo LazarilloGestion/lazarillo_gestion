@@ -68,3 +68,42 @@ describe("computeReglasActivasPorNivel", () => {
     expect(result.concepto.has("c1")).toBe(false);
   });
 });
+
+describe("computeReglasActivasPorNivel — vigencia (21/10/2026)", () => {
+  const HOY = new Date("2026-10-21T00:00:00.000Z");
+  const vencida = (over: Partial<ReglaAperturaDTO>) =>
+    regla({ modo: "entre_fechas", fechaDesde: "2026-07-01T00:00:00.000Z", fechaHasta: "2026-09-30T00:00:00.000Z", ...over });
+
+  it("una regla activa pero vencida NO cuenta como vigente y la entidad queda en `vencidas`", () => {
+    const result = computeReglasActivasPorNivel([vencida({ nivel: "proveedor", entidadId: "p1" })], undefined, undefined, HOY);
+    expect(result.proveedor.has("p1")).toBe(false);
+    expect(result.vencidas.proveedor.has("p1")).toBe(true);
+  });
+
+  it("si la entidad tiene una vencida y otra vigente, cuenta como vigente y NO está en `vencidas`", () => {
+    const reglas = [
+      vencida({ id: 1, nivel: "proveedor", entidadId: "p1" }),
+      regla({ id: 2, nivel: "proveedor", entidadId: "p1", modo: "desde_adelante", fechaDesde: "2026-10-01T00:00:00.000Z" }),
+    ];
+    const result = computeReglasActivasPorNivel(reglas, undefined, undefined, HOY);
+    expect(result.proveedor.has("p1")).toBe(true);
+    expect(result.vencidas.proveedor.has("p1")).toBe(false);
+  });
+
+  it("una regla próxima (arranca después de hoy) no es vigente ni vencida", () => {
+    const reglas = [regla({ nivel: "concepto", entidadId: "c1", modo: "desde_adelante", fechaDesde: "2026-12-01T00:00:00.000Z" })];
+    const result = computeReglasActivasPorNivel(reglas, undefined, undefined, HOY);
+    expect(result.concepto.has("c1")).toBe(false);
+    expect(result.vencidas.concepto.has("c1")).toBe(false);
+  });
+
+  it("una regla inactiva no entra en `vencidas` aunque su fecha haya pasado", () => {
+    const result = computeReglasActivasPorNivel([vencida({ entidadId: "c1", estado: "inactiva" })], undefined, undefined, HOY);
+    expect(result.vencidas.concepto.has("c1")).toBe(false);
+  });
+
+  it("`vencidas` respeta el filtro de local/pdv igual que las vigentes", () => {
+    const result = computeReglasActivasPorNivel([vencida({ entidadId: "c1", origenLocalId: 2 })], 1, undefined, HOY);
+    expect(result.vencidas.concepto.has("c1")).toBe(false);
+  });
+});

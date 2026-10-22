@@ -128,6 +128,7 @@ export function PivotTableByConcepto() {
                           variant="block"
                           puedeAperturar={localId != null && pdvId != null}
                           tieneReglaActiva={reglasActivasPorNivel.concepto.has(concepto.conceptoCodigo)}
+                          reglaVencida={reglasActivasPorNivel.vencidas.concepto.has(concepto.conceptoCodigo)}
                           onClick={() => setApertura({
                             nivel: "concepto",
                             entidadId: concepto.conceptoCodigo,
