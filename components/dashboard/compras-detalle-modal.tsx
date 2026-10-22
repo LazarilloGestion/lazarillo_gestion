@@ -45,7 +45,7 @@ export interface ColDef {
   width?: string;
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type ConceptoOption = { codigo: string; nombre: string; rubroNombre: string; rubroCodigo: string | null };
 
@@ -70,7 +70,7 @@ type EditState = {
   rubroFiltro: string; // solo filtra el combo de conceptos, nunca se guarda
 };
 
-// ─── Helpers ────────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function isEdited(c: CompraDetalle) {
   return c.importeManual != null || c.fechaManual != null || c.conceptoCodigoManual != null || c.observacManual != null;
@@ -93,7 +93,7 @@ function buildEntidadNombre(item: CompraDetalle): string {
   return parts.filter(Boolean).join(" · ");
 }
 
-// ─── RubroSelect ────────────────────────────────────────────────────────────────
+// ─── RubroSelect ──────────────────────────────────────────────────────────────
 
 function RubroSelect({
   value,
@@ -123,7 +123,7 @@ function RubroSelect({
   );
 }
 
-// ─── ConceptoCombobox ───────────────────────────────────────────────────────────
+// ─── ConceptoCombobox ─────────────────────────────────────────────────────────
 
 function ConceptoCombobox({
   value,
@@ -174,7 +174,7 @@ function ConceptoCombobox({
   );
 }
 
-// ─── Column definitions ─────────────────────────────────────────────────────────
+// ─── Column definitions ───────────────────────────────────────────────────────
 
 // Los `width` = ancho del control de edición de esa columna (ver ComprasRow) +
 // px-3 de la celda. Si cambia el ancho de un input, actualizar acá también.
@@ -219,7 +219,7 @@ function sortCompras(a: CompraDetalle, b: CompraDetalle, sort: SortState): numbe
   return sort.dir === "asc" ? cmp : -cmp;
 }
 
-// ─── Row component ──────────────────────────────────────────────────────────────
+// ─── Row component ────────────────────────────────────────────────────────────
 
 function ComprasRow({
   item,
