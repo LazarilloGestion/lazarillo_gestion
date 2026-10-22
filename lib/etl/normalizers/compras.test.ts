@@ -841,3 +841,30 @@ describe("normalizeCompras", () => {
     });
   });
 });
+
+describe("omitidos y errores con la fila completa (punto 7 Etapa 3)", () => {
+  it("duplicado: trae la fila omitida (la anterior) y la original que se cargó (la posterior), con número de fila y todas las columnas", async () => {
+    const db = createMockDb();
+    const a = baseRow({ OBSERVAC: "Obs", IMPORTE: 1000 });
+    const b = baseRow({ OBSERVAC: "Obs", IMPORTE: 1000 });
+    const res = await normalizeCompras([a, b], db);
+    expect(res.skippedRows).toHaveLength(1);
+    const omitida = res.skippedRows[0];
+    expect(omitida.motivo).toBe("duplicado");
+    expect(omitida.fila).toBe(2);
+    expect(omitida.columnas?.COD_CGA).toBe("GASTO1");
+    expect(omitida.columnas?.IMPORTE).toBe("1000");
+    expect(omitida.original?.fila).toBe(3);
+    expect(omitida.original?.columnas.OBSERVAC).toBe("Obs");
+  });
+
+  it("sin_datos y error de validación también traen fila y columnas", async () => {
+    const db = createMockDb();
+    const res = await normalizeCompras([baseRow({ COD_CGA: null }), baseRow({ IMPORTE: "abc" })], db);
+    expect(res.skippedRows[0].motivo).toBe("sin_datos");
+    expect(res.skippedRows[0].fila).toBe(2);
+    expect(res.skippedRows[0].columnas?.CONCEPTO).toBe("Alquiler");
+    expect(res.errors[0].fila).toBe(3);
+    expect(res.errors[0].columnas?.IMPORTE).toBe("abc");
+  });
+});

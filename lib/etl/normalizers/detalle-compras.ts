@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient, ETLContext } from "../types";
-import { trim, toDecimalStr, excelDateToISO } from "../helpers";
+import { trim, toDecimalStr, excelDateToISO, filaCruda } from "../helpers";
 import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 import type { ETLRow, ETLRowError, ETLSkippedRow } from "../types";
 import { detalleCompraRowSchema, type DetalleCompraRow } from "../schemas/detalle-compras";
@@ -55,12 +55,13 @@ export async function normalizeDetalleCompras(
         importe: toDecimalStr(r["NETO"]) ?? toDecimalStr(r["TOTALINS"]) ?? undefined,
         proveedor: trim(r["COD_PRO"]) ?? undefined,
         motivo: "sin_datos",
+        ...filaCruda(r, idx),
       });
       return;
     }
     const parsed = detalleCompraRowSchema.safeParse(r);
     if (!parsed.success) {
-      errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
+      errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error), ...filaCruda(r, idx) });
       return;
     }
     parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data, idx });
@@ -78,6 +79,8 @@ export async function normalizeDetalleCompras(
         importe: toDecimalStr(prev.row["NETO"]) ?? toDecimalStr(prev.row["TOTALINS"]) ?? undefined,
         proveedor: trim(prev.row["COD_PRO"]) ?? undefined,
         motivo: "duplicado",
+        ...filaCruda(prev.row, prev.idx),
+        original: filaCruda(pr.row, pr.idx),
       });
     }
     rowIdMap.set(pr.rowId, pr);
@@ -179,10 +182,11 @@ export async function normalizeDetalleCompras(
             "localId"       = COALESCE(detalle_compras."localId", EXCLUDED."localId")
         `;
       },
-      ({ idx, data }, err) => ({
+      ({ idx, row, data }, err) => ({
         rowIndex: idx,
         rawCodigo: data.CODIGO,
         message: err instanceof Error ? err.message : String(err),
+        ...filaCruda(row, idx),
       }),
       (insertedRows) => {
         for (const { rowId } of insertedRows) {
