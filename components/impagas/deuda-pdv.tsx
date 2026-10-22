@@ -5,7 +5,8 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   MEDIOS_PAGO_INTERNO, aCuenta, formatearImporteAR, importeAInput, normalizarReferencia, parsearImporteAR,
-  agruparEmpleados, porMes, saldoMov, type DeudaConPdv, type MedioPagoInterno, type MovimientoApertura,
+  agruparEmpleados, numeroOP, porMes, saldoMov,
+  type DeudaConPdv, type MedioPagoInterno, type MovimientoApertura, type PagoInterno,
 } from "@/lib/impagas/aperturas";
 import { dias, fmtComprobante, fmtFecha, fmtPesos, normalizarBusqueda } from "@/lib/impagas/clasificar";
 import { Antiguedad, Boton } from "./ui";
@@ -23,7 +24,12 @@ export interface BodyPagoInterno {
   keys?: string[];
 }
 
-type ModoForm = { tipo: "libre" } | { tipo: "saldar"; keys: string[]; importe: number; desc: string };
+type ModoForm =
+  | { tipo: "libre" }
+  | { tipo: "saldar"; keys: string[]; importe: number; desc: string }
+  | { tipo: "editar"; pago: PagoInterno };
+
+export type BodyEditarPago = Omit<BodyPagoInterno, "pdvOrigenId" | "keys"> & { importe: number };
 
 interface Props {
   deuda: DeudaConPdv;
@@ -37,7 +43,8 @@ interface Props {
   toggle: (k: string) => void;
   guardando: boolean;
   onRegistrar: (b: BodyPagoInterno) => Promise<string | null>; // null = ok, si no el error
-  onAnular: (id: number) => void;
+  onEditar: (id: number, b: BodyEditarPago) => Promise<string | null>;
+  onEliminar: (id: number) => void;
 }
 
 // Filas del PDV origen dentro de la tabla de Impagas: cabecera con la deuda,
@@ -45,6 +52,7 @@ interface Props {
 export function FilasDeudaPdv(p: Props) {
   const { deuda, origenLabel, hoy, q, guardando } = p;
   const [form, setForm] = useState<ModoForm | null>(null);
+  const [aEliminar, setAEliminar] = useState<number | null>(null);
   const k = `PDV${deuda.pdvOrigenId}`;
   const buscando = !!q.trim();
   const coincidePdv = buscando && sinEspacios(origenLabel).includes(sinEspacios(q));
@@ -57,6 +65,23 @@ export function FilasDeudaPdv(p: Props) {
   const sobrante = aCuenta(deuda);
 
   const abrirForm = (m: ModoForm) => { setForm(m); if (!p.abiertos.has(k)) p.toggle(k); };
+  const pagoPorId = new Map(deuda.pagos.map((pg) => [pg.id, pg]));
+
+  // Cada movimiento pagado muestra su(s) orden(es) de pago; tocando una se edita.
+  const chipsOP = (ops: number[] | undefined) => (ops ?? []).map((id) => {
+    const pg = pagoPorId.get(id);
+    return (
+      <button
+        key={id}
+        type="button"
+        title="Ver / editar la orden de pago"
+        onClick={(e) => { e.stopPropagation(); if (pg) abrirForm({ tipo: "editar", pago: pg }); }}
+        className="ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-sky-50 text-sky-700 hover:bg-sky-100 dark:bg-sky-950/50 dark:text-sky-300"
+      >
+        {numeroOP(id)}
+      </button>
+    );
+  });
 
   // Un movimiento suelto; dentro de un empleado se muestra solo el concepto.
   const filaMovimiento = (m: MovimientoApertura, sangria: string, deEmpleado = false) => {
@@ -77,6 +102,7 @@ export function FilasDeudaPdv(p: Props) {
           <Chip cls="ml-1.5 bg-zinc-100 text-zinc-600">{Math.round(m.porcentaje)}%</Chip>
           {ok ? <Chip cls="ml-1.5 bg-emerald-50 text-emerald-700">saldado</Chip>
             : m.aplicado > 0.5 ? <Chip cls="ml-1.5 bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(m.aplicado)}</Chip> : null}
+          {chipsOP(m.ops)}
           {!deEmpleado && m.concepto && <div className="text-[11px] text-muted-foreground truncate max-w-[32rem]">{m.concepto}</div>}
         </td>
         <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(m.importe)}</td>
@@ -143,7 +169,9 @@ export function FilasDeudaPdv(p: Props) {
           guardando={guardando}
           onCancel={() => setForm(null)}
           onConfirm={async (b) => {
-            const err = await p.onRegistrar({ ...b, pdvOrigenId: deuda.pdvOrigenId });
+            const err = form.tipo === "editar"
+              ? await p.onEditar(form.pago.id, { ...b, importe: b.importe ?? form.pago.importe })
+              : await p.onRegistrar({ ...b, pdvOrigenId: deuda.pdvOrigenId });
             if (!err) setForm(null);
             return err;
           }}
@@ -154,13 +182,13 @@ export function FilasDeudaPdv(p: Props) {
         <>
           <tr className="bg-zinc-100 dark:bg-zinc-800">
             <td colSpan={5} className="py-1.5 pl-10 pr-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
-              Pagos a {origenLabel}
+              Órdenes de pago a {origenLabel}
             </td>
           </tr>
           {deuda.pagos.map((pg) => (
             <tr key={`pg${pg.id}`} className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 text-xs">
               <td className="py-2 pl-10 pr-3">
-                {fmtFecha(pg.fecha)} · {pg.medio}{pg.referencia ? ` · ID ${pg.referencia}` : ""}
+                <b className="text-sky-700 dark:text-sky-400">{numeroOP(pg.id)}</b> · {fmtFecha(pg.fecha)} · {pg.medio}{pg.referencia ? ` · ID ${pg.referencia}` : ""}
                 <span className="text-muted-foreground"> · imputado a {pg.movimientos} movimiento{pg.movimientos === 1 ? "" : "s"}
                   {pg.importe - pg.aplicado > 0.5 ? ` · ${fmtPesos(pg.importe - pg.aplicado)} a cuenta` : ""}</span>
               </td>
@@ -168,7 +196,18 @@ export function FilasDeudaPdv(p: Props) {
               <td className="py-2 px-3 text-right tabular-nums">{fmtPesos(pg.importe)}</td>
               <td />
               <td className="py-2 px-3 hidden sm:table-cell">
-                <Boton disabled={guardando} onClick={() => p.onAnular(pg.id)}>Anular</Boton>
+                {aEliminar === pg.id ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="text-destructive">¿Eliminar?</span>
+                    <Boton disabled={guardando} onClick={() => { setAEliminar(null); p.onEliminar(pg.id); }}>Sí</Boton>
+                    <Boton onClick={() => setAEliminar(null)}>No</Boton>
+                  </span>
+                ) : (
+                  <span className="inline-flex gap-1.5">
+                    <Boton disabled={guardando} onClick={() => abrirForm({ tipo: "editar", pago: pg })}>Editar</Boton>
+                    <Boton disabled={guardando} onClick={() => setAEliminar(pg.id)}>Eliminar</Boton>
+                  </span>
+                )}
               </td>
             </tr>
           ))}
@@ -220,6 +259,7 @@ export function FilasDeudaPdv(p: Props) {
                         <span className="text-xs text-muted-foreground">{fila.movimientos.length} concepto{fila.movimientos.length === 1 ? "" : "s"}</span>
                         {ok ? <Chip cls="bg-emerald-50 text-emerald-700">saldado</Chip>
                           : fila.aplicado > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(fila.aplicado)}</Chip> : null}
+                        {chipsOP([...new Set(fila.movimientos.flatMap((m) => m.ops ?? []))].sort((a, b) => a - b))}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(fila.total)}</td>
@@ -260,10 +300,15 @@ function FormPago({ modo, saldo, origenLabel, guardando, onCancel, onConfirm }: 
   onConfirm: (b: Omit<BodyPagoInterno, "pdvOrigenId">) => Promise<string | null>;
 }) {
   const fijo = modo.tipo === "saldar";
-  const [importe, setImporte] = useState(importeAInput(fijo ? modo.importe : saldo));
-  const [fecha, setFecha] = useState(hoyISO());
-  const [medio, setMedio] = useState<MedioPagoInterno>("Transferencia");
-  const [referencia, setReferencia] = useState("");
+  const editando = modo.tipo === "editar";
+  const [importe, setImporte] = useState(importeAInput(
+    modo.tipo === "saldar" ? modo.importe : modo.tipo === "editar" ? modo.pago.importe : saldo
+  ));
+  const [fecha, setFecha] = useState(editando ? modo.pago.fecha : hoyISO());
+  const [medio, setMedio] = useState<MedioPagoInterno>(
+    editando && (MEDIOS_PAGO_INTERNO as readonly string[]).includes(modo.pago.medio) ? (modo.pago.medio as MedioPagoInterno) : "Transferencia"
+  );
+  const [referencia, setReferencia] = useState(editando ? modo.pago.referencia ?? "" : "");
   const [error, setError] = useState<string | null>(null);
 
   async function confirmar() {
@@ -277,7 +322,7 @@ function FormPago({ modo, saldo, origenLabel, guardando, onCancel, onConfirm }: 
     }
     const err = await onConfirm({
       fecha, medio, referencia: ref,
-      ...(fijo ? { keys: modo.keys } : { importe: valor! }),
+      ...(modo.tipo === "saldar" ? { keys: modo.keys } : { importe: valor! }),
     });
     if (err) setError(err);
   }
@@ -287,7 +332,7 @@ function FormPago({ modo, saldo, origenLabel, guardando, onCancel, onConfirm }: 
     <tr className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-200 dark:border-sky-900">
       <td colSpan={5} className="py-3 px-4">
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <b>{fijo ? `Saldar ${modo.desc}` : `Pago a ${origenLabel}`}</b>
+          <b>{modo.tipo === "saldar" ? `Saldar ${modo.desc}` : modo.tipo === "editar" ? `Editar ${numeroOP(modo.pago.id)}` : `Pago a ${origenLabel}`}</b>
           <label className="flex items-center gap-1.5">Importe
             <input
               value={importe}
@@ -324,7 +369,9 @@ function FormPago({ modo, saldo, origenLabel, guardando, onCancel, onConfirm }: 
           <button type="button" onClick={onCancel} className="h-8 px-3 rounded-md border border-zinc-300 dark:border-zinc-600">Cancelar</button>
         </div>
         <div className="mt-1.5 text-[11px] text-muted-foreground">
-          {fijo ? "Se salda el saldo entero de lo elegido." : "Se aplica a lo más viejo primero; si es menos, el último queda parcial; si es más, queda a cuenta."}
+          {modo.tipo === "saldar" ? "Se salda el saldo entero de lo elegido."
+            : modo.tipo === "editar" ? "Si cambiás el importe se vuelve a imputar: primero a los mismos movimientos, después a lo más viejo; lo que sobra queda a cuenta. Para deshacerla, Eliminar."
+            : "Se aplica a lo más viejo primero; si es menos, el último queda parcial; si es más, queda a cuenta."}
         </div>
         {error && <div className="mt-1.5 text-xs text-destructive">{error}</div>}
       </td>

@@ -112,6 +112,7 @@ export interface MovimientoSqlRow {
   porcentaje: number;
   importe: number;
   aplicado: number;
+  ops: number[] | null; // órdenes de pago que imputaron a este movimiento
   es_empleado: boolean;
 }
 
@@ -133,11 +134,8 @@ export function movimientosAperturaSql(pdvId: number, desde: string): Prisma.Sql
       COALESCE(cc.nombre, c.concepto)                         AS concepto,
       MAX(da.porcentaje)::float8                              AS porcentaje,
       SUM(da."importeCalculado")::float8                      AS importe,
-      COALESCE((
-        SELECT SUM(a.importe) FROM aplicaciones_pago_interno a
-        JOIN pagos_internos pi ON pi.id = a."pagoId"
-        WHERE a."compraRowId" = c."rowId" AND pi."pdvDestinoId" = ${pdvId}
-      ), 0)::float8                                           AS aplicado
+      COALESCE(ap.aplicado, 0)::float8                        AS aplicado,
+      ap.ops
     FROM distribuciones_apertura da
     JOIN destinos_regla d             ON d.id = da."destinoId"
     JOIN compras c                    ON c."rowId" = da."compraRowId"
@@ -148,13 +146,19 @@ export function movimientosAperturaSql(pdvId: number, desde: string): Prisma.Sql
                                      AND e."puntoDeVentaId" = c."puntoDeVentaId"
                                      AND e.codigo = c.codigo
                                      AND LOWER(TRIM(e.nombre)) = LOWER(TRIM(c.proveedor))
+    LEFT JOIN LATERAL (
+      SELECT SUM(a.importe) AS aplicado, ARRAY_AGG(DISTINCT a."pagoId" ORDER BY a."pagoId") AS ops
+      FROM aplicaciones_pago_interno a
+      JOIN pagos_internos pi ON pi.id = a."pagoId"
+      WHERE a."compraRowId" = c."rowId" AND pi."pdvDestinoId" = ${pdvId}
+    ) ap ON TRUE
     WHERE d."puntoDeVentaId" = ${pdvId}
       AND c."puntoDeVentaId" IS NOT NULL
       AND c."puntoDeVentaId" <> ${pdvId}
       AND COALESCE(c."fechaManual", c.fecha) >= ${desde}::date
       AND COALESCE(c."fechaManual", c.fecha) < NOW() + INTERVAL '60 days'
       AND ${visible}
-    GROUP BY c."rowId", c."puntoDeVentaId", c."fechaManual", c.fecha, c.comprobante, p.nombre, c.proveedor, c.codigo, cc.nombre, c.concepto, e.id, e.nombre, e.apellido
+    GROUP BY c."rowId", c."puntoDeVentaId", c."fechaManual", c.fecha, c.comprobante, p.nombre, c.proveedor, c.codigo, cc.nombre, c.concepto, e.id, e.nombre, e.apellido, ap.aplicado, ap.ops
     HAVING ABS(SUM(da."importeCalculado")) > 0.5
     ORDER BY 3, 1
   `;
