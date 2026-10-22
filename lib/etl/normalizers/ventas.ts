@@ -7,8 +7,12 @@ import { ventaRowSchema, type VentaRow } from "../schemas/ventas";
 import { formatZodError } from "../schemas/common";
 import { insertChunkWithRowFallback } from "../chunked-upsert";
 
-// Filas por chunk de INSERT ... ON CONFLICT. Con ~23 columnas: ~11.5k params/chunk < 65535.
-const CHUNK_SIZE = 500;
+// Filas por chunk de INSERT ... ON CONFLICT.
+// 500 → 2000 (22/10/2026): el 22 de Comercio 2025 trae 40.886 filas y con
+// lotes de 500 son ~164 idas y vueltas a la base (findMany + upsert por lote);
+// con la latencia Vercel↔Supabase cortaba a los 60 s con 38.000 cargadas.
+// 23 parámetros por fila × 2000 = 46.000, debajo del tope de 65.535 de Postgres.
+const CHUNK_SIZE = 2000;
 
 // makeRowId opera sobre la fila ya "rellenada" por fillPartialRows (igual que el
 // comportamiento original) pero nunca sobre datos coercionados por Zod — el hash
