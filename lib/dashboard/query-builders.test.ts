@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPivotConditions, observacionCondition, sinRubroVisibleSql } from "./query-builders";
+import { buildPivotConditions, observacionCondition, importeCondition, sinRubroVisibleSql } from "./query-builders";
 
 const sqlDe = (conds: ReturnType<typeof buildPivotConditions>) => conds.map((c) => c.sql).join(" AND ");
 
@@ -97,5 +97,33 @@ describe("observacionCondition", () => {
 
   it("escapa también la barra invertida", () => {
     expect(observacionCondition("c", "a\\b").values).toContain("%a\\\\b%");
+  });
+});
+
+describe("importeCondition / buildPivotConditions — importe (punto 9 Etapa 3)", () => {
+  it("sin centavos: parte entera, por subconsulta sobre compras (importe completo, no la parte distribuida)", () => {
+    const cond = importeCondition("c", "811.980");
+    expect(cond).not.toBeNull();
+    expect(cond!.sql).toContain(`c."rowId" IN (SELECT co."rowId" FROM compras co WHERE`);
+    expect(cond!.sql).toContain(`ABS(COALESCE(co."importeManual", co.importe)) >=`);
+    expect(cond!.sql).toContain("<");
+    expect(cond!.values.map(String)).toEqual(["811980", "811981"]);
+  });
+
+  it("con centavos: igualdad exacta", () => {
+    const cond = importeCondition("c", "811.980,50");
+    expect(cond!.sql).toContain(`ABS(COALESCE(co."importeManual", co.importe)) =`);
+    expect(cond!.values.map(String)).toEqual(["811980.5"]);
+  });
+
+  it("texto que no es un importe → null, y buildPivotConditions lo ignora sin romper", () => {
+    expect(importeCondition("c", "coca")).toBeNull();
+    const sql = buildPivotConditions({ tableAlias: "c", importeQuery: "coca" }).map((c) => c.sql).join(" AND ");
+    expect(sql).not.toContain("compras co");
+  });
+
+  it("buildPivotConditions agrega la condición cuando importeQuery parsea", () => {
+    const sql = buildPivotConditions({ tableAlias: "c", importeQuery: "200000" }).map((c) => c.sql).join(" AND ");
+    expect(sql).toContain(`c."rowId" IN (SELECT co."rowId" FROM compras co WHERE`);
   });
 });

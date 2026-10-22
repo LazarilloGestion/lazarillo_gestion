@@ -51,7 +51,7 @@ interface Props {
 }
 
 export function CommandPalette({ open, onOpenChange }: Props) {
-  const { setSearch, setYear, localId, pdvId } = useDashboard();
+  const { setSearch, setYear, setLocalId, setPdvId, localId, pdvId } = useDashboard();
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<SuggestionType | null>(null);
 
@@ -103,7 +103,9 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   const impEnabled = parsearImporte(debouncedQuery) !== null && (typeFilter === null || typeFilter === "importe");
   const { data: importesData, isFetching: impLoading } = useFetchQuery<ImporteResult[]>(
     ["search-importe", debouncedQuery, localId, pdvId],
-    impEnabled ? searchUrl("/api/search/importe", debouncedQuery) : null
+    // Sin local/PDV: un movimiento del banco puede ser de cualquier PDV; el resultado
+    // dice dónde vive el gasto y al elegirlo se navega hasta ahí.
+    impEnabled ? `/api/search/importe?${new URLSearchParams({ q: debouncedQuery })}` : null
   );
   const importes = importesData ?? EMPTY_IMPORTES;
 
@@ -145,21 +147,23 @@ export function CommandPalette({ open, onOpenChange }: Props) {
     [setSearch, handleClose]
   );
 
-  // Elegir un gasto por importe lleva a su fila del panel: año del gasto + filtro por su
-  // proveedor (o por su concepto si no tiene proveedor, p. ej. Gastos Varios). No hay un
-  // filtro "por importe" en el panel; el importe sirve para encontrar, no para filtrar.
+  // Elegir un gasto por importe lleva a donde vive: su local/PDV (si es otro), su año, y
+  // deja el panel filtrado por ese importe (chip "Importe: $ …"), así la tabla muestra
+  // solo los gastos con esa plata — igual que elegir una observación.
   const handleSelectImporte = useCallback(
     (result: ImporteResult) => {
+      if (result.localId != null && result.localId !== localId) {
+        setLocalId(result.localId); // resetea el PDV: hay que volver a setearlo después
+        if (result.puntoDeVentaId != null) setPdvId(result.puntoDeVentaId);
+      } else if (result.puntoDeVentaId != null && result.puntoDeVentaId !== pdvId) {
+        setPdvId(result.puntoDeVentaId);
+      }
       const anio = anioDeFecha(result.fecha);
       if (anio !== null) setYear(anio);
-      if (result.proveedorId != null) {
-        setSearch("proveedorId", String(result.proveedorId), result.proveedorNombre ?? `Proveedor ${result.proveedorId}`);
-      } else if (result.conceptoCodigo != null) {
-        setSearch("conceptoCodigo", result.conceptoCodigo, result.conceptoNombre ?? result.conceptoCodigo);
-      }
+      setSearch("importeQuery", query.trim(), fmtARS(Number(result.importe)));
       handleClose(false);
     },
-    [setSearch, setYear, handleClose]
+    [setSearch, setYear, setLocalId, setPdvId, localId, pdvId, query, handleClose]
   );
 
   // La query de observaciones puede seguir "enabled" un instante con datos viejos mientras
@@ -386,6 +390,9 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                         const quien = imp.proveedorNombre ?? imp.conceptoNombre ?? "Sin proveedor";
                         const meta = [formatFechaConAnio(imp.fecha), quien].filter(Boolean).join(" · ");
                         const detalle = imp.observac?.trim() ? imp.observac : (imp.conceptoNombre ?? "");
+                        // Etiqueta solo cuando el gasto vive en otro local/PDV que el que se mira.
+                        const otroPdv = imp.puntoDeVentaId != null && imp.puntoDeVentaId !== pdvId;
+                        const dondeVive = [imp.localNombre, imp.puntoDeVentaNombre].filter(Boolean).join(" — ");
                         return (
                           <CommandItem
                             key={imp.id}
@@ -403,6 +410,11 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                               <span className="block text-sm text-foreground/90 truncate">{detalle}</span>
                             </span>
                             <span className="text-sm tabular-nums text-foreground/90 shrink-0">{fmtARS(Number(imp.importe))}</span>
+                            {otroPdv && dondeVive && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 border border-border text-muted-foreground">
+                                {dondeVive}
+                              </span>
+                            )}
                             <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${cfg.bg} ${cfg.color}`}>
                               {cfg.label}
                             </span>

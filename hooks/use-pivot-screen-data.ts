@@ -15,6 +15,7 @@ interface UsePivotScreenDataParams {
   conceptoCodigo?: string;
   proveedorId?: number;
   observacionQuery?: string;
+  importeQuery?: string;
   rubroCodigo?: string;
   activeMonths?: number[];
 }
@@ -23,22 +24,22 @@ interface UsePivotScreenDataParams {
 // auto-expandir en filtro, drill-down (openDetalle), orden/aplanado del árbol pivot, colapso
 // de conceptos con click derecho. Extraído tras aparecer duplicado byte a byte en ambas pantallas.
 export function usePivotScreenData({
-  data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery, rubroCodigo, activeMonths,
+  data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery, importeQuery, rubroCodigo, activeMonths,
 }: UsePivotScreenDataParams) {
   const { expanded, setExpanded, toggle: toggleRow, collapseAll } = useExpandableSet();
   const [detalleFilter, setDetalleFilter] = useState<DetalleFilter | null>(null);
   const [ventasDetalleFilter, setVentasDetalleFilter] = useState<VentasDetalleFilter | null>(null);
-  const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number; observacionQuery?: string }>({});
+  const prevFilterRef = useRef<{ conceptoCodigo?: string; proveedorId?: number; observacionQuery?: string; importeQuery?: string }>({});
 
   useEffect(() => {
     if (!data) return;
     const prev = prevFilterRef.current;
     const filterChanged =
-      prev.conceptoCodigo !== conceptoCodigo || prev.proveedorId !== proveedorId || prev.observacionQuery !== observacionQuery;
-    prevFilterRef.current = { conceptoCodigo, proveedorId, observacionQuery };
+      prev.conceptoCodigo !== conceptoCodigo || prev.proveedorId !== proveedorId || prev.observacionQuery !== observacionQuery || prev.importeQuery !== importeQuery;
+    prevFilterRef.current = { conceptoCodigo, proveedorId, observacionQuery, importeQuery };
     if (!filterChanged) return;
 
-    if (conceptoCodigo || proveedorId || observacionQuery) {
+    if (conceptoCodigo || proveedorId || observacionQuery || importeQuery) {
       const ids = new Set<string>();
       for (const rubro of data.rows) {
         ids.add(rubro.id);
@@ -48,14 +49,14 @@ export function usePivotScreenData({
     } else {
       setExpanded(new Set());
     }
-  }, [data, conceptoCodigo, proveedorId, observacionQuery, setExpanded]);
+  }, [data, conceptoCodigo, proveedorId, observacionQuery, importeQuery, setExpanded]);
 
   // Los totales del pivot vienen acotados por los filtros del dashboard; el modal tiene que mostrar
   // las mismas compras (ver buildDetalleFilter).
   function openDetalle(extra: DetalleFilterExtra) {
     setDetalleFilter(buildDetalleFilter(
       { year, localId, pdvId },
-      { rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, activeMonths },
+      { rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, activeMonths },
       extra,
     ));
   }

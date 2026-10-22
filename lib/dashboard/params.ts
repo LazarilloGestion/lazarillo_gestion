@@ -12,6 +12,7 @@ export interface DashboardParams {
   conceptoCodigo?: string;
   proveedorId?: number;
   observacionQuery?: string;
+  importeQuery?: string;
   months?: number[];
   vista?: Vista;
   agrupacion?: AgrupacionCompras;
@@ -65,6 +66,12 @@ export function parseObservacionQuery(raw: string | null): string | undefined {
   return raw ? raw.slice(0, 256) : undefined;
 }
 
+// Importe tipeado en el palette ("811.980", "811980,50"); corto porque es un número. Lo parsea
+// importeCondition en el servidor: si no es un importe válido, el filtro se ignora.
+export function parseImporteQuery(raw: string | null): string | undefined {
+  return raw ? raw.slice(0, 40) : undefined;
+}
+
 const vistaParam = z.preprocess(
   (v) => (v === "resultados" ? "resultados" : undefined),
   z.literal("resultados").optional()
@@ -83,6 +90,7 @@ const dashboardParamsSchema = z.object({
   conceptoCodigo: truncatedStringParam(64),
   proveedorId: optionalIntParam,
   observacionQuery: truncatedStringParam(256),
+  importeQuery: truncatedStringParam(40),
   months: monthsParam,
   vista: vistaParam,
   agrupacion: agrupacionParam,
@@ -104,6 +112,7 @@ export function parseDashboardParams(sp: URLSearchParams): DashboardParams {
     conceptoCodigo: sp.get("conceptoCodigo"),
     proveedorId: sp.get("proveedorId"),
     observacionQuery: sp.get("observacionQuery"),
+    importeQuery: sp.get("importeQuery"),
     months: sp.get("months"),
     vista: sp.get("vista"),
     agrupacion: sp.get("agrupacion"),
@@ -127,6 +136,7 @@ export function buildDashboardUrl(base: string, params: DashboardParams): string
   if (params.conceptoCodigo) sp.set("conceptoCodigo", params.conceptoCodigo);
   if (params.proveedorId != null) sp.set("proveedorId", String(params.proveedorId));
   if (params.observacionQuery) sp.set("observacionQuery", params.observacionQuery);
+  if (params.importeQuery) sp.set("importeQuery", params.importeQuery);
   if (params.months?.length) sp.set("months", params.months.join(","));
   if (params.vista) sp.set("vista", params.vista);
   if (params.agrupacion) sp.set("agrupacion", params.agrupacion);
@@ -148,6 +158,7 @@ export function buildComprasDetalleUrl(filter: DetalleFilter): string {
   if (filter.mes) params.set("mes", String(filter.mes));
   else if (filter.meses?.length) params.set("months", filter.meses.join(","));
   if (filter.observacionQuery) params.set("observacionQuery", filter.observacionQuery);
+  if (filter.importeQuery) params.set("importeQuery", filter.importeQuery);
   if (filter.rubroCodigo) params.set("rubroCodigo", filter.rubroCodigo);
   if (filter.conceptoCodigo) params.set("conceptoCodigo", filter.conceptoCodigo);
   if (filter.proveedorId) params.set("proveedorId", String(filter.proveedorId));

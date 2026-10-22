@@ -20,7 +20,7 @@ import { AperturaSplitButton } from "./apertura-split-button";
 
 export function PivotTableByConcepto() {
   const {
-    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
+    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     months, activeMonths, sortCol, sortDir, handleSortClick,
     rubroConfigVersion, agrupacionCompras, setAgrupacionCompras,
   } = useDashboard();
@@ -33,7 +33,7 @@ export function PivotTableByConcepto() {
   const reglasActivasPorNivel = useReglasActivasPorNivel(reglas, localId, pdvId);
 
   const { data, isLoading, error, ventasData, ventasLoading } = useOperacionKpis({
-    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
+    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     months, activeMonths, configVersion: rubroConfigVersion,
   });
 
@@ -41,7 +41,7 @@ export function PivotTableByConcepto() {
     expanded, toggleRow, collapseAll, collapseConceptos,
     flatRows, detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   } = usePivotScreenData({
-    data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery,
+    data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     rubroCodigo, activeMonths,
   });
 

@@ -8,11 +8,12 @@ export interface DetalleFiltrosGlobales {
   conceptoCodigo?: string;
   proveedorId?: number;
   observacionQuery?: string;
+  importeQuery?: string;
   activeMonths?: number[];
 }
 
 // Lo que trae el click de una celda — observación y meses solo llegan por los globales.
-export type DetalleFilterExtra = Omit<DetalleFilter, "year" | "localId" | "pdvId" | "observacionQuery" | "meses">;
+export type DetalleFilterExtra = Omit<DetalleFilter, "year" | "localId" | "pdvId" | "observacionQuery" | "importeQuery" | "meses">;
 
 // Arma el filtro del modal de detalle para que muestre exactamente las compras que suma la celda
 // clickeada: los totales del pivot ya vienen acotados por los filtros globales, así que el modal
@@ -37,6 +38,7 @@ export function buildDetalleFilter(
     // de proveedor, el global taparía la fila clickeada.
     proveedorId: clickTraeProveedor ? undefined : globales.proveedorId,
     observacionQuery: globales.observacionQuery,
+    importeQuery: globales.importeQuery,
     meses: extra.mes ? undefined : globales.activeMonths,
     ...extra,
   };

@@ -16,6 +16,7 @@ type SearchFilters = {
   conceptoCodigo: string | undefined;
   proveedorId: number | undefined;
   observacionQuery: string | undefined;
+  importeQuery: string | undefined;
   searchLabel: string | undefined;
 };
 
@@ -49,6 +50,7 @@ type DashboardStore = {
   conceptoCodigo: string | undefined;
   proveedorId: number | undefined;
   observacionQuery: string | undefined;
+  importeQuery: string | undefined;
   searchLabel: string | undefined;
   savedFilters: Record<Tab, SearchFilters>;
   setSearch: (param: string, value: string, label: string) => void;
@@ -78,6 +80,7 @@ const EMPTY_FILTERS: SearchFilters = {
   conceptoCodigo: undefined,
   proveedorId: undefined,
   observacionQuery: undefined,
+  importeQuery: undefined,
   searchLabel: undefined,
 };
 
@@ -130,6 +133,7 @@ export const useDashboardStore = create<DashboardStore>()(
       conceptoCodigo: undefined,
       proveedorId: undefined,
       observacionQuery: undefined,
+  importeQuery: undefined,
       searchLabel: undefined,
       savedFilters: { compras: { ...EMPTY_FILTERS }, ventas: { ...EMPTY_FILTERS }, resultados: { ...EMPTY_FILTERS } },
       // Solo un filtro de palette activo a la vez (mutuamente excluyentes).
@@ -139,20 +143,22 @@ export const useDashboardStore = create<DashboardStore>()(
           conceptoCodigo: param === "conceptoCodigo" ? value : undefined,
           proveedorId: param === "proveedorId" ? Number(value) : undefined,
           observacionQuery: param === "observacionQuery" ? value : undefined,
+          importeQuery: param === "importeQuery" ? value : undefined,
           searchLabel: label,
         });
       },
       clearSearch: () => set({ ...EMPTY_FILTERS }),
       switchTab: (tab) => {
-        const { tab: current, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, searchLabel, savedFilters } = get();
+        const { tab: current, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, searchLabel, savedFilters } = get();
         const saved = savedFilters[tab] ?? { ...EMPTY_FILTERS };
         set({
           tab,
-          savedFilters: { ...savedFilters, [current]: { rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, searchLabel } },
+          savedFilters: { ...savedFilters, [current]: { rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, searchLabel } },
           rubroCodigo: saved.rubroCodigo,
           conceptoCodigo: saved.conceptoCodigo,
           proveedorId: saved.proveedorId,
           observacionQuery: saved.observacionQuery,
+          importeQuery: saved.importeQuery,
           searchLabel: saved.searchLabel,
         });
       },
@@ -229,11 +235,12 @@ export function useDashboard() {
 
   // Único filtro de búsqueda activo (mutuamente excluyentes) — derivado acá para que
   // los chips de filtro no reimplementen la cadena de precedencia.
-  const activeSearchParam: "rubroCodigo" | "conceptoCodigo" | "proveedorId" | "observacionQuery" | undefined =
+  const activeSearchParam: "rubroCodigo" | "conceptoCodigo" | "proveedorId" | "observacionQuery" | "importeQuery" | undefined =
     s.rubroCodigo ? "rubroCodigo"
     : s.conceptoCodigo ? "conceptoCodigo"
     : s.proveedorId ? "proveedorId"
     : s.observacionQuery ? "observacionQuery"
+    : s.importeQuery ? "importeQuery"
     : undefined;
 
   return {
@@ -248,7 +255,7 @@ export function useDashboard() {
     agrupacionCompras: s.agrupacionCompras, setAgrupacionCompras: s.setAgrupacionCompras,
     // search
     rubroCodigo: s.rubroCodigo, conceptoCodigo: s.conceptoCodigo,
-    proveedorId: s.proveedorId, observacionQuery: s.observacionQuery, searchLabel: s.searchLabel,
+    proveedorId: s.proveedorId, observacionQuery: s.observacionQuery, importeQuery: s.importeQuery, searchLabel: s.searchLabel,
     activeSearchParam,
     setSearch: s.setSearch, clearSearch: s.clearSearch, switchTab: s.switchTab,
     // rubro config (Compras)

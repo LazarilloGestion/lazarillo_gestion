@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { mesSchema, yearSchema, idSchema, codigoSchema, textoLibreSchema } from "@/lib/dashboard/schemas";
-import { monthsParam, parseObservacionQuery } from "@/lib/dashboard/params";
+import { monthsParam, parseObservacionQuery, parseImporteQuery } from "@/lib/dashboard/params";
 import { buildDetalleConditions } from "@/lib/dashboard/detalle-conditions";
 import { recortarConHasMore } from "@/lib/dashboard/recortar-has-more";
 import { DETALLE_COMPRAS_LIMITE } from "@/lib/dashboard/constants";
@@ -141,11 +141,12 @@ export async function GET(request: NextRequest) {
   const rubroCodigo = rubroCodigoRaw ? codigoSchema.safeParse(rubroCodigoRaw).data : undefined;
   const meses = monthsParam.safeParse(searchParams.get("months")).data;
   const observacionQuery = parseObservacionQuery(searchParams.get("observacionQuery"));
+  const importeQuery = parseImporteQuery(searchParams.get("importeQuery"));
 
   const where = Prisma.join(
     buildDetalleConditions({
       year, localId, pdvId, mes, meses, proveedorId, proveedorTexto, codigo, sinProveedor,
-      rubroCodigo, conceptoCodigo, observacionQuery,
+      rubroCodigo, conceptoCodigo, observacionQuery, importeQuery,
     }),
     " AND "
   );
