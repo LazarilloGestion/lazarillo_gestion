@@ -12,7 +12,12 @@ import type { DriveFilesResponse, DriveFolderWithFiles } from "@/lib/drive/types
 
 export const runtime = "nodejs";
 
-const MAESTROS_NAME = "Maestros";
+// Nombre de la subcarpeta de maestros dentro de la carpeta configurada.
+// Configurable por instancia: la carpeta "Informes ERP" del Drive tiene
+// "Maestros" (Container) y "Maestros COMERCIO" (Comercio); cada Panel elige
+// la suya con DRIVE_MAESTROS_FOLDER y comparte la misma carpeta raíz. Sin la
+// variable queda "Maestros", como siempre.
+const MAESTROS_NAME = process.env.DRIVE_MAESTROS_FOLDER?.trim() || "Maestros";
 const TRANSACCIONALES_NAME = "Transaccionales";
 
 function norm(s: string): string {
