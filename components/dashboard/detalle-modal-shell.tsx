@@ -25,6 +25,10 @@ interface DetalleModalShellProps<T> {
   saveError?: string | null;
   isEditing?: boolean;
   footerNote?: string | null;
+  // Controles del período junto al título (‹ Julio 2026 › + Mes/Año/Histórico).
+  headerControls?: React.ReactNode;
+  // Texto del pie en vez del conteo a secas (ej. "139 registros — Julio 2026").
+  periodoLabel?: string | null;
 }
 
 export function DetalleModalShell<T>({
@@ -40,6 +44,8 @@ export function DetalleModalShell<T>({
   saveError,
   isEditing,
   footerNote,
+  headerControls,
+  periodoLabel,
 }: DetalleModalShellProps<T>) {
   const { sort, handleSortClick } = useSortState();
   // Portal container para popovers/selects anidados: sin esto, montan en document.body
@@ -82,8 +88,9 @@ export function DetalleModalShell<T>({
       >
 
         {(!isLoading && !error && count > 0) ? null : (
-          <div className="px-6 pt-4 pb-3 shrink-0">
+          <div className="px-6 pt-4 pb-3 shrink-0 flex items-center gap-4">
             <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
+            {headerControls}
           </div>
         )}
 
@@ -110,7 +117,10 @@ export function DetalleModalShell<T>({
                 <tr>
                   <th colSpan={cols.length + 1} className="px-6 pt-4 pb-3 text-left">
                     <div className="flex items-center justify-between gap-4">
-                      <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
+                      <div className="flex items-center gap-4 min-w-0">
+                        <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
+                        {headerControls}
+                      </div>
                       {count > 1 && <SearchInput value={query} onChange={setQuery} className="w-44" />}
                     </div>
                   </th>
@@ -138,6 +148,7 @@ export function DetalleModalShell<T>({
               {query
                 ? `${filtered.length} de ${count} registro${count !== 1 ? "s" : ""}`
                 : `${count} registro${count !== 1 ? "s" : ""}`}
+              {periodoLabel ? ` — ${periodoLabel}` : ""}
             </span>
             {footerNote && <span className="text-muted-foreground">{footerNote}</span>}
           </div>
