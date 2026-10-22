@@ -25,6 +25,7 @@ const PALETTE_PARAM_LABELS: Record<string, string> = {
   conceptoCodigo:   "Concepto",
   proveedorId:      "Proveedor",
   observacionQuery: "Observación",
+  importeQuery:     "Importe",
 };
 
 const PALETTE_PARAM_COLORS: Record<string, { label: string; bg: string; border: string }> = {
@@ -32,6 +33,7 @@ const PALETTE_PARAM_COLORS: Record<string, { label: string; bg: string; border: 
   conceptoCodigo:   { label: "text-cat-concepto",     bg: "bg-cat-concepto/8",     border: "border-cat-concepto/25" },
   proveedorId:      { label: "text-cat-proveedor",    bg: "bg-cat-proveedor/8",    border: "border-cat-proveedor/25" },
   observacionQuery: { label: "text-cat-observacion",  bg: "bg-cat-observacion/8",  border: "border-cat-observacion/25" },
+  importeQuery:     { label: "text-cat-importe",      bg: "bg-cat-importe/8",      border: "border-cat-importe/25" },
 };
 
 const MONTH_LABELS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
