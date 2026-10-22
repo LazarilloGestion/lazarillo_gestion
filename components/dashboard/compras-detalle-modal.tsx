@@ -573,19 +573,6 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     }
   }, [reglasApertura, guardarConfirmado]);
 
-  const searchFields = useCallback((item: CompraDetalle) => [
-    item.proveedor,
-    item.proveedorRef?.nombre,
-    item.proveedorRef?.razon,
-    item.observacManual,
-    item.observac,
-    item.detalle,
-    item.concepto,
-    (item.conceptoCajaManual ?? item.conceptoCaja)?.nombre,
-    (item.conceptoCajaManual ?? item.conceptoCaja)?.rubro?.nombre,
-    item.local?.nombre,
-  ], []);
-
   // Valor de cada columna para el filtro por columna (mismos textos que se ven en la fila).
   const columnFields = useCallback((item: CompraDetalle): Record<string, string | null | undefined> => {
     const concepto = item.conceptoCajaManual ?? item.conceptoCaja;
@@ -601,6 +588,19 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
       importe: importe != null ? `${fmtARS(Number(importe))} ${String(importe)}` : "",
     };
   }, []);
+
+  const searchFields = useCallback((item: CompraDetalle) => [
+    item.proveedor,
+    item.proveedorRef?.nombre,
+    item.proveedorRef?.razon,
+    item.observacManual,
+    item.observac,
+    item.detalle,
+    item.concepto,
+    (item.conceptoCajaManual ?? item.conceptoCaja)?.nombre,
+    (item.conceptoCajaManual ?? item.conceptoCaja)?.rubro?.nombre,
+    item.local?.nombre,
+  ], []);
 
   const handleClose = useCallback(() => {
     setEditing(null);
