@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
@@ -154,12 +154,33 @@ export function AperturaGastosModal({
     return `Origen: ${describirOrigen(locales, regla.origenLocalId, regla.origenPuntoDeVentaId)}`;
   }
 
-  // Destinos con su porcentaje a la vista ("Ramos Mejía — Bar 50% · Ramos
-  // Mejía — Canchas 50%"); antes la card solo decía "2 destinos".
-  function resumenDestinos(regla: ReglaAperturaDTO): string {
-    return regla.destinos
-      .map((d) => `${describirOrigen(locales, d.localId, d.puntoDeVentaId)} ${formatPorcentaje(d.porcentaje)}%`)
-      .join(" · ");
+  // Destinos un PDV por renglón con su porcentaje alineado (antes la card
+  // decía "2 destinos"; luego iban en una sola línea separados por "·", que
+  // con 3 destinos se leía mal — Diego, 21/10/2026). El destino que coincide
+  // con el origen de la regla lleva el chip "origen" en vez de repetir el
+  // nombre en un renglón aparte; ese renglón solo aparece si el origen no
+  // está entre los destinos (regla que manda el 100% a otro lado).
+  function esDestinoOrigen(regla: ReglaAperturaDTO, d: ReglaAperturaDTO["destinos"][number]): boolean {
+    return d.localId === regla.origenLocalId && d.puntoDeVentaId === regla.origenPuntoDeVentaId;
+  }
+  function renderDestinos(regla: ReglaAperturaDTO) {
+    const origenEntreDestinos = regla.destinos.some((d) => esDestinoOrigen(regla, d));
+    return (
+      <div className="grid grid-cols-[minmax(0,1fr)_3.25rem_auto] items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+        {regla.destinos.map((d) => (
+          <Fragment key={d.id}>
+            <span className="truncate">{describirOrigen(locales, d.localId, d.puntoDeVentaId)}</span>
+            <span className="text-right tabular-nums text-foreground">{formatPorcentaje(d.porcentaje)}%</span>
+            <span>
+              {esDestinoOrigen(regla, d) && (
+                <Badge variant="outline" className="h-4 px-1.5 text-[10px] font-normal text-muted-foreground">origen</Badge>
+              )}
+            </span>
+          </Fragment>
+        ))}
+        {!origenEntreDestinos && <span className="col-span-3 truncate">{resumenOrigen(regla)}</span>}
+      </div>
+    );
   }
 
   // El origen exige local Y punto de venta — "todo el local" se sacó de uso
@@ -451,15 +472,14 @@ export function AperturaGastosModal({
                       atenuada && "opacity-70"
                     )}
                   >
-                    <div className="flex flex-col gap-1 min-w-0">
+                    <div className="flex flex-1 flex-col gap-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <Badge variant={badge.variant} className={badge.className}>
                           {ETIQUETA_ESTADO[estadoVigencia]}
                         </Badge>
                         <span className="text-xs text-foreground">{resumenVigencia(regla)}</span>
                       </div>
-                      <span className="text-xs text-muted-foreground">{resumenDestinos(regla)}</span>
-                      <span className="text-xs text-muted-foreground truncate">{resumenOrigen(regla)}</span>
+                      {renderDestinos(regla)}
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
