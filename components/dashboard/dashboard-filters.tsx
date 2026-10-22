@@ -19,6 +19,7 @@ import { FiltersDrawer } from "@/components/dashboard/filters-drawer";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAnioRange } from "@/hooks/use-anio-range";
 import type { Local } from "@/lib/types/domain";
+import { autoSeleccion } from "@/lib/dashboard/auto-seleccion";
 
 const PALETTE_PARAM_LABELS: Record<string, string> = {
   rubroCodigo:      "Rubro",
@@ -72,6 +73,14 @@ export function DashboardFilters() {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isVentas]);
+
+  // Un solo local / un solo PDV → se eligen solos (Comercio, San Justo).
+  useEffect(() => {
+    const sel = autoSeleccion(localesData ?? [], { localId, pdvId });
+    if (!sel) return;
+    if (sel.localId !== localId) setLocalId(sel.localId);
+    if (sel.pdvId !== pdvId) setPdvId(sel.pdvId);
+  }, [localesData, localId, pdvId, setLocalId, setPdvId]);
 
   const puntosDeVenta =
     locales.find((l) => l.id === localId)?.puntosDeVenta ?? [];
