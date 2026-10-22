@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { trim, toDecimalStr, excelDateToISO } from "../helpers";
+import { trim, toDecimalStr, excelDateToISO, filaCruda } from "../helpers";
 import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 import { ventaRowSchema, type VentaRow } from "../schemas/ventas";
 import { formatZodError } from "../schemas/common";
@@ -58,6 +58,7 @@ export async function normalizeVentas(
   ctx?: ETLContext
 ): Promise<{ created: number; updated: number; skipped: number; skippedRows: ETLSkippedRow[]; errors: ETLRowError[] }> {
   // Filtrar primero: eliminar encabezados de fecha/totales del día (TURNO y COD_COBRO ambos vacíos)
+  const indiceEnArchivo = new Map(rows.map((r, i) => [r, i] as const));
   const invalidRows = rows.filter((r) => trim(r["TURNO"]) == null && trim(r["COD_COBRO"]) == null);
   const validRows = rows.filter((r) => !(trim(r["TURNO"]) == null && trim(r["COD_COBRO"]) == null));
   const filled = fillPartialRows(validRows);
@@ -67,6 +68,7 @@ export async function normalizeVentas(
     concepto: trim(r["COBRO"]) ?? undefined,
     importe: toDecimalStr(r["IMPORTE"]) ?? toDecimalStr(r["TOTAL"]) ?? undefined,
     motivo: "sin_datos",
+    ...filaCruda(r, indiceEnArchivo.get(r) ?? 0),
   }));
   const errors: ETLRowError[] = [];
 
@@ -77,7 +79,7 @@ export async function normalizeVentas(
   filled.forEach((r, idx) => {
     const parsed = ventaRowSchema.safeParse(r);
     if (!parsed.success) {
-      errors.push({ rowIndex: idx, rawCodigo: r["COMPROBANT"], message: formatZodError(parsed.error) });
+      errors.push({ rowIndex: idx, rawCodigo: r["COMPROBANT"], message: formatZodError(parsed.error), ...filaCruda(r, idx) });
       return;
     }
     parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data, idx });
@@ -94,6 +96,8 @@ export async function normalizeVentas(
         concepto: trim(prev.row["COBRO"]) ?? undefined,
         importe: toDecimalStr(prev.row["IMPORTE"]) ?? toDecimalStr(prev.row["TOTAL"]) ?? undefined,
         motivo: "duplicado",
+        ...filaCruda(prev.row, prev.idx),
+        original: filaCruda(pr.row, pr.idx),
       });
     }
     rowIdMap.set(pr.rowId, pr);
@@ -183,10 +187,11 @@ export async function normalizeVentas(
             "puntoDeVentaId"  = COALESCE(ventas."puntoDeVentaId", EXCLUDED."puntoDeVentaId")
         `;
       },
-      ({ idx, data }, err) => ({
+      ({ idx, row, data }, err) => ({
         rowIndex: idx,
         rawCodigo: data.COMPROBANT,
         message: err instanceof Error ? err.message : String(err),
+        ...filaCruda(row, idx),
       }),
       (insertedRows) => {
         for (const { rowId } of insertedRows) {
