@@ -31,6 +31,7 @@
   --color-cat-concepto:    var(--cat-concepto);
   --color-cat-proveedor:   var(--cat-proveedor);
   --color-cat-observacion: var(--cat-observacion);
+  --color-cat-importe:     var(--cat-importe);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -77,6 +78,7 @@
   --cat-concepto:    oklch(0.606 0.25 292.72);
   --cat-proveedor:   oklch(0.715 0.143 215.22);
   --cat-observacion: oklch(0.718 0.202 349.76);
+  --cat-importe:     oklch(0.627 0.17 150.0);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -116,6 +118,7 @@
   --cat-concepto:    oklch(0.702 0.183 293.54);
   --cat-proveedor:   oklch(0.789 0.154 211.53);
   --cat-observacion: oklch(0.789 0.168 349.76);
+  --cat-importe:     oklch(0.76 0.16 152.0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
