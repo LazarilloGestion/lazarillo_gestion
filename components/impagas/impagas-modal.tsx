@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { SearchInput } from "@/components/ui/search-input";
@@ -10,42 +10,33 @@ import { Spinner } from "@/components/ui/spinner";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { cn } from "@/lib/utils";
 import {
-  MOTIVO_TITULO, agrupar, dias, filtrar, fmtComprobante, fmtFecha, fmtMillones, fmtPesos, motivo,
-  saldo, separar, sumaSaldos, tramoAntiguedad,
-  type ComprobanteImpago, type GrupoProveedor, type ImpagasResponse, type Motivo, type Orden,
+  MOTIVO_TITULO, agrupar, compararGrupos, dias, filtrar, fmtComprobante, fmtFecha, fmtMillones, fmtPesos, motivo,
+  saldo, separar, sumaSaldos,
+  type ComprobanteImpago, type Direccion, type GrupoProveedor, type ImpagasResponse, type Motivo, type Orden,
 } from "@/lib/impagas/clasificar";
+import { saldoDeuda, saldoMov, type DeudaConPdv } from "@/lib/impagas/aperturas";
+import { FilasDeudaPdv, type BodyPagoInterno } from "./deuda-pdv";
 import { CuentaCorrientePanel } from "./cuenta-corriente-panel";
+import { Antiguedad, Boton } from "./ui";
 
 export interface OpcionPdv { id: number; label: string }
 
-export const impagasQueryKey = (pdvId: number | undefined) => ["impagas", pdvId];
+export const impagasQueryKey = (pdvId: number | undefined, desde?: string) => ["impagas", pdvId, desde ?? null];
 
-const TRAMO_CLS = {
-  reciente: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
-  media: "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
-  vieja: "bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300",
-} as const;
-
-function Antiguedad({ fecha, hoy }: { fecha: string; hoy: Date }) {
-  const d = dias(fecha, hoy);
-  return (
-    <span className={cn("inline-block rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums", TRAMO_CLS[tramoAntiguedad(d)])}>
-      {d} d
-    </span>
-  );
+// Lo que el PDV le debe a otros PDV por aperturas: saldo y movimiento pendiente más viejo.
+export function resumenDeuda(d: DeudaConPdv, filtro?: (fecha: string) => boolean) {
+  const pend = d.movimientos.filter((m) => saldoMov(m) > 0.5 && (!filtro || filtro(m.fecha)));
+  const saldo = filtro ? pend.reduce((s, m) => s + saldoMov(m), 0) : saldoDeuda(d);
+  return { saldo, pendientes: pend.length, masVieja: pend.length ? pend.reduce((a, m) => (m.fecha < a ? m.fecha : a), pend[0].fecha) : null };
 }
 
-function Boton({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-      className="h-7 px-2.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-200 hover:border-zinc-400 dark:hover:border-zinc-500 disabled:opacity-40 whitespace-nowrap"
-    >
-      {children}
-    </button>
-  );
+// Filtro "Desde" del modal: se recuerda en este navegador.
+const DESDE_KEY = "impagas:desde";
+export function leerDesde(): string | undefined {
+  try { const v = localStorage.getItem(DESDE_KEY); return v && /^\d{4}-\d{2}$/.test(v) ? `${v}-01` : undefined; } catch { return undefined; }
+}
+function guardarDesde(mes: string | null) {
+  try { if (mes) localStorage.setItem(DESDE_KEY, mes); else localStorage.removeItem(DESDE_KEY); } catch { /* sin storage */ }
 }
 
 function Tarjeta({ titulo, valor, sub, activa, onClick, apagada }: {
@@ -97,16 +88,20 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   const [pdvId, setPdvId] = useState<number | undefined>(pdvInicial ?? pdvs[0]?.id);
   const [tab, setTab] = useState<"I" | "E">("I");
   const [orden, setOrden] = useState<Orden>("saldo");
+  const [dir, setDir] = useState<Direccion>("desc");
+  const [desde, setDesde] = useState<string | undefined>(() => leerDesde());
   const [solo60, setSolo60] = useState(false);
   const [q, setQ] = useState("");
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [ctaCte, setCtaCte] = useState<{ codPro: string; resaltado: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
 
-  const key = impagasQueryKey(pdvId);
+  const key = impagasQueryKey(pdvId, desde);
   const { data, isLoading, error } = useFetchQuery<ImpagasResponse>(
-    key, pdvId ? `/api/impagas?pdvId=${pdvId}` : null
+    key, pdvId ? `/api/impagas?pdvId=${pdvId}${desde ? `&desde=${desde}` : ""}` : null
   );
+  const deudas = useMemo(() => data?.deudas ?? [], [data]);
+  const etiquetaPdv = (id: number) => pdvs.find((p) => p.id === id)?.label ?? `PDV ${id}`;
   const hoy = useMemo(() => new Date(), []);
   const todas = useMemo(() => data?.data ?? [], [data]);
   const { impagas, excluidas } = useMemo(() => separar(todas), [todas]);
@@ -212,8 +207,49 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     <span className="rounded px-1.5 py-0.5 text-[10px] bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{t}</span>
   );
 
+  // Aperturas de otros PDV: cada PDV origen es un "proveedor" más de la lista.
+  const filtroDeuda = (f: string) => !solo60 || dias(f, hoy) <= 60;
+  const resumenes = deudas
+    .map((d) => ({ d, ...resumenDeuda(d, solo60 ? filtroDeuda : undefined) }))
+    .filter((r) => r.saldo > 0.5 || r.d.pagos.length > 0 || r.d.movimientos.length > 0);
+
+  async function registrarPago(b: BodyPagoInterno): Promise<string | null> {
+    if (!pdvId) return "Elegí un PDV.";
+    setGuardando(true);
+    try {
+      const res = await fetch("/api/impagas/pagos-internos", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...b, pdvDestinoId: pdvId, desde: data?.desde }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) return j.error ?? "No se pudo guardar. Intentá de nuevo.";
+      toast.success(j.aCuenta > 0.5 ? `Pago registrado · ${fmtPesos(j.aCuenta)} quedan a cuenta` : "Pago registrado");
+      return null;
+    } catch {
+      return "No se pudo guardar. Intentá de nuevo.";
+    } finally {
+      setGuardando(false);
+      queryClient.invalidateQueries({ queryKey: ["impagas"] });
+    }
+  }
+
+  async function anularPago(id: number) {
+    setGuardando(true);
+    try {
+      const res = await fetch(`/api/impagas/pagos-internos/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      toast.success("Pago anulado");
+    } catch {
+      toast.error("No se pudo anular. Intentá de nuevo.");
+    } finally {
+      setGuardando(false);
+      queryClient.invalidateQueries({ queryKey: ["impagas"] });
+    }
+  }
+
   function cuerpoImpagas() {
-    return agrupar(lista, orden).map((g) => {
+    type Entrada = { saldo: number; masVieja: string; nodo: React.ReactNode };
+    const entradas: Entrada[] = agrupar(lista, orden, dir).map((g) => {
       const k = `I${g.codPro}`;
       const todasForzadas = g.items.every((f) => f.forzada);
       const accion = todasForzadas
@@ -221,15 +257,35 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
         : g.proveedorId
           ? <Boton disabled={guardando} onClick={() => pagoAutomatico(g, true)}>Marcar pago automático</Boton>
           : null;
-      return (
-        <Fragment key={k}>
-          {filaProveedor(g, k, null, accion)}
-          {(abiertos.has(k) || !!q.trim()) && g.items.map((f) =>
-            filaComprobante(f, f.forzada ? <Boton disabled={guardando} onClick={() => forzar([f], false)}>Volver a excluir</Boton> : null)
-          )}
-        </Fragment>
-      );
+      return {
+        saldo: g.saldo, masVieja: g.masVieja,
+        nodo: (
+          <Fragment key={k}>
+            {filaProveedor(g, k, null, accion)}
+            {(abiertos.has(k) || !!q.trim()) && g.items.map((f) =>
+              filaComprobante(f, f.forzada ? <Boton disabled={guardando} onClick={() => forzar([f], false)}>Volver a excluir</Boton> : null)
+            )}
+          </Fragment>
+        ),
+      };
     });
+    for (const r of resumenes) {
+      entradas.push({
+        saldo: r.saldo, masVieja: r.masVieja ?? "9999-12-31",
+        nodo: (
+          <FilasDeudaPdv
+            key={`PDV${r.d.pdvOrigenId}`}
+            deuda={r.d} saldo={r.saldo} masVieja={r.masVieja}
+            origenLabel={etiquetaPdv(r.d.pdvOrigenId)}
+            hoy={hoy} q={q} solo60={solo60}
+            abiertos={abiertos} toggle={toggle} guardando={guardando}
+            onRegistrar={registrarPago} onAnular={anularPago}
+          />
+        ),
+      });
+    }
+    entradas.sort(compararGrupos(orden, dir));
+    return entradas.map((e) => e.nodo);
   }
 
   function cuerpoExcluidas() {
@@ -244,7 +300,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               {MOTIVO_TITULO[m]} · {l.length} comprobante{l.length !== 1 ? "s" : ""} · {fmtPesos(sumaSaldos(l))}
             </td>
           </tr>
-          {agrupar(l, orden).map((g) => {
+          {agrupar(l, orden, dir).map((g) => {
             const k = `E${m}${g.codPro}`;
             const etiqueta = m === "rubro"
               ? chip([...new Set(g.items.map((f) => f.rubroOculto))].join(", "))
@@ -270,18 +326,29 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     if (tab === "I") {
       const l60 = impagas.filter((f) => dias(f.fecha, hoy) <= 60);
       const l120 = impagas.filter((f) => dias(f.fecha, hoy) > 120);
+      const deuda60 = deudas.reduce((s, d) => s + resumenDeuda(d, (f) => dias(f, hoy) <= 60).saldo, 0);
+      const deudaTotal = deudas.reduce((s, d) => s + saldoDeuda(d), 0);
+      const nPagos = deudas.reduce((s, d) => s + d.pagos.length, 0);
       return (
         <>
           <Tarjeta
             titulo={`0 – 60 días · ${solo60 ? "filtrando (tocá para quitar)" : "tocá para filtrar"}`}
-            valor={fmtMillones(sumaSaldos(l60))} sub={`${l60.length} comprobantes`}
+            valor={fmtMillones(sumaSaldos(l60) + deuda60)}
+            sub={`${l60.length} comprobantes${deudas.length ? " + otros PDV" : ""}`}
             activa={solo60} onClick={() => setSolo60((v) => !v)}
           />
           <Tarjeta
-            titulo="Saldo total" valor={fmtMillones(sumaSaldos(impagas))}
-            sub={`${impagas.length} comprobantes · ${new Set(impagas.map((f) => f.codPro)).size} proveedores`}
+            titulo="Saldo total" valor={fmtMillones(sumaSaldos(impagas) + deudaTotal)}
+            sub={`${impagas.length} comprobantes · ${new Set(impagas.map((f) => f.codPro)).size} proveedores${deudas.length ? " + otros PDV" : ""}`}
           />
-          <Tarjeta titulo="Más de 120 días" valor={fmtMillones(sumaSaldos(l120))} sub={`${l120.length} comprobantes`} />
+          {deudas.length > 0 ? (
+            <Tarjeta
+              titulo="Deuda con otros PDV" valor={fmtMillones(deudaTotal)}
+              sub={deudas.map((d) => etiquetaPdv(d.pdvOrigenId)).join(" · ") + (nPagos ? ` · ${nPagos} pago${nPagos === 1 ? "" : "s"} registrado${nPagos === 1 ? "" : "s"}` : "")}
+            />
+          ) : (
+            <Tarjeta titulo="Más de 120 días" valor={fmtMillones(sumaSaldos(l120))} sub={`${l120.length} comprobantes`} />
+          )}
         </>
       );
     }
@@ -306,6 +373,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     );
   }
 
+  const pendientesPdv = deudas.reduce((s, d) => s + resumenDeuda(d).pendientes, 0);
   const nCols = tab === "E" && excluidas.some((f) => motivo(f) === "nc") ? 4 : 3;
   const vacio = tab === "I" ? "No hay comprobantes impagos con este filtro." : "No hay comprobantes excluidos en este PDV.";
 
@@ -322,7 +390,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             {pdvs.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
           <div className="flex rounded-lg bg-zinc-100 dark:bg-zinc-800 p-0.5">
-            {([["I", `Impagas ${impagas.length}`], ["E", `Excluidas ${excluidas.length}`]] as const).map(([t, label]) => (
+            {([["I", `Impagas ${impagas.length + pendientesPdv}`], ["E", `Excluidas ${excluidas.length}`]] as const).map(([t, label]) => (
               <button
                 key={t}
                 type="button"
@@ -336,6 +404,20 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               </button>
             ))}
           </div>
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            Desde
+            <input
+              type="month"
+              value={(desde ?? data?.desde ?? "").slice(0, 7)}
+              onChange={(e) => {
+                const v = e.target.value;
+                guardarDesde(v || null);
+                setDesde(v ? `${v}-01` : undefined);
+                setAbiertos(new Set());
+              }}
+              className="h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 text-sm text-foreground"
+            />
+          </label>
           <div className="ml-auto flex items-center gap-2">
             <SearchInput value={q} onChange={setQ} placeholder="Buscar proveedor o comprobante…" className="w-64" />
             <button type="button" onClick={onClose} aria-label="Cerrar" className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground">
@@ -353,23 +435,31 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               <button
                 key={o}
                 type="button"
-                onClick={() => setOrden(o)}
-                className={cn("h-7 px-3", orden === o ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "text-zinc-600 dark:text-zinc-300")}
+                onClick={() => {
+                  if (orden === o) setDir((d) => (d === "desc" ? "asc" : "desc"));
+                  else { setOrden(o); setDir("desc"); }
+                }}
+                title={orden === o ? "Tocá de nuevo para invertir el orden" : undefined}
+                className={cn("h-7 px-3 inline-flex items-center gap-1", orden === o ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "text-zinc-600 dark:text-zinc-300")}
               >
                 {label}
+                {orden === o && (dir === "desc" ? <ArrowDown className="w-3 h-3" /> : <ArrowUp className="w-3 h-3" />)}
               </button>
             ))}
           </div>
+          <span className="text-xs text-muted-foreground">
+            {orden === "saldo" ? (dir === "desc" ? "mayor saldo primero" : "menor saldo primero") : (dir === "desc" ? "más viejas primero" : "más nuevas primero")}
+          </span>
         </div>
 
         <div className="relative flex-1 min-h-0 border-t border-zinc-200 dark:border-zinc-700">
           <div className="h-full overflow-y-auto">
             {isLoading && <div className="py-12 flex justify-center"><Spinner size="lg" /></div>}
             {error && <div className="py-12 text-center text-sm text-destructive">Error al cargar los comprobantes.</div>}
-            {!isLoading && !error && lista.length === 0 && (
+            {!isLoading && !error && lista.length === 0 && (tab === "E" || resumenes.length === 0) && (
               <div className="py-12 text-center text-sm text-muted-foreground">{vacio}</div>
             )}
-            {!isLoading && !error && lista.length > 0 && (
+            {!isLoading && !error && (lista.length > 0 || (tab === "I" && resumenes.length > 0)) && (
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10 bg-white dark:bg-zinc-900">
                   <tr className="border-b border-zinc-200 dark:border-zinc-700 text-[11px] uppercase tracking-wide text-muted-foreground">

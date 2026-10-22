@@ -9,6 +9,8 @@
 //   - auto:  el proveedor está marcado "pago automático" (débito, retención).
 // "Pasar a impagas" (forzada) le gana a cualquier motivo.
 
+import type { DeudaConPdv } from "./aperturas";
+
 export interface PagoDet {
   fecha: string; // YYYY-MM-DD
   importe: number;
@@ -33,8 +35,9 @@ export interface ComprobanteImpago {
 }
 
 export interface ImpagasResponse {
-  desde: string; // YYYY-MM-DD: desde cuándo se cuentan (cobertura del informe 80)
+  desde: string; // YYYY-MM-DD: desde cuándo se cuentan (filtro "Desde" del modal)
   data: ComprobanteImpago[];
+  deudas: DeudaConPdv[]; // aperturas que otros PDV le cargaron a este
 }
 
 export type Motivo = "nc" | "rubro" | "auto";
@@ -84,8 +87,18 @@ export interface GrupoProveedor {
 }
 
 export type Orden = "saldo" | "antiguedad";
+export type Direccion = "desc" | "asc";
 
-export function agrupar(lista: ComprobanteImpago[], orden: Orden): GrupoProveedor[] {
+// saldo desc = mayor primero; antigüedad desc = más vieja primero.
+export function compararGrupos(orden: Orden, dir: Direccion) {
+  const s = dir === "desc" ? 1 : -1;
+  return (a: { saldo: number; masVieja: string }, b: { saldo: number; masVieja: string }) =>
+    orden === "saldo"
+      ? s * (b.saldo - a.saldo)
+      : s * a.masVieja.localeCompare(b.masVieja) || b.saldo - a.saldo;
+}
+
+export function agrupar(lista: ComprobanteImpago[], orden: Orden, dir: Direccion = "desc"): GrupoProveedor[] {
   const m = new Map<string, GrupoProveedor>();
   for (const f of lista) {
     let g = m.get(f.codPro);
@@ -101,9 +114,7 @@ export function agrupar(lista: ComprobanteImpago[], orden: Orden): GrupoProveedo
     g.saldo = g.items.reduce((s, f) => s + saldo(f), 0);
     g.masVieja = g.items[0].fecha;
   }
-  grupos.sort(orden === "saldo"
-    ? (a, b) => b.saldo - a.saldo
-    : (a, b) => a.masVieja.localeCompare(b.masVieja) || b.saldo - a.saldo);
+  grupos.sort(compararGrupos(orden, dir));
   return grupos;
 }
 
