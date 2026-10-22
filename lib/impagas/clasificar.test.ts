@@ -54,6 +54,11 @@ describe("separar / agrupar / filtrar", () => {
     expect(filtrar(lista, { q: "Z 0001-00000077", solo60: false, hoy }).map((f) => f.id)).toEqual(["c"]);
     expect(filtrar(lista, { q: "", solo60: true, hoy }).map((f) => f.id)).toEqual(["a", "c", "d"]);
   });
+  it("tolera tipeo: acentos, mayúsculas y letras dobles", () => {
+    const l = [cpb({ id: "z", proveedor: "Lautaro Ruben Zuccala" }), cpb({ id: "n", proveedor: "Alejo Nuñez" })];
+    expect(filtrar(l, { q: "zucala", solo60: false, hoy }).map((f) => f.id)).toEqual(["z"]);
+    expect(filtrar(l, { q: "NUNEZ", solo60: false, hoy }).map((f) => f.id)).toEqual(["n"]);
+  });
   it("saldo y días", () => {
     expect(saldo(cpb({ total: 1000, pagado: 400 }))).toBe(600);
     expect(dias("2026-10-01", hoy)).toBe(21);

@@ -15,7 +15,7 @@ import { slugify } from "@/lib/utils";
 import { rateLimit } from "@/lib/rate-limit";
 import type { ETLContext, ETLReport, DbClient, DriveImportResultItem } from "@/lib/etl/types";
 
-const TRANSACTIONAL_TYPES = new Set(["compras", "detalleCompras", "pagos", "ventas"]);
+const TRANSACTIONAL_TYPES = new Set(["compras", "detalleCompras", "pagos", "ventas", "nomina"]);
 const MAESTRO_FILE_TYPES = [
   "rubrosArticulo", "subrubrosArticulo", "rubrosConceptoCaja", "conceptosCaja", "articulos", "proveedores",
 ] as const;

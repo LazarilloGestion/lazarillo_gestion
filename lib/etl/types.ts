@@ -16,6 +16,7 @@ export type ETLFileType =
   | "compras"
   | "detalleCompras"
   | "pagos"
+  | "nomina"
   | "ventas";
 
 export type ETLRow = Record<string, unknown>;

@@ -24,6 +24,7 @@ const FILE_TYPE_LABELS: Record<string, string> = {
   compras:            "Compras",
   detalleCompras:     "Detalle Compras",
   pagos:              "Pagos",
+  nomina:             "Nómina",
   ventas:             "Ventas",
 };
 
