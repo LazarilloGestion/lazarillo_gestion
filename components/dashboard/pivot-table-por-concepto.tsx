@@ -7,7 +7,7 @@ import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { useReglasActivasPorNivel } from "@/hooks/use-reglas-activas-por-nivel";
-import { usePctMode } from "@/hooks/use-pct-mode";
+import { usePctMode, makeFmtCelda } from "@/hooks/use-pct-mode";
 import { PivotLoading, PivotError, PivotEmpty } from "./pivot-states";
 import { PivotTableHead } from "./pivot-table-head";
 import { PivotTableFoot } from "./pivot-table-foot";
@@ -22,7 +22,7 @@ export function PivotTableByConcepto() {
   const {
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     months, activeMonths, sortCol, sortDir, handleSortClick,
-    rubroConfigVersion, agrupacionCompras, setAgrupacionCompras,
+    rubroConfigVersion, agrupacionCompras, setAgrupacionCompras, modoCelda, setModoCelda,
   } = useDashboard();
 
   const [apertura, setApertura] = useAperturaModalState();
@@ -61,6 +61,7 @@ export function PivotTableByConcepto() {
   if (!data || data.rows.length === 0) return <PivotEmpty />;
 
   const ingresosPorMes = ventasData?.columnTotals ?? {};
+  const fmtCelda = makeFmtCelda(modoCelda, ingresosPorMes, !!ventasData);
   const egresosPorMes = data.columnTotals;
 
   return (
@@ -74,6 +75,8 @@ export function PivotTableByConcepto() {
             onSortClick={handleSortClick}
             agrupacionCompras={agrupacionCompras}
             onAgrupacionChange={setAgrupacionCompras}
+            modoCelda={modoCelda}
+            onModoCeldaChange={setModoCelda}
             pctMode={pctMode}
             onTogglePctMode={togglePctMode}
             ingresosPorMes={ingresosPorMes}
@@ -100,6 +103,7 @@ export function PivotTableByConcepto() {
                     onCellClick={(mes, rubroCodigo) => openDetalle({ mes, rubroCodigo })}
                     onTotalClick={(rubroCodigo) => openDetalle({ rubroCodigo })}
                     fmtPct={fmtPct}
+                    fmtCelda={fmtCelda}
                   />
                 );
               }
@@ -152,7 +156,7 @@ export function PivotTableByConcepto() {
                               openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo });
                           }}
                         >
-                          {fmtARS(concepto.values[mes])}
+                          {fmtCelda(concepto.values[mes], mes)}
                         </td>
                       </ComposicionTooltip>
                     ))}
@@ -221,7 +225,7 @@ export function PivotTableByConcepto() {
                           openDetalle({ rowId: prov.rowId, distribucionId: prov.distribucionId ?? undefined });
                       }}
                     >
-                      {fmtARS(prov.values[mes])}
+                      {fmtCelda(prov.values[mes], mes)}
                     </td>
                   ))}
                   <td
@@ -245,6 +249,7 @@ export function PivotTableByConcepto() {
             grandTotal={data.grandTotal}
             pctMode={pctMode}
             fmtPct={fmtPct}
+            fmtCelda={fmtCelda}
             onMonthClick={(mes) => openDetalle({ mes })}
             onTotalClick={() => openDetalle({})}
           />

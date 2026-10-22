@@ -22,13 +22,15 @@ interface RubroRowProps {
   onCellClick: (mes: number, rubroCodigo: string) => void;
   onTotalClick: (rubroCodigo: string) => void;
   fmtPct: (rowTotal: number) => string;
+  // Celda mensual según el toggle $ / % ing (el Total sigue en $).
+  fmtCelda: (valor: number | undefined, mes: number) => string;
 }
 
 // Fila de nivel superior ("rubro") de la tabla pivot de compras — idéntica
 // byte a byte entre pivot-table-por-concepto.tsx y
 // pivot-table-por-proveedor.tsx antes de esta extracción. El caller pone
 // `key={rubro.id}` en el elemento <RubroRow> al usarlo.
-export function RubroRow({ rubro, months, isExpanded, onToggle, onCollapseAll, onCellClick, onTotalClick, fmtPct }: RubroRowProps) {
+export function RubroRow({ rubro, months, isExpanded, onToggle, onCollapseAll, onCellClick, onTotalClick, fmtPct, fmtCelda }: RubroRowProps) {
   return (
     <tr className="border-b font-semibold" onContextMenu={onCollapseAll}>
       <td className="sticky left-0 z-10 bg-muted px-4 py-2.5 shadow-[1px_0_0_0_hsl(var(--border))]">
@@ -48,7 +50,7 @@ export function RubroRow({ rubro, months, isExpanded, onToggle, onCollapseAll, o
             if (hasValue(rubro.values[mes])) onCellClick(mes, rubro.rubroCodigo);
           }}
         >
-          {fmtARS(rubro.values[mes])}
+          {fmtCelda(rubro.values[mes], mes)}
         </td>
       ))}
       <td

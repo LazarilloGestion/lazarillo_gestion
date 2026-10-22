@@ -7,6 +7,7 @@ interface PivotTableFootProps {
   columnTotals: Record<number, number>;
   grandTotal: number;
   pctMode: "ingresos" | "egresos";
+  fmtCelda?: (valor: number | undefined, mes: number) => string;
   fmtPct: (rowTotal: number) => string;
   // Opcionales: sin callback la celda se renderiza como texto plano.
   onMonthClick?: (mes: number) => void;
@@ -22,7 +23,7 @@ const CLICKABLE = "cursor-pointer hover:bg-accent transition-colors";
 // extracción. Los totales por mes/año abren el detalle del período (pedido
 // del cliente: buscar registros por período, no solo por rubro).
 export function PivotTableFoot({
-  year, months, columnTotals, grandTotal, pctMode, fmtPct, onMonthClick, onTotalClick,
+  year, months, columnTotals, grandTotal, pctMode, fmtPct, fmtCelda, onMonthClick, onTotalClick,
 }: PivotTableFootProps) {
   const totalClickable = onTotalClick && hasValue(grandTotal);
   return (
@@ -39,7 +40,7 @@ export function PivotTableFoot({
               className={cn("text-right px-3 py-3 tabular-nums bg-muted", clickable && CLICKABLE)}
               onClick={clickable ? () => onMonthClick?.(mes) : undefined}
             >
-              {fmtARS(columnTotals[mes])}
+              {fmtCelda ? fmtCelda(columnTotals[mes], mes) : fmtARS(columnTotals[mes])}
             </td>
           );
         })}
