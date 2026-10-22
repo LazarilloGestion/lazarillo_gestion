@@ -284,8 +284,10 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
         ),
       });
     }
-    entradas.sort(compararGrupos(orden, dir));
-    return entradas.map((e) => e.nodo);
+    // Los otros PDV quedan fijos arriba; el orden elegido aplica a los proveedores.
+    const nPdv = resumenes.length;
+    const proveedores = entradas.slice(0, entradas.length - nPdv).sort(compararGrupos(orden, dir));
+    return [...entradas.slice(entradas.length - nPdv), ...proveedores].map((e) => e.nodo);
   }
 
   function cuerpoExcluidas() {
