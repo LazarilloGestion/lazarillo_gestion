@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  aCuenta, agruparEmpleados, formatearImporteAR, imputarFifo, importeAInput, normalizarReferencia, parsearImporteAR,
+  aCuenta, agruparEmpleados, numeroOP, reimputar, formatearImporteAR, imputarFifo, importeAInput, normalizarReferencia, parsearImporteAR,
   porMes, saldoDeuda, type DeudaConPdv, type MovimientoApertura,
 } from "./aperturas";
 
@@ -23,6 +23,18 @@ describe("imputar un pago a lo más viejo primero", () => {
   it("respeta centavos", () => {
     expect(imputarFifo([mov("a", "2026-09-01", 10.1)], 10.05).aplicaciones[0].importe).toBe(10.05);
   });
+});
+
+describe("editar una orden de pago", () => {
+  const movs = [mov("viejo", "2026-09-01", 100), mov("elegido", "2026-10-01", 200), mov("otro", "2026-10-05", 300)];
+  it("primero vuelve a los mismos movimientos, después a lo más viejo, el resto a cuenta", () => {
+    expect(reimputar(movs, ["elegido"], 150)).toEqual({ aplicaciones: [{ key: "elegido", importe: 150 }], sobrante: 0 });
+    expect(reimputar(movs, ["elegido"], 350)).toEqual({
+      aplicaciones: [{ key: "elegido", importe: 200 }, { key: "viejo", importe: 100 }, { key: "otro", importe: 50 }], sobrante: 0,
+    });
+    expect(reimputar(movs, ["elegido"], 700).sobrante).toBe(100);
+  });
+  it("número visible", () => expect(numeroOP(12)).toBe("OP 0012"));
 });
 
 describe("saldo de la deuda con el PDV", () => {

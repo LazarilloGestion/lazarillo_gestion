@@ -19,6 +19,7 @@ export interface MovimientoApertura {
   importe: number;        // parte del destino
   aplicado: number;       // pagos al origen imputados a este movimiento
   esEmpleado?: boolean;   // sueldo / adelanto de un empleado (nombre completo desde la nómina)
+  ops?: number[];         // órdenes de pago imputadas a este movimiento
 }
 
 export interface PagoInterno {
@@ -36,6 +37,9 @@ export interface DeudaConPdv {
   movimientos: MovimientoApertura[];
   pagos: PagoInterno[];
 }
+
+// Número visible de la orden de pago: "OP 0012".
+export const numeroOP = (id: number) => `OP ${String(id).padStart(4, "0")}`;
 
 export const MEDIOS_PAGO_INTERNO = ["Transferencia", "Caja Mayor", "Bancos"] as const;
 export type MedioPagoInterno = (typeof MEDIOS_PAGO_INTERNO)[number];
@@ -66,6 +70,20 @@ export function imputarFifo(
 }
 
 export const redondear = (n: number) => Math.round(n * 100) / 100;
+
+// Al editar el importe de una orden de pago: se vuelve a imputar primero a los
+// mismos movimientos que tenía (del más viejo al más nuevo) y, si sobra, a lo
+// más viejo pendiente; lo que no entra queda a cuenta.
+export function reimputar(
+  movs: Pick<MovimientoApertura, "key" | "fecha" | "importe" | "aplicado">[],
+  antes: string[],
+  importe: number
+): { aplicaciones: { key: string; importe: number }[]; sobrante: number } {
+  const previos = new Set(antes);
+  const r1 = imputarFifo(movs.filter((m) => previos.has(m.key)), importe);
+  const r2 = imputarFifo(movs.filter((m) => !previos.has(m.key)), r1.sobrante);
+  return { aplicaciones: [...r1.aplicaciones, ...r2.aplicaciones], sobrante: r2.sobrante };
+}
 
 export const aCuenta = (d: Pick<DeudaConPdv, "pagos">) =>
   redondear(d.pagos.reduce((s, p) => s + Math.max(0, p.importe - p.aplicado), 0));
