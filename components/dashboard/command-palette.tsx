@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback, useMemo, type ElementType } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
-import { Layers, Tag, Truck, MessageSquare, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown } from "lucide-react";
+import { Layers, Tag, Truck, MessageSquare, Banknote, ArrowRight, CornerDownLeft, ChevronUp, ChevronDown } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Command,
@@ -16,12 +16,14 @@ import {
 } from "@/components/ui/command";
 import type { Suggestion } from "@/app/api/search/suggestions/route";
 import type { ObservacionResult } from "@/app/api/search/observaciones/route";
+import type { ImporteResult } from "@/app/api/search/importe/route";
 import { fmtARS } from "@/lib/utils";
 import { anioDeFecha, formatFechaConAnio } from "@/lib/dashboard/fecha-observacion";
 import { opcionContiene } from "@/lib/dashboard/observacion-busqueda";
+import { parsearImporte } from "@/lib/dashboard/importe-busqueda";
 import { filtroSinAcentos } from "./palette-filter";
 
-type SuggestionType = Suggestion["type"] | "observacion";
+type SuggestionType = Suggestion["type"] | "observacion" | "importe";
 
 const TYPE_CONFIG: Record<
   SuggestionType,
@@ -31,15 +33,17 @@ const TYPE_CONFIG: Record<
   concepto:    { label: "Concepto",    plural: "Conceptos",     icon: Tag,          color: "text-cat-concepto",    bg: "bg-cat-concepto/12" },
   proveedor:   { label: "Proveedor",   plural: "Proveedores",   icon: Truck,        color: "text-cat-proveedor",   bg: "bg-cat-proveedor/12" },
   observacion: { label: "Observación", plural: "Observaciones", icon: MessageSquare,color: "text-cat-observacion", bg: "bg-cat-observacion/12" },
+  importe:     { label: "Importe",     plural: "Importes",      icon: Banknote,     color: "text-cat-importe",     bg: "bg-cat-importe/12" },
 };
 
 const TYPE_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor"];
-const CATEGORY_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor", "observacion"];
+const CATEGORY_ORDER: SuggestionType[] = ["rubro", "concepto", "proveedor", "observacion", "importe"];
 
 // Referencias estables para no invalidar los useMemo de abajo en cada render
 // mientras la query todavía no trajo datos.
 const EMPTY_SUGGESTIONS: Suggestion[] = [];
 const EMPTY_OBSERVACIONES: ObservacionResult[] = [];
+const EMPTY_IMPORTES: ImporteResult[] = [];
 
 interface Props {
   open: boolean;
@@ -94,6 +98,15 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   );
   const observaciones = observacionesData ?? EMPTY_OBSERVACIONES;
 
+  // Importes — solo cuando lo tipeado parsea como importe (>= 3 dígitos enteros,
+  // formato es-AR o con punto decimal); ver lib/dashboard/importe-busqueda.ts.
+  const impEnabled = parsearImporte(debouncedQuery) !== null && (typeFilter === null || typeFilter === "importe");
+  const { data: importesData, isFetching: impLoading } = useFetchQuery<ImporteResult[]>(
+    ["search-importe", debouncedQuery, localId, pdvId],
+    impEnabled ? searchUrl("/api/search/importe", debouncedQuery) : null
+  );
+  const importes = importesData ?? EMPTY_IMPORTES;
+
   const handleClose = useCallback(
     (v: boolean) => {
       if (!v) { setQuery(""); setTypeFilter(null); }
@@ -132,6 +145,23 @@ export function CommandPalette({ open, onOpenChange }: Props) {
     [setSearch, handleClose]
   );
 
+  // Elegir un gasto por importe lleva a su fila del panel: año del gasto + filtro por su
+  // proveedor (o por su concepto si no tiene proveedor, p. ej. Gastos Varios). No hay un
+  // filtro "por importe" en el panel; el importe sirve para encontrar, no para filtrar.
+  const handleSelectImporte = useCallback(
+    (result: ImporteResult) => {
+      const anio = anioDeFecha(result.fecha);
+      if (anio !== null) setYear(anio);
+      if (result.proveedorId != null) {
+        setSearch("proveedorId", String(result.proveedorId), result.proveedorNombre ?? `Proveedor ${result.proveedorId}`);
+      } else if (result.conceptoCodigo != null) {
+        setSearch("conceptoCodigo", result.conceptoCodigo, result.conceptoNombre ?? result.conceptoCodigo);
+      }
+      handleClose(false);
+    },
+    [setSearch, setYear, handleClose]
+  );
+
   // La query de observaciones puede seguir "enabled" un instante con datos viejos mientras
   // debouncedQuery se pone al día; se ignora acá salvo que la query/categoría actual la habiliten.
   const visibleObservaciones = useMemo(
@@ -140,6 +170,14 @@ export function CommandPalette({ open, onOpenChange }: Props) {
         ? observaciones
         : [],
     [query, typeFilter, observaciones]
+  );
+
+  const visibleImportes = useMemo(
+    () =>
+      parsearImporte(query) !== null && (typeFilter === null || typeFilter === "importe")
+        ? importes
+        : [],
+    [query, typeFilter, importes]
   );
 
   // Solo se ofrece si hay al menos una observación que contiene lo tipeado.
@@ -152,8 +190,9 @@ export function CommandPalette({ open, onOpenChange }: Props) {
         {} as Record<SuggestionType, number>
       ),
       observacion: visibleObservaciones.length,
+      importe: visibleImportes.length,
     }),
-    [suggestions, visibleObservaciones]
+    [suggestions, visibleObservaciones, visibleImportes]
   );
 
   const visibleTypes = useMemo(() => (typeFilter ? [typeFilter] : TYPE_ORDER), [typeFilter]);
@@ -169,7 +208,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
       visibleTypes.map((type) => ({
         type,
         cfg: TYPE_CONFIG[type],
-        items: type === "observacion" ? [] : sourceSuggestions.filter((s) => s.type === type),
+        items: type === "observacion" || type === "importe" ? [] : sourceSuggestions.filter((s) => s.type === type),
       })),
     [sourceSuggestions, visibleTypes]
   );
@@ -182,7 +221,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
         <Command filter={filtroSinAcentos} className="bg-transparent [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4">
           {/* Input */}
           <CommandInput
-            placeholder="Buscar rubro, concepto, proveedor u observación…"
+            placeholder="Buscar rubro, concepto, proveedor, observación o importe…"
             value={query}
             onValueChange={(v) => { setQuery(v); if (v) setTypeFilter(null); }}
             className="h-14 text-base border-0 bg-transparent placeholder:text-muted-foreground/50 focus-visible:ring-0"
@@ -235,13 +274,20 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                   </div>
                 )}
 
-                {!(typeFilter === "observacion" && !query.trim()) && (
+                {/* Importes sin query — prompt especial */}
+                {typeFilter === "importe" && !query.trim() && (
+                  <div className="py-10 text-center text-sm text-muted-foreground/50">
+                    Escribí un importe, por ejemplo 811.980 o 811980,50…
+                  </div>
+                )}
+
+                {!((typeFilter === "observacion" || typeFilter === "importe") && !query.trim()) && (
                   <CommandEmpty className="py-8 text-center text-sm text-muted-foreground/50">
-                    {obsLoading || searchLoading ? "Buscando…" : `Sin resultados para "${query}"`}
+                    {obsLoading || impLoading || searchLoading ? "Buscando…" : `Sin resultados para "${query}"`}
                   </CommandEmpty>
                 )}
                 {grouped.map(({ type, cfg, items }, idx) => {
-                  if (type === "observacion") return null; // rendered separately below
+                  if (type === "observacion" || type === "importe") return null; // rendered separately below
                   if (items.length === 0) return null;
                   const Icon = cfg.icon;
                   return (
@@ -316,6 +362,47 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                               <span className="block text-[11px] text-muted-foreground/50 truncate">{meta}</span>
                               <span className="block text-sm text-foreground/90 truncate">{obs.label}</span>
                             </span>
+                            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${cfg.bg} ${cfg.color}`}>
+                              {cfg.label}
+                            </span>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </>
+                )}
+
+                {/* Importes group */}
+                {visibleImportes.length > 0 && (
+                  <>
+                    <CommandSeparator className="bg-border/30" />
+                    <CommandGroup
+                      heading="Importes"
+                      className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground/40 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2"
+                    >
+                      {visibleImportes.map((imp) => {
+                        const cfg = TYPE_CONFIG.importe;
+                        const Icon = cfg.icon;
+                        const quien = imp.proveedorNombre ?? imp.conceptoNombre ?? "Sin proveedor";
+                        const meta = [formatFechaConAnio(imp.fecha), quien].filter(Boolean).join(" · ");
+                        const detalle = imp.observac?.trim() ? imp.observac : (imp.conceptoNombre ?? "");
+                        return (
+                          <CommandItem
+                            key={imp.id}
+                            // Incluye lo tipeado tal cual: cmdk vuelve a filtrar por `value` en el
+                            // cliente y "811980" no está contenido en "$ 811.980,00".
+                            value={`importe ${query} ${imp.id}`}
+                            onSelect={() => handleSelectImporte(imp)}
+                            className="mx-1 rounded-lg px-2 py-2 gap-3 cursor-pointer"
+                          >
+                            <span className={`flex h-6 w-6 items-center justify-center rounded-md shrink-0 ${cfg.bg}`}>
+                              <Icon className={`h-3 w-3 ${cfg.color}`} />
+                            </span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-[11px] text-muted-foreground/50 truncate">{meta}</span>
+                              <span className="block text-sm text-foreground/90 truncate">{detalle}</span>
+                            </span>
+                            <span className="text-sm tabular-nums text-foreground/90 shrink-0">{fmtARS(Number(imp.importe))}</span>
                             <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${cfg.bg} ${cfg.color}`}>
                               {cfg.label}
                             </span>
