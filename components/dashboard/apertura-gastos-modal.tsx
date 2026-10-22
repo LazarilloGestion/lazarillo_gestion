@@ -20,6 +20,15 @@ import { AperturaVigenciaSelector, type VigenciaFormState } from "./apertura-vig
 import { AperturaDestinoRow, type DestinoFormState } from "./apertura-destino-row";
 import { AperturaOrigenSelector, type OrigenFormState } from "./apertura-origen-selector";
 import { describirOrigen } from "@/lib/apertura/descripcion-origen";
+import {
+  estadoVigenciaRegla,
+  resumenVigencia,
+  ordenarReglas,
+  hayReglaVigente,
+  formatPorcentaje,
+  ETIQUETA_ESTADO,
+  type EstadoVigenciaRegla,
+} from "@/lib/apertura/estado-vigencia";
 
 const NIVEL_LABELS: Record<NivelRegla, string> = {
   concepto: "Concepto",
@@ -85,14 +94,21 @@ function fechaISOConHora(fechaInput: string): string | null {
   return fechaInput ? new Date(`${fechaInput}T00:00:00Z`).toISOString() : null;
 }
 
-function resumenVigencia(regla: ReglaAperturaDTO): string {
-  switch (regla.modo) {
-    case "historico": return "Histórico completo";
-    case "entre_fechas": return `${regla.fechaDesde?.slice(0, 10)} — ${regla.fechaHasta?.slice(0, 10)}`;
-    case "desde_adelante": return `Desde ${regla.fechaDesde?.slice(0, 10)}`;
-    case "desde_atras": return `Hasta ${regla.fechaHasta?.slice(0, 10)}`;
-  }
-}
+// Estado a la vista de cada regla (vigente / vencida / próxima / inactiva),
+// calculado contra HOY — ver lib/apertura/estado-vigencia.ts. Verde solo la
+// que cubre hoy; vencida e inactiva atenuadas para que la vigente resalte.
+const ESTADO_BADGE: Record<EstadoVigenciaRegla, { variant: "default" | "secondary" | "outline"; className?: string }> = {
+  vigente: { variant: "default", className: "bg-emerald-600 text-white" },
+  proxima: { variant: "secondary" },
+  vencida: { variant: "outline", className: "text-muted-foreground" },
+  inactiva: { variant: "outline", className: "text-muted-foreground line-through" },
+};
+
+const AVISO_SIN_VIGENTE: Record<NivelRegla, string> = {
+  proveedor: "Ninguna regla vigente — los gastos nuevos de este proveedor no se aperturan.",
+  concepto: "Ninguna regla vigente — los gastos nuevos de este concepto no se aperturan.",
+  registro: "Ninguna regla vigente — este registro no se apertura.",
+};
 
 export function AperturaGastosModal({
   nivel,
@@ -124,9 +140,10 @@ export function AperturaGastosModal({
 
   const { reglas: todasLasReglas, isLoading: reglasLoading, error: reglasError } = useReglasApertura();
   const reglasDeLaEntidad = useMemo(
-    () => todasLasReglas.filter((r) => r.nivel === nivel && r.entidadId === entidadId).sort((a, b) => b.creadoEn.localeCompare(a.creadoEn)),
+    () => ordenarReglas(todasLasReglas.filter((r) => r.nivel === nivel && r.entidadId === entidadId)),
     [todasLasReglas, nivel, entidadId]
   );
+  const sinReglaVigente = reglasDeLaEntidad.length > 0 && !hayReglaVigente(reglasDeLaEntidad);
 
   const { data: localesData } = useFetchQuery<Local[]>(["locales"], "/api/locales");
   const locales = localesData ?? [];
@@ -135,6 +152,14 @@ export function AperturaGastosModal({
   // componente porque depende de `locales` (lista remota).
   function resumenOrigen(regla: ReglaAperturaDTO): string {
     return `Origen: ${describirOrigen(locales, regla.origenLocalId, regla.origenPuntoDeVentaId)}`;
+  }
+
+  // Destinos con su porcentaje a la vista ("Ramos Mejía — Bar 50% · Ramos
+  // Mejía — Canchas 50%"); antes la card solo decía "2 destinos".
+  function resumenDestinos(regla: ReglaAperturaDTO): string {
+    return regla.destinos
+      .map((d) => `${describirOrigen(locales, d.localId, d.puntoDeVentaId)} ${formatPorcentaje(d.porcentaje)}%`)
+      .join(" · ");
   }
 
   // El origen exige local Y punto de venta — "todo el local" se sacó de uso
@@ -407,18 +432,33 @@ export function AperturaGastosModal({
                   <span className="text-xs">Creá una para repartir este gasto entre otros locales o puntos de venta.</span>
                 </div>
               ) : (
-                reglasDeLaEntidad.map((regla) => (
-                  <div key={regla.id} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5">
+                <>
+                {sinReglaVigente && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    {AVISO_SIN_VIGENTE[nivel]}
+                  </div>
+                )}
+                {reglasDeLaEntidad.map((regla) => {
+                  const estadoVigencia = estadoVigenciaRegla(regla);
+                  const badge = ESTADO_BADGE[estadoVigencia];
+                  const atenuada = estadoVigencia === "vencida" || estadoVigencia === "inactiva";
+                  return (
+                  <div
+                    key={regla.id}
+                    className={cn(
+                      "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5",
+                      estadoVigencia === "vigente" && "border-emerald-300",
+                      atenuada && "opacity-70"
+                    )}
+                  >
                     <div className="flex flex-col gap-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <Badge variant={regla.estado === "activa" ? "default" : "outline"}>
-                          {regla.estado === "activa" ? "Activa" : "Inactiva"}
+                        <Badge variant={badge.variant} className={badge.className}>
+                          {ETIQUETA_ESTADO[estadoVigencia]}
                         </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {regla.destinos.length} destino{regla.destinos.length !== 1 ? "s" : ""}
-                        </span>
+                        <span className="text-xs text-foreground">{resumenVigencia(regla)}</span>
                       </div>
-                      <span className="text-xs text-muted-foreground truncate">{resumenVigencia(regla)}</span>
+                      <span className="text-xs text-muted-foreground">{resumenDestinos(regla)}</span>
                       <span className="text-xs text-muted-foreground truncate">{resumenOrigen(regla)}</span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -450,7 +490,9 @@ export function AperturaGastosModal({
                       </button>
                     </div>
                   </div>
-                ))
+                  );
+                })}
+                </>
               )}
               <button
                 type="button"
