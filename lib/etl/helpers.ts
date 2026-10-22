@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import type { ETLRow } from "./types";
+import type { ETLRow, ETLFilaCruda } from "./types";
 
 // ─── Primitivos ───────────────────────────────────────────────────────────────
 
@@ -97,6 +97,11 @@ export function readExcelBuffer(buffer: Buffer): ETLRow[] {
     for (const key of Object.keys(r)) {
       normalized[key.trim().toUpperCase()] = r[key];
     }
+    // sheet_to_json deja el índice de fila de la hoja (0-based) como propiedad no
+    // enumerable; se conserva igual (no enumerable, no es una columna) para que
+    // filaCruda() pueda decir la fila real del Excel aunque haya filas en blanco.
+    const rowNum = (r as { __rowNum__?: number }).__rowNum__;
+    if (typeof rowNum === "number") Object.defineProperty(normalized, "__rowNum__", { value: rowNum, enumerable: false });
     return normalized;
   });
 }
@@ -107,4 +112,24 @@ export function getExcelHeaders(buffer: Buffer): string[] {
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const [headerRow] = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
   return Array.isArray(headerRow) ? (headerRow as string[]) : [];
+}
+
+// Fila del archivo completa, para mostrarla en Importar (ver ETLFilaCruda). Número
+// de fila real del Excel si la hoja lo trajo (encabezado = 1), si no el índice +2.
+// Las celdas de fecha que vienen como serial de Excel se muestran dd/mm/aaaa; el
+// resto tal cual, como texto.
+export function filaCruda(r: ETLRow, idx: number): ETLFilaCruda {
+  const rowNum = (r as { __rowNum__?: number }).__rowNum__;
+  const fila = typeof rowNum === "number" ? rowNum + 1 : idx + 2;
+  const columnas: Record<string, string> = {};
+  for (const key of Object.keys(r)) {
+    const v = r[key];
+    if (v == null) { columnas[key] = ""; continue; }
+    if (typeof v === "number" && /FECHA|FEC_|^FEC$/i.test(key)) {
+      const iso = excelDateToISO(v);
+      if (iso) { const [y, m, d] = iso.split("-"); columnas[key] = `${d}/${m}/${y}`; continue; }
+    }
+    columnas[key] = v instanceof Date ? v.toISOString().slice(0, 10) : String(v);
+  }
+  return { fila, columnas };
 }

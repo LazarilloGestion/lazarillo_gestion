@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn, fmtARS } from "@/lib/utils";
 import type { ETLReport } from "@/lib/etl/types";
 import { translateError } from "@/lib/etl/error-messages";
+import { FilaOmitidaDetalle, FilaErrorDetalle } from "./fila-omitida";
 import type { DriveFile } from "@/lib/drive/types";
 import type { FileStates, FileReports, FileErrors } from "@/hooks/use-drive-import";
 
@@ -290,10 +291,11 @@ function ReportCard({ report }: { report: ETLReport }) {
             <summary className="cursor-pointer text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-medium transition-colors">
               Ver {report.skippedRows.length} omitidos
             </summary>
-            <ul className="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
+            <ul className="mt-2 space-y-1.5 max-h-96 overflow-y-auto">
               {report.skippedRows.map((row, i) => (
                 <li key={i} className="flex flex-col gap-0.5 text-zinc-500 dark:text-zinc-400">
                   <span className="font-mono">
+                    {row.fila != null ? `Fila ${row.fila} · ` : ""}
                     {row.fecha ?? "—"}
                     {row.proveedor ? ` · ${row.proveedor}` : row.concepto ? ` · ${row.concepto}` : ""}
                     {row.importe ? ` · ${fmtARS(Number(row.importe))}` : ""}
@@ -301,8 +303,11 @@ function ReportCard({ report }: { report: ETLReport }) {
                   <span className="text-zinc-400 dark:text-zinc-500">
                     {row.motivo === "sin_datos"
                       ? "Fila incompleta — falta código de cuenta o fecha"
-                      : "Fila repetida dentro del archivo"}
+                      : row.original
+                        ? `Fila repetida dentro del archivo — repite a la fila ${row.original.fila}, que sí se cargó`
+                        : "Fila repetida dentro del archivo"}
                   </span>
+                  <FilaOmitidaDetalle row={row} />
                 </li>
               ))}
             </ul>
@@ -319,10 +324,11 @@ function ReportCard({ report }: { report: ETLReport }) {
           <summary className="cursor-pointer text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-medium transition-colors">
             Ver {report.errors.length} errores
           </summary>
-          <ul className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+          <ul className="mt-2 space-y-1 max-h-96 overflow-y-auto">
             {report.errors.map((e, i) => (
               <li key={i} className="font-mono text-zinc-500 dark:text-zinc-400">
-                Fila {e.rowIndex + 1} · {String(e.rawCodigo ?? "?")} · {translateError(e.message)}
+                Fila {e.fila ?? e.rowIndex + 1} · {String(e.rawCodigo ?? "?")} · {translateError(e.message)}
+                <FilaErrorDetalle error={e} />
               </li>
             ))}
           </ul>

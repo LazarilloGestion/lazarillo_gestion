@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type { DbClient } from "../types";
-import { trim, toDecimalStr, excelDateToISO } from "../helpers";
+import { trim, toDecimalStr, excelDateToISO, filaCruda } from "../helpers";
 import { linkDetalleComprasByComprobante } from "../normalizer-utils";
 import { compraRowSchema, type CompraRow } from "../schemas/compras";
 import { formatZodError } from "../schemas/common";
@@ -158,12 +158,13 @@ export async function normalizeCompras(
         importe: toDecimalStr(r["IMPORTE"]) ?? undefined,
         proveedor: trim(r["PROVEEDOR"]) ?? undefined,
         motivo: "sin_datos",
+        ...filaCruda(r, idx),
       });
       return;
     }
     const parsed = compraRowSchema.safeParse(r);
     if (!parsed.success) {
-      errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error) });
+      errors.push({ rowIndex: idx, rawCodigo: r["CODIGO"], message: formatZodError(parsed.error), ...filaCruda(r, idx) });
       return;
     }
     // El signo se normaliza DESPUÉS de calcular la identidad: rowId y ancla salen
@@ -186,6 +187,8 @@ export async function normalizeCompras(
         importe: toDecimalStr(prev.row["IMPORTE"]) ?? undefined,
         proveedor: trim(prev.row["PROVEEDOR"]) ?? undefined,
         motivo: "duplicado",
+        ...filaCruda(prev.row, prev.idx),
+        original: filaCruda(pr.row, pr.idx),
       });
     }
     rowIdMap.set(pr.rowId, pr);
@@ -438,10 +441,11 @@ export async function normalizeCompras(
             -- importeManual, fechaManual, conceptoCodigoManual: NO se sobreescriben (overrides manuales)
         `;
       },
-      ({ idx, data }, err) => ({
+      ({ idx, row, data }, err) => ({
         rowIndex: idx,
         rawCodigo: data.CODIGO,
         message: err instanceof Error ? err.message : String(err),
+        ...filaCruda(row, idx),
       }),
       (insertedRows) => {
         for (const { rowId, data } of insertedRows) {
