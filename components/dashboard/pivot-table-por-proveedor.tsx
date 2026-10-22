@@ -23,7 +23,7 @@ import { candidatosEntidadIdProveedor } from "@/lib/proveedor-entidad-id";
 
 export function PivotTableByProveedor() {
   const {
-    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
+    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     months, activeMonths, sortCol, sortDir, handleSortClick,
     rubroConfigVersion, agrupacionCompras, setAgrupacionCompras,
   } = useDashboard();
@@ -35,7 +35,7 @@ export function PivotTableByProveedor() {
   const reglasActivasPorNivel = useReglasActivasPorNivel(reglas, localId, pdvId);
 
   const { data, isLoading, error, ventasData, ventasLoading } = useOperacionKpis<PivotDataPorProveedor>({
-    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
+    year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     months, activeMonths, configVersion: rubroConfigVersion, agrupacion: "proveedor",
   });
 
@@ -43,7 +43,7 @@ export function PivotTableByProveedor() {
     expanded, toggleRow, collapseAll, collapseProveedores, collapseConceptos,
     flatRows, detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   } = usePivotScreenDataPorProveedor({
-    data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery,
+    data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     rubroCodigo, activeMonths,
   });
 
