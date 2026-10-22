@@ -384,6 +384,22 @@ model AplicacionPagoInterno {
   @@map("aplicaciones_pago_interno")
 }
 
+// Nómina de MaxiRest por PDV (archivo "000 - nomina" del kit). Se usa para
+// mostrar el nombre completo de los empleados en los sueldos aperturados.
+// Después se conecta con rrhh_empleados (base de la app) por PDV + código.
+model Empleado {
+  id             Int       @id @default(autoincrement())
+  puntoDeVentaId Int
+  codigo         String
+  nombre         String?
+  apellido       String?
+  fechaBaja      DateTime? @db.Date
+  actualizadoEn  DateTime  @default(now()) @updatedAt
+
+  @@unique([puntoDeVentaId, codigo])
+  @@map("empleados")
+}
+
 model Venta {
   rowId String @id
 

@@ -9,6 +9,8 @@ const DETECTION_RULES: [ETLFileType, string[]][] = [
   ["articulos",          ["PRECIO1", "PRECIO2", "PRECIO3", "PRECIO4"]],
   ["proveedores",        ["RAZON", "CUIT", "CBU", "ALIASCBU"]],
   // Informe 80 (detalle de pagos): trae COD_CGA como compras, pero no IMPUTAC/PER1.
+  // 000 - nomina del kit (empleados de MaxiRest, columnas en minúscula).
+  ["nomina",             ["NOMBREUSU", "APELLIDO", "FECHA_ING", "FECHA_BAJA"]],
   ["pagos",              ["FECHA_PAGO", "PAGO", "ORDEN", "COD_CPB"]],
   ["detalleCompras",     ["COD_CPB", "NUMERO1", "NUMERO2", "TOTALINS"]],
   ["compras",            ["COD_CGA", "IMPUTAC", "PER1"]],

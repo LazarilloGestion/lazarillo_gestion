@@ -11,6 +11,7 @@ import { normalizeCompras } from "./normalizers/compras";
 import { normalizeDetalleCompras } from "./normalizers/detalle-compras";
 import { normalizeVentas } from "./normalizers/ventas";
 import { normalizePagos } from "./normalizers/pagos";
+import { normalizeNomina } from "./normalizers/nomina";
 import type { ETLReport, ETLContext, ETLRow, ETLRowError, ETLSkippedRow, ETLReconciliacionAmbigua, DbClient } from "./types";
 
 type NormalizerFn = (
@@ -38,6 +39,7 @@ const NORMALIZERS: Record<string, NormalizerFn> = {
   compras:            normalizeCompras,
   detalleCompras:     normalizeDetalleCompras,
   pagos:              normalizePagos,
+  nomina:             normalizeNomina,
   ventas:             normalizeVentas,
 };
 

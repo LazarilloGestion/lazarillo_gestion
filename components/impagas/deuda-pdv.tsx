@@ -7,12 +7,12 @@ import {
   MEDIOS_PAGO_INTERNO, aCuenta, formatearImporteAR, importeAInput, normalizarReferencia, parsearImporteAR,
   porMes, saldoMov, type DeudaConPdv, type MedioPagoInterno, type MovimientoApertura,
 } from "@/lib/impagas/aperturas";
-import { dias, fmtComprobante, fmtFecha, fmtPesos } from "@/lib/impagas/clasificar";
+import { dias, fmtComprobante, fmtFecha, fmtPesos, normalizarBusqueda } from "@/lib/impagas/clasificar";
 import { Antiguedad, Boton } from "./ui";
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const nombreMes = (m: string) => `${MESES[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
-const sinEspacios = (s: string) => s.toLowerCase().replace(/[\s\-.]/g, "");
+const sinEspacios = normalizarBusqueda;
 
 export interface BodyPagoInterno {
   pdvOrigenId: number;
@@ -177,6 +177,7 @@ export function FilasDeudaPdv(p: Props) {
                     <span className="text-sky-700 dark:text-sky-400 tabular-nums">{m.comprobante ? fmtComprobante(m.comprobante) : "sin comprobante"}</span>
                     <span className="text-muted-foreground"> · {fmtFecha(m.fecha)} · </span>
                     <span className="font-medium">{m.proveedor}</span>
+                    {m.esEmpleado && <Chip cls="ml-1.5 bg-violet-50 text-violet-700">empleado</Chip>}
                     <Chip cls="ml-1.5 bg-zinc-100 text-zinc-600">{Math.round(m.porcentaje)}%</Chip>
                     {ok ? <Chip cls="ml-1.5 bg-emerald-50 text-emerald-700">saldado</Chip>
                       : m.aplicado > 0.5 ? <Chip cls="ml-1.5 bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(m.aplicado)}</Chip> : null}

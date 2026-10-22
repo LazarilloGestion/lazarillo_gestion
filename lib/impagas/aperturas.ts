@@ -18,6 +18,7 @@ export interface MovimientoApertura {
   porcentaje: number;
   importe: number;        // parte del destino
   aplicado: number;       // pagos al origen imputados a este movimiento
+  esEmpleado?: boolean;   // sueldo / adelanto de un empleado (nombre completo desde la nómina)
 }
 
 export interface PagoInterno {

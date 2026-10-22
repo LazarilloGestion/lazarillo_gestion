@@ -112,6 +112,7 @@ export interface MovimientoSqlRow {
   porcentaje: number;
   importe: number;
   aplicado: number;
+  es_empleado: boolean;
 }
 
 // Filas de compras de OTRO PDV aperturadas a este PDV (su parte), con lo que
@@ -125,7 +126,10 @@ export function movimientosAperturaSql(pdvId: number, desde: string): Prisma.Sql
       c."puntoDeVentaId"                                      AS pdv_origen_id,
       TO_CHAR(COALESCE(c."fechaManual", c.fecha), 'YYYY-MM-DD') AS fecha,
       c.comprobante,
-      COALESCE(p.nombre, c.proveedor, c.codigo)               AS proveedor,
+      -- Sueldos: el 14 trae solo el nombre del empleado; con la nómina del PDV
+      -- origen se completa el apellido (mismo código y mismo nombre).
+      COALESCE(p.nombre, NULLIF(TRIM(CONCAT_WS(' ', e.nombre, e.apellido)), ''), c.proveedor, c.codigo) AS proveedor,
+      (e.id IS NOT NULL)                                      AS es_empleado,
       COALESCE(cc.nombre, c.concepto)                         AS concepto,
       MAX(da.porcentaje)::float8                              AS porcentaje,
       SUM(da."importeCalculado")::float8                      AS importe,
@@ -140,13 +144,17 @@ export function movimientosAperturaSql(pdvId: number, desde: string): Prisma.Sql
     LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
     LEFT JOIN rubros_concepto_caja rc ON cc."codRga" = rc.codigo
     LEFT JOIN proveedores p           ON p.id = c."proveedorId"
+    LEFT JOIN empleados e             ON c."proveedorId" IS NULL
+                                     AND e."puntoDeVentaId" = c."puntoDeVentaId"
+                                     AND e.codigo = c.codigo
+                                     AND LOWER(TRIM(e.nombre)) = LOWER(TRIM(c.proveedor))
     WHERE d."puntoDeVentaId" = ${pdvId}
       AND c."puntoDeVentaId" IS NOT NULL
       AND c."puntoDeVentaId" <> ${pdvId}
       AND COALESCE(c."fechaManual", c.fecha) >= ${desde}::date
       AND COALESCE(c."fechaManual", c.fecha) < NOW() + INTERVAL '60 days'
       AND ${visible}
-    GROUP BY c."rowId", c."puntoDeVentaId", c."fechaManual", c.fecha, c.comprobante, p.nombre, c.proveedor, c.codigo, cc.nombre, c.concepto
+    GROUP BY c."rowId", c."puntoDeVentaId", c."fechaManual", c.fecha, c.comprobante, p.nombre, c.proveedor, c.codigo, cc.nombre, c.concepto, e.id, e.nombre, e.apellido
     HAVING ABS(SUM(da."importeCalculado")) > 0.5
     ORDER BY 3, 1
   `;
