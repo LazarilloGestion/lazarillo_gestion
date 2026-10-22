@@ -12,6 +12,7 @@ interface UseOperacionKpisParams {
   conceptoCodigo?: string;
   proveedorId?: number;
   observacionQuery?: string;
+  importeQuery?: string;
   months: number[];
   activeMonths?: number[];
   configVersion: number;
@@ -20,18 +21,18 @@ interface UseOperacionKpisParams {
 }
 
 export function useOperacionKpis<T extends PivotData | PivotDataPorProveedor = PivotData>({
-  year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery,
+  year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
   months, activeMonths, configVersion, vista, agrupacion,
 }: UseOperacionKpisParams) {
   const url = useMemo(() => {
     const base = buildDashboardUrl("/api/dashboard/pivot", {
-      year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months: activeMonths, vista, agrupacion,
+      year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, months: activeMonths, vista, agrupacion,
     });
     return configVersion > 0 ? `${base}&_rcv=${configVersion}` : base;
-  }, [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, activeMonths, configVersion, vista, agrupacion]);
+  }, [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, activeMonths, configVersion, vista, agrupacion]);
 
   const { data, isLoading, error } = useFetchQuery<T>(
-    ["pivot", vista ?? "compras", agrupacion ?? "concepto", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months, configVersion],
+    ["pivot", vista ?? "compras", agrupacion ?? "concepto", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, months, configVersion],
     url
   );
 

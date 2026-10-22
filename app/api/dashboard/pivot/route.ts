@@ -29,11 +29,11 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const params = parseDashboardParams(searchParams);
 
-  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, months, vista, agrupacion } = params;
+  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, months, vista, agrupacion } = params;
   const visibilidadCol = vista === "resultados" ? "visibleEnResultados" : "visibleEnDashboard";
 
   try {
-  const conditions = buildPivotConditions({ year, tableAlias: "c", localId, pdvId, months, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, filterRubrosOcultos: true, visibilidadCol });
+  const conditions = buildPivotConditions({ year, tableAlias: "c", localId, pdvId, months, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, filterRubrosOcultos: true, visibilidadCol });
   const where = Prisma.join(conditions, " AND ");
 
   // La composición del tooltip SIEMPRE muestra el reparto completo, aunque el
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
   // encuentra nada (el origen real es Bar) y el tooltip desaparece — bug
   // reportado por el cliente el 19-sep-2026 (luz/gas aperturados desde Bar,
   // sin tooltip al mirar Canchas).
-  const conditionsComposicion = buildPivotConditions({ year, tableAlias: "c", localId: undefined, pdvId: undefined, months, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, filterRubrosOcultos: true, visibilidadCol });
+  const conditionsComposicion = buildPivotConditions({ year, tableAlias: "c", localId: undefined, pdvId: undefined, months, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, filterRubrosOcultos: true, visibilidadCol });
   if (localId) conditionsComposicion.push(Prisma.sql`c."localIdOrigen" = ${localId}`);
   const whereComposicion = Prisma.join(conditionsComposicion, " AND ");
 
