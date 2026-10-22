@@ -20,6 +20,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useAnioRange } from "@/hooks/use-anio-range";
 import type { Local } from "@/lib/types/domain";
 import { autoSeleccion } from "@/lib/dashboard/auto-seleccion";
+import { ImpagasBoton } from "@/components/impagas/impagas-boton";
 
 const PALETTE_PARAM_LABELS: Record<string, string> = {
   rubroCodigo:      "Rubro",
@@ -180,6 +181,7 @@ export function DashboardFilters() {
 
         {!isVentas && (
           <div className="flex items-center gap-2 ml-auto shrink-0">
+            <ImpagasBoton locales={locales} pdvId={pdvId} />
             {!isMobile && <RubrosConfigModal {...rubrosConfigProps} />}
             <button
               onClick={() => setPaletteOpen(true)}

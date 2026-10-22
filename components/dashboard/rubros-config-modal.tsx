@@ -69,6 +69,8 @@ export function RubrosConfigModal({ field = "visibleEnDashboard", title = "Rubro
       queryClient.setQueryData(queryKey, next);
       setVisibleCount(next.filter((r) => r.visible).length);
       bumpConfig();
+      // La vista Impagas excluye por rubro oculto: que se recalcule.
+      queryClient.invalidateQueries({ queryKey: ["impagas"] });
       notify.rubroVisibilidad(nombre, visible);
     } catch (e) {
       console.error(e);

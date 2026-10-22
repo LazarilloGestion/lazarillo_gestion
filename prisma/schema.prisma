@@ -337,6 +337,20 @@ model Pago {
   @@map("pagos")
 }
 
+// Vista Impagas: comprobantes que el usuario pasó a mano a Impagas aunque
+// tengan motivo para quedar excluidos (rubro oculto, pago automático, nota de
+// crédito). Clave lógica igual que el vínculo compras ↔ pagos.
+model ImpagaForzada {
+  id             Int      @id @default(autoincrement())
+  puntoDeVentaId Int
+  comprobante    String
+  codPro         String
+  creadoEn       DateTime @default(now())
+
+  @@unique([puntoDeVentaId, comprobante, codPro])
+  @@map("impagas_forzadas")
+}
+
 model Venta {
   rowId String @id
 
