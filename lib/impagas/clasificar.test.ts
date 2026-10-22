@@ -45,6 +45,8 @@ describe("separar / agrupar / filtrar", () => {
     expect(g[1].saldo).toBe(450);
     expect(g[1].items[0].id).toBe("b");
     expect(agrupar(separar(lista).impagas, "antiguedad")[0].proveedor).toBe("Coca Cola");
+    expect(agrupar(separar(lista).impagas, "antiguedad", "asc")[0].proveedor).toBe("Alquiler");
+    expect(agrupar(separar(lista).impagas, "saldo", "asc")[0].proveedor).toBe("Coca Cola");
   });
   it("busca por proveedor o comprobante sin importar espacios/guiones, y filtra 0–60 días", () => {
     expect(filtrar(lista, { q: "coca cola", solo60: false, hoy }).length).toBe(2);

@@ -351,6 +351,39 @@ model ImpagaForzada {
   @@map("impagas_forzadas")
 }
 
+// Pagos entre PDV por aperturas: el PDV destino de una apertura le paga su %
+// al PDV origen (el que administra el fondo). Cada pago queda imputado a
+// movimientos concretos (filas de compras aperturadas); lo no imputado queda a
+// cuenta. referencia = ID de la transferencia, no se puede repetir.
+model PagoInterno {
+  id           Int      @id @default(autoincrement())
+  pdvOrigenId  Int // el que cobra
+  pdvDestinoId Int // el que paga
+  fecha        DateTime @db.Date
+  importe      Decimal  @db.Decimal(14, 2)
+  medio        String
+  referencia   String?  @unique
+  creadoEn     DateTime @default(now())
+
+  aplicaciones AplicacionPagoInterno[]
+
+  @@index([pdvDestinoId, pdvOrigenId])
+  @@map("pagos_internos")
+}
+
+model AplicacionPagoInterno {
+  id          Int     @id @default(autoincrement())
+  pagoId      Int
+  compraRowId String
+  importe     Decimal @db.Decimal(14, 2)
+
+  pago PagoInterno @relation(fields: [pagoId], references: [id], onDelete: Cascade)
+
+  @@index([pagoId])
+  @@index([compraRowId])
+  @@map("aplicaciones_pago_interno")
+}
+
 model Venta {
   rowId String @id
 

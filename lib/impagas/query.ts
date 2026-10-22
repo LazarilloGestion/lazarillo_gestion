@@ -3,13 +3,16 @@ import { sinRubroVisibleSql } from "@/lib/dashboard/query-builders";
 
 // Desde cuándo se cuentan impagas: antes de esa fecha el informe 80 no cubre
 // los comprobantes (en Ramos el 14 de ene–ago 2025 numera las facturas como
-// "F" y no cruzan con el 80) y todo aparecería impago. Por instancia: Comercio
-// arranca en 2025-01-01 (IMPAGAS_DESDE en Vercel).
+// "F" y no cruzan con el 80) y todo aparecería impago. El modal tiene un
+// filtro "Desde" (?desde=YYYY-MM-DD); sin él manda IMPAGAS_DESDE o el default.
 export const IMPAGAS_DESDE_DEFAULT = "2025-09-01";
 
-export function impagasDesde(raw: string | undefined): string {
-  const v = raw?.trim();
-  return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : IMPAGAS_DESDE_DEFAULT;
+export function impagasDesde(param: string | null | undefined, env: string | undefined): string {
+  for (const raw of [param, env]) {
+    const v = raw?.trim();
+    if (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v))) return v;
+  }
+  return IMPAGAS_DESDE_DEFAULT;
 }
 
 export interface ImpagaSqlRow {
@@ -95,5 +98,80 @@ export function impagasSql(pdvId: number, desde: string): Prisma.Sql {
       ON fz."puntoDeVentaId" = ${pdvId} AND fz.comprobante = f.comprobante AND fz."codPro" = f.cod_pro
     WHERE ABS(COALESCE(pg.total80, f.total14) - COALESCE(pg.pagado, 0)) > 1
     ORDER BY f.fecha
+  `;
+}
+
+// ── Aperturas desde otros PDV ───────────────────────────────────────────────
+export interface MovimientoSqlRow {
+  key: string;
+  pdv_origen_id: number;
+  fecha: string;
+  comprobante: string | null;
+  proveedor: string | null;
+  concepto: string | null;
+  porcentaje: number;
+  importe: number;
+  aplicado: number;
+}
+
+// Filas de compras de OTRO PDV aperturadas a este PDV (su parte), con lo que
+// ya se le pagó al origen imputado a cada una. Fuera: rubros apagados en
+// "Rubros visibles en panel" (retiros, inversiones), igual que en compras.
+export function movimientosAperturaSql(pdvId: number, desde: string): Prisma.Sql {
+  const visible = Prisma.sql`(COALESCE(rc."visibleEnDashboard", ${sinRubroVisibleSql("visibleEnDashboard")}))`;
+  return Prisma.sql`
+    SELECT
+      c."rowId"                                               AS key,
+      c."puntoDeVentaId"                                      AS pdv_origen_id,
+      TO_CHAR(COALESCE(c."fechaManual", c.fecha), 'YYYY-MM-DD') AS fecha,
+      c.comprobante,
+      COALESCE(p.nombre, c.proveedor, c.codigo)               AS proveedor,
+      COALESCE(cc.nombre, c.concepto)                         AS concepto,
+      MAX(da.porcentaje)::float8                              AS porcentaje,
+      SUM(da."importeCalculado")::float8                      AS importe,
+      COALESCE((
+        SELECT SUM(a.importe) FROM aplicaciones_pago_interno a
+        JOIN pagos_internos pi ON pi.id = a."pagoId"
+        WHERE a."compraRowId" = c."rowId" AND pi."pdvDestinoId" = ${pdvId}
+      ), 0)::float8                                           AS aplicado
+    FROM distribuciones_apertura da
+    JOIN destinos_regla d             ON d.id = da."destinoId"
+    JOIN compras c                    ON c."rowId" = da."compraRowId"
+    LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
+    LEFT JOIN rubros_concepto_caja rc ON cc."codRga" = rc.codigo
+    LEFT JOIN proveedores p           ON p.id = c."proveedorId"
+    WHERE d."puntoDeVentaId" = ${pdvId}
+      AND c."puntoDeVentaId" IS NOT NULL
+      AND c."puntoDeVentaId" <> ${pdvId}
+      AND COALESCE(c."fechaManual", c.fecha) >= ${desde}::date
+      AND COALESCE(c."fechaManual", c.fecha) < NOW() + INTERVAL '60 days'
+      AND ${visible}
+    GROUP BY c."rowId", c."puntoDeVentaId", c."fechaManual", c.fecha, c.comprobante, p.nombre, c.proveedor, c.codigo, cc.nombre, c.concepto
+    HAVING ABS(SUM(da."importeCalculado")) > 0.5
+    ORDER BY 3, 1
+  `;
+}
+
+export interface PagoInternoSqlRow {
+  id: number;
+  pdv_origen_id: number;
+  fecha: string;
+  importe: number;
+  medio: string;
+  referencia: string | null;
+  aplicado: number;
+  movimientos: number;
+}
+
+export function pagosInternosSql(pdvId: number): Prisma.Sql {
+  return Prisma.sql`
+    SELECT pi.id, pi."pdvOrigenId" AS pdv_origen_id, TO_CHAR(pi.fecha, 'YYYY-MM-DD') AS fecha,
+           pi.importe::float8 AS importe, pi.medio, pi.referencia,
+           COALESCE(SUM(a.importe), 0)::float8 AS aplicado, COUNT(a.id)::int AS movimientos
+    FROM pagos_internos pi
+    LEFT JOIN aplicaciones_pago_interno a ON a."pagoId" = pi.id
+    WHERE pi."pdvDestinoId" = ${pdvId}
+    GROUP BY pi.id
+    ORDER BY pi.fecha DESC, pi.id DESC
   `;
 }
