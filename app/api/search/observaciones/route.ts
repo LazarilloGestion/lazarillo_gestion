@@ -17,6 +17,12 @@ export type ObservacionResult = {
   importe: string | null;
   conceptoNombre: string | null;
   proveedorNombre: string | null;
+  // Dónde vive el gasto (origen, no destino de apertura): la búsqueda recorre todos los PDV
+  // y el palette etiqueta/navega a los de otro PDV (Diego, 22/10/2026).
+  localId: number | null;
+  localNombre: string | null;
+  puntoDeVentaId: number | null;
+  puntoDeVentaNombre: string | null;
 };
 
 type ObservacionRow = {
@@ -26,6 +32,10 @@ type ObservacionRow = {
   importe: Prisma.Decimal | null;
   conceptoNombre: string | null;
   proveedorNombre: string | null;
+  localId: number | null;
+  localNombre: string | null;
+  puntoDeVentaId: number | null;
+  puntoDeVentaNombre: string | null;
 };
 
 export async function GET(request: NextRequest) {
@@ -55,10 +65,16 @@ export async function GET(request: NextRequest) {
           TO_CHAR(COALESCE(c."fechaManual", c.fecha), 'YYYY-MM-DD')      AS fecha,
           COALESCE(c."importeManual", c.importe)                         AS importe,
           cc.nombre                                                      AS "conceptoNombre",
-          COALESCE(p.nombre, p.razon)                                    AS "proveedorNombre"
+          COALESCE(p.nombre, p.razon)                                    AS "proveedorNombre",
+          c."localIdOrigen"                                              AS "localId",
+          l.nombre                                                       AS "localNombre",
+          c."puntoDeVentaIdOrigen"                                       AS "puntoDeVentaId",
+          pv.nombre                                                      AS "puntoDeVentaNombre"
         FROM v_compras_distribuidas c
-        LEFT JOIN conceptos_caja cc ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
-        LEFT JOIN proveedores p     ON c."proveedorId" = p.id
+        LEFT JOIN conceptos_caja cc  ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
+        LEFT JOIN proveedores p      ON c."proveedorId" = p.id
+        LEFT JOIN locales l          ON c."localIdOrigen" = l.id
+        LEFT JOIN puntos_de_venta pv ON c."puntoDeVentaIdOrigen" = pv.id
         WHERE ${where}
         ORDER BY c."rowId"
       ) t
@@ -73,6 +89,10 @@ export async function GET(request: NextRequest) {
       importe: r.importe != null ? r.importe.toString() : null,
       conceptoNombre: r.conceptoNombre,
       proveedorNombre: r.proveedorNombre,
+      localId: r.localId,
+      localNombre: r.localNombre,
+      puntoDeVentaId: r.puntoDeVentaId,
+      puntoDeVentaNombre: r.puntoDeVentaNombre,
     }));
 
     return NextResponse.json(results);

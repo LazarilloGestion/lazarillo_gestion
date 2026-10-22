@@ -14,7 +14,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import type { Suggestion } from "@/app/api/search/suggestions/route";
+import type { Suggestion, SuggestionPdv } from "@/app/api/search/suggestions/route";
 import type { ObservacionResult } from "@/app/api/search/observaciones/route";
 import type { ImporteResult } from "@/app/api/search/importe/route";
 import { fmtARS } from "@/lib/utils";
@@ -94,7 +94,8 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   const obsEnabled = debouncedQuery.length >= 2 && (typeFilter === null || typeFilter === "observacion");
   const { data: observacionesData, isFetching: obsLoading } = useFetchQuery<ObservacionResult[]>(
     ["search-observaciones", debouncedQuery, localId, pdvId],
-    obsEnabled ? searchUrl("/api/search/observaciones", debouncedQuery) : null
+    // Sin local/PDV: recorre todos los PDV; el resultado dice dónde vive el gasto.
+    obsEnabled ? `/api/search/observaciones?${new URLSearchParams({ q: debouncedQuery })}` : null
   );
   const observaciones = observacionesData ?? EMPTY_OBSERVACIONES;
 
@@ -117,24 +118,49 @@ export function CommandPalette({ open, onOpenChange }: Props) {
     [onOpenChange]
   );
 
+  // Dónde vive algo vs. lo que se está mirando. Sin local/PDV activo todo cuenta como "acá".
+  const enPdvActual = useCallback(
+    (p: SuggestionPdv) => (pdvId != null ? p.puntoDeVentaId === pdvId : localId != null ? p.localId === localId : true),
+    [localId, pdvId]
+  );
+  const etiquetaPdv = (p: SuggestionPdv) => [p.localNombre, p.puntoDeVentaNombre].filter(Boolean).join(" — ");
+  // Navega al local/PDV de un resultado. setLocalId resetea el PDV: hay que volver a setearlo.
+  const irAlPdv = useCallback(
+    (p: SuggestionPdv) => {
+      if (p.localId != null && p.localId !== localId) {
+        setLocalId(p.localId);
+        if (p.puntoDeVentaId != null) setPdvId(p.puntoDeVentaId);
+      } else if (p.puntoDeVentaId != null && p.puntoDeVentaId !== pdvId) {
+        setPdvId(p.puntoDeVentaId);
+      }
+    },
+    [localId, pdvId, setLocalId, setPdvId]
+  );
+
   const handleSelect = useCallback(
     (suggestion: Suggestion) => {
+      // Rubro/concepto/proveedor sin compras en el PDV que se mira: ir a donde las tiene (el
+      // de la compra más reciente); si no, el filtro mostraría una tabla vacía.
+      if (suggestion.pdvs && suggestion.pdvs.length > 0 && !suggestion.pdvs.some(enPdvActual)) {
+        irAlPdv(suggestion.pdvs[0]);
+      }
       setSearch(suggestion.param, suggestion.value, suggestion.label);
       handleClose(false);
     },
-    [setSearch, handleClose]
+    [setSearch, handleClose, enPdvActual, irAlPdv]
   );
 
   const handleSelectObservacion = useCallback(
     (result: ObservacionResult) => {
-      // El resultado puede ser de otro año que el que se está mirando; sin esto la tabla
-      // quedaría filtrada por una observación que en ese año no existe.
+      // El resultado puede ser de otro PDV y/o de otro año que el que se está mirando; sin esto
+      // la tabla quedaría filtrada por una observación que ahí no existe.
+      irAlPdv(result);
       const anio = anioDeFecha(result.fecha);
       if (anio !== null) setYear(anio);
       setSearch("observacionQuery", result.label, result.label);
       handleClose(false);
     },
-    [setSearch, setYear, handleClose]
+    [setSearch, setYear, handleClose, irAlPdv]
   );
 
   // A diferencia de elegir una compra puntual, no cambia de año: el filtro por contenido
@@ -152,18 +178,13 @@ export function CommandPalette({ open, onOpenChange }: Props) {
   // solo los gastos con esa plata — igual que elegir una observación.
   const handleSelectImporte = useCallback(
     (result: ImporteResult) => {
-      if (result.localId != null && result.localId !== localId) {
-        setLocalId(result.localId); // resetea el PDV: hay que volver a setearlo después
-        if (result.puntoDeVentaId != null) setPdvId(result.puntoDeVentaId);
-      } else if (result.puntoDeVentaId != null && result.puntoDeVentaId !== pdvId) {
-        setPdvId(result.puntoDeVentaId);
-      }
+      irAlPdv(result);
       const anio = anioDeFecha(result.fecha);
       if (anio !== null) setYear(anio);
       setSearch("importeQuery", query.trim(), fmtARS(Number(result.importe)));
       handleClose(false);
     },
-    [setSearch, setYear, setLocalId, setPdvId, localId, pdvId, query, handleClose]
+    [setSearch, setYear, irAlPdv, query, handleClose]
   );
 
   // La query de observaciones puede seguir "enabled" un instante con datos viejos mientras
@@ -301,7 +322,12 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                         heading={cfg.plural}
                         className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground/40 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2"
                       >
-                        {items.map((s) => (
+                        {items.map((s) => {
+                          // Sin compras en el PDV que se mira → se dice dónde las tiene.
+                          const enOtros = s.pdvs && s.pdvs.length > 0 && !s.pdvs.some(enPdvActual)
+                            ? s.pdvs.map(etiquetaPdv).filter(Boolean)
+                            : [];
+                          return (
                           <CommandItem
                             key={s.id}
                             value={`${type} ${s.label}`}
@@ -312,11 +338,17 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                               <Icon className={`h-3 w-3 ${cfg.color}`} />
                             </span>
                             <span className="flex-1 text-sm text-foreground/90 truncate">{s.label}</span>
+                            {enOtros.length > 0 && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 border border-border text-muted-foreground max-w-[14rem] truncate" title={`en: ${enOtros.join(" · ")}`}>
+                                en: {enOtros.join(" · ")}
+                              </span>
+                            )}
                             <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${cfg.bg} ${cfg.color}`}>
                               {cfg.label}
                             </span>
                           </CommandItem>
-                        ))}
+                          );
+                        })}
                       </CommandGroup>
                     </React.Fragment>
                   );
@@ -352,6 +384,7 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                           ? fmtARS(Number(obs.importe))
                           : null;
                         const meta = [dateParts, obs.proveedorNombre ?? obs.conceptoNombre, importePart].filter(Boolean).join(" · ");
+                        const obsOtroPdv = !enPdvActual(obs) ? etiquetaPdv(obs) : "";
                         return (
                           <CommandItem
                             key={obs.id}
@@ -366,6 +399,11 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                               <span className="block text-[11px] text-muted-foreground/50 truncate">{meta}</span>
                               <span className="block text-sm text-foreground/90 truncate">{obs.label}</span>
                             </span>
+                            {obsOtroPdv && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 border border-border text-muted-foreground">
+                                {obsOtroPdv}
+                              </span>
+                            )}
                             <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${cfg.bg} ${cfg.color}`}>
                               {cfg.label}
                             </span>
@@ -391,8 +429,8 @@ export function CommandPalette({ open, onOpenChange }: Props) {
                         const meta = [formatFechaConAnio(imp.fecha), quien].filter(Boolean).join(" · ");
                         const detalle = imp.observac?.trim() ? imp.observac : (imp.conceptoNombre ?? "");
                         // Etiqueta solo cuando el gasto vive en otro local/PDV que el que se mira.
-                        const otroPdv = imp.puntoDeVentaId != null && imp.puntoDeVentaId !== pdvId;
-                        const dondeVive = [imp.localNombre, imp.puntoDeVentaNombre].filter(Boolean).join(" — ");
+                        const otroPdv = !enPdvActual(imp);
+                        const dondeVive = etiquetaPdv(imp);
                         return (
                           <CommandItem
                             key={imp.id}
