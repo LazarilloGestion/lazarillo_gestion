@@ -20,6 +20,8 @@ interface DetalleModalShellProps<T> {
   queryKey: unknown[];
   queryFn: () => Promise<DetalleResponse<T>>;
   searchFields: (item: T) => (string | null | undefined)[];
+  // Valor de cada columna filtrable (ColDef.filterKey → texto) para el filtro por columna.
+  columnFields?: (item: T) => Record<string, string | null | undefined>;
   sortFn?: (a: T, b: T, sort: SortState) => number;
   renderRow: (item: T, portalContainer: HTMLElement | null) => React.ReactNode;
   saveError?: string | null;
@@ -39,6 +41,7 @@ export function DetalleModalShell<T>({
   queryKey,
   queryFn,
   searchFields,
+  columnFields,
   sortFn,
   renderRow,
   saveError,
@@ -69,9 +72,10 @@ export function DetalleModalShell<T>({
     return [...rawData].sort((a, b) => sortFn(a, b, sort));
   }, [rawData, sort, sortFn]);
 
-  const { query, setQuery, filtered } = useTableSearch(data, searchFields);
+  const { query, setQuery, columnFilters, setColumnFilter, clearFilters, hayFiltros, filtered } =
+    useTableSearch(data, searchFields, columnFields);
 
-  useEffect(() => { setQuery(""); }, [queryKey, setQuery]);
+  useEffect(() => { clearFilters(); }, [queryKey, clearFilters]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -79,7 +83,10 @@ export function DetalleModalShell<T>({
         ref={setContentEl}
         showCloseButton={false}
         className={cn(
-          "w-[calc(100vw-2rem)] sm:w-fit sm:min-w-[480px] max-w-[92vw] sm:max-w-[92vw] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden",
+          // Ancho fijo al viewport (no w-fit): la tabla entra en pantalla y
+          // Detalle/Observación se comprimen con puntos suspensivos (punto 2,
+          // Etapa 3) en vez de desbordar con scroll horizontal.
+          "w-[calc(100vw-2rem)] sm:w-[94vw] max-w-[94vw] sm:max-w-[1600px] max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden",
           // Mientras se edita una fila, el combo de concepto puede necesitar desbordar
           // el modal (como ya hace el Select de rubro al portar a document.body).
           // Sin esto, overflow-hidden lo recorta contra el borde del modal.
@@ -87,12 +94,15 @@ export function DetalleModalShell<T>({
         )}
       >
 
-        {(!isLoading && !error && count > 0) ? null : (
-          <div className="px-6 pt-4 pb-3 shrink-0 flex items-center gap-4">
+        {/* Encabezado FUERA de la tabla: antes iba en el <thead> y se desplazaba
+            con el scroll horizontal, dejando el título cortado. */}
+        <div className="px-6 pt-4 pb-3 shrink-0 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0 flex-wrap">
             <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
             {headerControls}
           </div>
-        )}
+          {!isLoading && !error && count > 1 && <SearchInput value={query} onChange={setQuery} className="w-44 shrink-0" />}
+        </div>
 
         {isLoading && <div className="flex items-center justify-center py-12"><Spinner size="lg" /></div>}
         {error && <div className="py-12 text-center text-sm text-destructive">Error al cargar los datos.</div>}
@@ -111,22 +121,17 @@ export function DetalleModalShell<T>({
         {!isLoading && !error && count > 0 && (
           // rounded-t-xl: en edición el modal pasa a overflow-visible y deja de
           // recortar sus esquinas; el fondo del thead sticky asomaría cuadrado.
-          <div className={cn("overflow-auto flex-1 min-h-0 rounded-t-xl", filtered.length > 1 && "pb-2")}>
-            <table className="text-xs min-w-max w-full">
+          <div className={cn("overflow-y-auto overflow-x-hidden flex-1 min-h-0", filtered.length > 1 && "pb-2")}>
+            <table className="text-xs w-full table-fixed">
               <thead className="sticky top-0 z-10 bg-popover">
-                <tr>
-                  <th colSpan={cols.length + 1} className="px-6 pt-4 pb-3 text-left">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-4 min-w-0">
-                        <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
-                        {headerControls}
-                      </div>
-                      {count > 1 && <SearchInput value={query} onChange={setQuery} className="w-44" />}
-                    </div>
-                  </th>
-                </tr>
                 <tr className="border-b border-border/60">
-                  <SortableTableHead cols={cols} sort={sort} onSort={handleSortClick} />
+                  <SortableTableHead
+                    cols={cols}
+                    sort={sort}
+                    onSort={handleSortClick}
+                    columnFilters={columnFields ? columnFilters : undefined}
+                    onColumnFilter={columnFields ? setColumnFilter : undefined}
+                  />
                   {/* Ancho de EditActionButtons (2 × w-6 + gap-1) + px-2: la columna
                       no cambia al pasar de lápiz+split (más angostos) a ✓/✕. */}
                   <th className="w-[4.25rem]" />
@@ -145,7 +150,7 @@ export function DetalleModalShell<T>({
         {count > 0 && (
           <div className="flex items-center justify-between gap-4 border-t border-border/60 px-6 py-2.5 shrink-0 text-[11px]">
             <span className="text-muted-foreground/60">
-              {query
+              {hayFiltros
                 ? `${filtered.length} de ${count} registro${count !== 1 ? "s" : ""}`
                 : `${count} registro${count !== 1 ? "s" : ""}`}
               {periodoLabel ? ` — ${periodoLabel}` : ""}
