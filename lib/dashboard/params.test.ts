@@ -189,6 +189,12 @@ describe("buildComprasDetalleUrl — meses y observación", () => {
     expect(sp.has("months")).toBe(false);
   });
 
+  it("historico=1 reemplaza a mes/months en la URL del detalle", () => {
+    const sp = new URL(buildComprasDetalleUrl({ year: 2026, mes: 7, historico: true }), "http://x").searchParams;
+    expect(sp.get("historico")).toBe("1");
+    expect(sp.get("mes")).toBeNull();
+  });
+
   it("serializa importeQuery (texto tipeado tal cual)", () => {
     const sp = new URL(buildComprasDetalleUrl({ year: 2026, importeQuery: "811.980,50" }), "http://x").searchParams;
     expect(sp.get("importeQuery")).toBe("811.980,50");

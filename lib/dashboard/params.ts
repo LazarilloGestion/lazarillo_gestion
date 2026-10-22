@@ -155,7 +155,8 @@ export function buildComprasDetalleUrl(filter: DetalleFilter): string {
   const params = new URLSearchParams({ year: String(filter.year) });
   if (filter.localId) params.set("localId", String(filter.localId));
   if (filter.pdvId) params.set("pdvId", String(filter.pdvId));
-  if (filter.mes) params.set("mes", String(filter.mes));
+  if (filter.historico) params.set("historico", "1");
+  else if (filter.mes) params.set("mes", String(filter.mes));
   else if (filter.meses?.length) params.set("months", filter.meses.join(","));
   if (filter.observacionQuery) params.set("observacionQuery", filter.observacionQuery);
   if (filter.importeQuery) params.set("importeQuery", filter.importeQuery);

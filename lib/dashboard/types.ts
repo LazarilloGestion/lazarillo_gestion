@@ -173,6 +173,8 @@ export type DetalleFilter = BaseDashboardFilter & {
   importeQuery?: string;
   // Selección parcial de meses del dashboard. Se ignora si viene `mes` (la celda de un mes puntual).
   meses?: number[];
+  // Toggle Histórico del modal: todos los años (year y mes/meses se ignoran).
+  historico?: boolean;
 };
 
 export type VentasDetalleFilter = BaseDashboardFilter & {

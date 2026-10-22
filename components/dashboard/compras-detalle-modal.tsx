@@ -27,6 +27,8 @@ import {
 } from "./edit-row-controls";
 import { CompraLineasModal } from "./compra-lineas-modal";
 import { DetalleModalShell } from "./detalle-modal-shell";
+import { DetallePeriodoControls } from "./detalle-periodo-controls";
+import { periodoInicial, aplicarPeriodo, labelPeriodo, type Periodo } from "@/lib/dashboard/detalle-periodo";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { useDashboard } from "@/hooks/use-dashboard-store";
@@ -448,15 +450,27 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
 
   // Retain last non-null filter so queryKey (and cached data) stay stable during close animation
   const [stableFilter, setStableFilter] = useState(filter);
-  if (filter !== null && filter !== stableFilter) setStableFilter(filter);
+  // Período elegido adentro del modal (‹ Julio 2026 › / Mes-Año-Histórico), por
+  // encima del que trajo el click. Se reinicia con cada apertura nueva.
+  const [periodo, setPeriodo] = useState<Periodo | null>(filter ? periodoInicial(filter) : null);
+  if (filter !== null && filter !== stableFilter) {
+    setStableFilter(filter);
+    setPeriodo(periodoInicial(filter));
+  }
+  // Un registro puntual (rowId) no tiene período que navegar.
+  const conPeriodo = stableFilter != null && !stableFilter.rowId && periodo != null;
+  const filtroEfectivo = useMemo(
+    () => (stableFilter && conPeriodo && periodo ? aplicarPeriodo(stableFilter, periodo) : stableFilter),
+    [stableFilter, conPeriodo, periodo]
+  );
 
-  const queryKey = useMemo(() => ["detalle", stableFilter], [stableFilter]);
+  const queryKey = useMemo(() => ["detalle", filtroEfectivo], [filtroEfectivo]);
 
   const queryFn = useCallback(async (): Promise<DetalleResponse<CompraDetalle>> => {
-    const res = await fetch(buildComprasDetalleUrl(stableFilter!));
+    const res = await fetch(buildComprasDetalleUrl(filtroEfectivo!));
     if (!res.ok) throw new Error("Error cargando detalle");
     return res.json();
-  }, [stableFilter]);
+  }, [filtroEfectivo]);
 
   const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string; rubroCodigo?: string }>>({
     queryKey: ["suggestions"],
@@ -587,6 +601,8 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         sortFn={sortCompras}
         saveError={saveError}
         isEditing={editing !== null}
+        headerControls={conPeriodo && periodo ? <DetallePeriodoControls periodo={periodo} onChange={setPeriodo} /> : null}
+        periodoLabel={conPeriodo && periodo ? labelPeriodo(periodo) : null}
         // La tabla muestra la fracción de esta fila, pero el input corrige el
         // total de la compra: al guardar se reparte de nuevo entre destinos.
         // Va en el pie y no bajo el input para no agrandar la fila.
