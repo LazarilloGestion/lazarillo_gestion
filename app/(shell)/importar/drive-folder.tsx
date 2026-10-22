@@ -23,6 +23,7 @@ const FILE_TYPE_LABELS: Record<string, string> = {
   proveedores:        "Proveedores",
   compras:            "Compras",
   detalleCompras:     "Detalle Compras",
+  pagos:              "Pagos",
   ventas:             "Ventas",
 };
 

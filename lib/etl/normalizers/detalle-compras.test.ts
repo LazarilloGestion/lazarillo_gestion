@@ -111,7 +111,7 @@ describe("normalizeDetalleCompras", () => {
   it("cuando el insert en lote falla, reintenta fila por fila y aísla solo la fila inválida (no pierde las demás)", async () => {
     const db = createMockDb();
     (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
-      if (sql.values.length > 23) throw new Error("simulated batch failure");
+      if (sql.values.length > 25) throw new Error("simulated batch failure");
       if (sql.values[1] === "BAD") throw new Error("valor fuera de rango numérico");
       return 1;
     });
