@@ -122,7 +122,7 @@ export function agrupar(lista: ComprobanteImpago[], orden: Orden, dir: Direccion
 // Búsqueda tolerante: sin mayúsculas, acentos, espacios ni guiones, y con las
 // letras repetidas colapsadas ("Zucala" encuentra "Zuccala"); los números quedan igual.
 export const normalizarBusqueda = (s: string) =>
-  s.toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[\s\-.]/g, "").replace(/([a-zñ])\1+/g, "$1");
+  s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[\s\-.]/g, "").replace(/([a-zñ])\1+/g, "$1");
 const sinEspacios = normalizarBusqueda;
 
 export function filtrar(
