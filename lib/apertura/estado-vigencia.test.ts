@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   estadoVigenciaRegla,
   resumenVigencia,
@@ -7,8 +9,44 @@ import {
   hoyUTC,
   formatFechaRegla,
   formatPorcentaje,
+  cubreFecha,
 } from "./estado-vigencia";
+import { fechaEnVigencia, type ReglaVigencia } from "./vigencia";
 import type { ReglaAperturaDTO } from "./types";
+
+// Guardia del incidente 21/10/2026 (PR #2): este módulo lo carga el navegador
+// y vigencia.ts arrastra @prisma/client (y evalúa Prisma.sql al importar).
+// Si alguien vuelve a importarlo desde acá, que falle el test y no producción.
+describe("estado-vigencia es seguro para el navegador", () => {
+  it("no importa ./vigencia ni @prisma/client", () => {
+    const src = readFileSync(join(__dirname, "estado-vigencia.ts"), "utf8");
+    const imports = src.split("\n").filter((l) => /^\s*import\s/.test(l));
+    expect(imports.some((l) => l.includes("./vigencia\"") || l.includes("@prisma/client"))).toBe(false);
+  });
+});
+
+describe("cubreFecha replica la semántica de fechaEnVigencia", () => {
+  const fechas = ["2026-01-01", "2026-06-30", "2026-07-01", "2026-09-30", "2026-10-01", "2026-12-31"].map((d) => new Date(`${d}T00:00:00.000Z`));
+  const desde = new Date("2026-07-01T00:00:00.000Z");
+  const hasta = new Date("2026-09-30T00:00:00.000Z");
+  const casos: ReglaVigencia[] = [];
+  for (const inc of [true, false]) {
+    casos.push({ modo: "historico", fechaDesde: null, fechaHasta: null, extremosInclusivos: inc });
+    casos.push({ modo: "entre_fechas", fechaDesde: desde, fechaHasta: hasta, extremosInclusivos: inc });
+    casos.push({ modo: "desde_adelante", fechaDesde: desde, fechaHasta: null, extremosInclusivos: inc });
+    casos.push({ modo: "desde_atras", fechaDesde: null, fechaHasta: hasta, extremosInclusivos: inc });
+  }
+  it("mismo resultado en todos los modos, extremos y fechas de borde", () => {
+    for (const r of casos) {
+      for (const f of fechas) {
+        expect(cubreFecha(f, r, r.fechaDesde, r.fechaHasta), `${r.modo} inc=${r.extremosInclusivos} ${f.toISOString()}`).toBe(fechaEnVigencia(f, r));
+      }
+    }
+  });
+  it("dato inconsistente: null en vez de tirar", () => {
+    expect(cubreFecha(fechas[0], { modo: "entre_fechas", extremosInclusivos: true }, null, null)).toBeNull();
+  });
+});
 
 const HOY = new Date("2026-10-21T00:00:00.000Z");
 

@@ -1,5 +1,13 @@
-import { fechaEnVigencia } from "./vigencia";
 import type { ReglaAperturaDTO } from "./types";
+
+// ⚠ Este módulo lo importa un componente CLIENTE (apertura-gastos-modal.tsx),
+// así que NO puede importar nada que arrastre @prisma/client al navegador.
+// lib/apertura/vigencia.ts importa Prisma y evalúa `Prisma.sql` al cargar
+// (FECHA_EFECTIVA_COMPRA_SQL) — en el browser eso tira al importar y rompe
+// el Panel entero (incidente real 21/10/2026: PR #2 dejó producción sin
+// cargar y hubo que hacer rollback). Por eso la ventana de vigencia se
+// replica acá, pura, y estado-vigencia.test.ts verifica que da lo mismo
+// que fechaEnVigencia y que este archivo no importa de "./vigencia".
 
 // Estado de una regla "a la vista" en la lista del modal de apertura. Hasta
 // oct-2026 la card solo mostraba el flag persistido `estado` (Activa /
@@ -32,17 +40,37 @@ export function hoyUTC(ahora: Date = new Date()): Date {
   return new Date(Date.UTC(ahora.getFullYear(), ahora.getMonth(), ahora.getDate()));
 }
 
+// Misma semántica de extremos que fechaEnVigencia (lib/apertura/vigencia.ts):
+// inclusivo → >= / <=, exclusivo → > / <. Devuelve null si al modo le falta
+// la fecha que exige (dato inconsistente) en vez de tirar como aquella.
+export function cubreFecha(
+  fecha: Date,
+  regla: Pick<ReglaParaEstado, "modo" | "extremosInclusivos">,
+  desde: Date | null,
+  hasta: Date | null
+): boolean | null {
+  const t = fecha.getTime();
+  const inc = regla.extremosInclusivos;
+  switch (regla.modo) {
+    case "historico":
+      return true;
+    case "entre_fechas":
+      if (!desde || !hasta) return null;
+      return inc ? t >= desde.getTime() && t <= hasta.getTime() : t > desde.getTime() && t < hasta.getTime();
+    case "desde_adelante":
+      if (!desde) return null;
+      return inc ? t >= desde.getTime() : t > desde.getTime();
+    case "desde_atras":
+      if (!hasta) return null;
+      return inc ? t <= hasta.getTime() : t < hasta.getTime();
+  }
+}
+
 export function estadoVigenciaRegla(regla: ReglaParaEstado, hoy: Date = hoyUTC()): EstadoVigenciaRegla {
   if (regla.estado !== "activa") return "inactiva";
   const desde = fechaUTC(regla.fechaDesde);
   const hasta = fechaUTC(regla.fechaHasta);
-  const vigencia = { modo: regla.modo, fechaDesde: desde, fechaHasta: hasta, extremosInclusivos: regla.extremosInclusivos };
-  try {
-    if (fechaEnVigencia(hoy, vigencia)) return "vigente";
-  } catch {
-    // Regla con modo que exige una fecha que falta (dato inconsistente):
-    // no la damos por vigente ni la escondemos — cae a los chequeos de abajo.
-  }
+  if (cubreFecha(hoy, regla, desde, hasta) === true) return "vigente";
   if (desde && hoy.getTime() < desde.getTime()) return "proxima";
   return "vencida";
 }
