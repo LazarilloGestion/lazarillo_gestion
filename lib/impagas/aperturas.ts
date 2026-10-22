@@ -74,9 +74,10 @@ export const saldoDeuda = (d: DeudaConPdv) =>
 
 export interface MesDeuda { mes: string; movimientos: MovimientoApertura[]; total: number; saldo: number }
 
+// Para mostrar: el mes más nuevo primero y, adentro, el movimiento más nuevo primero.
 export function porMes(movs: MovimientoApertura[]): MesDeuda[] {
   const m = new Map<string, MovimientoApertura[]>();
-  for (const x of ordenarMovimientos(movs)) {
+  for (const x of ordenarMovimientos(movs).reverse()) {
     const k = x.fecha.slice(0, 7);
     if (!m.has(k)) m.set(k, []);
     m.get(k)!.push(x);

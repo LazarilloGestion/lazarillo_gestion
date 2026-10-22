@@ -43,7 +43,8 @@ describe("separar / agrupar / filtrar", () => {
     const g = agrupar(separar(lista).impagas, "saldo");
     expect(g.map((x) => x.proveedor)).toEqual(["Alquiler", "Coca Cola"]);
     expect(g[1].saldo).toBe(450);
-    expect(g[1].items[0].id).toBe("b");
+    expect(g[1].items[0].id).toBe("a"); // la más nueva primero
+    expect(g[1].masVieja).toBe("2026-03-01");
     expect(agrupar(separar(lista).impagas, "antiguedad")[0].proveedor).toBe("Coca Cola");
     expect(agrupar(separar(lista).impagas, "antiguedad", "asc")[0].proveedor).toBe("Alquiler");
     expect(agrupar(separar(lista).impagas, "saldo", "asc")[0].proveedor).toBe("Coca Cola");

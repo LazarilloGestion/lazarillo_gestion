@@ -110,9 +110,10 @@ export function agrupar(lista: ComprobanteImpago[], orden: Orden, dir: Direccion
   }
   const grupos = [...m.values()];
   for (const g of grupos) {
-    g.items.sort((a, b) => a.fecha.localeCompare(b.fecha));
+    // Adentro del proveedor, la factura más nueva primero.
+    g.items.sort((a, b) => b.fecha.localeCompare(a.fecha));
     g.saldo = g.items.reduce((s, f) => s + saldo(f), 0);
-    g.masVieja = g.items[0].fecha;
+    g.masVieja = g.items[g.items.length - 1].fecha;
   }
   grupos.sort(compararGrupos(orden, dir));
   return grupos;

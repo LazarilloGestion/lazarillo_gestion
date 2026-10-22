@@ -37,7 +37,7 @@ describe("saldo de la deuda con el PDV", () => {
   });
   it("agrupa por mes", () => {
     const m = porMes([mov("b", "2026-10-02", 5), mov("a", "2026-09-30", 7, 2)]);
-    expect(m.map((x) => [x.mes, x.total, x.saldo])).toEqual([["2026-09", 7, 5], ["2026-10", 5, 5]]);
+    expect(m.map((x) => [x.mes, x.total, x.saldo])).toEqual([["2026-10", 5, 5], ["2026-09", 7, 5]]);
   });
 });
 
