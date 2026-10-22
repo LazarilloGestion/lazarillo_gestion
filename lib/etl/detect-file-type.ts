@@ -8,6 +8,8 @@ const DETECTION_RULES: [ETLFileType, string[]][] = [
   ["conceptosCaja",      ["TIPO", "COD_IMP", "COD_RGA"]],
   ["articulos",          ["PRECIO1", "PRECIO2", "PRECIO3", "PRECIO4"]],
   ["proveedores",        ["RAZON", "CUIT", "CBU", "ALIASCBU"]],
+  // Informe 80 (detalle de pagos): trae COD_CGA como compras, pero no IMPUTAC/PER1.
+  ["pagos",              ["FECHA_PAGO", "PAGO", "ORDEN", "COD_CPB"]],
   ["detalleCompras",     ["COD_CPB", "NUMERO1", "NUMERO2", "TOTALINS"]],
   ["compras",            ["COD_CGA", "IMPUTAC", "PER1"]],
   ["ventas",             ["TURNO", "COMPROBANT", "COBRO", "COD_COBRO"]],

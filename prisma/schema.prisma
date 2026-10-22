@@ -16,6 +16,7 @@ model Local {
   compras         Compra[]
   ventas          Venta[]
   detallesCompra  DetalleCompra[]
+  pagos           Pago[]
   flujoCajaManual FlujoCajaManual[]
   destinosRegla   DestinoRegla[]
   reglasOrigen    ReglaApertura[]  @relation("reglaOrigenLocal")
@@ -31,6 +32,7 @@ model PuntoDeVenta {
   local           Local             @relation(fields: [localId], references: [id])
   compras         Compra[]
   ventas          Venta[]
+  pagos           Pago[]
   flujoCajaManual FlujoCajaManual[]
   destinosRegla   DestinoRegla[]
   reglasOrigen    ReglaApertura[]   @relation("reglaOrigenPdv")
@@ -163,8 +165,14 @@ model Proveedor {
   observac  String?
   detPerc   String?
 
+  // Informe 80 / vista Impagas: el proveedor cobra solo (débito automático,
+  // se retiene de la liquidación, etc.) — sus facturas sin pago registrado no
+  // cuentan como deuda. Lo marca el usuario desde el Panel.
+  pagoAutomatico Boolean @default(false)
+
   compras        Compra[]
   detallesCompra DetalleCompra[]
+  pagos          Pago[]
 
   @@map("proveedores")
 }
@@ -254,6 +262,12 @@ model DetalleCompra {
   percep   Decimal?
   observac String?
 
+  // Concepto de caja por línea — MaxiRest lo exporta en el 25 desde oct-2026
+  // (COD_CGA / NOM_CGA, dos columnas nuevas al final). Base de la vista Insumos
+  // agrupada por concepto.
+  codCga String?
+  nomCga String?
+
   compraId String?
   compra   Compra? @relation(fields: [compraId], references: [rowId])
 
@@ -269,7 +283,58 @@ model DetalleCompra {
   @@index([comprobante])
   @@index([compraId])
   @@index([localId])
+  @@index([codCga])
   @@map("detalle_compras")
+}
+
+// Informe 80 de MaxiRest ("compras - detalle de pagos"): una fila por pago
+// aplicado a un comprobante. Vínculo lógico con compras por
+// (localId, puntoDeVentaId, comprobante, codPro) — un comprobante del 14 puede
+// estar partido en varias filas (concepto + percepciones), así que el pago se
+// cuelga del comprobante, no de una fila. Sin FK: igual que detalle_compras.
+model Pago {
+  rowId String @id
+
+  // Comprobante pagado
+  fecha       DateTime? // fecha de la factura
+  codCpb      String?
+  prefijo     String?
+  numero      String?
+  comprobante String?   // COD_CPB + PREFIJO(4) + NUMERO(8), mismo formato que compras.comprobante
+  codPro      String?   // código proveedor del ERP (texto)
+  proveedor   String?   // nombre proveedor del ERP (texto)
+  total       Decimal?  // total del comprobante según el 80 (manda para el estado de pago)
+  codCga      String?   // gasto vario: concepto de caja
+  concepto    String?
+
+  // El pago
+  medio     String?   // PAGO: "CAJA MAYOR" | "BANCOS" | ...
+  importe   Decimal?
+  fechaPago DateTime?
+  orden     String?   // número de orden de pago del ERP (una orden puede pagar varias facturas)
+  secuencia Int       @default(1) // n-ésima fila idéntica (cuotas iguales en la misma orden)
+
+  // Valores / banco — hoy MaxiRest los exporta en 0; se guardan por si se usan
+  fechaVal  DateTime?
+  numeroVal String?
+  codBan    String?
+  banco     String?
+  impVal    Decimal?
+
+  proveedorId  Int?
+  proveedorRef Proveedor? @relation(fields: [proveedorId], references: [id])
+
+  localId        Int?
+  puntoDeVentaId Int?
+  local          Local?        @relation(fields: [localId], references: [id])
+  puntoDeVenta   PuntoDeVenta? @relation(fields: [puntoDeVentaId], references: [id])
+
+  creadoEn DateTime @default(now())
+
+  @@index([localId, puntoDeVentaId, comprobante, codPro])
+  @@index([fechaPago])
+  @@index([proveedorId])
+  @@map("pagos")
 }
 
 model Venta {

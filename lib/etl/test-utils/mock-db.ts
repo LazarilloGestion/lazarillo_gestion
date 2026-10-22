@@ -23,6 +23,7 @@ export function createMockDb(overrides: Partial<Record<string, ModelMock>> = {})
     articulo: { ...defaultModel(), ...overrides.articulo },
     compra: { ...defaultModel(), ...overrides.compra },
     detalleCompra: { ...defaultModel(), ...overrides.detalleCompra },
+    pago: { ...defaultModel(), ...overrides.pago },
     venta: { ...defaultModel(), ...overrides.venta },
     rubroArticulo: { ...defaultModel(), ...overrides.rubroArticulo },
     rubroConceptoCaja: { ...defaultModel(), ...overrides.rubroConceptoCaja },

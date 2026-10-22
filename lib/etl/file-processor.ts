@@ -10,6 +10,7 @@ export const DEPENDENCY_ORDER = [
   "proveedores",
   "compras",
   "detalleCompras",
+  "pagos",
   "ventas",
 ] as const;
 
