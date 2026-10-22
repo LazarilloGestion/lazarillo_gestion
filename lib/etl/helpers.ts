@@ -35,7 +35,14 @@ export function toBool(val: unknown): boolean | null {
 export function excelDateToISO(val: unknown): string | null {
   if (val == null || val === false || val === "") return null;
   if (typeof val === "number") {
+    // Fechas imposibles (caso real: -601570 en un 14 de Comercio, un adelanto
+    // con la fecha rota en MaxiRest) → parse_date_code devuelve null o un año
+    // absurdo. Antes reventaba con "Cannot read properties of null (reading 'y')"
+    // y frenaba el archivo entero; ahora es "fecha inválida" y esa fila sola va a
+    // errores con su fila completa.
+    if (!Number.isFinite(val) || val <= 0) return null;
     const date = XLSX.SSF.parse_date_code(val);
+    if (!date || date.y < 1900) return null;
     return `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
   }
   return null;
