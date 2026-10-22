@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  aCuenta, formatearImporteAR, imputarFifo, importeAInput, normalizarReferencia, parsearImporteAR,
+  aCuenta, agruparEmpleados, formatearImporteAR, imputarFifo, importeAInput, normalizarReferencia, parsearImporteAR,
   porMes, saldoDeuda, type DeudaConPdv, type MovimientoApertura,
 } from "./aperturas";
 
@@ -38,6 +38,21 @@ describe("saldo de la deuda con el PDV", () => {
   it("agrupa por mes", () => {
     const m = porMes([mov("b", "2026-10-02", 5), mov("a", "2026-09-30", 7, 2)]);
     expect(m.map((x) => [x.mes, x.total, x.saldo])).toEqual([["2026-10", 5, 5], ["2026-09", 7, 5]]);
+  });
+});
+
+describe("sueldos agrupados por empleado dentro del mes", () => {
+  it("junta los conceptos de cada empleado y deja el resto suelto", () => {
+    const emp = (key: string, nombre: string, importe: number, aplicado = 0) =>
+      ({ ...mov(key, "2026-10-21", importe, aplicado), proveedor: nombre, esEmpleado: true });
+    const filas = agruparEmpleados([
+      emp("1", "Lautaro Ruben Zuccala", 282630), mov("gv", "2026-10-16", 431351),
+      emp("2", "Camila Cancino", 637190), emp("3", "Lautaro Ruben Zuccala", 35640, 35640),
+    ]);
+    expect(filas.map((f) => (f.tipo === "mov" ? f.mov.key : `${f.nombre}:${f.movimientos.length}`)))
+      .toEqual(["Lautaro Ruben Zuccala:2", "gv", "Camila Cancino:1"]);
+    const l = filas[0];
+    expect(l.tipo === "empleado" && [l.total, l.saldo, l.aplicado]).toEqual([318270, 282630, 35640]);
   });
 });
 

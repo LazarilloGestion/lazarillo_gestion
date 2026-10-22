@@ -90,6 +90,32 @@ export function porMes(movs: MovimientoApertura[]): MesDeuda[] {
   }));
 }
 
+// Dentro de un mes: los sueldos de un mismo empleado (liquidación, presentismo,
+// feriados, adelantos…) van juntos en una fila por empleado; el resto queda
+// movimiento por movimiento. Mantiene el orden recibido (más nuevo primero).
+export type FilaMes =
+  | { tipo: "mov"; mov: MovimientoApertura }
+  | { tipo: "empleado"; nombre: string; movimientos: MovimientoApertura[]; total: number; saldo: number; aplicado: number };
+
+export function agruparEmpleados(movs: MovimientoApertura[]): FilaMes[] {
+  const out: FilaMes[] = [];
+  const porNombre = new Map<string, Extract<FilaMes, { tipo: "empleado" }>>();
+  for (const m of movs) {
+    if (!m.esEmpleado) { out.push({ tipo: "mov", mov: m }); continue; }
+    let g = porNombre.get(m.proveedor);
+    if (!g) {
+      g = { tipo: "empleado", nombre: m.proveedor, movimientos: [], total: 0, saldo: 0, aplicado: 0 };
+      porNombre.set(m.proveedor, g);
+      out.push(g);
+    }
+    g.movimientos.push(m);
+    g.total = redondear(g.total + m.importe);
+    g.saldo = redondear(g.saldo + saldoMov(m));
+    g.aplicado = redondear(g.aplicado + m.aplicado);
+  }
+  return out;
+}
+
 // ID de transferencia: alfanumérico, sin espacios, hasta 100 caracteres (los
 // bancos usan IDs largos, p. ej. 25). Se guarda tal cual, en mayúsculas.
 export function normalizarReferencia(raw: string): string | null {

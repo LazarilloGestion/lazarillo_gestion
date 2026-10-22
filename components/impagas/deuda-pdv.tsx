@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   MEDIOS_PAGO_INTERNO, aCuenta, formatearImporteAR, importeAInput, normalizarReferencia, parsearImporteAR,
-  porMes, saldoMov, type DeudaConPdv, type MedioPagoInterno, type MovimientoApertura,
+  agruparEmpleados, porMes, saldoMov, type DeudaConPdv, type MedioPagoInterno, type MovimientoApertura,
 } from "@/lib/impagas/aperturas";
 import { dias, fmtComprobante, fmtFecha, fmtPesos, normalizarBusqueda } from "@/lib/impagas/clasificar";
 import { Antiguedad, Boton } from "./ui";
@@ -57,6 +57,42 @@ export function FilasDeudaPdv(p: Props) {
   const sobrante = aCuenta(deuda);
 
   const abrirForm = (m: ModoForm) => { setForm(m); if (!p.abiertos.has(k)) p.toggle(k); };
+
+  // Un movimiento suelto; dentro de un empleado se muestra solo el concepto.
+  const filaMovimiento = (m: MovimientoApertura, sangria: string, deEmpleado = false) => {
+    const s = saldoMov(m);
+    const ok = s < 0.5;
+    return (
+      <tr key={m.key} className={cn("border-b border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900", ok && "text-muted-foreground")}>
+        <td className={cn("py-2 pr-3", sangria)}>
+          {deEmpleado ? (
+            <span>{m.concepto || "—"}<span className="text-muted-foreground"> · {fmtFecha(m.fecha)}</span></span>
+          ) : (
+            <>
+              <span className="text-sky-700 dark:text-sky-400 tabular-nums">{m.comprobante ? fmtComprobante(m.comprobante) : "sin comprobante"}</span>
+              <span className="text-muted-foreground"> · {fmtFecha(m.fecha)} · </span>
+              <span className="font-medium">{m.proveedor}</span>
+            </>
+          )}
+          <Chip cls="ml-1.5 bg-zinc-100 text-zinc-600">{Math.round(m.porcentaje)}%</Chip>
+          {ok ? <Chip cls="ml-1.5 bg-emerald-50 text-emerald-700">saldado</Chip>
+            : m.aplicado > 0.5 ? <Chip cls="ml-1.5 bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(m.aplicado)}</Chip> : null}
+          {!deEmpleado && m.concepto && <div className="text-[11px] text-muted-foreground truncate max-w-[32rem]">{m.concepto}</div>}
+        </td>
+        <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(m.importe)}</td>
+        <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(s)}</td>
+        <td className="py-2 px-3"><Antiguedad fecha={m.fecha} hoy={hoy} /></td>
+        <td className="py-2 px-3 hidden sm:table-cell">
+          {!ok && (
+            <Boton disabled={guardando} onClick={() => abrirForm({
+              tipo: "saldar", keys: [m.key], importe: s,
+              desc: m.comprobante ? fmtComprobante(m.comprobante) : `${m.proveedor} · ${m.concepto}`,
+            })}>Saldar</Boton>
+          )}
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <>
@@ -168,33 +204,38 @@ export function FilasDeudaPdv(p: Props) {
                 )}
               </td>
             </tr>
-            {abMes && mes.movimientos.map((m) => {
-              const s = saldoMov(m);
-              const ok = s < 0.5;
+            {abMes && agruparEmpleados(mes.movimientos).map((fila) => {
+              if (fila.tipo === "mov") return filaMovimiento(fila.mov, "pl-14");
+              const ke = `${km}E${fila.nombre}`;
+              const abEmp = p.abiertos.has(ke) || buscando;
+              const ok = fila.saldo < 0.5;
               return (
-                <tr key={m.key} className={cn("border-b border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900", ok && "text-muted-foreground")}>
-                  <td className="py-2 pl-14 pr-3">
-                    <span className="text-sky-700 dark:text-sky-400 tabular-nums">{m.comprobante ? fmtComprobante(m.comprobante) : "sin comprobante"}</span>
-                    <span className="text-muted-foreground"> · {fmtFecha(m.fecha)} · </span>
-                    <span className="font-medium">{m.proveedor}</span>
-                    {m.esEmpleado && <Chip cls="ml-1.5 bg-violet-50 text-violet-700">empleado</Chip>}
-                    <Chip cls="ml-1.5 bg-zinc-100 text-zinc-600">{Math.round(m.porcentaje)}%</Chip>
-                    {ok ? <Chip cls="ml-1.5 bg-emerald-50 text-emerald-700">saldado</Chip>
-                      : m.aplicado > 0.5 ? <Chip cls="ml-1.5 bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(m.aplicado)}</Chip> : null}
-                    {m.concepto && <div className="text-[11px] text-muted-foreground truncate max-w-[32rem]">{m.concepto}</div>}
-                  </td>
-                  <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(m.importe)}</td>
-                  <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(s)}</td>
-                  <td className="py-2 px-3"><Antiguedad fecha={m.fecha} hoy={hoy} /></td>
-                  <td className="py-2 px-3 hidden sm:table-cell">
-                    {!ok && (
-                      <Boton disabled={guardando} onClick={() => abrirForm({
-                        tipo: "saldar", keys: [m.key], importe: s,
-                        desc: m.comprobante ? fmtComprobante(m.comprobante) : `${m.proveedor} · ${m.concepto}`,
-                      })}>Saldar</Boton>
-                    )}
-                  </td>
-                </tr>
+                <Fragment key={ke}>
+                  <tr onClick={() => p.toggle(ke)} className={cn("border-b border-zinc-100 dark:border-zinc-800 cursor-pointer bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/60", ok && "text-muted-foreground")}>
+                    <td className="py-2 pl-12 pr-3">
+                      <span className="inline-flex items-center gap-1.5 flex-wrap">
+                        {abEmp ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                        <span className="font-medium">{fila.nombre}</span>
+                        <Chip cls="bg-violet-50 text-violet-700">empleado</Chip>
+                        <span className="text-xs text-muted-foreground">{fila.movimientos.length} concepto{fila.movimientos.length === 1 ? "" : "s"}</span>
+                        {ok ? <Chip cls="bg-emerald-50 text-emerald-700">saldado</Chip>
+                          : fila.aplicado > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(fila.aplicado)}</Chip> : null}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(fila.total)}</td>
+                    <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(fila.saldo)}</td>
+                    <td className="py-2 px-3"><Antiguedad fecha={fila.movimientos[fila.movimientos.length - 1].fecha} hoy={hoy} /></td>
+                    <td className="py-2 px-3 hidden sm:table-cell">
+                      {!ok && (
+                        <Boton disabled={guardando} onClick={() => {
+                          const l = fila.movimientos.filter((m) => saldoMov(m) > 0.5);
+                          abrirForm({ tipo: "saldar", keys: l.map((m) => m.key), importe: fila.saldo, desc: `${fila.nombre} · ${nombreMes(mes.mes)}` });
+                        }}>Saldar</Boton>
+                      )}
+                    </td>
+                  </tr>
+                  {abEmp && fila.movimientos.map((m) => filaMovimiento(m, "pl-20", true))}
+                </Fragment>
               );
             })}
           </Fragment>
