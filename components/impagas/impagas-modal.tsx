@@ -14,8 +14,8 @@ import {
   saldo, separar, sumaSaldos,
   type ComprobanteImpago, type Direccion, type GrupoProveedor, type ImpagasResponse, type Motivo, type Orden,
 } from "@/lib/impagas/clasificar";
-import { saldoDeuda, saldoMov, type DeudaConPdv } from "@/lib/impagas/aperturas";
-import { FilasDeudaPdv, type BodyPagoInterno } from "./deuda-pdv";
+import { numeroOP, saldoDeuda, saldoMov, type DeudaConPdv } from "@/lib/impagas/aperturas";
+import { FilasDeudaPdv, type BodyEditarPago, type BodyPagoInterno } from "./deuda-pdv";
 import { CuentaCorrientePanel } from "./cuenta-corriente-panel";
 import { Antiguedad, Boton } from "./ui";
 
@@ -223,7 +223,26 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) return j.error ?? "No se pudo guardar. Intentá de nuevo.";
-      toast.success(j.aCuenta > 0.5 ? `Pago registrado · ${fmtPesos(j.aCuenta)} quedan a cuenta` : "Pago registrado");
+      const op = j.id ? `${numeroOP(j.id)} registrada` : "Pago registrado";
+      toast.success(j.aCuenta > 0.5 ? `${op} · ${fmtPesos(j.aCuenta)} quedan a cuenta` : op);
+      return null;
+    } catch {
+      return "No se pudo guardar. Intentá de nuevo.";
+    } finally {
+      setGuardando(false);
+      queryClient.invalidateQueries({ queryKey: ["impagas"] });
+    }
+  }
+
+  async function editarPago(id: number, b: BodyEditarPago): Promise<string | null> {
+    setGuardando(true);
+    try {
+      const res = await fetch(`/api/impagas/pagos-internos/${id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) return j.error ?? "No se pudo guardar. Intentá de nuevo.";
+      toast.success(`${numeroOP(id)} actualizada`);
       return null;
     } catch {
       return "No se pudo guardar. Intentá de nuevo.";
@@ -238,9 +257,9 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     try {
       const res = await fetch(`/api/impagas/pagos-internos/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast.success("Pago anulado");
+      toast.success(`${numeroOP(id)} eliminada · todo vuelve como estaba`);
     } catch {
-      toast.error("No se pudo anular. Intentá de nuevo.");
+      toast.error("No se pudo eliminar. Intentá de nuevo.");
     } finally {
       setGuardando(false);
       queryClient.invalidateQueries({ queryKey: ["impagas"] });
@@ -279,7 +298,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             origenLabel={etiquetaPdv(r.d.pdvOrigenId)}
             hoy={hoy} q={q} solo60={solo60}
             abiertos={abiertos} toggle={toggle} guardando={guardando}
-            onRegistrar={registrarPago} onAnular={anularPago}
+            onRegistrar={registrarPago} onEditar={editarPago} onEliminar={anularPago}
           />
         ),
       });
