@@ -23,6 +23,9 @@ export const detalleCompraRowSchema = z.object({
   IMP_INT: excelDecimal,
   PERCEP: excelDecimal,
   OBSERVAC: excelNormalizedText,
+  // Concepto de caja por línea — columnas nuevas del 25 (oct-2026); ausentes en archivos viejos.
+  COD_CGA: excelText,
+  NOM_CGA: excelNormalizedText,
 });
 
 export type DetalleCompraRow = z.infer<typeof detalleCompraRowSchema>;

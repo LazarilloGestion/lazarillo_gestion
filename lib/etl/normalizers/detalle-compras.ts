@@ -145,7 +145,9 @@ export async function normalizeDetalleCompras(
             ${data.OBSERVAC},
             ${articuloCodigo},
             ${proveedorId}::integer,
-            ${localId}::integer
+            ${localId}::integer,
+            ${data.COD_CGA ?? null},
+            ${data.NOM_CGA ?? null}
           )`;
         });
 
@@ -153,7 +155,7 @@ export async function normalizeDetalleCompras(
           INSERT INTO detalle_compras (
             "rowId", "codPro", "codCpb", numero1, numero2, comprobante, fecha, codigo,
             nombre, medida, cantidad, neto, "totalIns", "ivaTot", "impNtTot", tasa, iva,
-            "impInt", percep, observac, "articuloCodigo", "proveedorId", "localId"
+            "impInt", percep, observac, "articuloCodigo", "proveedorId", "localId", "codCga", "nomCga"
           )
           VALUES ${Prisma.join(rowValues)}
           ON CONFLICT ("rowId") DO UPDATE SET
@@ -179,7 +181,10 @@ export async function normalizeDetalleCompras(
             "articuloCodigo"= EXCLUDED."articuloCodigo",
             "proveedorId"   = EXCLUDED."proveedorId",
             -- COALESCE: reclama filas huérfanas (localId=null) sin sobreescribir local ya asignado.
-            "localId"       = COALESCE(detalle_compras."localId", EXCLUDED."localId")
+            "localId"       = COALESCE(detalle_compras."localId", EXCLUDED."localId"),
+            -- COALESCE: un 25 viejo (sin las columnas) no borra el concepto que trajo uno nuevo.
+            "codCga"        = COALESCE(EXCLUDED."codCga", detalle_compras."codCga"),
+            "nomCga"        = COALESCE(EXCLUDED."nomCga", detalle_compras."nomCga")
         `;
       },
       ({ idx, row, data }, err) => ({
