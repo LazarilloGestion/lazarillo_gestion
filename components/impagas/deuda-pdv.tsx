@@ -12,6 +12,7 @@ import {
 } from "@/lib/impagas/aperturas";
 import { dias, fmtComprobante, fmtFecha, fmtPesos, normalizarBusqueda } from "@/lib/impagas/clasificar";
 import { Antiguedad, Boton } from "./ui";
+import { HistorialPagosModal, OrdenPagoModal } from "./orden-pago-modal";
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const nombreMes = (m: string) => `${MESES[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
@@ -57,7 +58,8 @@ interface Props {
   guardando: boolean;
   onRegistrar: (b: BodyPagoInterno) => Promise<string | null>; // null = ok, si no el error
   onEditar: (id: number, b: BodyEditarPago) => Promise<string | null>;
-  onEliminar: (id: number) => void;
+  onEliminar: (id: number) => Promise<void> | void; // anula la OP
+  pdvDestinoId: number;
   barra?: HTMLElement | null; // pie del modal donde va el formulario de pago
 }
 
@@ -67,7 +69,8 @@ interface Props {
 export function FilasDeudaPdv(p: Props) {
   const { deuda, origenLabel, hoy, q, guardando } = p;
   const [form, setForm] = useState<ModoForm | null>(null);
-  const [aEliminar, setAEliminar] = useState<number | null>(null);
+  const [opVer, setOpVer] = useState<number | null>(null);
+  const [verHistorial, setVerHistorial] = useState(false);
   // Selección de movimientos pendientes para pagarlos juntos (suma el saldo).
   const [sel, setSel] = useState<Set<string>>(new Set());
   // Nombre de lo elegido cuando vino de un atajo (Saldar / Saldar mes / Saldar todas).
@@ -173,7 +176,7 @@ export function FilasDeudaPdv(p: Props) {
             : m.aplicado > 0.5 ? <Chip cls="ml-1.5 bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(m.aplicado)}</Chip> : null}
           {chipsOP(m.ops)}
         </td>
-        <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(s)}</td>
+        <td className={cn("py-2 px-3 text-right whitespace-nowrap tabular-nums", ok && "line-through")}>{fmtPesos(s)}</td>
         <td className="py-2 px-3"><Antiguedad fecha={m.fecha} hoy={hoy} /></td>
         <td className="py-2 px-3 hidden sm:table-cell">
           {!ok && !haySel && (
@@ -203,7 +206,7 @@ export function FilasDeudaPdv(p: Props) {
             )}
           </span>
         </td>
-        <td className="py-2.5 px-3 text-right font-semibold tabular-nums">{fmtPesos(p.saldo)}</td>
+        <td className="py-2.5 px-3 text-right whitespace-nowrap font-semibold tabular-nums">{fmtPesos(p.saldo)}</td>
         <td className="py-2.5 px-3">
           {p.masVieja ? <Antiguedad fecha={p.masVieja} hoy={hoy} /> : <Chip cls="bg-emerald-50 text-emerald-700">al día</Chip>}
         </td>
@@ -217,6 +220,7 @@ export function FilasDeudaPdv(p: Props) {
             >
               Registrar pago
             </button>
+            <Boton onClick={() => setVerHistorial(true)}>Historial</Boton>
             {p.saldo > 0.5 && (
               <Boton disabled={guardando} onClick={() => atajo(pendientesDe(deuda.movimientos), "todo")}>Saldar todas</Boton>
             )}
@@ -280,35 +284,24 @@ export function FilasDeudaPdv(p: Props) {
                       {g.titulo} <span className="font-normal normal-case text-muted-foreground">· {g.lista.length}</span>
                     </span>
                   </td>
-                  <td className="py-1.5 px-3 text-right text-xs tabular-nums font-semibold">
+                  <td className="py-1.5 px-3 text-right whitespace-nowrap text-xs tabular-nums font-semibold">
                     {g.abiertaPorDefecto ? <span title="Disponible para imputar">{fmtPesos(total)}</span> : fmtPesos(total)}
                   </td>
                   <td colSpan={2} />
                 </tr>
                 {ab && g.lista.map((pg) => (
-            <tr key={`pg${pg.id}`} className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 text-xs">
+            <tr key={`pg${pg.id}`} onClick={() => setOpVer(pg.id)} title="Ver la orden de pago"
+              className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 text-xs cursor-pointer hover:bg-sky-50/60 dark:hover:bg-sky-950/30">
               <td className="py-2 pl-14 pr-3">
-                <b className="text-sky-700 dark:text-sky-400">{numeroOP(pg.id)}</b> · {fmtFecha(pg.fecha)} · {pg.medio}{pg.referencia ? ` · ID ${pg.referencia}` : ""}
+                <b className="text-sky-700 dark:text-sky-400">{numeroOP(pg.id)}</b> · {fmtFecha(pg.fecha)} ·{" "}
+                <span title={pg.referencia ? `ID ${pg.referencia}` : undefined} className={cn(pg.referencia && "underline decoration-dotted underline-offset-2")}>{pg.medio}</span>
                 <span className="text-muted-foreground">
                   {pg.movimientos > 0 ? ` · imputada a ${pg.movimientos} movimiento${pg.movimientos === 1 ? "" : "s"}` : ""}
                   {disponibleOP(pg) > 0.5 ? ` · sin imputar ${fmtPesos(disponibleOP(pg))}` : ""}</span>
               </td>
-              <td className="py-2 px-3 text-right tabular-nums">{fmtPesos(pg.importe)}</td>
+              <td className="py-2 px-3 text-right whitespace-nowrap tabular-nums">{fmtPesos(pg.importe)}</td>
               <td />
-              <td className="py-2 px-3 hidden sm:table-cell">
-                {aEliminar === pg.id ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="text-destructive">¿Eliminar?</span>
-                    <Boton disabled={guardando} onClick={() => { setAEliminar(null); p.onEliminar(pg.id); }}>Sí</Boton>
-                    <Boton onClick={() => setAEliminar(null)}>No</Boton>
-                  </span>
-                ) : (
-                  <span className="inline-flex gap-1.5">
-                    <Boton disabled={guardando} onClick={() => abrirForm({ tipo: "editar", pago: pg })}>Editar</Boton>
-                    <Boton disabled={guardando} onClick={() => setAEliminar(pg.id)}>Eliminar</Boton>
-                  </span>
-                )}
-              </td>
+              <td className="py-2 px-3 hidden sm:table-cell text-[11px] text-muted-foreground">Ver orden ›</td>
             </tr>
                 ))}
               </Fragment>
@@ -336,7 +329,7 @@ export function FilasDeudaPdv(p: Props) {
                     : pagadoMes > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(pagadoMes)}</Chip> : null}
                 </span>
               </td>
-              <td className={cn("py-2 px-3 text-right tabular-nums font-semibold", cerradoMes && "line-through")}>{fmtPesos(mes.saldo)}</td>
+              <td className={cn("py-2 px-3 text-right whitespace-nowrap tabular-nums font-semibold", cerradoMes && "line-through")}>{fmtPesos(mes.saldo)}</td>
               <td className="py-2 px-3"><Antiguedad fecha={`${mes.mes}-01`} hoy={hoy} /></td>
               <td className="py-2 px-3 hidden sm:table-cell">
                 {!cerradoMes && !haySel && (
@@ -395,7 +388,7 @@ export function FilasDeudaPdv(p: Props) {
                           : pagadoRub > 0.5 ? <Chip cls="bg-amber-50 text-amber-700 whitespace-nowrap">parcial · pagado {fmtPesos(pagadoRub)}</Chip> : null}
                       </span>
                     </td>
-                    <td className={cn("py-2 px-3 text-right tabular-nums font-semibold", cerrado && "line-through")}>{fmtPesos(ru.saldo)}</td>
+                    <td className={cn("py-2 px-3 text-right whitespace-nowrap tabular-nums font-semibold", cerrado && "line-through")}>{fmtPesos(ru.saldo)}</td>
                     <td className="py-2 px-3">{masVieja && <Antiguedad fecha={masVieja} hoy={hoy} />}</td>
                     <td className="py-2 px-3 hidden sm:table-cell">
                       {!cerrado && !haySel && (
@@ -424,7 +417,7 @@ export function FilasDeudaPdv(p: Props) {
                               {chipsOP([...new Set(g.movimientos.flatMap((m) => m.ops ?? []))].sort((a, b) => a - b))}
                             </span>
                           </td>
-                          <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(g.saldo)}</td>
+                          <td className={cn("py-2 px-3 text-right whitespace-nowrap tabular-nums", ok && "line-through")}>{fmtPesos(g.saldo)}</td>
                           <td className="py-2 px-3">{viejaG && <Antiguedad fecha={viejaG} hoy={hoy} />}</td>
                           <td className="py-2 px-3 hidden sm:table-cell">
                             {!ok && !haySel && (
@@ -442,6 +435,31 @@ export function FilasDeudaPdv(p: Props) {
           </Fragment>
         );
       })}
+
+      {opVer !== null && (
+        <OrdenPagoModal
+          pagoId={opVer}
+          ids={deuda.pagos.map((pg) => pg.id)}
+          destino={origenLabel}
+          onCambiar={setOpVer}
+          onCerrar={() => setOpVer(null)}
+          onEditar={(id) => {
+            const pg = pagoPorId.get(id);
+            setOpVer(null);
+            if (pg) abrirForm({ tipo: "editar", pago: pg });
+          }}
+          onAnular={async (id) => { await p.onEliminar(id); }}
+        />
+      )}
+      {verHistorial && (
+        <HistorialPagosModal
+          pdvDestinoId={p.pdvDestinoId}
+          pdvOrigenId={deuda.pdvOrigenId}
+          origen={origenLabel}
+          onVerOp={(id) => { setVerHistorial(false); setOpVer(id); }}
+          onCerrar={() => setVerHistorial(false)}
+        />
+      )}
     </>
   );
 }

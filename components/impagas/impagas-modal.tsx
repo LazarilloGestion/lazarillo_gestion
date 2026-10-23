@@ -206,6 +206,8 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     } finally {
       setGuardando(false);
       queryClient.invalidateQueries({ queryKey: ["impagas"] });
+      queryClient.invalidateQueries({ queryKey: ["impagas-op"] });
+      queryClient.invalidateQueries({ queryKey: ["impagas-hist"] });
     }
   }
 
@@ -249,7 +251,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
         )}
         {f.conceptos && <div className="text-[11px] text-muted-foreground truncate max-w-[32rem]">{f.conceptos}</div>}
       </td>
-      <td className="py-2 px-3 text-right tabular-nums">{fmtPesos(saldo(f))}</td>
+      <td className="py-2 px-3 text-right whitespace-nowrap tabular-nums">{fmtPesos(saldo(f))}</td>
       <td className="py-2 px-3"><Antiguedad fecha={f.fecha} hoy={hoy} /></td>
       <td className="py-2 px-3 hidden sm:table-cell">{accion}</td>
     </tr>
@@ -267,7 +269,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             <span className="text-xs text-muted-foreground">{g.items.length}</span>
           </span>
         </td>
-        <td className="py-2.5 px-3 text-right font-semibold tabular-nums">{fmtPesos(g.saldo)}</td>
+        <td className="py-2.5 px-3 text-right whitespace-nowrap font-semibold tabular-nums">{fmtPesos(g.saldo)}</td>
         <td className="py-2.5 px-3"><Antiguedad fecha={g.masVieja} hoy={hoy} /></td>
         <td className="py-2.5 px-3 hidden sm:table-cell">{accion}</td>
       </tr>
@@ -306,6 +308,8 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     } finally {
       setGuardando(false);
       queryClient.invalidateQueries({ queryKey: ["impagas"] });
+      queryClient.invalidateQueries({ queryKey: ["impagas-op"] });
+      queryClient.invalidateQueries({ queryKey: ["impagas-hist"] });
     }
   }
 
@@ -324,6 +328,8 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     } finally {
       setGuardando(false);
       queryClient.invalidateQueries({ queryKey: ["impagas"] });
+      queryClient.invalidateQueries({ queryKey: ["impagas-op"] });
+      queryClient.invalidateQueries({ queryKey: ["impagas-hist"] });
     }
   }
 
@@ -332,12 +338,14 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     try {
       const res = await fetch(`/api/impagas/pagos-internos/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      toast.success(`${numeroOP(id)} eliminada · todo vuelve como estaba`);
+      toast.success(`${numeroOP(id)} anulada · sus movimientos vuelven a quedar impagos`);
     } catch {
-      toast.error("No se pudo eliminar. Intentá de nuevo.");
+      toast.error("No se pudo anular. Intentá de nuevo.");
     } finally {
       setGuardando(false);
       queryClient.invalidateQueries({ queryKey: ["impagas"] });
+      queryClient.invalidateQueries({ queryKey: ["impagas-op"] });
+      queryClient.invalidateQueries({ queryKey: ["impagas-hist"] });
     }
   }
 
@@ -400,6 +408,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             abiertos={abiertos} toggle={toggle} guardando={guardando}
             onRegistrar={registrarPago} onEditar={editarPago} onEliminar={anularPago}
             barra={barraPago}
+            pdvDestinoId={pdvId!}
           />
         ),
       });
@@ -559,7 +568,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10 bg-white dark:bg-zinc-900">
                   <tr className="border-b border-zinc-200 dark:border-zinc-700 text-[11px] uppercase tracking-wide text-muted-foreground">
-                    <th className="py-2 px-3 text-left font-semibold w-[58%]">{tab === "I" ? "Proveedor / comprobante" : "Proveedor / motivo"}</th>
+                    <th className="py-2 px-3 text-left font-semibold w-[52%]">{tab === "I" ? "Proveedor / comprobante" : "Proveedor / motivo"}</th>
                     <th className="py-2 px-3 text-right font-semibold">{tituloOrden("saldo", "Saldo", "justify-end")}</th>
                     <th className="py-2 px-3 text-left font-semibold">{tituloOrden("antiguedad", "Antigüedad")}</th>
                     <th className="py-2 px-3 text-left font-semibold hidden sm:table-cell">Acción</th>

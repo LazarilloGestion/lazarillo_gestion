@@ -364,11 +364,30 @@ model PagoInterno {
   medio        String
   referencia   String?  @unique
   creadoEn     DateTime @default(now())
+  creadoPor    String?
+  anuladoEn    DateTime? // anulada: no cuenta, sus imputaciones se borran y queda en el historial
 
   aplicaciones AplicacionPagoInterno[]
+  eventos      EventoPagoInterno[]
 
   @@index([pdvDestinoId, pdvOrigenId])
   @@map("pagos_internos")
+}
+
+// Historial de cada orden de pago (creada, editada, imputada, imputación quitada, anulada).
+model EventoPagoInterno {
+  id       Int      @id @default(autoincrement())
+  pagoId   Int
+  tipo     String
+  detalle  String?
+  importe  Decimal? @db.Decimal(14, 2)
+  usuario  String?
+  creadoEn DateTime @default(now())
+
+  pago PagoInterno @relation(fields: [pagoId], references: [id], onDelete: Cascade)
+
+  @@index([pagoId])
+  @@map("eventos_pago_interno")
 }
 
 model AplicacionPagoInterno {

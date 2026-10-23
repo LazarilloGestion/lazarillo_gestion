@@ -185,8 +185,66 @@ export function pagosInternosSql(pdvId: number): Prisma.Sql {
            COALESCE(SUM(a.importe), 0)::float8 AS aplicado, COUNT(a.id)::int AS movimientos
     FROM pagos_internos pi
     LEFT JOIN aplicaciones_pago_interno a ON a."pagoId" = pi.id
-    WHERE pi."pdvDestinoId" = ${pdvId}
+    WHERE pi."pdvDestinoId" = ${pdvId} AND pi."anuladoEn" IS NULL
     GROUP BY pi.id
     ORDER BY pi.fecha DESC, pi.id DESC
+  `;
+}
+
+// ── Detalle de una orden de pago: a qué movimientos está imputada ────────────
+export interface AplicacionOpSqlRow {
+  key: string;
+  fecha: string;
+  comprobante: string | null;
+  proveedor: string | null;
+  concepto: string | null;
+  importe: number;
+}
+
+export function aplicacionesOpSql(pagoId: number): Prisma.Sql {
+  return Prisma.sql`
+    SELECT
+      c."rowId"                                                 AS key,
+      TO_CHAR(COALESCE(c."fechaManual", c.fecha), 'YYYY-MM-DD')  AS fecha,
+      c.comprobante,
+      COALESCE(p.nombre, NULLIF(TRIM(CONCAT_WS(' ', e.nombre, e.apellido)), ''), c.proveedor, c.codigo) AS proveedor,
+      COALESCE(cc.nombre, c.concepto)                           AS concepto,
+      SUM(a.importe)::float8                                    AS importe
+    FROM aplicaciones_pago_interno a
+    JOIN compras c                    ON c."rowId" = a."compraRowId"
+    LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
+    LEFT JOIN proveedores p           ON p.id = c."proveedorId"
+    LEFT JOIN empleados e             ON c."proveedorId" IS NULL
+                                     AND e."puntoDeVentaId" = c."puntoDeVentaId"
+                                     AND e.codigo = c.codigo
+                                     AND LOWER(TRIM(e.nombre)) = LOWER(TRIM(c.proveedor))
+    WHERE a."pagoId" = ${pagoId}
+    GROUP BY c."rowId", c."fechaManual", c.fecha, c.comprobante, p.nombre, e.nombre, e.apellido, c.proveedor, c.codigo, cc.nombre, c.concepto
+    ORDER BY 2 DESC, 1
+  `;
+}
+
+// ── Historial de órdenes de pago entre dos PDV ──────────────────────────────
+export interface EventoSqlRow {
+  id: number;
+  pago_id: number;
+  tipo: string;
+  detalle: string | null;
+  importe: number | null;
+  usuario: string | null;
+  cuando: string; // dd/mm/aaaa hh:mm (hora de Argentina)
+  anulada: boolean;
+}
+
+export function historialSql(pdvDestinoId: number, pdvOrigenId: number): Prisma.Sql {
+  return Prisma.sql`
+    SELECT ev.id, ev."pagoId" AS pago_id, ev.tipo, ev.detalle, ev.importe::float8 AS importe, ev.usuario,
+           TO_CHAR((ev."creadoEn" AT TIME ZONE 'UTC') AT TIME ZONE 'America/Argentina/Buenos_Aires', 'DD/MM/YYYY HH24:MI') AS cuando,
+           (pi."anuladoEn" IS NOT NULL) AS anulada
+    FROM eventos_pago_interno ev
+    JOIN pagos_internos pi ON pi.id = ev."pagoId"
+    WHERE pi."pdvDestinoId" = ${pdvDestinoId} AND pi."pdvOrigenId" = ${pdvOrigenId}
+    ORDER BY ev."creadoEn" DESC, ev.id DESC
+    LIMIT 500
   `;
 }
