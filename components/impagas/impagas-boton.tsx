@@ -15,8 +15,10 @@ export function ImpagasBoton({ locales, pdvId }: { locales: Local[]; pdvId: numb
     () => locales.flatMap((l) => l.puntosDeVenta.map((p) => ({ id: p.id, label: `${l.nombre} · ${p.nombre}` }))),
     [locales]
   );
-  // Mismo "Desde" que quedó elegido en el modal (si no, el default del servidor).
-  const [desde, setDesde] = useState<string | undefined>(() => leerDesde());
+  // Mismo "Desde" que quedó elegido en el modal para este PDV (si no, el default del servidor).
+  const [leido, setLeido] = useState(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const desde = useMemo(() => leerDesde(pdvId), [pdvId, leido]);
   const { data } = useFetchQuery<ImpagasResponse>(
     impagasQueryKey(pdvId, desde), pdvId ? `/api/impagas?pdvId=${pdvId}${desde ? `&desde=${desde}` : ""}` : null, { staleTime: 60_000 }
   );
@@ -47,7 +49,7 @@ export function ImpagasBoton({ locales, pdvId }: { locales: Local[]; pdvId: numb
         <span className={cn("h-2 w-2 rounded-full", resumen?.n ? "bg-red-500" : "bg-zinc-300")} />
         {resumen ? `Impagas: ${resumen.n} · ${fmtMillones(resumen.saldo)}` : "Impagas"}
       </button>
-      <ImpagasModal open={open} onClose={() => { setOpen(false); setDesde(leerDesde()); }} pdvs={pdvs} pdvInicial={pdvId} />
+      <ImpagasModal open={open} onClose={() => { setOpen(false); setLeido((n) => n + 1); }} pdvs={pdvs} pdvInicial={pdvId} />
     </>
   );
 }

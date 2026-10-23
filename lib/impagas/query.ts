@@ -10,7 +10,8 @@ export const IMPAGAS_DESDE_DEFAULT = "2025-09-01";
 export function impagasDesde(param: string | null | undefined, env: string | undefined): string {
   for (const raw of [param, env]) {
     const v = raw?.trim();
-    if (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v))) return v;
+    // Años absurdos (un campo a medio escribir: 0002-…) no valen: traerían todo el historial.
+    if (v && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) && Number(v.slice(0, 4)) >= 2015) return v;
   }
   return IMPAGAS_DESDE_DEFAULT;
 }
