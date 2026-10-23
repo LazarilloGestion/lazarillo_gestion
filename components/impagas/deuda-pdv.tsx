@@ -454,7 +454,7 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, 
   const aCuentaNuevo = modo.tipo === "elegidos" && !opElegida ? valorActual - modo.importe : 0;
   return (
     <tr className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-200 dark:border-sky-900">
-      <td colSpan={5} className={cn("py-3 px-4", sticky && "sticky top-[33px] z-[5] bg-sky-50 dark:bg-sky-950 shadow-[0_2px_6px_rgba(0,0,0,0.08)]")}>
+      <td colSpan={5} className={cn("py-3 px-4", sticky && "sticky top-[32px] z-[5] bg-sky-50 dark:bg-sky-950 shadow-[0_2px_6px_rgba(0,0,0,0.08)]")}>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <b>{titulo}</b>
           {modo.tipo === "elegidos" && <span className="tabular-nums text-muted-foreground">Saldo {fmtPesos(modo.importe)}</span>}
