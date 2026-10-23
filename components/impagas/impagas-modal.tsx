@@ -30,13 +30,21 @@ export function resumenDeuda(d: DeudaConPdv, filtro?: (fecha: string) => boolean
   return { saldo, pendientes: pend.length, masVieja: pend.length ? pend.reduce((a, m) => (m.fecha < a ? m.fecha : a), pend[0].fecha) : null };
 }
 
-// Filtro "Desde" del modal: se recuerda en este navegador.
-const DESDE_KEY = "impagas:desde";
-export function leerDesde(): string | undefined {
-  try { const v = localStorage.getItem(DESDE_KEY); return v && /^\d{4}-\d{2}$/.test(v) ? `${v}-01` : undefined; } catch { return undefined; }
+// Filtro "Desde" del modal: uno por PDV, se recuerda en este navegador.
+const desdeKey = (pdvId: number | undefined) => `impagas:desde:${pdvId ?? "-"}`;
+export function leerDesde(pdvId: number | undefined): string | undefined {
+  try { const v = localStorage.getItem(desdeKey(pdvId)); return v && mesValido(v) ? `${v}-01` : undefined; } catch { return undefined; }
 }
-function guardarDesde(mes: string | null) {
-  try { if (mes) localStorage.setItem(DESDE_KEY, mes); else localStorage.removeItem(DESDE_KEY); } catch { /* sin storage */ }
+function guardarDesde(pdvId: number | undefined, mes: string | null) {
+  try { if (mes) localStorage.setItem(desdeKey(pdvId), mes); else localStorage.removeItem(desdeKey(pdvId)); } catch { /* sin storage */ }
+}
+
+// Mes aaaa-mm entre 2015 y el año que viene.
+export function mesValido(v: string): boolean {
+  const m = /^(\d{4})-(\d{2})$/.exec(v);
+  if (!m) return false;
+  const anio = Number(m[1]), mes = Number(m[2]);
+  return anio >= 2015 && anio <= new Date().getFullYear() + 1 && mes >= 1 && mes <= 12;
 }
 
 function Tarjeta({ titulo, valor, sub, activa, onClick, apagada }: {
@@ -89,7 +97,11 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   const [tab, setTab] = useState<"I" | "E">("I");
   const [orden, setOrden] = useState<Orden>("saldo");
   const [dir, setDir] = useState<Direccion>("desc");
-  const [desde, setDesde] = useState<string | undefined>(() => leerDesde());
+  const [desde, setDesde] = useState<string | undefined>(() => leerDesde(pdvInicial ?? pdvs[0]?.id));
+  // Lo que está escrito en el campo; recién se aplica cuando es un mes completo y
+  // razonable (al tipear el año pasa por 0002, 0020, 0202… y antes eso disparaba
+  // la consulta con cada tecla).
+  const [mesEscrito, setMesEscrito] = useState<string | null>(null);
   const [solo60, setSolo60] = useState(false);
   const [q, setQ] = useState("");
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
@@ -434,7 +446,10 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
           <DialogTitle className="text-lg font-semibold">Comprobantes impagos</DialogTitle>
           <select
             value={pdvId ?? ""}
-            onChange={(e) => { setPdvId(Number(e.target.value)); setAbiertos(new Set()); setCtaCte(null); }}
+            onChange={(e) => {
+              const id = Number(e.target.value);
+              setPdvId(id); setDesde(leerDesde(id)); setMesEscrito(null); setAbiertos(new Set()); setCtaCte(null);
+            }}
             className="h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 text-sm"
           >
             {pdvs.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -458,13 +473,17 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             Desde
             <input
               type="month"
-              value={(desde ?? data?.desde ?? "").slice(0, 7)}
+              value={mesEscrito ?? (desde ?? data?.desde ?? "").slice(0, 7)}
+              min="2015-01"
               onChange={(e) => {
                 const v = e.target.value;
-                guardarDesde(v || null);
+                setMesEscrito(v);
+                if (v && !mesValido(v)) return; // año a medio escribir
+                guardarDesde(pdvId, v || null);
                 setDesde(v ? `${v}-01` : undefined);
                 setAbiertos(new Set());
               }}
+              onBlur={() => setMesEscrito(null)}
               className="h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 text-sm text-foreground"
             />
           </label>
