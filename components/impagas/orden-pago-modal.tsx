@@ -303,3 +303,4 @@ export function HistorialPagosModal({ pdvDestinoId, pdvOrigenId, origen, onVerOp
     </Dialog>
   );
 }
+
