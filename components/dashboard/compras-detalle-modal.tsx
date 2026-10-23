@@ -32,6 +32,8 @@ import { periodoInicial, aplicarPeriodo, labelPeriodo, type Periodo } from "@/li
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { useDashboard } from "@/hooks/use-dashboard-store";
+import { CtaCteContenido, CtaCteModal } from "@/components/cta-cte/cta-cte-proveedor";
+import { ETIQUETA_ESTADO, PUNTO_ESTADO } from "@/lib/cta-cte/estado";
 
 export interface ColDef {
   label: string;
@@ -190,7 +192,7 @@ const COMPRAS_COLS: ColDef[] = [
   { label: "Observación", icon: MessageSquare,  color: "text-cat-observacion",    bg: "bg-cat-observacion/12",   right: false, sortKey: "observacion", filterKey: "observacion"                       },
   { label: "Rubro",       icon: Layers,         color: "text-cat-rubro",          bg: "bg-cat-rubro/12",         right: false,                         filterKey: "rubro"                             },
   { label: "Concepto",    icon: Tag,            color: "text-cat-concepto",       bg: "bg-cat-concepto/12",      right: false, sortKey: "concepto",    filterKey: "concepto"                          },
-  { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground",   bg: "bg-muted",                right: true,  sortKey: "importe",     filterKey: "importe",     width: "w-[8rem]"    },
+  { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground",   bg: "bg-muted",                right: true,  sortKey: "importe",     filterKey: "importe",     width: "w-[9rem]"    },
 ];
 
 // ─── Sort ─────────────────────────────────────────────────────────────────────
@@ -237,6 +239,7 @@ function ComprasRow({
   saving,
   onOpenLineas,
   onOpenApertura,
+  onOpenCtaCte,
   tieneReglaApertura,
   puedeAperturar,
 }: {
@@ -249,6 +252,8 @@ function ComprasRow({
   onSave: (state: EditState) => void;
   onCancel: () => void;
   onOpenApertura: (item: CompraDetalle) => void;
+  // Cuenta corriente del proveedor (null si la fila no tiene proveedor del ERP).
+  onOpenCtaCte: ((item: CompraDetalle) => void) | null;
   tieneReglaApertura: boolean;
   // Mismo criterio que en las tablas de pivot: sin local y PDV seleccionados
   // en el filtro del dashboard no se puede resolver un origen para la regla
@@ -350,7 +355,16 @@ function ComprasRow({
       </td>
       <td className="px-3 py-1.5 truncate">{normalize(item.local?.nombre)}</td>
       <td className="px-3 py-1.5 truncate" title={normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}>
-        {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
+        {onOpenCtaCte ? (
+          <button
+            type="button"
+            onClick={() => onOpenCtaCte(item)}
+            title="Ver cuenta corriente"
+            className="max-w-full truncate text-left text-sky-700 dark:text-sky-400 underline decoration-dotted underline-offset-2 hover:decoration-solid"
+          >
+            {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
+          </button>
+        ) : normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
       </td>
       <td className="px-3 py-1.5 truncate" title={item.detalle ?? undefined}>
         {!item.detalle ? (
@@ -372,6 +386,21 @@ function ComprasRow({
       <td className="px-3 py-1.5 truncate" title={normalize(effectiveConcepto?.nombre)}>{normalize(effectiveConcepto?.nombre)}</td>
       <td className="px-3 py-1.5 text-right tabular-nums font-medium whitespace-nowrap">
         {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
+        {/* Semáforo a la DERECHA del importe (así los importes no se desalinean):
+            siempre ocupa su lugar, aunque la fila no tenga estado. */}
+        {item.estadoPago && onOpenCtaCte ? (
+          <button
+            type="button"
+            onClick={() => onOpenCtaCte(item)}
+            title={`${ETIQUETA_ESTADO[item.estadoPago.estado]}${item.estadoPago.pagado ? ` · pagado ${fmtARS(item.estadoPago.pagado)} de ${fmtARS(item.estadoPago.total)}` : ""} · ver cuenta corriente`}
+            aria-label={`Estado: ${ETIQUETA_ESTADO[item.estadoPago.estado]}`}
+            className="ml-1.5 inline-flex h-4 w-3 items-center justify-center align-middle"
+          >
+            <span className={cn("inline-block size-2 rounded-full", PUNTO_ESTADO[item.estadoPago.estado])} />
+          </button>
+        ) : (
+          <span className="ml-1.5 inline-block w-3" />
+        )}
       </td>
       <td className="px-2 py-1.5">
         <div className="flex items-center gap-1">
@@ -439,6 +468,12 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   // recálculo de apertura (compra distribuida o concepto nuevo con regla
   // activa) y se le pide OK antes de mandar el PATCH.
   const [pendienteConfirmacion, setPendienteConfirmacion] = useState<EditState | null>(null);
+  const [ctaCte, setCtaCte] = useState<{ pdvId: number; codPro: string; resaltado: string | null } | null>(null);
+  const abrirCtaCte = useCallback((item: CompraDetalle) => {
+    if (item.pdvCompraId != null && item.codigoProveedor) {
+      setCtaCte({ pdvId: item.pdvCompraId, codPro: item.codigoProveedor, resaltado: item.comprobante ?? null });
+    }
+  }, []);
   const [apertura, setApertura] = useState<{
     nivel: NivelRegla;
     entidadId: string;
@@ -637,6 +672,14 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         // total de la compra: al guardar se reparte de nuevo entre destinos.
         // Va en el pie y no bajo el input para no agrandar la fila.
         footerNote={editing?.esDistribuida ? "El importe es el total de la compra, se reparte según la regla" : null}
+        // Un registro puntual (click en un gasto de la vista económica): la
+        // edición queda arriba, tal cual, y abajo la cuenta corriente del proveedor.
+        extra={filter?.rowId ? (rows) => {
+          const r = rows[0];
+          return r?.pdvCompraId != null && r.codigoProveedor
+            ? <CtaCteContenido key={`${r.pdvCompraId}-${r.codigoProveedor}`} pdvId={r.pdvCompraId} codPro={r.codigoProveedor} resaltado={r.comprobante ?? null} />
+            : <p className="py-8 text-center text-sm text-muted-foreground">Este gasto no tiene proveedor: no hay cuenta corriente para mostrar.</p>;
+        } : undefined}
         renderRow={(item, portalContainer) => (
           // distribucionId ?? rowId: una compra distribuida en N destinos
           // genera N objetos CompraDetalle con el mismo rowId (fan-out de
@@ -664,11 +707,16 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
               origenLocalId: row.localIdOrigen,
               origenPdvId: row.puntoDeVentaIdOrigen,
             })}
+            // Con un registro puntual la cuenta corriente ya está abajo.
+            onOpenCtaCte={!filter?.rowId && item.pdvCompraId != null && item.codigoProveedor ? abrirCtaCte : null}
             tieneReglaApertura={reglasActivasRegistro.has(item.rowId)}
             puedeAperturar={localId != null && pdvId != null}
           />
         )}
       />
+      {ctaCte && (
+        <CtaCteModal pdvId={ctaCte.pdvId} codPro={ctaCte.codPro} resaltado={ctaCte.resaltado} onCerrar={() => setCtaCte(null)} />
+      )}
       <CompraLineasModal
         compraId={selectedLineas?.rowId ?? null}
         comprobante={selectedLineas?.detalle ?? null}

@@ -8,6 +8,8 @@ import { buildDetalleConditions } from "@/lib/dashboard/detalle-conditions";
 import { recortarConHasMore } from "@/lib/dashboard/recortar-has-more";
 import { DETALLE_COMPRAS_LIMITE } from "@/lib/dashboard/constants";
 import { reshapeDetalle, type DetalleSqlRow } from "@/lib/dashboard/reshape-detalle";
+import { claveComprobante } from "@/lib/cta-cte/estado";
+import { estadosDePago, type EstadoFila } from "@/lib/cta-cte/query";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +55,11 @@ const DETALLE_SELECT_JOIN = Prisma.sql`
     rc.nombre           AS "conceptoCajaRubroNombre",
     ccm.codigo          AS "conceptoCajaManualCodigo",
     ccm.nombre          AS "conceptoCajaManualNombre",
-    rcm.nombre          AS "conceptoCajaManualRubroNombre"
+    rcm.nombre          AS "conceptoCajaManualRubroNombre",
+    -- Para el semáforo y la cuenta corriente: el comprobante es de la compra base.
+    cb.comprobante      AS "comprobante",
+    cb.codigo           AS "codigoProveedor",
+    cb."puntoDeVentaId" AS "pdvCompraId"
   FROM v_compras_distribuidas c
   -- Compra base: en una fila de fan-out la vista trae solo la fracción del
   -- destino, y el modal de edición necesita el total para poder corregirlo.
@@ -68,6 +74,28 @@ const DETALLE_SELECT_JOIN = Prisma.sql`
   LEFT JOIN conceptos_caja ccm          ON c."conceptoCodigoManual" = ccm.codigo
   LEFT JOIN rubros_concepto_caja rcm    ON ccm."codRga" = rcm.codigo
 `;
+
+// Semáforo: estado de pago del comprobante de cada fila (14 cruzado con el 80).
+// Si falla, la lista sale igual sin estado.
+type FilaConClave = {
+  comprobante?: string | null; codigoProveedor?: string | null; pdvCompraId?: number | null;
+  fecha?: Date | null; fechaManual?: Date | null;
+};
+async function conEstado<T extends FilaConClave>(filas: T[]): Promise<(T & { estadoPago: EstadoFila | null })[]> {
+  const iso = (f: FilaConClave) => (f.fechaManual ?? f.fecha)?.toISOString().slice(0, 10) ?? null;
+  let estados = new Map<string, EstadoFila>();
+  try {
+    estados = await estadosDePago(filas.map((f) => ({
+      pdvId: f.pdvCompraId ?? null, comprobante: f.comprobante ?? null, codigo: f.codigoProveedor ?? null, fecha: iso(f),
+    })));
+  } catch (err) {
+    console.error("[detalle] estado de pago", err);
+  }
+  return filas.map((f) => {
+    const k = claveComprobante(f.pdvCompraId ?? null, f.comprobante ?? null, f.codigoProveedor ?? null);
+    return { ...f, estadoPago: (k && estados.get(k)) || null };
+  });
+}
 
 export async function GET(request: NextRequest) {
   const denied = await requireAuth();
@@ -101,7 +129,7 @@ export async function GET(request: NextRequest) {
         WHERE c."rowId" = ${rowId} AND c."distribucionId" = ${distribucionId}
         LIMIT 1
       `);
-      return NextResponse.json({ data: rows.map(reshapeDetalle), hasMore: false });
+      return NextResponse.json({ data: await conEstado(rows.map(reshapeDetalle)), hasMore: false });
     }
 
     // (b) Sin distribucionId: comportamiento original intacto, usado por
@@ -122,6 +150,9 @@ export async function GET(request: NextRequest) {
         observac: true,
         observacManual: true,
         proveedor: true,
+        comprobante: true,
+        codigo: true,
+        puntoDeVentaId: true,
         proveedorRef: { select: { id: true, nombre: true, razon: true } },
         local: { select: { nombre: true } },
         puntoDeVenta: { select: { nombre: true } },
@@ -129,7 +160,10 @@ export async function GET(request: NextRequest) {
         conceptoCajaManual: { select: { codigo: true, nombre: true, rubro: { select: { nombre: true } } } },
       },
     });
-    return NextResponse.json({ data: compra ? [{ ...compra, distribucionId: null }] : [], hasMore: false });
+    if (!compra) return NextResponse.json({ data: [], hasMore: false });
+    const { codigo, puntoDeVentaId, ...resto } = compra;
+    const fila = { ...resto, distribucionId: null, codigoProveedor: codigo, pdvCompraId: puntoDeVentaId };
+    return NextResponse.json({ data: await conEstado([fila]), hasMore: false });
   }
 
   const localId = idSchema.safeParse(searchParams.get("localId")).data;
@@ -189,7 +223,7 @@ export async function GET(request: NextRequest) {
     `);
 
     const { data, hasMore } = recortarConHasMore(rows, DETALLE_COMPRAS_LIMITE);
-    return NextResponse.json({ data: data.reverse().map(reshapeDetalle), hasMore });
+    return NextResponse.json({ data: await conEstado(data.reverse().map(reshapeDetalle)), hasMore });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

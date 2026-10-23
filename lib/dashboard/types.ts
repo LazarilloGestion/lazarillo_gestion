@@ -285,6 +285,12 @@ export type CompraDetalle = {
     nombre: string;
     rubro: { nombre: string } | null;
   } | null;
+  // Cuenta corriente / semáforo: comprobante y proveedor (código del ERP) de la
+  // compra base, su PDV y el estado de pago (14 cruzado con el informe 80).
+  comprobante?: string | null;
+  codigoProveedor?: string | null;
+  pdvCompraId?: number | null;
+  estadoPago?: { estado: import("@/lib/cta-cte/estado").EstadoPago; total: number; pagado: number } | null;
 };
 
 // --- Línea de detalle_compras devuelta por /api/dashboard/compra-lineas/[compraId] ---
