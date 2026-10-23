@@ -112,11 +112,20 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     concepto: a.concepto?.trim() || "", importe: Number(a.importe),
   }));
   const aplicado = redondear(aplicaciones.reduce((s, a) => s + a.importe, 0));
+  // Anterior / Siguiente: todas las órdenes del mismo par de PDV, anuladas
+  // incluidas, en orden de número.
+  const par = { pdvOrigenId: pago.pdvOrigenId, pdvDestinoId: pago.pdvDestinoId };
+  const [anterior, siguiente] = await Promise.all([
+    prisma.pagoInterno.findFirst({ where: { ...par, id: { lt: id } }, orderBy: { id: "desc" }, select: { id: true } }),
+    prisma.pagoInterno.findFirst({ where: { ...par, id: { gt: id } }, orderBy: { id: "asc" }, select: { id: true } }),
+  ]);
   return NextResponse.json({
+    anteriorId: anterior?.id ?? null, siguienteId: siguiente?.id ?? null,
+    anuladaEn: pago.anuladoEn ? pago.anuladoEn.toISOString() : null,
     id: pago.id, pdvOrigenId: pago.pdvOrigenId, pdvDestinoId: pago.pdvDestinoId,
     fecha: pago.fecha.toISOString().slice(0, 10), importe: Number(pago.importe), medio: pago.medio,
     referencia: pago.referencia, creadoPor: pago.creadoPor, creadoEn: pago.creadoEn.toISOString(),
-    anulada: !!pago.anuladoEn, aplicado, disponible: redondear(Number(pago.importe) - aplicado), aplicaciones,
+    anulada: !!pago.anuladoEn, aplicado, disponible: pago.anuladoEn ? 0 : redondear(Number(pago.importe) - aplicado), aplicaciones,
   });
 }
 

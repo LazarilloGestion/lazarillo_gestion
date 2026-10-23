@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
         key: m.key, fecha: m.fecha, comprobante: m.comprobante,
         proveedor: m.proveedor?.trim() || "—", concepto: m.concepto?.trim() || "",
         porcentaje: Number(m.porcentaje), importe: Number(m.importe), aplicado: Number(m.aplicado),
+        totalCompra: m.total_compra == null ? undefined : Number(m.total_compra),
         esEmpleado: m.es_empleado, ops: m.ops ?? [], rubro: m.rubro?.trim() || "Sin rubro",
       });
     }

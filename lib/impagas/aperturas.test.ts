@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   aCuenta, agruparEmpleados, modoDefault, porRubro, contarAntesDelCursor, cursorTrasSignificativos, disponibleOP, imputarElegidos, numeroOP, reimputar, formatearImporteAR, imputarFifo, importeAInput, normalizarReferencia, parsearImporteAR,
-  porMes, saldoDeuda, type DeudaConPdv, type MovimientoApertura,
+  porMes, rangoPorcentaje, saldoDeuda, textoParte, type DeudaConPdv, type MovimientoApertura,
 } from "./aperturas";
 
 const mov = (key: string, fecha: string, importe: number, aplicado = 0): MovimientoApertura => ({
@@ -159,5 +159,19 @@ describe("deuda con el PDV agrupada por rubro", () => {
     const sv = r.find((x) => x.rubro === "Servicios")!;
     expect(sv.modo).toBe("proveedor");
     expect(sv.grupos.map((g) => [g.clave, g.total, g.saldo])).toEqual([["Edenor", 110, 50], ["Meta", 40, 40]]);
+  });
+});
+
+describe("porcentaje de apertura en grupos y tooltip", () => {
+  it("un % o un rango", () => {
+    expect(rangoPorcentaje([{ porcentaje: 15 }, { porcentaje: 15 }])).toBe("15%");
+    expect(rangoPorcentaje([{ porcentaje: 15 }, { porcentaje: 10 }, { porcentaje: 12.5 }])).toBe("10–15%");
+    expect(rangoPorcentaje([{ porcentaje: 33.333 }])).toBe("33,3%");
+    expect(rangoPorcentaje([])).toBeNull();
+  });
+  it("parte sobre el total", () => {
+    const f = (n: number) => `$${n}`;
+    expect(textoParte({ importe: 108000, totalCompra: 700000, porcentaje: 15.43 }, f)).toBe("$108000 de $700000 (15,4%)");
+    expect(textoParte({ importe: 50, porcentaje: 50 }, f)).toBe("$50 (50%)");
   });
 });
