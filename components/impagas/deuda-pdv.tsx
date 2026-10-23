@@ -188,6 +188,7 @@ export function FilasDeudaPdv(p: Props) {
       <tr onClick={() => p.toggle(k)} className="border-b border-sky-100 dark:border-sky-900 cursor-pointer bg-sky-50/70 dark:bg-sky-950/30 hover:bg-sky-50 dark:hover:bg-sky-950/50">
         <td className="py-2.5 px-3">
           <span className="inline-flex items-center gap-1.5 flex-wrap">
+            {tilde(pendientesDe(deuda.movimientos), "Elegir toda la deuda")}
             {abierto ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
             <span className="font-semibold">{origenLabel}</span>
             <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-sky-400 text-sky-950">PDV · aperturas</span>
@@ -244,6 +245,7 @@ export function FilasDeudaPdv(p: Props) {
 
       {form && !haySel && (
         <FormPago
+          sticky
           modo={form}
           ops={opsDisponibles}
           saldo={p.saldo}
@@ -399,7 +401,6 @@ export function FilasDeudaPdv(p: Props) {
                               {tilde(pendG, "Elegir todo el grupo")}
                               {abG ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
                               <span className="font-medium">{g.clave}</span>
-                              {g.esEmpleado && <Chip cls="bg-violet-50 text-violet-700">empleado</Chip>}
                               <span className="text-xs text-muted-foreground">{g.movimientos.length}</span>
                               {ok ? <Chip cls="bg-emerald-50 text-emerald-700">saldado</Chip>
                                 : g.aplicado > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(g.aplicado)}</Chip> : null}
@@ -578,7 +579,7 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, 
           >
             {opElegida ? `Imputar ${numeroOP(opElegida.id)}` : "Confirmar"}
           </button>
-          <button type="button" onClick={onCancel} className="h-8 px-3 rounded-md border border-zinc-300 dark:border-zinc-600">{sticky ? "Limpiar" : "Cancelar"}</button>
+          <button type="button" onClick={onCancel} className="h-8 px-3 rounded-md border border-zinc-300 dark:border-zinc-600">{modo.tipo === "elegidos" ? "Limpiar" : "Cancelar"}</button>
         </div>
         <div className="mt-1.5 text-[11px] text-muted-foreground">
           {opElegida
