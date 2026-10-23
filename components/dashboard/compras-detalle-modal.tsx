@@ -468,13 +468,20 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     [stableFilter, conPeriodo, periodo]
   );
 
-  const queryKey = useMemo(() => ["detalle", filtroEfectivo], [filtroEfectivo]);
+  // En Año / Histórico la consulta tiene tope de registros: el buscador también
+  // filtra en el servidor para no perder lo que quedó afuera del tope.
+  const buscaEnServidor = conPeriodo && periodo != null && periodo.modo !== "mes";
+  const [qServidor, setQServidor] = useState("");
+  const q = buscaEnServidor ? qServidor : "";
+  const resetKey = useMemo(() => ["detalle", filtroEfectivo], [filtroEfectivo]);
+  const queryKey = useMemo(() => ["detalle", filtroEfectivo, q], [filtroEfectivo, q]);
 
   const queryFn = useCallback(async (): Promise<DetalleResponse<CompraDetalle>> => {
-    const res = await fetch(buildComprasDetalleUrl(filtroEfectivo!));
+    const url = buildComprasDetalleUrl(filtroEfectivo!);
+    const res = await fetch(q ? `${url}&q=${encodeURIComponent(q)}` : url);
     if (!res.ok) throw new Error("Error cargando detalle");
     return res.json();
-  }, [filtroEfectivo]);
+  }, [filtroEfectivo, q]);
 
   const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string; rubroCodigo?: string }>>({
     queryKey: ["suggestions"],
@@ -617,6 +624,8 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         cols={COMPRAS_COLS}
         queryKey={queryKey}
         queryFn={queryFn}
+        resetKey={resetKey}
+        onServerQuery={buscaEnServidor ? setQServidor : undefined}
         searchFields={searchFields}
         columnFields={columnFields}
         sortFn={sortCompras}
