@@ -11,6 +11,13 @@ import { reshapeDetalle, type DetalleSqlRow } from "@/lib/dashboard/reshape-deta
 
 export const dynamic = "force-dynamic";
 
+// Normalización del buscador igual a la del cliente (minúsculas, sin acentos).
+const ACENTOS = "áàäâãéèëêíìïîóòöôõúùüûñç";
+const SIN_ACENTOS = "aaaaaeeeeiiiiooooouuuunc";
+function normalizarTexto(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+}
+
 // SELECT + JOINs compartidos entre la lista (WHERE dinámico, con el join
 // cc_ef/rc_ef extra para filtrar por concepto/rubro efectivo) y el lookup
 // puntual por distribucionId — antes esta forma se armaba a mano una tercera
@@ -143,14 +150,28 @@ export async function GET(request: NextRequest) {
   const observacionQuery = parseObservacionQuery(searchParams.get("observacionQuery"));
   const importeQuery = parseImporteQuery(searchParams.get("importeQuery"));
   const historico = searchParams.get("historico") === "1";
+  // Buscador del modal (Año / Histórico): mismo criterio que el filtro de la
+  // tabla — algún campo contiene el texto, sin mayúsculas ni acentos.
+  const qRaw = (searchParams.get("q") ?? "").trim().slice(0, 80);
+  const q = normalizarTexto(qRaw);
 
-  const where = Prisma.join(
-    buildDetalleConditions({
-      year, localId, pdvId, mes, meses, proveedorId, proveedorTexto, codigo, sinProveedor,
-      rubroCodigo, conceptoCodigo, observacionQuery, importeQuery, historico,
-    }),
-    " AND "
-  );
+  const condiciones = buildDetalleConditions({
+    year, localId, pdvId, mes, meses, proveedorId, proveedorTexto, codigo, sinProveedor,
+    rubroCodigo, conceptoCodigo, observacionQuery, importeQuery, historico,
+  });
+  if (q) {
+    const campos = [
+      Prisma.sql`c.proveedor`, Prisma.sql`p.nombre`, Prisma.sql`p.razon`, Prisma.sql`c."observacManual"`,
+      Prisma.sql`c.observac`, Prisma.sql`c.detalle`, Prisma.sql`c.concepto`, Prisma.sql`cc_ef.nombre`,
+      Prisma.sql`rc_ef.nombre`, Prisma.sql`l.nombre`,
+    ];
+    const patron = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    condiciones.push(Prisma.sql`(${Prisma.join(
+      campos.map((f) => Prisma.sql`translate(lower(COALESCE(${f}, '')), ${ACENTOS}, ${SIN_ACENTOS}) LIKE ${patron}`),
+      " OR "
+    )})`);
+  }
+  const where = Prisma.join(condiciones, " AND ");
 
   try {
     const rows = await prisma.$queryRaw<DetalleSqlRow[]>(Prisma.sql`
@@ -160,13 +181,15 @@ export async function GET(request: NextRequest) {
       LEFT JOIN rubros_concepto_caja rc_ef  ON cc_ef."codRga" = rc_ef.codigo
       WHERE ${where}
       -- Fecha efectiva (con manual) + desempate por id: define qué filas
-      -- sobreviven al corte de DETALLE_COMPRAS_LIMITE, debe ser estable.
-      ORDER BY COALESCE(c."fechaManual", c.fecha) ASC, c."rowId", c."distribucionId"
+      -- sobreviven al corte de DETALLE_COMPRAS_LIMITE, debe ser estable. Si hay
+      -- que cortar, quedan los MÁS NUEVOS (antes quedaban los más viejos y en
+      -- Histórico no aparecía lo último); después se devuelven en orden ascendente.
+      ORDER BY COALESCE(c."fechaManual", c.fecha) DESC, c."rowId" DESC, c."distribucionId" DESC NULLS LAST
       LIMIT ${DETALLE_COMPRAS_LIMITE + 1}
     `);
 
     const { data, hasMore } = recortarConHasMore(rows, DETALLE_COMPRAS_LIMITE);
-    return NextResponse.json({ data: data.map(reshapeDetalle), hasMore });
+    return NextResponse.json({ data: data.reverse().map(reshapeDetalle), hasMore });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
@@ -31,6 +31,12 @@ interface DetalleModalShellProps<T> {
   headerControls?: React.ReactNode;
   // Texto del pie en vez del conteo a secas (ej. "139 registros — Julio 2026").
   periodoLabel?: string | null;
+  // Búsqueda también en el servidor (Año / Histórico pasan el tope de registros):
+  // recibe lo tipeado en el buscador (con una pausa) para sumarlo a la consulta.
+  onServerQuery?: (q: string) => void;
+  // Clave que limpia buscador y filtros al cambiar (default: queryKey). Hace falta
+  // separarla cuando el texto buscado forma parte de queryKey.
+  resetKey?: unknown[];
 }
 
 export function DetalleModalShell<T>({
@@ -49,6 +55,8 @@ export function DetalleModalShell<T>({
   footerNote,
   headerControls,
   periodoLabel,
+  onServerQuery,
+  resetKey,
 }: DetalleModalShellProps<T>) {
   const { sort, handleSortClick } = useSortState();
   // Portal container para popovers/selects anidados: sin esto, montan en document.body
@@ -60,6 +68,8 @@ export function DetalleModalShell<T>({
     queryFn,
     enabled: open,
     staleTime: 60_000,
+    // Al buscar en el servidor no se vacía la tabla mientras llega la respuesta.
+    placeholderData: onServerQuery ? keepPreviousData : undefined,
     retry: 2,
     retryDelay: (i) => Math.min(1000 * 2 ** i, 30_000),
   });
@@ -75,7 +85,13 @@ export function DetalleModalShell<T>({
   const { query, setQuery, columnFilters, setColumnFilter, clearFilters, hayFiltros, filtered } =
     useTableSearch(data, searchFields, columnFields);
 
-  useEffect(() => { clearFilters(); }, [queryKey, clearFilters]);
+  const claveReset = resetKey ?? queryKey;
+  useEffect(() => { clearFilters(); }, [claveReset, clearFilters]);
+  useEffect(() => {
+    if (!onServerQuery) return;
+    const t = setTimeout(() => onServerQuery(query.trim()), 350);
+    return () => clearTimeout(t);
+  }, [query, onServerQuery]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -101,7 +117,7 @@ export function DetalleModalShell<T>({
             <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
             {headerControls}
           </div>
-          {!isLoading && !error && count > 1 && <SearchInput value={query} onChange={setQuery} className="w-44 shrink-0" />}
+          {!isLoading && !error && (count > 1 || !!query) && <SearchInput value={query} onChange={setQuery} className="w-44 shrink-0" />}
         </div>
 
         {isLoading && <div className="flex items-center justify-center py-12"><Spinner size="lg" /></div>}
