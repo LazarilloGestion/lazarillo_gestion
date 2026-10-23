@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth/require-auth";
+import { requireAuthUser } from "@/lib/auth/require-auth";
+import { registrarEvento } from "@/lib/impagas/eventos";
 import { impagasDesde, movimientosAperturaSql, type MovimientoSqlRow } from "@/lib/impagas/query";
 import {
   MEDIOS_PAGO_INTERNO, imputarElegidos, imputarFifo, normalizarReferencia, numeroOP, redondear,
@@ -32,14 +33,15 @@ const bodySchema = z.object({
 
 // POST: registrar un pago del PDV destino al PDV origen de las aperturas.
 export async function POST(request: NextRequest) {
-  const denied = await requireAuth();
-  if (denied) return denied;
+  const { user, response } = await requireAuthUser();
+  if (response) return response;
+  const usuario = user.email ?? null;
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
   const b = parsed.data;
   if (b.pdvOrigenId === b.pdvDestinoId) return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
 
-  if (b.usarOp !== undefined) return imputarConOp(b);
+  if (b.usarOp !== undefined) return imputarConOp(b, usuario);
 
   // ID de la operación: opcional (Transferencia o Bancos); si viene, alfanumérico y sin repetir.
   let referencia: string | null = null;
@@ -75,19 +77,27 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const pago = await prisma.pagoInterno.create({
-      data: {
-        pdvOrigenId: b.pdvOrigenId,
-        pdvDestinoId: b.pdvDestinoId,
-        fecha: new Date(`${b.fecha}T00:00:00Z`),
-        importe: new Prisma.Decimal(importe),
-        medio: b.medio!,
-        referencia,
-        aplicaciones: {
-          create: aplicaciones.map((a) => ({ compraRowId: a.key, importe: new Prisma.Decimal(a.importe) })),
+    const pago = await prisma.$transaction(async (tx) => {
+      const p = await tx.pagoInterno.create({
+        data: {
+          pdvOrigenId: b.pdvOrigenId,
+          pdvDestinoId: b.pdvDestinoId,
+          fecha: new Date(`${b.fecha}T00:00:00Z`),
+          importe: new Prisma.Decimal(importe),
+          medio: b.medio!,
+          referencia,
+          creadoPor: usuario,
+          aplicaciones: {
+            create: aplicaciones.map((a) => ({ compraRowId: a.key, importe: new Prisma.Decimal(a.importe) })),
+          },
         },
-      },
-      select: { id: true },
+        select: { id: true },
+      });
+      await registrarEvento(tx, {
+        pagoId: p.id, tipo: "creada", importe, usuario,
+        detalle: `${b.medio}${referencia ? ` · ID ${referencia}` : ""} · ${aplicaciones.length ? `imputada a ${aplicaciones.length} movimiento${aplicaciones.length === 1 ? "" : "s"}` : "sin imputar"}`,
+      });
+      return p;
     });
     const aplicado = redondear(aplicaciones.reduce((s, a) => s + a.importe, 0));
     return NextResponse.json({ ok: true, id: pago.id, importe, aplicado, aCuenta: redondear(importe - aplicado) });
@@ -102,12 +112,12 @@ export async function POST(request: NextRequest) {
 
 // Imputar el disponible (lo que quedó a cuenta) de una orden de pago existente
 // a movimientos: no crea una OP nueva, suma imputaciones a esa misma.
-async function imputarConOp(b: z.infer<typeof bodySchema>) {
+async function imputarConOp(b: z.infer<typeof bodySchema>, usuario: string | null) {
   const pago = await prisma.pagoInterno.findUnique({
     where: { id: b.usarOp! },
     include: { aplicaciones: { select: { importe: true } } },
   });
-  if (!pago || pago.pdvOrigenId !== b.pdvOrigenId || pago.pdvDestinoId !== b.pdvDestinoId) {
+  if (!pago || pago.anuladoEn || pago.pdvOrigenId !== b.pdvOrigenId || pago.pdvDestinoId !== b.pdvDestinoId) {
     return NextResponse.json({ error: "Esa orden de pago no corresponde a este PDV." }, { status: 404 });
   }
   const disponible = redondear(Number(pago.importe) - pago.aplicaciones.reduce((s, a) => s + Number(a.importe), 0));
@@ -128,8 +138,14 @@ async function imputarConOp(b: z.infer<typeof bodySchema>) {
   if (aplicado <= 0) return NextResponse.json({ error: "No hay saldo para imputar." }, { status: 400 });
 
   try {
-    await prisma.aplicacionPagoInterno.createMany({
-      data: aplicaciones.map((a) => ({ pagoId: pago.id, compraRowId: a.key, importe: new Prisma.Decimal(a.importe) })),
+    await prisma.$transaction(async (tx) => {
+      await tx.aplicacionPagoInterno.createMany({
+        data: aplicaciones.map((a) => ({ pagoId: pago.id, compraRowId: a.key, importe: new Prisma.Decimal(a.importe) })),
+      });
+      await registrarEvento(tx, {
+        pagoId: pago.id, tipo: "imputada", importe: aplicado, usuario,
+        detalle: `a ${aplicaciones.length} movimiento${aplicaciones.length === 1 ? "" : "s"}`,
+      });
     });
     return NextResponse.json({ ok: true, id: pago.id, usada: true, aplicado, disponible: redondear(disponible - aplicado) });
   } catch (err) {
