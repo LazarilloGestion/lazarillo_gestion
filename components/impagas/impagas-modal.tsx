@@ -102,6 +102,9 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   // razonable (al tipear el año pasa por 0002, 0020, 0202… y antes eso disparaba
   // la consulta con cada tecla).
   const [mesEscrito, setMesEscrito] = useState<string | null>(null);
+  // Barra de pago al pie del modal: el formulario de pago se dibuja ahí (portal)
+  // para no correr la tabla ni tapar lo que se está tildando.
+  const [barraPago, setBarraPago] = useState<HTMLDivElement | null>(null);
   const [solo60, setSolo60] = useState(false);
   const [q, setQ] = useState("");
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
@@ -163,7 +166,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     return mutar(
       "/api/impagas/pago-automatico", "PATCH", { proveedorId: g.proveedorId, pagoAutomatico: si },
       (f) => (f.codPro === g.codPro ? { ...f, pagoAutomatico: si, forzada: si ? false : f.forzada } : f),
-      si ? `${g.proveedor}: pago automático → pasó a Excluidas` : `${g.proveedor}: vuelve a Impagas`
+      si ? `${g.proveedor} pasó a Excluidas` : `${g.proveedor}: vuelve a Impagas`
     );
   };
 
@@ -315,7 +318,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
       const accion = todasForzadas
         ? <Boton disabled={guardando} onClick={() => forzar(g.items, false)}>Volver a excluir</Boton>
         : g.proveedorId
-          ? <Boton disabled={guardando} onClick={() => pagoAutomatico(g, true)}>Marcar pago automático</Boton>
+          ? <Boton disabled={guardando} onClick={() => pagoAutomatico(g, true)}>Mover a excluidas</Boton>
           : null;
       return {
         saldo: g.saldo, masVieja: g.masVieja,
@@ -340,6 +343,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             hoy={hoy} q={q} solo60={solo60}
             abiertos={abiertos} toggle={toggle} guardando={guardando}
             onRegistrar={registrarPago} onEditar={editarPago} onEliminar={anularPago}
+            barra={barraPago}
           />
         ),
       });
@@ -531,6 +535,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             />
           )}
         </div>
+        <div ref={setBarraPago} className="shrink-0" />
     </>
   );
 }

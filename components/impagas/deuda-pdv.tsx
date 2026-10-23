@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -57,6 +58,7 @@ interface Props {
   onRegistrar: (b: BodyPagoInterno) => Promise<string | null>; // null = ok, si no el error
   onEditar: (id: number, b: BodyEditarPago) => Promise<string | null>;
   onEliminar: (id: number) => void;
+  barra?: HTMLElement | null; // pie del modal donde va el formulario de pago
 }
 
 // Filas del PDV origen dentro de la tabla de Impagas: cabecera con la deuda,
@@ -222,10 +224,10 @@ export function FilasDeudaPdv(p: Props) {
         </td>
       </tr>
 
-      {abierto && haySel && (
+      {haySel && (
         <FormPago
           key="seleccion"
-          sticky
+          barra={p.barra}
           modo={{
             tipo: "elegidos", keys: elegidos, importe: totalElegido,
             desc: selDesc ?? `${elegidos.length} elegido${elegidos.length === 1 ? "" : "s"}`,
@@ -245,7 +247,7 @@ export function FilasDeudaPdv(p: Props) {
 
       {form && !haySel && (
         <FormPago
-          sticky
+          barra={p.barra}
           modo={form}
           ops={opsDisponibles}
           saldo={p.saldo}
@@ -472,9 +474,9 @@ function ImporteInput({ value, onChange, readOnly, className }: {
   );
 }
 
-function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, onConfirm }: {
+function FormPago({ modo, ops, saldo, origenLabel, guardando, barra, onCancel, onConfirm }: {
   modo: ModoForm; ops: PagoInterno[]; saldo: number; origenLabel: string; guardando: boolean;
-  sticky?: boolean; // la selección queda fija arriba mientras se baja por la lista
+  barra?: HTMLElement | null; // si está, el formulario va fijo al pie del modal
   onCancel: () => void;
   onConfirm: (b: Omit<BodyPagoInterno, "pdvOrigenId">) => Promise<string | null>;
 }) {
@@ -533,9 +535,8 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, 
   const titulo = modo.tipo === "elegidos" ? `Pago · ${modo.desc}`
     : modo.tipo === "editar" ? `Editar ${numeroOP(modo.pago.id)}` : `Pago a ${origenLabel}`;
   const aCuentaNuevo = modo.tipo === "elegidos" && !opElegida ? valorActual - modo.importe : 0;
-  return (
-    <tr className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-200 dark:border-sky-900">
-      <td colSpan={5} className={cn("py-3 px-4", sticky && "sticky top-[32px] z-[5] bg-sky-50 dark:bg-sky-950 shadow-[0_2px_6px_rgba(0,0,0,0.08)]")}>
+  const contenido = (
+      <>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <b>{titulo}</b>
           {modo.tipo === "elegidos" && <span className="tabular-nums text-muted-foreground">Saldo {fmtPesos(modo.importe)}</span>}
@@ -594,7 +595,20 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, 
             : "Se aplica a lo más viejo primero; si es menos, el último queda parcial; si es más, queda a cuenta."}
         </div>
         {error && <div className="mt-1.5 text-xs text-destructive">{error}</div>}
-      </td>
+      </>
+  );
+  // Al pie del modal, siempre a la vista: no corre la tabla ni tapa lo que se tilda.
+  if (barra) {
+    return createPortal(
+      <div className="border-t border-sky-200 dark:border-sky-900 bg-sky-50 dark:bg-sky-950 px-5 py-3 shadow-[0_-4px_10px_rgba(0,0,0,0.06)]">
+        {contenido}
+      </div>,
+      barra
+    );
+  }
+  return (
+    <tr className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-200 dark:border-sky-900">
+      <td colSpan={5} className="py-3 px-4">{contenido}</td>
     </tr>
   );
 }
