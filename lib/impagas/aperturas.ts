@@ -71,6 +71,29 @@ export function imputarFifo(
 
 export const redondear = (n: number) => Math.round(n * 100) / 100;
 
+// Pago sobre movimientos elegidos (un mes, un empleado o una selección):
+// sin importe se salda el saldo entero de cada uno; con importe se imputa a lo
+// elegido del más viejo al más nuevo (el último puede quedar parcial) y lo que
+// sobra queda a cuenta, sin asociar a ningún movimiento.
+export function imputarElegidos(
+  movs: Pick<MovimientoApertura, "key" | "fecha" | "importe" | "aplicado">[],
+  keys: string[],
+  importe?: number
+): { aplicaciones: { key: string; importe: number }[]; sobrante: number } {
+  const elegidos = new Set(keys);
+  const l = movs.filter((m) => elegidos.has(m.key));
+  if (importe === undefined) {
+    const aplicaciones = ordenarMovimientos(l)
+      .map((m) => ({ key: m.key, importe: redondear(saldoMov(m)) }))
+      .filter((a) => a.importe > 0);
+    return { aplicaciones, sobrante: 0 };
+  }
+  return imputarFifo(l, importe);
+}
+
+// Disponible de una orden de pago (lo que quedó a cuenta, sin imputar).
+export const disponibleOP = (p: Pick<PagoInterno, "importe" | "aplicado">) => redondear(Math.max(0, p.importe - p.aplicado));
+
 // Al editar el importe de una orden de pago: se vuelve a imputar primero a los
 // mismos movimientos que tenía (del más viejo al más nuevo) y, si sobra, a lo
 // más viejo pendiente; lo que no entra queda a cuenta.
@@ -158,6 +181,29 @@ export function formatearImporteAR(t: string): string {
   const ent = (i >= 0 ? limpio.slice(0, i) : limpio).replace(/^0+(?=\d)/, "");
   const dec = i >= 0 ? "," + limpio.slice(i + 1).replace(/,/g, "").slice(0, 2) : "";
   return "$ " + (ent || "0").replace(/\B(?=(\d{3})+(?!\d))/g, ".") + dec;
+}
+
+// Cursor del input de importe: al reformatear (puntos de miles) el cursor no
+// debe saltar al final. Se cuentan los caracteres que importan (dígitos y la
+// coma) antes del cursor y se lo vuelve a poner después de la misma cantidad.
+const significativo = (c: string) => /[\d,]/.test(c);
+
+export function contarAntesDelCursor(texto: string, cursor: number): number {
+  let n = 0;
+  for (let i = 0; i < Math.min(cursor, texto.length); i++) if (significativo(texto[i])) n++;
+  return n;
+}
+
+export function cursorTrasSignificativos(formateado: string, n: number): number {
+  if (n <= 0) {
+    const i = formateado.search(/[\d,]/);
+    return i < 0 ? formateado.length : i;
+  }
+  let c = 0;
+  for (let i = 0; i < formateado.length; i++) {
+    if (significativo(formateado[i]) && ++c === n) return i + 1;
+  }
+  return formateado.length;
 }
 
 export const importeAInput = (n: number) =>

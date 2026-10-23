@@ -1,10 +1,11 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  MEDIOS_PAGO_INTERNO, aCuenta, formatearImporteAR, importeAInput, normalizarReferencia, parsearImporteAR,
+  MEDIOS_PAGO_INTERNO, aCuenta, contarAntesDelCursor, cursorTrasSignificativos, disponibleOP,
+  formatearImporteAR, importeAInput, normalizarReferencia, parsearImporteAR,
   agruparEmpleados, numeroOP, porMes, saldoMov,
   type DeudaConPdv, type MedioPagoInterno, type MovimientoApertura, type PagoInterno,
 } from "@/lib/impagas/aperturas";
@@ -18,18 +19,20 @@ const sinEspacios = normalizarBusqueda;
 export interface BodyPagoInterno {
   pdvOrigenId: number;
   fecha: string;
-  medio: MedioPagoInterno;
+  medio?: MedioPagoInterno;
   referencia: string | null;
   importe?: number;
   keys?: string[];
+  usarOp?: number; // usar el disponible de esta orden de pago (no crea otra)
 }
 
 type ModoForm =
   | { tipo: "libre" }
   | { tipo: "saldar"; keys: string[]; importe: number; desc: string }
+  | { tipo: "elegidos"; keys: string[]; importe: number; desc: string } // importe editable
   | { tipo: "editar"; pago: PagoInterno };
 
-export type BodyEditarPago = Omit<BodyPagoInterno, "pdvOrigenId" | "keys"> & { importe: number };
+export type BodyEditarPago = Omit<BodyPagoInterno, "pdvOrigenId" | "keys" | "usarOp" | "medio"> & { importe: number; medio: MedioPagoInterno };
 
 interface Props {
   deuda: DeudaConPdv;
@@ -53,6 +56,8 @@ export function FilasDeudaPdv(p: Props) {
   const { deuda, origenLabel, hoy, q, guardando } = p;
   const [form, setForm] = useState<ModoForm | null>(null);
   const [aEliminar, setAEliminar] = useState<number | null>(null);
+  // Selección de movimientos pendientes para pagarlos juntos (suma el saldo).
+  const [sel, setSel] = useState<Set<string>>(new Set());
   const k = `PDV${deuda.pdvOrigenId}`;
   const buscando = !!q.trim();
   const coincidePdv = buscando && sinEspacios(origenLabel).includes(sinEspacios(q));
@@ -66,6 +71,35 @@ export function FilasDeudaPdv(p: Props) {
 
   const abrirForm = (m: ModoForm) => { setForm(m); if (!p.abiertos.has(k)) p.toggle(k); };
   const pagoPorId = new Map(deuda.pagos.map((pg) => [pg.id, pg]));
+  const opsDisponibles = deuda.pagos.filter((pg) => disponibleOP(pg) > 0.5);
+
+  const pendientesDe = (l: MovimientoApertura[]) => l.filter((m) => saldoMov(m) > 0.5).map((m) => m.key);
+  const movPorKey = new Map(deuda.movimientos.map((m) => [m.key, m]));
+  const elegidos = [...sel].filter((x) => { const m = movPorKey.get(x); return m && saldoMov(m) > 0.5; });
+  const totalElegido = elegidos.reduce((s, x) => s + saldoMov(movPorKey.get(x)!), 0);
+  const alternar = (keys: string[]) => setSel((prev) => {
+    const n = new Set(prev);
+    const todos = keys.every((x) => n.has(x));
+    keys.forEach((x) => (todos ? n.delete(x) : n.add(x)));
+    return n;
+  });
+  // Tilde de un movimiento, un empleado o un mes (todos / algunos / ninguno elegidos).
+  const tilde = (keys: string[], titulo: string) => {
+    if (!keys.length) return <span className="inline-block w-3.5" />;
+    const n = keys.filter((x) => sel.has(x)).length;
+    return (
+      <input
+        type="checkbox"
+        title={titulo}
+        aria-label={titulo}
+        checked={n === keys.length}
+        ref={(el) => { if (el) el.indeterminate = n > 0 && n < keys.length; }}
+        onClick={(e) => e.stopPropagation()}
+        onChange={() => alternar(keys)}
+        className="h-3.5 w-3.5 accent-sky-500 cursor-pointer"
+      />
+    );
+  };
 
   // Cada movimiento pagado muestra su(s) orden(es) de pago; tocando una se edita.
   const chipsOP = (ops: number[] | undefined) => (ops ?? []).map((id) => {
@@ -90,6 +124,7 @@ export function FilasDeudaPdv(p: Props) {
     return (
       <tr key={m.key} className={cn("border-b border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900", ok && "text-muted-foreground")}>
         <td className={cn("py-2 pr-3", sangria)}>
+          <span className="mr-1.5 align-middle">{tilde(ok ? [] : [m.key], "Elegir para pagar")}</span>
           {deEmpleado ? (
             <span>{m.concepto || "—"}<span className="text-muted-foreground"> · {fmtFecha(m.fecha)}</span></span>
           ) : (
@@ -161,18 +196,45 @@ export function FilasDeudaPdv(p: Props) {
         </td>
       </tr>
 
+      {abierto && elegidos.length > 0 && !form && (
+        <tr className="bg-sky-100/70 dark:bg-sky-950/60 border-b border-sky-200 dark:border-sky-900">
+          <td colSpan={5} className="py-2 px-4 text-sm">
+            <span className="inline-flex items-center gap-3 flex-wrap">
+              <b>{elegidos.length} elegido{elegidos.length === 1 ? "" : "s"}</b>
+              <span className="tabular-nums">Saldo {fmtPesos(totalElegido)}</span>
+              <button
+                type="button"
+                disabled={guardando}
+                onClick={() => abrirForm({ tipo: "elegidos", keys: elegidos, importe: totalElegido, desc: `${elegidos.length} elegido${elegidos.length === 1 ? "" : "s"}` })}
+                className="h-7 px-2.5 rounded-md bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 text-xs disabled:opacity-40"
+              >
+                Registrar pago
+              </button>
+              <Boton onClick={() => setSel(new Set())}>Limpiar</Boton>
+            </span>
+          </td>
+        </tr>
+      )}
+
       {form && (
         <FormPago
           modo={form}
+          ops={opsDisponibles}
           saldo={p.saldo}
           origenLabel={origenLabel}
           guardando={guardando}
           onCancel={() => setForm(null)}
           onConfirm={async (b) => {
             const err = form.tipo === "editar"
-              ? await p.onEditar(form.pago.id, { ...b, importe: b.importe ?? form.pago.importe })
+              ? await p.onEditar(form.pago.id, { ...b, medio: b.medio ?? "Transferencia", importe: b.importe ?? form.pago.importe })
               : await p.onRegistrar({ ...b, pdvOrigenId: deuda.pdvOrigenId });
-            if (!err) setForm(null);
+            if (!err) {
+              if (form.tipo === "elegidos" || form.tipo === "saldar") {
+                const pagados = new Set(form.keys);
+                setSel((prev) => new Set([...prev].filter((x) => !pagados.has(x))));
+              }
+              setForm(null);
+            }
             return err;
           }}
         />
@@ -224,6 +286,7 @@ export function FilasDeudaPdv(p: Props) {
             <tr onClick={() => p.toggle(km)} className={cn("border-b border-zinc-100 dark:border-zinc-800 cursor-pointer bg-zinc-50 dark:bg-zinc-900/60 hover:bg-zinc-100 dark:hover:bg-zinc-800", cerrado && "text-muted-foreground")}>
               <td className="py-2 pl-8 pr-3">
                 <span className="inline-flex items-center gap-1.5 flex-wrap">
+                  {tilde(pendientesDe(mes.movimientos), "Elegir todo el mes")}
                   {abMes ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
                   {nombreMes(mes.mes)}
                   <span className="text-xs text-muted-foreground">{mes.movimientos.length} movimientos</span>
@@ -236,10 +299,14 @@ export function FilasDeudaPdv(p: Props) {
               <td className="py-2 px-3"><Antiguedad fecha={`${mes.mes}-01`} hoy={hoy} /></td>
               <td className="py-2 px-3 hidden sm:table-cell">
                 {!cerrado && (
-                  <Boton disabled={guardando} onClick={() => {
-                    const l = mes.movimientos.filter((m) => saldoMov(m) > 0.5);
-                    abrirForm({ tipo: "saldar", keys: l.map((m) => m.key), importe: mes.saldo, desc: nombreMes(mes.mes) });
-                  }}>Saldar mes</Boton>
+                  <span className="inline-flex gap-1.5">
+                    <Boton disabled={guardando} onClick={() => abrirForm({
+                      tipo: "elegidos", keys: pendientesDe(mes.movimientos), importe: mes.saldo, desc: nombreMes(mes.mes),
+                    })}>Registrar pago</Boton>
+                    <Boton disabled={guardando} onClick={() => abrirForm({
+                      tipo: "saldar", keys: pendientesDe(mes.movimientos), importe: mes.saldo, desc: nombreMes(mes.mes),
+                    })}>Saldar mes</Boton>
+                  </span>
                 )}
               </td>
             </tr>
@@ -253,6 +320,7 @@ export function FilasDeudaPdv(p: Props) {
                   <tr onClick={() => p.toggle(ke)} className={cn("border-b border-zinc-100 dark:border-zinc-800 cursor-pointer bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/60", ok && "text-muted-foreground")}>
                     <td className="py-2 pl-12 pr-3">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
+                        {tilde(pendientesDe(fila.movimientos), "Elegir todo el empleado")}
                         {abEmp ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
                         <span className="font-medium">{fila.nombre}</span>
                         <Chip cls="bg-violet-50 text-violet-700">empleado</Chip>
@@ -294,62 +362,126 @@ function hoyISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function FormPago({ modo, saldo, origenLabel, guardando, onCancel, onConfirm }: {
-  modo: ModoForm; saldo: number; origenLabel: string; guardando: boolean;
+// Input de importe en formato moneda que no corre el cursor al final al
+// reformatear (se puede cambiar un número del medio).
+function ImporteInput({ value, onChange, readOnly, className }: {
+  value: string; onChange: (v: string) => void; readOnly?: boolean; className?: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const cursor = useRef<number | null>(null);
+  const [tick, setTick] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && cursor.current !== null && document.activeElement === el) {
+      const pos = cursorTrasSignificativos(value, cursor.current);
+      el.setSelectionRange(pos, pos);
+    }
+    cursor.current = null;
+  }, [value, tick]);
+  return (
+    <input
+      ref={ref}
+      value={value}
+      readOnly={readOnly}
+      inputMode="decimal"
+      onChange={(e) => {
+        const t = e.target;
+        cursor.current = contarAntesDelCursor(t.value, t.selectionStart ?? t.value.length);
+        onChange(formatearImporteAR(t.value));
+        setTick((n) => n + 1);
+      }}
+      className={className}
+    />
+  );
+}
+
+function FormPago({ modo, ops, saldo, origenLabel, guardando, onCancel, onConfirm }: {
+  modo: ModoForm; ops: PagoInterno[]; saldo: number; origenLabel: string; guardando: boolean;
   onCancel: () => void;
   onConfirm: (b: Omit<BodyPagoInterno, "pdvOrigenId">) => Promise<string | null>;
 }) {
   const fijo = modo.tipo === "saldar";
   const editando = modo.tipo === "editar";
   const [importe, setImporte] = useState(importeAInput(
-    modo.tipo === "saldar" ? modo.importe : modo.tipo === "editar" ? modo.pago.importe : saldo
+    modo.tipo === "saldar" || modo.tipo === "elegidos" ? modo.importe : modo.tipo === "editar" ? modo.pago.importe : saldo
   ));
   const [fecha, setFecha] = useState(editando ? modo.pago.fecha : hoyISO());
-  const [medio, setMedio] = useState<MedioPagoInterno>(
-    editando && (MEDIOS_PAGO_INTERNO as readonly string[]).includes(modo.pago.medio) ? (modo.pago.medio as MedioPagoInterno) : "Transferencia"
+  // Medio: uno de los medios o "op:ID" = usar el disponible de una OP existente.
+  const [medio, setMedio] = useState<string>(
+    editando && (MEDIOS_PAGO_INTERNO as readonly string[]).includes(modo.pago.medio) ? modo.pago.medio : "Transferencia"
   );
   const [referencia, setReferencia] = useState(editando ? modo.pago.referencia ?? "" : "");
   const [error, setError] = useState<string | null>(null);
+  const opElegida = medio.startsWith("op:") ? ops.find((o) => o.id === Number(medio.slice(3))) ?? null : null;
+  const disp = opElegida ? disponibleOP(opElegida) : 0;
+  const valorActual = parsearImporteAR(importe) ?? 0;
+
+  function cambiarMedio(v: string) {
+    setMedio(v);
+    const o = v.startsWith("op:") ? ops.find((x) => x.id === Number(v.slice(3))) : null;
+    // Con una OP, un importe editable no puede pasar su disponible.
+    if (o && !fijo && valorActual > disponibleOP(o)) setImporte(importeAInput(disponibleOP(o)));
+  }
 
   async function confirmar() {
     setError(null);
     const valor = parsearImporteAR(importe);
     if (!fijo && !(valor && valor > 0)) { setError("Cargá un importe."); return; }
+    const keys = modo.tipo === "saldar" || modo.tipo === "elegidos" ? modo.keys : undefined;
+    if (opElegida) {
+      if (!fijo && valor! > disp + 0.005) { setError(`${numeroOP(opElegida.id)} tiene ${fmtPesos(disp)} disponibles.`); return; }
+      const err = await onConfirm({ fecha, referencia: null, usarOp: opElegida.id, keys, ...(fijo ? {} : { importe: valor! }) });
+      if (err) setError(err);
+      return;
+    }
+    const m = medio as MedioPagoInterno;
     let ref: string | null = null;
-    if (medio === "Transferencia") {
+    if (m === "Transferencia") {
       ref = normalizarReferencia(referencia);
       if (!ref) { setError("Cargá el ID de la transferencia (letras y números)."); return; }
     }
     const err = await onConfirm({
-      fecha, medio, referencia: ref,
-      ...(modo.tipo === "saldar" ? { keys: modo.keys } : { importe: valor! }),
+      fecha, medio: m, referencia: ref, keys,
+      ...(fijo ? {} : { importe: valor! }),
     });
     if (err) setError(err);
   }
 
   const input = "h-8 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 text-sm";
+  const titulo = modo.tipo === "saldar" ? `Saldar ${modo.desc}`
+    : modo.tipo === "elegidos" ? `Pago · ${modo.desc}`
+    : modo.tipo === "editar" ? `Editar ${numeroOP(modo.pago.id)}` : `Pago a ${origenLabel}`;
+  const aCuentaNuevo = modo.tipo === "elegidos" && !opElegida ? valorActual - modo.importe : 0;
   return (
     <tr className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-200 dark:border-sky-900">
       <td colSpan={5} className="py-3 px-4">
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <b>{modo.tipo === "saldar" ? `Saldar ${modo.desc}` : modo.tipo === "editar" ? `Editar ${numeroOP(modo.pago.id)}` : `Pago a ${origenLabel}`}</b>
+          <b>{titulo}</b>
           <label className="flex items-center gap-1.5">Importe
-            <input
+            <ImporteInput
               value={importe}
               readOnly={fijo}
-              inputMode="decimal"
-              onChange={(e) => setImporte(formatearImporteAR(e.target.value))}
+              onChange={setImporte}
               className={cn(input, "w-44 text-right tabular-nums", fijo && "bg-zinc-100 dark:bg-zinc-700")}
             />
           </label>
-          <label className="flex items-center gap-1.5">Fecha
-            <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={input} />
-          </label>
           <label className="flex items-center gap-1.5">Medio
-            <select value={medio} onChange={(e) => setMedio(e.target.value as MedioPagoInterno)} className={input}>
-              {MEDIOS_PAGO_INTERNO.map((m) => <option key={m}>{m}</option>)}
+            <select value={medio} onChange={(e) => cambiarMedio(e.target.value)} className={input}>
+              {MEDIOS_PAGO_INTERNO.map((m) => <option key={m} value={m}>{m}</option>)}
+              {!editando && ops.length > 0 && (
+                <optgroup label="Usar saldo a cuenta">
+                  {ops.map((o) => (
+                    <option key={o.id} value={`op:${o.id}`}>{numeroOP(o.id)} · disponible {fmtPesos(disponibleOP(o))}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </label>
+          {!opElegida && (
+            <label className="flex items-center gap-1.5">Fecha
+              <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={input} />
+            </label>
+          )}
           {medio === "Transferencia" && (
             <label className="flex items-center gap-1.5">ID
               <input
@@ -364,12 +496,20 @@ function FormPago({ modo, saldo, origenLabel, guardando, onCancel, onConfirm }: 
             type="button" disabled={guardando} onClick={confirmar}
             className="h-8 px-3 rounded-md bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 disabled:opacity-40"
           >
-            Confirmar
+            {opElegida ? `Imputar ${numeroOP(opElegida.id)}` : "Confirmar"}
           </button>
           <button type="button" onClick={onCancel} className="h-8 px-3 rounded-md border border-zinc-300 dark:border-zinc-600">Cancelar</button>
         </div>
         <div className="mt-1.5 text-[11px] text-muted-foreground">
-          {modo.tipo === "saldar" ? "Se salda el saldo entero de lo elegido."
+          {opElegida
+            ? (fijo && disp + 0.005 < modo.importe
+              ? `No crea una OP nueva. ${numeroOP(opElegida.id)} tiene ${fmtPesos(disp)}: salda eso (lo más viejo primero) y el resto queda pendiente.`
+              : `No crea una OP nueva: se imputa el disponible de ${numeroOP(opElegida.id)} (fecha e ID son los de esa OP).`)
+            : modo.tipo === "saldar" ? "Se salda el saldo entero de lo elegido."
+            : modo.tipo === "elegidos"
+              ? (aCuentaNuevo > 0.5
+                ? `Salda todo lo elegido y ${fmtPesos(aCuentaNuevo)} quedan a cuenta, sin asociar.`
+                : "Se imputa a lo elegido, del más viejo al más nuevo; si ponés menos, el último queda parcial; si ponés más, el excedente queda a cuenta.")
             : modo.tipo === "editar" ? "Si cambiás el importe se vuelve a imputar: primero a los mismos movimientos, después a lo más viejo; lo que sobra queda a cuenta. Para deshacerla, Eliminar."
             : "Se aplica a lo más viejo primero; si es menos, el último queda parcial; si es más, queda a cuenta."}
         </div>

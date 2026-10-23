@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  aCuenta, agruparEmpleados, numeroOP, reimputar, formatearImporteAR, imputarFifo, importeAInput, normalizarReferencia, parsearImporteAR,
+  aCuenta, agruparEmpleados, contarAntesDelCursor, cursorTrasSignificativos, disponibleOP, imputarElegidos, numeroOP, reimputar, formatearImporteAR, imputarFifo, importeAInput, normalizarReferencia, parsearImporteAR,
   porMes, saldoDeuda, type DeudaConPdv, type MovimientoApertura,
 } from "./aperturas";
 
@@ -65,6 +65,54 @@ describe("sueldos agrupados por empleado dentro del mes", () => {
       .toEqual(["Lautaro Ruben Zuccala:2", "gv", "Camila Cancino:1"]);
     const l = filas[0];
     expect(l.tipo === "empleado" && [l.total, l.saldo, l.aplicado]).toEqual([318270, 282630, 35640]);
+  });
+});
+
+describe("pago sobre movimientos elegidos", () => {
+  const movs = [mov("oct", "2026-10-05", 300), mov("sep1", "2026-09-01", 100), mov("sep2", "2026-09-20", 200, 50)];
+  it("sin importe salda cada elegido por su saldo", () => {
+    expect(imputarElegidos(movs, ["sep2", "sep1"])).toEqual({
+      aplicaciones: [{ key: "sep1", importe: 100 }, { key: "sep2", importe: 150 }], sobrante: 0,
+    });
+  });
+  it("importe menor: del más viejo al más nuevo, el último parcial", () => {
+    expect(imputarElegidos(movs, ["sep1", "sep2"], 180).aplicaciones).toEqual([{ key: "sep1", importe: 100 }, { key: "sep2", importe: 80 }]);
+  });
+  it("importe mayor: el excedente queda a cuenta y no toca lo no elegido", () => {
+    const r = imputarElegidos(movs, ["sep1"], 250);
+    expect(r).toEqual({ aplicaciones: [{ key: "sep1", importe: 100 }], sobrante: 150 });
+  });
+  it("disponible de una OP", () => {
+    expect(disponibleOP({ importe: 1300000, aplicado: 1150000 })).toBe(150000);
+    expect(disponibleOP({ importe: 100, aplicado: 100 })).toBe(0);
+  });
+});
+
+describe("el cursor no salta al final al editar el importe", () => {
+  // Simula tipear: inserta en la posición y devuelve [texto formateado, cursor].
+  const tipear = (valor: string, pos: number, txt: string): [string, number] => {
+    const crudo = valor.slice(0, pos) + txt + valor.slice(pos);
+    const n = contarAntesDelCursor(crudo, pos + txt.length);
+    const f = formatearImporteAR(crudo);
+    return [f, cursorTrasSignificativos(f, n)];
+  };
+  const borrar = (valor: string, pos: number): [string, number] => {
+    const crudo = valor.slice(0, pos - 1) + valor.slice(pos);
+    const f = formatearImporteAR(crudo);
+    return [f, cursorTrasSignificativos(f, contarAntesDelCursor(crudo, pos - 1))];
+  };
+  it("cambiar un dígito del medio", () => {
+    // "$ 1.150.000": borro el 5 (cursor después del 5) y escribo 2
+    const [a, ca] = borrar("$ 1.150.000", 6);
+    expect([a, ca]).toEqual(["$ 110.000", 4]);
+    const [b, cb] = tipear(a, ca, "2");
+    expect([b, cb]).toEqual(["$ 1.120.000", 6]);
+  });
+  it("agregar un dígito al principio corre bien los puntos", () => {
+    expect(tipear("$ 150.000", 2, "1")).toEqual(["$ 1.150.000", 3]);
+  });
+  it("tipear al final sigue al final", () => {
+    expect(tipear("$ 1.000", 7, "5")).toEqual(["$ 10.005", 8]);
   });
 });
 

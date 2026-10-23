@@ -223,6 +223,10 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) return j.error ?? "No se pudo guardar. Intentá de nuevo.";
+      if (j.usada) {
+        toast.success(`${numeroOP(j.id)} imputada${j.disponible > 0.5 ? ` · le quedan ${fmtPesos(j.disponible)} disponibles` : ""}`);
+        return null;
+      }
       const op = j.id ? `${numeroOP(j.id)} registrada` : "Pago registrado";
       toast.success(j.aCuenta > 0.5 ? `${op} · ${fmtPesos(j.aCuenta)} quedan a cuenta` : op);
       return null;
