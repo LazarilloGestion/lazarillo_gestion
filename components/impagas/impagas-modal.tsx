@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { SearchInput } from "@/components/ui/search-input";
@@ -270,6 +270,31 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     }
   }
 
+  // Orden desde los títulos de columna: tocar ordena por esa columna; tocar
+  // de nuevo invierte (saldo: mayor primero; antigüedad: más viejas primero).
+  function tituloOrden(o: Orden, label: string, cls?: string) {
+    const activo = orden === o;
+    const ayuda = o === "saldo"
+      ? (activo && dir === "desc" ? "Mayor saldo primero · tocá para invertir" : activo ? "Menor saldo primero · tocá para invertir" : "Ordenar por saldo")
+      : (activo && dir === "desc" ? "Más viejas primero · tocá para invertir" : activo ? "Más nuevas primero · tocá para invertir" : "Ordenar por antigüedad");
+    return (
+      <button
+        type="button"
+        title={ayuda}
+        onClick={() => {
+          if (activo) setDir((d) => (d === "desc" ? "asc" : "desc"));
+          else { setOrden(o); setDir("desc"); }
+        }}
+        className={cn("group inline-flex w-full items-center gap-1 uppercase tracking-wide hover:text-foreground", cls, activo && "text-foreground")}
+      >
+        {label}
+        {activo
+          ? (dir === "desc" ? <ArrowDown className="w-3 h-3" /> : <ArrowUp className="w-3 h-3" />)
+          : <ArrowUpDown className="w-3 h-3 opacity-30 group-hover:opacity-70" />}
+      </button>
+    );
+  }
+
   function cuerpoImpagas() {
     type Entrada = { saldo: number; masVieja: string; nodo: React.ReactNode };
     const entradas: Entrada[] = agrupar(lista, orden, dir).map((g) => {
@@ -453,29 +478,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
 
         <div className={cn("px-5 grid grid-cols-1 gap-3 shrink-0", nCols === 4 ? "sm:grid-cols-4" : "sm:grid-cols-3")}>{tarjetas()}</div>
 
-        <div className="px-5 py-3 flex items-center gap-2 text-sm shrink-0">
-          <span className="text-muted-foreground">Ordenar por</span>
-          <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
-            {([["saldo", "Saldo"], ["antiguedad", "Antigüedad"]] as const).map(([o, label]) => (
-              <button
-                key={o}
-                type="button"
-                onClick={() => {
-                  if (orden === o) setDir((d) => (d === "desc" ? "asc" : "desc"));
-                  else { setOrden(o); setDir("desc"); }
-                }}
-                title={orden === o ? "Tocá de nuevo para invertir el orden" : undefined}
-                className={cn("h-7 px-3 inline-flex items-center gap-1", orden === o ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "text-zinc-600 dark:text-zinc-300")}
-              >
-                {label}
-                {orden === o && (dir === "desc" ? <ArrowDown className="w-3 h-3" /> : <ArrowUp className="w-3 h-3" />)}
-              </button>
-            ))}
-          </div>
-          <span className="text-xs text-muted-foreground">
-            {orden === "saldo" ? (dir === "desc" ? "mayor saldo primero" : "menor saldo primero") : (dir === "desc" ? "más viejas primero" : "más nuevas primero")}
-          </span>
-        </div>
+        <div className="h-3 shrink-0" />
 
         <div className="relative flex-1 min-h-0 border-t border-zinc-200 dark:border-zinc-700">
           <div className="h-full overflow-y-auto">
@@ -490,8 +493,8 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
                   <tr className="border-b border-zinc-200 dark:border-zinc-700 text-[11px] uppercase tracking-wide text-muted-foreground">
                     <th className="py-2 px-3 text-left font-semibold w-[46%]">{tab === "I" ? "Proveedor / comprobante" : "Proveedor / motivo"}</th>
                     <th className="py-2 px-3 text-right font-semibold hidden sm:table-cell">Total</th>
-                    <th className="py-2 px-3 text-right font-semibold">Saldo</th>
-                    <th className="py-2 px-3 text-left font-semibold">Antigüedad</th>
+                    <th className="py-2 px-3 text-right font-semibold">{tituloOrden("saldo", "Saldo", "justify-end")}</th>
+                    <th className="py-2 px-3 text-left font-semibold">{tituloOrden("antiguedad", "Antigüedad")}</th>
                     <th className="py-2 px-3 text-left font-semibold hidden sm:table-cell">Acción</th>
                   </tr>
                 </thead>
