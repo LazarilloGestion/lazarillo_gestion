@@ -173,7 +173,6 @@ export function FilasDeudaPdv(p: Props) {
             : m.aplicado > 0.5 ? <Chip cls="ml-1.5 bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(m.aplicado)}</Chip> : null}
           {chipsOP(m.ops)}
         </td>
-        <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(m.importe)}</td>
         <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(s)}</td>
         <td className="py-2 px-3"><Antiguedad fecha={m.fecha} hoy={hoy} /></td>
         <td className="py-2 px-3 hidden sm:table-cell">
@@ -199,12 +198,11 @@ export function FilasDeudaPdv(p: Props) {
             <span className="text-xs text-muted-foreground">{pendientes}</span>
             {sobrante > 0.5 && (
               <span className="rounded px-1.5 py-0.5 text-[10px] bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
-                {fmtPesos(sobrante)} a cuenta
+                {fmtPesos(sobrante)} sin imputar
               </span>
             )}
           </span>
         </td>
-        <td className="py-2.5 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(deuda.movimientos.reduce((s, m) => s + m.importe, 0))}</td>
         <td className="py-2.5 px-3 text-right font-semibold tabular-nums">{fmtPesos(p.saldo)}</td>
         <td className="py-2.5 px-3">
           {p.masVieja ? <Antiguedad fecha={p.masVieja} hoy={hoy} /> : <Chip cls="bg-emerald-50 text-emerald-700">al día</Chip>}
@@ -267,7 +265,7 @@ export function FilasDeudaPdv(p: Props) {
       {abierto && deuda.pagos.length > 0 && !buscando && (
         <>
           {[
-            { clave: `${k}OPS`, titulo: "Órdenes de pago sin imputar", lista: sinImputar, abiertaPorDefecto: true },
+            { clave: `${k}OPS`, titulo: "Órdenes con saldo sin imputar", lista: sinImputar, abiertaPorDefecto: true },
             { clave: `${k}OPI`, titulo: "Órdenes de pago imputadas", lista: imputadas, abiertaPorDefecto: false },
           ].filter((g) => g.lista.length > 0).map((g) => {
             // Las sin imputar arrancan abiertas (hay que imputarlas); las imputadas, cerradas.
@@ -276,7 +274,7 @@ export function FilasDeudaPdv(p: Props) {
             return (
               <Fragment key={g.clave}>
                 <tr onClick={() => p.toggle(g.clave)} className="bg-zinc-100 dark:bg-zinc-800 cursor-pointer hover:bg-zinc-200/60 dark:hover:bg-zinc-700/60">
-                  <td colSpan={2} className="py-1.5 pl-10 pr-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
+                  <td className="py-1.5 pl-10 pr-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
                     <span className="inline-flex items-center gap-1.5">
                       {ab ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                       {g.titulo} <span className="font-normal normal-case text-muted-foreground">· {g.lista.length}</span>
@@ -292,10 +290,9 @@ export function FilasDeudaPdv(p: Props) {
               <td className="py-2 pl-14 pr-3">
                 <b className="text-sky-700 dark:text-sky-400">{numeroOP(pg.id)}</b> · {fmtFecha(pg.fecha)} · {pg.medio}{pg.referencia ? ` · ID ${pg.referencia}` : ""}
                 <span className="text-muted-foreground">
-                  {pg.movimientos > 0 ? ` · imputado a ${pg.movimientos} movimiento${pg.movimientos === 1 ? "" : "s"}` : " · sin imputar"}
-                  {disponibleOP(pg) > 0.5 ? ` · disponible ${fmtPesos(disponibleOP(pg))}` : ""}</span>
+                  {pg.movimientos > 0 ? ` · imputada a ${pg.movimientos} movimiento${pg.movimientos === 1 ? "" : "s"}` : ""}
+                  {disponibleOP(pg) > 0.5 ? ` · sin imputar ${fmtPesos(disponibleOP(pg))}` : ""}</span>
               </td>
-              <td className="hidden sm:table-cell" />
               <td className="py-2 px-3 text-right tabular-nums">{fmtPesos(pg.importe)}</td>
               <td />
               <td className="py-2 px-3 hidden sm:table-cell">
@@ -339,7 +336,6 @@ export function FilasDeudaPdv(p: Props) {
                     : pagadoMes > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(pagadoMes)}</Chip> : null}
                 </span>
               </td>
-              <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(mes.total)}</td>
               <td className={cn("py-2 px-3 text-right tabular-nums font-semibold", cerradoMes && "line-through")}>{fmtPesos(mes.saldo)}</td>
               <td className="py-2 px-3"><Antiguedad fecha={`${mes.mes}-01`} hoy={hoy} /></td>
               <td className="py-2 px-3 hidden sm:table-cell">
@@ -399,7 +395,6 @@ export function FilasDeudaPdv(p: Props) {
                           : pagadoRub > 0.5 ? <Chip cls="bg-amber-50 text-amber-700 whitespace-nowrap">parcial · pagado {fmtPesos(pagadoRub)}</Chip> : null}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(ru.total)}</td>
                     <td className={cn("py-2 px-3 text-right tabular-nums font-semibold", cerrado && "line-through")}>{fmtPesos(ru.saldo)}</td>
                     <td className="py-2 px-3">{masVieja && <Antiguedad fecha={masVieja} hoy={hoy} />}</td>
                     <td className="py-2 px-3 hidden sm:table-cell">
@@ -429,7 +424,6 @@ export function FilasDeudaPdv(p: Props) {
                               {chipsOP([...new Set(g.movimientos.flatMap((m) => m.ops ?? []))].sort((a, b) => a - b))}
                             </span>
                           </td>
-                          <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(g.total)}</td>
                           <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(g.saldo)}</td>
                           <td className="py-2 px-3">{viejaG && <Antiguedad fecha={viejaG} hoy={hoy} />}</td>
                           <td className="py-2 px-3 hidden sm:table-cell">
@@ -674,7 +668,7 @@ function FormPago({ modo, ops, origenLabel, guardando, barra, onCancel, onConfir
   }
   return (
     <tr className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-200 dark:border-sky-900">
-      <td colSpan={5} className="py-3 px-4">{contenido}</td>
+      <td colSpan={4} className="py-3 px-4">{contenido}</td>
     </tr>
   );
 }

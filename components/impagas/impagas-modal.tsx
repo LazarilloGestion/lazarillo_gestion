@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
@@ -39,21 +39,69 @@ function guardarDesde(pdvId: number | undefined, mes: string | null) {
   try { if (mes) localStorage.setItem(desdeKey(pdvId), mes); else localStorage.removeItem(desdeKey(pdvId)); } catch { /* sin storage */ }
 }
 
-// "0026-03" → "2026-03" (año escrito con 2 dígitos); null si no queda un mes válido.
-export function completarAnio(v: string): string | null {
-  const m = /^(\d{4})-(\d{2})$/.exec(v);
-  if (!m) return null;
-  const anio = Number(m[1]);
-  const r = anio < 100 ? `${2000 + anio}-${m[2]}` : v;
-  return mesValido(r) ? r : null;
-}
-
 // Mes aaaa-mm entre 2015 y el año que viene.
 export function mesValido(v: string): boolean {
   const m = /^(\d{4})-(\d{2})$/.exec(v);
   if (!m) return false;
   const anio = Number(m[1]), mes = Number(m[2]);
   return anio >= 2015 && anio <= new Date().getFullYear() + 1 && mes >= 1 && mes <= 12;
+}
+
+// Selector de mes: año con flechas y grilla de 12 meses (más simple que el
+// calendario nativo, y sin escribir el año a mano).
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const MESES_LARGOS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+function MesPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [abierto, setAbierto] = useState(false);
+  const hoy = new Date();
+  const anioSel = Number(value.slice(0, 4)) || hoy.getFullYear();
+  const mesSel = Number(value.slice(5, 7)) || 0;
+  const [anio, setAnio] = useState(anioSel);
+  const maxAnio = hoy.getFullYear() + 1;
+  const elegir = (m: number) => { onChange(`${anio}-${String(m).padStart(2, "0")}`); setAbierto(false); };
+  return (
+    <span className="relative">
+      <button
+        type="button"
+        onClick={() => { setAnio(anioSel); setAbierto(!abierto); }}
+        className="h-8 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 text-sm text-foreground"
+      >
+        {mesSel ? `${MESES_LARGOS[mesSel - 1]} ${anioSel}` : "elegir mes"}
+        <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+      </button>
+      {abierto && (
+        <>
+          <span className="fixed inset-0 z-40" onClick={() => setAbierto(false)} />
+          <span className="absolute left-0 top-full mt-1 z-50 w-64 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-3 shadow-lg">
+            <span className="flex items-center justify-between mb-2">
+              <button type="button" disabled={anio <= 2015} onClick={() => setAnio(anio - 1)} className="h-7 w-7 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30" aria-label="Año anterior">‹</button>
+              <span className="font-semibold text-foreground">{anio}</span>
+              <button type="button" disabled={anio >= maxAnio} onClick={() => setAnio(anio + 1)} className="h-7 w-7 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30" aria-label="Año siguiente">›</button>
+            </span>
+            <span className="grid grid-cols-4 gap-1.5">
+              {MESES_CORTOS.map((m, i) => {
+                const activo = anio === anioSel && i + 1 === mesSel;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => elegir(i + 1)}
+                    className={cn("h-8 rounded-md text-sm", activo ? "bg-sky-500 text-white" : "text-foreground hover:bg-sky-50 dark:hover:bg-sky-950/40")}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </span>
+            <span className="mt-2 flex justify-between text-xs">
+              <button type="button" onClick={() => { onChange(""); setAbierto(false); }} className="text-sky-700 dark:text-sky-400 hover:underline">Por defecto</button>
+              <button type="button" onClick={() => { setAnio(hoy.getFullYear()); onChange(`${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}`); setAbierto(false); }} className="text-sky-700 dark:text-sky-400 hover:underline">Este mes</button>
+            </span>
+          </span>
+        </>
+      )}
+    </span>
+  );
 }
 
 function Tarjeta({ titulo, valor, sub, activa, onClick, apagada }: {
@@ -107,16 +155,9 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   const [orden, setOrden] = useState<Orden>("saldo");
   const [dir, setDir] = useState<Direccion>("desc");
   const [desde, setDesde] = useState<string | undefined>(() => leerDesde(pdvInicial ?? pdvs[0]?.id));
-  // Lo que está escrito en el campo; recién se aplica cuando es un mes completo y
-  // razonable (al tipear el año pasa por 0002, 0020, 0202… y antes eso disparaba
-  // la consulta con cada tecla).
-  const [mesEscrito, setMesEscrito] = useState<string | null>(null);
-  const timerMes = useRef<ReturnType<typeof setTimeout> | null>(null);
   const aplicarMes = (v: string) => {
-    if (timerMes.current) clearTimeout(timerMes.current);
     guardarDesde(pdvId, v || null);
     setDesde(v ? `${v}-01` : undefined);
-    setMesEscrito(null);
     setAbiertos(new Set());
   };
   // Barra de pago al pie del modal: el formulario de pago se dibuja ahí (portal)
@@ -208,7 +249,6 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
         )}
         {f.conceptos && <div className="text-[11px] text-muted-foreground truncate max-w-[32rem]">{f.conceptos}</div>}
       </td>
-      <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(f.total)}</td>
       <td className="py-2 px-3 text-right tabular-nums">{fmtPesos(saldo(f))}</td>
       <td className="py-2 px-3"><Antiguedad fecha={f.fecha} hoy={hoy} /></td>
       <td className="py-2 px-3 hidden sm:table-cell">{accion}</td>
@@ -227,7 +267,6 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             <span className="text-xs text-muted-foreground">{g.items.length}</span>
           </span>
         </td>
-        <td className="py-2.5 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(g.items.reduce((s, f) => s + f.total, 0))}</td>
         <td className="py-2.5 px-3 text-right font-semibold tabular-nums">{fmtPesos(g.saldo)}</td>
         <td className="py-2.5 px-3"><Antiguedad fecha={g.masVieja} hoy={hoy} /></td>
         <td className="py-2.5 px-3 hidden sm:table-cell">{accion}</td>
@@ -379,7 +418,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
       return (
         <Fragment key={m}>
           <tr className="bg-zinc-100 dark:bg-zinc-800">
-            <td colSpan={5} className="py-2 px-3 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
+            <td colSpan={4} className="py-2 px-3 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
               {MOTIVO_TITULO[m]} · {l.length} comprobante{l.length !== 1 ? "s" : ""} · {fmtPesos(sumaSaldos(l))}
             </td>
           </tr>
@@ -469,7 +508,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             value={pdvId ?? ""}
             onChange={(e) => {
               const id = Number(e.target.value);
-              setPdvId(id); setDesde(leerDesde(id)); setMesEscrito(null); setAbiertos(new Set()); setCtaCte(null);
+              setPdvId(id); setDesde(leerDesde(id)); setAbiertos(new Set()); setCtaCte(null);
             }}
             className="h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 text-sm"
           >
@@ -490,29 +529,13 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               </button>
             ))}
           </div>
-          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
             Desde
-            <input
-              type="month"
-              value={mesEscrito ?? (desde ?? data?.desde ?? "").slice(0, 7)}
-              min="2015-01"
-              onChange={(e) => {
-                const v = e.target.value;
-                setMesEscrito(v);
-                if (timerMes.current) clearTimeout(timerMes.current);
-                if (!v || mesValido(v)) { aplicarMes(v); return; }
-                // Año a medio escribir (0002, 0020…): si queda en 2 dígitos ("26"),
-                // al parar de tipear se toma como 2026.
-                const m = completarAnio(v);
-                if (m) timerMes.current = setTimeout(() => aplicarMes(m), 900);
-              }}
-              onBlur={() => {
-                const m = mesEscrito && completarAnio(mesEscrito);
-                if (m) aplicarMes(m); else setMesEscrito(null);
-              }}
-              className="h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 text-sm text-foreground"
+            <MesPicker
+              value={(desde ?? data?.desde ?? "").slice(0, 7)}
+              onChange={(v) => aplicarMes(v)}
             />
-          </label>
+          </span>
           <div className="ml-auto flex items-center gap-2">
             <SearchInput value={q} onChange={setQ} placeholder="Buscar proveedor o comprobante…" className="w-64" />
             <button type="button" onClick={onClose} aria-label="Cerrar" className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground">
@@ -536,8 +559,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10 bg-white dark:bg-zinc-900">
                   <tr className="border-b border-zinc-200 dark:border-zinc-700 text-[11px] uppercase tracking-wide text-muted-foreground">
-                    <th className="py-2 px-3 text-left font-semibold w-[46%]">{tab === "I" ? "Proveedor / comprobante" : "Proveedor / motivo"}</th>
-                    <th className="py-2 px-3 text-right font-semibold hidden sm:table-cell">Total</th>
+                    <th className="py-2 px-3 text-left font-semibold w-[58%]">{tab === "I" ? "Proveedor / comprobante" : "Proveedor / motivo"}</th>
                     <th className="py-2 px-3 text-right font-semibold">{tituloOrden("saldo", "Saldo", "justify-end")}</th>
                     <th className="py-2 px-3 text-left font-semibold">{tituloOrden("antiguedad", "Antigüedad")}</th>
                     <th className="py-2 px-3 text-left font-semibold hidden sm:table-cell">Acción</th>
