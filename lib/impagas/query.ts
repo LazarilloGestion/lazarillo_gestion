@@ -28,7 +28,7 @@ export interface ImpagaSqlRow {
   pago_automatico: boolean;
   forzada: boolean;
   conceptos: string | null;
-  pagos: { fecha: string; importe: number; medio: string | null }[] | null;
+  pagos: { fecha: string; importe: number; medio: string | null; orden: string | null }[] | null;
 }
 
 // Un comprobante = (PDV, comprobante, código de proveedor): en el 14 una
@@ -74,7 +74,8 @@ export function impagasSql(pdvId: number, desde: string): Prisma.Sql {
         JSON_AGG(JSON_BUILD_OBJECT(
           'fecha', TO_CHAR("fechaPago", 'YYYY-MM-DD'),
           'importe', importe::float8,
-          'medio', medio
+          'medio', medio,
+          'orden', orden
         ) ORDER BY "fechaPago", secuencia) AS pagos
       FROM pagos
       WHERE "puntoDeVentaId" = ${pdvId}
@@ -248,5 +249,38 @@ export function historialSql(pdvDestinoId: number, pdvOrigenId: number): Prisma.
     WHERE pi."pdvDestinoId" = ${pdvDestinoId} AND pi."pdvOrigenId" = ${pdvOrigenId}
     ORDER BY ev."creadoEn" DESC, ev.id DESC
     LIMIT 500
+  `;
+}
+
+export interface PagoMaxirestSqlRow {
+  comprobante: string | null;
+  fecha: string | null;
+  proveedor: string | null;
+  concepto: string | null;
+  total: number | null;
+  importe: number;
+  medio: string | null;
+}
+
+// Un pago de MaxiRest (informe 80) = misma orden + mismo día de pago en el PDV.
+// En MaxiRest el número de orden se reutiliza (débitos automáticos mes a mes).
+export function pagoMaxirestSql(pdvId: number, orden: string, fecha: string): Prisma.Sql {
+  return Prisma.sql`
+    SELECT comprobante, TO_CHAR(fecha, 'YYYY-MM-DD') AS fecha, proveedor, concepto,
+           total::float8 AS total, importe::float8 AS importe, medio
+    FROM pagos
+    WHERE "puntoDeVentaId" = ${pdvId} AND orden = ${orden} AND "fechaPago"::date = ${fecha}::date
+    ORDER BY fecha, comprobante, secuencia
+  `;
+}
+
+export interface FechaOrdenSqlRow { fecha: string; importe: number; comprobantes: number }
+
+export function fechasOrdenMaxirestSql(pdvId: number, orden: string): Prisma.Sql {
+  return Prisma.sql`
+    SELECT TO_CHAR("fechaPago", 'YYYY-MM-DD') AS fecha, SUM(importe)::float8 AS importe, COUNT(DISTINCT comprobante)::int AS comprobantes
+    FROM pagos
+    WHERE "puntoDeVentaId" = ${pdvId} AND orden = ${orden} AND "fechaPago" IS NOT NULL
+    GROUP BY 1 ORDER BY 1
   `;
 }

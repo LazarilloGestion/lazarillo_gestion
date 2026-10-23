@@ -3,7 +3,7 @@
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  fmtComprobante, fmtFecha, fmtPesos, saldo, sumaSaldos, type ComprobanteImpago,
+  fmtComprobante, fmtFecha, fmtPesos, saldo, sumaSaldos, type ComprobanteImpago, type PagoDet,
 } from "@/lib/impagas/clasificar";
 
 interface Props {
@@ -11,12 +11,13 @@ interface Props {
   resaltado: string;
   pdvLabel: string;
   onClose: () => void;
+  onVerPago?: (p: PagoDet) => void; // abre la OP de MaxiRest
 }
 
 // Cuenta corriente del proveedor (lectura): sus comprobantes con saldo en el PDV
 // y los pagos que el informe 80 les aplicó. Las facturas pagadas completas se
 // suman cuando se arme la cuenta corriente completa.
-export function CuentaCorrientePanel({ comprobantes, resaltado, pdvLabel, onClose }: Props) {
+export function CuentaCorrientePanel({ comprobantes, resaltado, pdvLabel, onClose, onVerPago }: Props) {
   const lista = [...comprobantes].sort((a, b) => b.fecha.localeCompare(a.fecha));
   const proveedor = lista[0]?.proveedor ?? "";
   return (
@@ -64,6 +65,11 @@ export function CuentaCorrientePanel({ comprobantes, resaltado, pdvLabel, onClos
                   ? f.pagos.map((p, i) => (
                       <div key={i} className="pl-3 text-xs text-muted-foreground tabular-nums">
                         ↳ pago {fmtFecha(p.fecha)} · {fmtPesos(p.importe)}{p.medio ? ` · ${p.medio}` : ""}
+                        {p.orden && onVerPago && (
+                          <button type="button" onClick={() => onVerPago(p)} className="ml-1.5 text-sky-700 dark:text-sky-400 hover:underline">
+                            · OP {p.orden} ›
+                          </button>
+                        )}
                       </div>
                     ))
                   : <div className="pl-3 text-xs text-muted-foreground">sin pagos registrados</div>}

@@ -17,6 +17,7 @@ import {
 import { numeroOP, saldoDeuda, saldoMov, type DeudaConPdv } from "@/lib/impagas/aperturas";
 import { FilasDeudaPdv, type BodyEditarPago, type BodyPagoInterno } from "./deuda-pdv";
 import { CuentaCorrientePanel } from "./cuenta-corriente-panel";
+import { OpMaxirestModal } from "./op-maxirest-modal";
 import { Antiguedad, Boton } from "./ui";
 
 export interface OpcionPdv { id: number; label: string }
@@ -167,6 +168,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   const [q, setQ] = useState("");
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [ctaCte, setCtaCte] = useState<{ codPro: string; resaltado: string } | null>(null);
+  const [opMx, setOpMx] = useState<{ orden: string; fecha: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
 
   const key = impagasQueryKey(pdvId, desde);
@@ -241,16 +243,22 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
           {fmtComprobante(f.comprobante)}
         </button>
         <span className="text-muted-foreground"> · {fmtFecha(f.fecha)}</span>
-        {f.pagado !== 0 && (
-          <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-            parcial · pagado {fmtPesos(f.pagado)}
-          </span>
-        )}
+        {f.pagado !== 0 && (() => {
+          const ult = [...f.pagos].reverse().find((pg) => pg.orden);
+          const cls = "ml-2 rounded px-1.5 py-0.5 text-[10px] bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300";
+          return ult ? (
+            <button type="button" title={`Ver la OP ${ult.orden} de MaxiRest`} onClick={() => setOpMx({ orden: ult.orden!, fecha: ult.fecha })}
+              className={cn(cls, "hover:ring-1 hover:ring-amber-300")}>
+              parcial · pagado {fmtPesos(f.pagado)} · OP {ult.orden} ›
+            </button>
+          ) : <span className={cls}>parcial · pagado {fmtPesos(f.pagado)}</span>;
+        })()}
         {f.forzada && (
           <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">pasada a mano</span>
         )}
         {f.conceptos && <div className="text-[11px] text-muted-foreground truncate max-w-[32rem]">{f.conceptos}</div>}
       </td>
+      <td className="py-2 px-3 text-right whitespace-nowrap tabular-nums text-muted-foreground">{fmtPesos(f.total)}</td>
       <td className="py-2 px-3 text-right whitespace-nowrap tabular-nums">{fmtPesos(saldo(f))}</td>
       <td className="py-2 px-3"><Antiguedad fecha={f.fecha} hoy={hoy} /></td>
       <td className="py-2 px-3 hidden sm:table-cell">{accion}</td>
@@ -269,6 +277,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             <span className="text-xs text-muted-foreground">{g.items.length}</span>
           </span>
         </td>
+        <td />
         <td className="py-2.5 px-3 text-right whitespace-nowrap font-semibold tabular-nums">{fmtPesos(g.saldo)}</td>
         <td className="py-2.5 px-3"><Antiguedad fecha={g.masVieja} hoy={hoy} /></td>
         <td className="py-2.5 px-3 hidden sm:table-cell">{accion}</td>
@@ -427,7 +436,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
       return (
         <Fragment key={m}>
           <tr className="bg-zinc-100 dark:bg-zinc-800">
-            <td colSpan={4} className="py-2 px-3 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
+            <td colSpan={5} className="py-2 px-3 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
               {MOTIVO_TITULO[m]} · {l.length} comprobante{l.length !== 1 ? "s" : ""} · {fmtPesos(sumaSaldos(l))}
             </td>
           </tr>
@@ -568,7 +577,8 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-10 bg-white dark:bg-zinc-900">
                   <tr className="border-b border-zinc-200 dark:border-zinc-700 text-[11px] uppercase tracking-wide text-muted-foreground">
-                    <th className="py-2 px-3 text-left font-semibold w-[52%]">{tab === "I" ? "Proveedor / comprobante" : "Proveedor / motivo"}</th>
+                    <th className="py-2 px-3 text-left font-semibold w-[48%]">{tab === "I" ? "Proveedor / comprobante" : "Proveedor / motivo"}</th>
+                    <th className="py-2 px-3 text-right font-semibold" title="Total del comprobante">Total</th>
                     <th className="py-2 px-3 text-right font-semibold">{tituloOrden("saldo", "Saldo", "justify-end")}</th>
                     <th className="py-2 px-3 text-left font-semibold">{tituloOrden("antiguedad", "Antigüedad")}</th>
                     <th className="py-2 px-3 text-left font-semibold hidden sm:table-cell">Acción</th>
@@ -585,6 +595,16 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               resaltado={ctaCte.resaltado}
               pdvLabel={pdvs.find((p) => p.id === pdvId)?.label ?? ""}
               onClose={() => setCtaCte(null)}
+              onVerPago={(pg) => pg.orden && setOpMx({ orden: pg.orden, fecha: pg.fecha })}
+            />
+          )}
+          {opMx && pdvId && (
+            <OpMaxirestModal
+              pdvId={pdvId}
+              orden={opMx.orden}
+              fecha={opMx.fecha}
+              onCambiar={(fecha) => setOpMx({ ...opMx, fecha })}
+              onCerrar={() => setOpMx(null)}
             />
           )}
         </div>

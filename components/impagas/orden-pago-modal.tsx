@@ -27,9 +27,9 @@ interface DetalleOp {
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const nombreMes = (m: string) => `${MESES[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
-const btn = "h-8 px-3 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-sm disabled:opacity-40";
+export const btn = "h-8 px-3 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-sm disabled:opacity-40";
 
-function Kpi({ titulo, valor, destacado }: { titulo: string; valor: string; destacado?: boolean }) {
+export function Kpi({ titulo, valor, destacado }: { titulo: string; valor: string; destacado?: boolean }) {
   return (
     <div className={cn("rounded-lg border px-3 py-2", destacado ? "border-sky-200 bg-sky-50 dark:border-sky-900 dark:bg-sky-950/40" : "border-zinc-200 dark:border-zinc-700")}>
       <div className="text-[11px] text-muted-foreground">{titulo}</div>

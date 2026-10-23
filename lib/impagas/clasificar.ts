@@ -15,6 +15,7 @@ export interface PagoDet {
   fecha: string; // YYYY-MM-DD
   importe: number;
   medio: string | null;
+  orden?: string | null; // número de orden de pago en MaxiRest (informe 80)
 }
 
 export interface ComprobanteImpago {

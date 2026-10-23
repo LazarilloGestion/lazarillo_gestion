@@ -176,6 +176,9 @@ export function FilasDeudaPdv(p: Props) {
             : m.aplicado > 0.5 ? <Chip cls="ml-1.5 bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(m.aplicado)}</Chip> : null}
           {chipsOP(m.ops)}
         </td>
+        <td className="py-2 px-3 text-right whitespace-nowrap tabular-nums text-muted-foreground" title="Total del comprobante (todas las partes)">
+          {m.totalCompra != null ? fmtPesos(m.totalCompra) : ""}
+        </td>
         <td title={`Parte de este PDV: ${textoParte(m, fmtPesos)}${m.aplicado > 0.5 ? ` · pagado ${fmtPesos(m.aplicado)}` : ""}`}
           className={cn("py-2 px-3 text-right whitespace-nowrap tabular-nums cursor-help", ok && "line-through")}>{fmtPesos(s)}</td>
         <td className="py-2 px-3"><Antiguedad fecha={m.fecha} hoy={hoy} /></td>
@@ -207,6 +210,7 @@ export function FilasDeudaPdv(p: Props) {
             )}
           </span>
         </td>
+        <td />
         <td className="py-2.5 px-3 text-right whitespace-nowrap font-semibold tabular-nums">{fmtPesos(p.saldo)}</td>
         <td className="py-2.5 px-3">
           {p.masVieja ? <Antiguedad fecha={p.masVieja} hoy={hoy} /> : <Chip cls="bg-emerald-50 text-emerald-700">al día</Chip>}
@@ -285,6 +289,7 @@ export function FilasDeudaPdv(p: Props) {
                       {g.titulo} <span className="font-normal normal-case text-muted-foreground">· {g.lista.length}</span>
                     </span>
                   </td>
+                  <td />
                   <td className="py-1.5 px-3 text-right whitespace-nowrap text-xs tabular-nums font-semibold">
                     {g.abiertaPorDefecto ? <span title="Disponible para imputar">{fmtPesos(total)}</span> : fmtPesos(total)}
                   </td>
@@ -300,6 +305,7 @@ export function FilasDeudaPdv(p: Props) {
                   {pg.movimientos > 0 ? ` · imputada a ${pg.movimientos} movimiento${pg.movimientos === 1 ? "" : "s"}` : ""}
                   {disponibleOP(pg) > 0.5 ? ` · sin imputar ${fmtPesos(disponibleOP(pg))}` : ""}</span>
               </td>
+              <td />
               <td className="py-2 px-3 text-right whitespace-nowrap tabular-nums">{fmtPesos(pg.importe)}</td>
               <td />
               <td className="py-2 px-3 hidden sm:table-cell text-[11px] text-muted-foreground">Ver orden ›</td>
@@ -330,6 +336,7 @@ export function FilasDeudaPdv(p: Props) {
                     : pagadoMes > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(pagadoMes)}</Chip> : null}
                 </span>
               </td>
+              <td />
               <td className={cn("py-2 px-3 text-right whitespace-nowrap tabular-nums font-semibold", cerradoMes && "line-through")}>{fmtPesos(mes.saldo)}</td>
               <td className="py-2 px-3"><Antiguedad fecha={`${mes.mes}-01`} hoy={hoy} /></td>
               <td className="py-2 px-3 hidden sm:table-cell">
@@ -389,6 +396,7 @@ export function FilasDeudaPdv(p: Props) {
                           : pagadoRub > 0.5 ? <Chip cls="bg-amber-50 text-amber-700 whitespace-nowrap">parcial · pagado {fmtPesos(pagadoRub)}</Chip> : null}
                       </span>
                     </td>
+                    <td />
                     <td className={cn("py-2 px-3 text-right whitespace-nowrap tabular-nums font-semibold", cerrado && "line-through")}>{fmtPesos(ru.saldo)}</td>
                     <td className="py-2 px-3">{masVieja && <Antiguedad fecha={masVieja} hoy={hoy} />}</td>
                     <td className="py-2 px-3 hidden sm:table-cell">
@@ -408,21 +416,25 @@ export function FilasDeudaPdv(p: Props) {
                       <Fragment key={kg}>
                         <tr onClick={() => p.toggle(kg)} className={cn("border-b border-zinc-100 dark:border-zinc-800 cursor-pointer bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/60", ok && "text-muted-foreground")}>
                           <td className="py-2 pl-16 pr-3">
-                            <span className="inline-flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-1.5">
                               {tilde(pendG, "Elegir todo el grupo")}
-                              {abG ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                              <span className="font-medium">{g.clave}</span>
-                              <span className="text-xs text-muted-foreground">{g.movimientos.length}</span>
-                              {rangoPorcentaje(g.movimientos) && (
-                                <span title="% de la regla de apertura que le toca a este PDV">
-                                  <Chip cls="bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">{rangoPorcentaje(g.movimientos)} apertura</Chip>
-                                </span>
-                              )}
+                              {abG ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />}
+                              {/* w-48 = w-52 del rubro menos la sangría extra: el chip de % queda en la misma columna que el selector */}
+                              <span className="inline-flex w-48 min-w-0 items-baseline gap-1.5">
+                                <span className="truncate font-medium" title={g.clave}>{g.clave}</span>
+                                <span className="text-xs text-muted-foreground shrink-0">{g.movimientos.length}</span>
+                              </span>
+                              <span title="% de la regla de apertura que le toca a este PDV"
+                                className={cn("inline-block w-[6.5rem] shrink-0 rounded px-1.5 py-0.5 text-[10px] whitespace-nowrap",
+                                  rangoPorcentaje(g.movimientos) && "bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300")}>
+                                {rangoPorcentaje(g.movimientos) ? `${rangoPorcentaje(g.movimientos)} apertura` : ""}
+                              </span>
                               {ok ? <Chip cls="bg-emerald-50 text-emerald-700">saldado</Chip>
                                 : g.aplicado > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(g.aplicado)}</Chip> : null}
                               {chipsOP([...new Set(g.movimientos.flatMap((m) => m.ops ?? []))].sort((a, b) => a - b))}
                             </span>
                           </td>
+                          <td />
                           <td className={cn("py-2 px-3 text-right whitespace-nowrap tabular-nums", ok && "line-through")}>{fmtPesos(g.saldo)}</td>
                           <td className="py-2 px-3">{viejaG && <Antiguedad fecha={viejaG} hoy={hoy} />}</td>
                           <td className="py-2 px-3 hidden sm:table-cell">
@@ -693,7 +705,7 @@ function FormPago({ modo, ops, origenLabel, guardando, barra, onCancel, onConfir
   }
   return (
     <tr className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-200 dark:border-sky-900">
-      <td colSpan={4} className="py-3 px-4">{contenido}</td>
+      <td colSpan={5} className="py-3 px-4">{contenido}</td>
     </tr>
   );
 }
