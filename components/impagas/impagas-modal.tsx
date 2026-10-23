@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
@@ -37,6 +37,15 @@ export function leerDesde(pdvId: number | undefined): string | undefined {
 }
 function guardarDesde(pdvId: number | undefined, mes: string | null) {
   try { if (mes) localStorage.setItem(desdeKey(pdvId), mes); else localStorage.removeItem(desdeKey(pdvId)); } catch { /* sin storage */ }
+}
+
+// "0026-03" → "2026-03" (año escrito con 2 dígitos); null si no queda un mes válido.
+export function completarAnio(v: string): string | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(v);
+  if (!m) return null;
+  const anio = Number(m[1]);
+  const r = anio < 100 ? `${2000 + anio}-${m[2]}` : v;
+  return mesValido(r) ? r : null;
 }
 
 // Mes aaaa-mm entre 2015 y el año que viene.
@@ -102,6 +111,14 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   // razonable (al tipear el año pasa por 0002, 0020, 0202… y antes eso disparaba
   // la consulta con cada tecla).
   const [mesEscrito, setMesEscrito] = useState<string | null>(null);
+  const timerMes = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aplicarMes = (v: string) => {
+    if (timerMes.current) clearTimeout(timerMes.current);
+    guardarDesde(pdvId, v || null);
+    setDesde(v ? `${v}-01` : undefined);
+    setMesEscrito(null);
+    setAbiertos(new Set());
+  };
   // Barra de pago al pie del modal: el formulario de pago se dibuja ahí (portal)
   // para no correr la tabla ni tapar lo que se está tildando.
   const [barraPago, setBarraPago] = useState<HTMLDivElement | null>(null);
@@ -210,7 +227,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             <span className="text-xs text-muted-foreground">{g.items.length}</span>
           </span>
         </td>
-        <td className="hidden sm:table-cell" />
+        <td className="py-2.5 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(g.items.reduce((s, f) => s + f.total, 0))}</td>
         <td className="py-2.5 px-3 text-right font-semibold tabular-nums">{fmtPesos(g.saldo)}</td>
         <td className="py-2.5 px-3"><Antiguedad fecha={g.masVieja} hoy={hoy} /></td>
         <td className="py-2.5 px-3 hidden sm:table-cell">{accion}</td>
@@ -243,7 +260,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
         return null;
       }
       const op = j.id ? `${numeroOP(j.id)} registrada` : "Pago registrado";
-      toast.success(j.aCuenta > 0.5 ? `${op} · ${fmtPesos(j.aCuenta)} quedan a cuenta` : op);
+      toast.success(!j.aplicado ? `${op} · sin imputar` : j.aCuenta > 0.5 ? `${op} · ${fmtPesos(j.aCuenta)} quedan sin imputar` : op);
       return null;
     } catch {
       return "No se pudo guardar. Intentá de nuevo.";
@@ -482,12 +499,17 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               onChange={(e) => {
                 const v = e.target.value;
                 setMesEscrito(v);
-                if (v && !mesValido(v)) return; // año a medio escribir
-                guardarDesde(pdvId, v || null);
-                setDesde(v ? `${v}-01` : undefined);
-                setAbiertos(new Set());
+                if (timerMes.current) clearTimeout(timerMes.current);
+                if (!v || mesValido(v)) { aplicarMes(v); return; }
+                // Año a medio escribir (0002, 0020…): si queda en 2 dígitos ("26"),
+                // al parar de tipear se toma como 2026.
+                const m = completarAnio(v);
+                if (m) timerMes.current = setTimeout(() => aplicarMes(m), 900);
               }}
-              onBlur={() => setMesEscrito(null)}
+              onBlur={() => {
+                const m = mesEscrito && completarAnio(mesEscrito);
+                if (m) aplicarMes(m); else setMesEscrito(null);
+              }}
               className="h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 text-sm text-foreground"
             />
           </label>
