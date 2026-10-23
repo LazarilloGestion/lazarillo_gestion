@@ -18,6 +18,7 @@ import { numeroOP, saldoDeuda, saldoMov, type DeudaConPdv } from "@/lib/impagas/
 import { FilasDeudaPdv, type BodyEditarPago, type BodyPagoInterno } from "./deuda-pdv";
 import { CuentaCorrientePanel } from "./cuenta-corriente-panel";
 import { OpMaxirestModal } from "./op-maxirest-modal";
+import { CtaCteModal } from "@/components/cta-cte/cta-cte-proveedor";
 import { Antiguedad, Boton } from "./ui";
 
 export interface OpcionPdv { id: number; label: string }
@@ -169,6 +170,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [ctaCte, setCtaCte] = useState<{ codPro: string; resaltado: string } | null>(null);
   const [opMx, setOpMx] = useState<{ orden: string; fecha: string } | null>(null);
+  const [ctaCteCompleta, setCtaCteCompleta] = useState<{ codPro: string; resaltado: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
 
   const key = impagasQueryKey(pdvId, desde);
@@ -596,7 +598,14 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               pdvLabel={pdvs.find((p) => p.id === pdvId)?.label ?? ""}
               onClose={() => setCtaCte(null)}
               onVerPago={(pg) => pg.orden && setOpMx({ orden: pg.orden, fecha: pg.fecha })}
+              onVerCompleta={() => {
+                const f = todas.find((x) => x.id === ctaCte.resaltado);
+                setCtaCteCompleta({ codPro: ctaCte.codPro, resaltado: f?.comprobante ?? "" });
+              }}
             />
+          )}
+          {ctaCteCompleta && pdvId && (
+            <CtaCteModal pdvId={pdvId} codPro={ctaCteCompleta.codPro} resaltado={ctaCteCompleta.resaltado} onCerrar={() => setCtaCteCompleta(null)} />
           )}
           {opMx && pdvId && (
             <OpMaxirestModal

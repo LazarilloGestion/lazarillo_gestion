@@ -37,6 +37,9 @@ interface DetalleModalShellProps<T> {
   // Clave que limpia buscador y filtros al cambiar (default: queryKey). Hace falta
   // separarla cuando el texto buscado forma parte de queryKey.
   resetKey?: unknown[];
+  // Sección debajo de la tabla con los datos ya cargados (ej. la cuenta
+  // corriente del proveedor cuando se abre un registro puntual).
+  extra?: (data: T[]) => React.ReactNode;
 }
 
 export function DetalleModalShell<T>({
@@ -57,6 +60,7 @@ export function DetalleModalShell<T>({
   periodoLabel,
   onServerQuery,
   resetKey,
+  extra,
 }: DetalleModalShellProps<T>) {
   const { sort, handleSortClick } = useSortState();
   // Portal container para popovers/selects anidados: sin esto, montan en document.body
@@ -103,6 +107,8 @@ export function DetalleModalShell<T>({
           // Detalle/Observación se comprimen con puntos suspensivos (punto 2,
           // Etapa 3) en vez de desbordar con scroll horizontal.
           "w-[calc(100vw-2rem)] sm:w-[94vw] max-w-[94vw] sm:max-w-[1600px] max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden",
+          // Con sección extra el alto queda fijo: la tabla toma lo justo y el resto es de la sección.
+          extra && "h-[85vh]",
           // Mientras se edita una fila, el combo de concepto puede necesitar desbordar
           // el modal (como ya hace el Select de rubro al portar a document.body).
           // Sin esto, overflow-hidden lo recorta contra el borde del modal.
@@ -137,7 +143,7 @@ export function DetalleModalShell<T>({
         {!isLoading && !error && count > 0 && (
           // rounded-t-xl: en edición el modal pasa a overflow-visible y deja de
           // recortar sus esquinas; el fondo del thead sticky asomaría cuadrado.
-          <div className={cn("overflow-y-auto overflow-x-hidden flex-1 min-h-0", filtered.length > 1 && "pb-2")}>
+          <div className={cn("overflow-y-auto overflow-x-hidden min-h-0", extra ? "flex-none max-h-[40%]" : "flex-1", filtered.length > 1 && "pb-2")}>
             <table className="text-xs w-full table-fixed">
               <thead className="sticky top-0 z-10 bg-popover">
                 <tr className="border-b border-border/60">
@@ -158,6 +164,10 @@ export function DetalleModalShell<T>({
               </tbody>
             </table>
           </div>
+        )}
+
+        {extra && !isLoading && !error && rawData && (
+          <div className="flex-1 min-h-0 border-t-4 border-zinc-100 dark:border-zinc-800 flex flex-col">{extra(rawData)}</div>
         )}
 
         {saveError && (

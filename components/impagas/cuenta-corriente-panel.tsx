@@ -12,12 +12,13 @@ interface Props {
   pdvLabel: string;
   onClose: () => void;
   onVerPago?: (p: PagoDet) => void; // abre la OP de MaxiRest
+  onVerCompleta?: () => void;        // cuenta corriente completa (pagas incluidas)
 }
 
 // Cuenta corriente del proveedor (lectura): sus comprobantes con saldo en el PDV
 // y los pagos que el informe 80 les aplicó. Las facturas pagadas completas se
 // suman cuando se arme la cuenta corriente completa.
-export function CuentaCorrientePanel({ comprobantes, resaltado, pdvLabel, onClose, onVerPago }: Props) {
+export function CuentaCorrientePanel({ comprobantes, resaltado, pdvLabel, onClose, onVerPago, onVerCompleta }: Props) {
   const lista = [...comprobantes].sort((a, b) => b.fecha.localeCompare(a.fecha));
   const proveedor = lista[0]?.proveedor ?? "";
   return (
@@ -28,6 +29,11 @@ export function CuentaCorrientePanel({ comprobantes, resaltado, pdvLabel, onClos
       >
         <div className="px-4 py-3 flex items-center justify-between border-b border-zinc-200 dark:border-zinc-700">
           <div className="font-semibold">Cuenta corriente · {proveedor}</div>
+          {onVerCompleta && (
+            <button type="button" onClick={onVerCompleta} className="ml-auto mr-3 text-xs text-sky-700 dark:text-sky-400 hover:underline">
+              Ver completa ›
+            </button>
+          )}
           <button type="button" onClick={onClose} aria-label="Cerrar cuenta corriente" className="text-muted-foreground hover:text-foreground">
             <X className="w-4 h-4" />
           </button>
