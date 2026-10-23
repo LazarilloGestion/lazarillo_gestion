@@ -4,43 +4,37 @@ import { requireAuth } from "@/lib/auth/require-auth";
 import { impagasDesde } from "@/lib/impagas/query";
 import { estadoPago } from "@/lib/cta-cte/estado";
 import {
-  facturasCtaCteSql, pdvsDelProveedorSql, proveedorCtaCteSql,
-  type FacturaCtaCteRow, type PdvConComprasRow, type ProveedorCtaCteRow,
+  facturasCtaCteSql, proveedorCtaCteSql, type FacturaCtaCteRow, type ProveedorCtaCteRow,
 } from "@/lib/cta-cte/query";
 
 export const dynamic = "force-dynamic";
 
-// GET ?pdvId&codPro: cuenta corriente del proveedor en un PDV (solo lectura).
-// Todas sus facturas del 14 (pagas incluidas) con los pagos del informe 80.
+// GET ?codPro: cuenta corriente del proveedor (solo lectura). Todas sus
+// facturas del 14 en todos los PDV (pagas incluidas) con los pagos del 80.
 export async function GET(request: NextRequest) {
   const denied = await requireAuth();
   if (denied) return denied;
-  const sp = request.nextUrl.searchParams;
-  const pdvId = Number(sp.get("pdvId"));
-  const codPro = (sp.get("codPro") ?? "").trim();
-  if (!Number.isInteger(pdvId) || pdvId <= 0 || !codPro || codPro.length > 40) {
-    return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
-  }
+  const codPro = (request.nextUrl.searchParams.get("codPro") ?? "").trim();
+  if (!codPro || codPro.length > 40) return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
   try {
-    const [facturas, prov, pdvs] = await Promise.all([
-      prisma.$queryRaw<FacturaCtaCteRow[]>(facturasCtaCteSql(pdvId, codPro)),
-      prisma.$queryRaw<ProveedorCtaCteRow[]>(proveedorCtaCteSql(codPro, pdvId)),
-      prisma.$queryRaw<PdvConComprasRow[]>(pdvsDelProveedorSql(codPro)),
+    const [facturas, prov] = await Promise.all([
+      prisma.$queryRaw<FacturaCtaCteRow[]>(facturasCtaCteSql(codPro)),
+      prisma.$queryRaw<ProveedorCtaCteRow[]>(proveedorCtaCteSql(codPro)),
     ]);
     const p = prov[0];
     const desde = impagasDesde(null, process.env.IMPAGAS_DESDE);
     return NextResponse.json({
       codPro,
-      pdvId,
       proveedor: p?.nombre?.trim() || `Proveedor ${codPro}`,
       razon: p?.razon ?? null,
       cuit: p?.cuit ?? null,
       pagoAutomatico: !!p?.pago_automatico,
       desdeCobertura: desde,
-      pdvs: pdvs.map((r) => ({ id: r.id, label: `${r.local} · ${r.pdv}`, facturas: Number(r.facturas) })),
       facturas: facturas.map((f) => {
         const total = Number(f.total), pagado = Number(f.pagado);
         return {
+          pdvId: Number(f.pdv_id),
+          pdv: f.pdv,
           comprobante: f.comprobante,
           fecha: f.fecha ?? "",
           total, pagado,

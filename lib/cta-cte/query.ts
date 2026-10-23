@@ -7,6 +7,8 @@ import { claveComprobante, estadoPago, type EstadoPago } from "./estado";
 // (14 cruzado con el informe 80). No importar desde componentes cliente.
 
 export interface FacturaCtaCteRow {
+  pdv_id: number;
+  pdv: string;             // "Ramos Mejía · Bar"
   comprobante: string;
   fecha: string | null;
   total: number;
@@ -17,11 +19,13 @@ export interface FacturaCtaCteRow {
   pagos: { fecha: string; importe: number; medio: string | null; orden: string | null }[] | null;
 }
 
-// Todas las facturas del proveedor en el PDV (pagas incluidas), una por comprobante.
-export function facturasCtaCteSql(pdvId: number, codPro: string): Prisma.Sql {
+// Todas las facturas del proveedor en TODOS los PDV (pagas incluidas), una por
+// PDV + comprobante, con los pagos del informe 80.
+export function facturasCtaCteSql(codPro: string): Prisma.Sql {
   return Prisma.sql`
     WITH f AS (
       SELECT
+        c."puntoDeVentaId"                                             AS pdv_id,
         c.comprobante,
         TO_CHAR(MIN(COALESCE(c."fechaManual", c.fecha)), 'YYYY-MM-DD') AS fecha,
         SUM(COALESCE(c."importeManual", c.importe))                   AS total14,
@@ -29,11 +33,12 @@ export function facturasCtaCteSql(pdvId: number, codPro: string): Prisma.Sql {
         MIN(c."rowId")                                                 AS row_id
       FROM compras c
       LEFT JOIN conceptos_caja cc ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
-      WHERE c."puntoDeVentaId" = ${pdvId} AND c.codigo = ${codPro} AND c.comprobante IS NOT NULL
-      GROUP BY c.comprobante
+      WHERE c.codigo = ${codPro} AND c.comprobante IS NOT NULL AND c."puntoDeVentaId" IS NOT NULL
+      GROUP BY c."puntoDeVentaId", c.comprobante
     ),
     pg AS (
       SELECT
+        "puntoDeVentaId" AS pdv_id,
         comprobante,
         TO_CHAR(MIN(fecha), 'YYYY-MM-DD') AS fecha80,
         SUM(importe) AS pagado,
@@ -42,10 +47,12 @@ export function facturasCtaCteSql(pdvId: number, codPro: string): Prisma.Sql {
           'fecha', TO_CHAR("fechaPago", 'YYYY-MM-DD'), 'importe', importe::float8, 'medio', medio, 'orden', orden
         ) ORDER BY "fechaPago", secuencia) AS pagos
       FROM pagos
-      WHERE "puntoDeVentaId" = ${pdvId} AND "codPro" = ${codPro} AND comprobante IS NOT NULL
-      GROUP BY comprobante
+      WHERE "codPro" = ${codPro} AND comprobante IS NOT NULL AND "puntoDeVentaId" IS NOT NULL
+      GROUP BY "puntoDeVentaId", comprobante
     )
     SELECT
+      COALESCE(f.pdv_id, pg.pdv_id)                        AS pdv_id,
+      CONCAT(l.nombre, ' · ', pdv.nombre)                  AS pdv,
       COALESCE(f.comprobante, pg.comprobante)              AS comprobante,
       COALESCE(f.fecha, pg.fecha80)                        AS fecha,
       COALESCE(pg.total80, f.total14, 0)::float8           AS total,
@@ -55,33 +62,37 @@ export function facturasCtaCteSql(pdvId: number, codPro: string): Prisma.Sql {
       (f.comprobante IS NULL)                              AS "solo80",
       pg.pagos
     FROM f
-    FULL OUTER JOIN pg ON pg.comprobante = f.comprobante
-    ORDER BY 2 DESC NULLS LAST, 1 DESC
+    FULL OUTER JOIN pg ON pg.comprobante = f.comprobante AND pg.pdv_id = f.pdv_id
+    JOIN puntos_de_venta pdv ON pdv.id = COALESCE(f.pdv_id, pg.pdv_id)
+    JOIN locales l           ON l.id = pdv."localId"
+    ORDER BY 4 DESC NULLS LAST, 3 DESC
   `;
 }
 
 export interface ProveedorCtaCteRow { nombre: string | null; razon: string | null; cuit: string | null; pago_automatico: boolean | null }
 
-export function proveedorCtaCteSql(codPro: string, pdvId: number): Prisma.Sql {
+export function proveedorCtaCteSql(codPro: string): Prisma.Sql {
   return Prisma.sql`
-    SELECT COALESCE(p.nombre, (SELECT MAX(c.proveedor) FROM compras c WHERE c.codigo = ${codPro} AND c."puntoDeVentaId" = ${pdvId})) AS nombre,
+    SELECT COALESCE(p.nombre, (SELECT MAX(c.proveedor) FROM compras c WHERE c.codigo = ${codPro})) AS nombre,
            p.razon, p.cuit, p."pagoAutomatico" AS pago_automatico
     FROM (SELECT 1) x LEFT JOIN proveedores p ON p.codigo = ${codPro}
   `;
 }
 
-export interface PdvConComprasRow { id: number; local: string; pdv: string; facturas: number }
+export interface ProveedorBusquedaRow { cod_pro: string; nombre: string | null; facturas: number }
 
-// PDV donde el proveedor tiene comprobantes (para cambiar de PDV en el modal).
-export function pdvsDelProveedorSql(codPro: string): Prisma.Sql {
+// Buscador de proveedor del modal: los que tienen comprobantes, por nombre o código.
+export function buscarProveedoresSql(q: string): Prisma.Sql {
+  const patron = `%${q.toLowerCase().replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
   return Prisma.sql`
-    SELECT pdv.id, l.nombre AS local, pdv.nombre AS pdv, COUNT(DISTINCT c.comprobante)::int AS facturas
+    SELECT c.codigo AS cod_pro, COALESCE(MAX(p.nombre), MAX(c.proveedor)) AS nombre, COUNT(DISTINCT c.comprobante)::int AS facturas
     FROM compras c
-    JOIN puntos_de_venta pdv ON pdv.id = c."puntoDeVentaId"
-    JOIN locales l           ON l.id = pdv."localId"
-    WHERE c.codigo = ${codPro} AND c.comprobante IS NOT NULL
-    GROUP BY pdv.id, l.nombre, pdv.nombre
-    ORDER BY l.nombre, pdv.nombre
+    LEFT JOIN proveedores p ON p.codigo = c.codigo
+    WHERE c.codigo IS NOT NULL AND c.comprobante IS NOT NULL
+    GROUP BY c.codigo
+    HAVING ${q ? Prisma.sql`lower(COALESCE(MAX(p.nombre), MAX(c.proveedor), '')) LIKE ${patron} OR c.codigo = ${q}` : Prisma.sql`TRUE`}
+    ORDER BY 3 DESC
+    LIMIT 12
   `;
 }
 

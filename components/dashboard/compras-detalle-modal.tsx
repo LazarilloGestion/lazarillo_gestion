@@ -388,11 +388,12 @@ function ComprasRow({
         {fmtARS(effectiveImporte != null ? Number(effectiveImporte) : null)}
         {/* Semáforo a la DERECHA del importe (así los importes no se desalinean):
             siempre ocupa su lugar, aunque la fila no tenga estado. */}
-        {item.estadoPago && onOpenCtaCte ? (
+        {item.estadoPago ? (
           <button
             type="button"
-            onClick={() => onOpenCtaCte(item)}
-            title={`${ETIQUETA_ESTADO[item.estadoPago.estado]}${item.estadoPago.pagado ? ` · pagado ${fmtARS(item.estadoPago.pagado)} de ${fmtARS(item.estadoPago.total)}` : ""} · ver cuenta corriente`}
+            disabled={!onOpenCtaCte}
+            onClick={() => onOpenCtaCte?.(item)}
+            title={`${ETIQUETA_ESTADO[item.estadoPago.estado]}${item.estadoPago.pagado ? ` · pagado ${fmtARS(item.estadoPago.pagado)} de ${fmtARS(item.estadoPago.total)}` : ""}${onOpenCtaCte ? " · ver cuenta corriente" : ""}`}
             aria-label={`Estado: ${ETIQUETA_ESTADO[item.estadoPago.estado]}`}
             className="ml-1.5 inline-flex h-4 w-3 items-center justify-center align-middle"
           >
@@ -468,10 +469,10 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   // recálculo de apertura (compra distribuida o concepto nuevo con regla
   // activa) y se le pide OK antes de mandar el PATCH.
   const [pendienteConfirmacion, setPendienteConfirmacion] = useState<EditState | null>(null);
-  const [ctaCte, setCtaCte] = useState<{ pdvId: number; codPro: string; resaltado: string | null } | null>(null);
+  const [ctaCte, setCtaCte] = useState<{ codPro: string; resaltado: { pdvId: number; comprobante: string } | null } | null>(null);
   const abrirCtaCte = useCallback((item: CompraDetalle) => {
     if (item.pdvCompraId != null && item.codigoProveedor) {
-      setCtaCte({ pdvId: item.pdvCompraId, codPro: item.codigoProveedor, resaltado: item.comprobante ?? null });
+      setCtaCte({ codPro: item.codigoProveedor, resaltado: item.comprobante ? { pdvId: item.pdvCompraId, comprobante: item.comprobante } : null });
     }
   }, []);
   const [apertura, setApertura] = useState<{
@@ -677,7 +678,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         extra={filter?.rowId ? (rows) => {
           const r = rows[0];
           return r?.pdvCompraId != null && r.codigoProveedor
-            ? <CtaCteContenido key={`${r.pdvCompraId}-${r.codigoProveedor}`} pdvId={r.pdvCompraId} codPro={r.codigoProveedor} resaltado={r.comprobante ?? null} />
+            ? <CtaCteContenido key={r.codigoProveedor} codPro={r.codigoProveedor} resaltado={r.comprobante ? { pdvId: r.pdvCompraId, comprobante: r.comprobante } : null} />
             : <p className="py-8 text-center text-sm text-muted-foreground">Este gasto no tiene proveedor: no hay cuenta corriente para mostrar.</p>;
         } : undefined}
         renderRow={(item, portalContainer) => (
@@ -715,7 +716,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         )}
       />
       {ctaCte && (
-        <CtaCteModal pdvId={ctaCte.pdvId} codPro={ctaCte.codPro} resaltado={ctaCte.resaltado} onCerrar={() => setCtaCte(null)} />
+        <CtaCteModal codPro={ctaCte.codPro} resaltado={ctaCte.resaltado} onCerrar={() => setCtaCte(null)} />
       )}
       <CompraLineasModal
         compraId={selectedLineas?.rowId ?? null}
