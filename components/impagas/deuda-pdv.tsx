@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   MEDIOS_PAGO_INTERNO, aCuenta, contarAntesDelCursor, cursorTrasSignificativos, disponibleOP,
   formatearImporteAR, importeAInput, normalizarReferencia, parsearImporteAR,
-  ETIQUETA_MODO, MODOS_RUBRO, numeroOP, porMes, porRubro, saldoMov, type ModoRubro,
+  ETIQUETA_MODO, MODOS_RUBRO, numeroOP, porMes, porRubro, rangoPorcentaje, saldoMov, textoParte, type ModoRubro,
   type DeudaConPdv, type MedioPagoInterno, type MovimientoApertura, type PagoInterno,
 } from "@/lib/impagas/aperturas";
 import { dias, fmtComprobante, fmtFecha, fmtPesos, normalizarBusqueda } from "@/lib/impagas/clasificar";
@@ -171,12 +171,13 @@ export function FilasDeudaPdv(p: Props) {
           <span className="text-sky-700 dark:text-sky-400 tabular-nums">{m.comprobante ? fmtComprobante(m.comprobante) : "sin comprobante"}</span>
           <span className="text-muted-foreground"> · {fmtFecha(m.fecha)} · </span>
           <span className="font-medium">{grupoEsConcepto ? m.proveedor : m.concepto || "—"}</span>
-          <Chip cls="ml-1.5 bg-zinc-100 text-zinc-600">{Math.round(m.porcentaje)}%</Chip>
+          <span title={`Parte de este PDV: ${textoParte(m, fmtPesos)}`}><Chip cls="ml-1.5 bg-zinc-100 text-zinc-600">{rangoPorcentaje([m])}</Chip></span>
           {ok ? <Chip cls="ml-1.5 bg-emerald-50 text-emerald-700">saldado</Chip>
             : m.aplicado > 0.5 ? <Chip cls="ml-1.5 bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(m.aplicado)}</Chip> : null}
           {chipsOP(m.ops)}
         </td>
-        <td className={cn("py-2 px-3 text-right whitespace-nowrap tabular-nums", ok && "line-through")}>{fmtPesos(s)}</td>
+        <td title={`Parte de este PDV: ${textoParte(m, fmtPesos)}${m.aplicado > 0.5 ? ` · pagado ${fmtPesos(m.aplicado)}` : ""}`}
+          className={cn("py-2 px-3 text-right whitespace-nowrap tabular-nums cursor-help", ok && "line-through")}>{fmtPesos(s)}</td>
         <td className="py-2 px-3"><Antiguedad fecha={m.fecha} hoy={hoy} /></td>
         <td className="py-2 px-3 hidden sm:table-cell">
           {!ok && !haySel && (
@@ -412,6 +413,11 @@ export function FilasDeudaPdv(p: Props) {
                               {abG ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
                               <span className="font-medium">{g.clave}</span>
                               <span className="text-xs text-muted-foreground">{g.movimientos.length}</span>
+                              {rangoPorcentaje(g.movimientos) && (
+                                <span title="% de la regla de apertura que le toca a este PDV">
+                                  <Chip cls="bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">{rangoPorcentaje(g.movimientos)} apertura</Chip>
+                                </span>
+                              )}
                               {ok ? <Chip cls="bg-emerald-50 text-emerald-700">saldado</Chip>
                                 : g.aplicado > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(g.aplicado)}</Chip> : null}
                               {chipsOP([...new Set(g.movimientos.flatMap((m) => m.ops ?? []))].sort((a, b) => a - b))}
@@ -439,7 +445,8 @@ export function FilasDeudaPdv(p: Props) {
       {opVer !== null && (
         <OrdenPagoModal
           pagoId={opVer}
-          ids={deuda.pagos.map((pg) => pg.id)}
+          pdvOrigenId={deuda.pdvOrigenId}
+          pdvDestinoId={p.pdvDestinoId}
           destino={origenLabel}
           onCambiar={setOpVer}
           onCerrar={() => setOpVer(null)}

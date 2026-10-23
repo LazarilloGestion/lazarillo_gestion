@@ -17,9 +17,12 @@ interface AplicacionOp {
   key: string; fecha: string; comprobante: string | null; proveedor: string; concepto: string; importe: number;
 }
 interface DetalleOp {
-  id: number; fecha: string; importe: number; medio: string; referencia: string | null;
-  creadoPor: string | null; creadoEn: string; anulada: boolean; aplicado: number; disponible: number;
-  aplicaciones: AplicacionOp[];
+  id: number; pdvOrigenId: number; pdvDestinoId: number;
+  fecha: string; importe: number; medio: string; referencia: string | null;
+  creadoPor: string | null; creadoEn: string; anulada: boolean; anuladaEn: string | null;
+  aplicado: number; disponible: number; aplicaciones: AplicacionOp[];
+  anteriorId: number | null; siguienteId: number | null; // mismo par de PDV, anuladas incluidas
+
 }
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -35,9 +38,53 @@ function Kpi({ titulo, valor, destacado }: { titulo: string; valor: string; dest
   );
 }
 
-export function OrdenPagoModal({ pagoId, ids, destino, onCambiar, onCerrar, onEditar, onAnular }: {
+// Número de OP tipeable en el título: Enter salta a esa orden (si es de este par de PDV).
+function NumeroOP({ pagoId, pdvOrigenId, pdvDestinoId, onIr, error, setError }: {
+  pagoId: number; pdvOrigenId: number; pdvDestinoId: number; onIr: (id: number) => void;
+  error: string | null; setError: (e: string | null) => void;
+}) {
+  const qc = useQueryClient();
+  const actual = String(pagoId).padStart(4, "0");
+  const [txt, setTxt] = useState(actual);
+  const [base, setBase] = useState(pagoId);
+  const [buscando, setBuscando] = useState(false);
+  if (base !== pagoId) { setBase(pagoId); setTxt(actual); }
+
+  async function ir() {
+    const n = Number(txt.replace(/\D/g, ""));
+    if (!n || n === pagoId) { setTxt(actual); setError(null); return; }
+    setBuscando(true);
+    try {
+      const res = await fetch(`/api/impagas/pagos-internos/${n}`);
+      const j = res.ok ? ((await res.json()) as DetalleOp) : null;
+      if (!j) { setError(`No existe la ${numeroOP(n)}`); return; }
+      if (j.pdvOrigenId !== pdvOrigenId || j.pdvDestinoId !== pdvDestinoId) { setError(`La ${numeroOP(n)} es de otro PDV`); return; }
+      qc.setQueryData(["impagas-op", n], j);
+      setError(null);
+      onIr(n);
+    } finally { setBuscando(false); }
+  }
+
+  return (
+    <span className="inline-flex items-baseline text-sky-700 dark:text-sky-400">
+      OP&nbsp;
+      <input
+        value={txt} inputMode="numeric" aria-label="Ir a la orden número" title="Escribí un número y Enter para ir a esa orden"
+        onChange={(e) => { setTxt(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(null); }}
+        onFocus={(e) => e.target.select()}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void ir(); } }}
+        onBlur={() => { if (!buscando && !error) setTxt(actual); }}
+        className={cn("w-[4.2ch] bg-transparent tabular-nums outline-none border-b border-dashed border-sky-300 focus:border-sky-600 focus:border-solid",
+          error && "border-red-500 text-red-600")}
+      />
+    </span>
+  );
+}
+
+export function OrdenPagoModal({ pagoId, pdvOrigenId, pdvDestinoId, destino, onCambiar, onCerrar, onEditar, onAnular }: {
   pagoId: number;
-  ids: number[];             // órdenes vigentes, para Anterior / Siguiente
+  pdvOrigenId: number;       // par de PDV: Anterior / Siguiente y el salto por número quedan dentro
+  pdvDestinoId: number;
   destino: string;           // "Ramos Mejía · Bar"
   onCambiar: (id: number) => void;
   onCerrar: () => void;
@@ -48,7 +95,10 @@ export function OrdenPagoModal({ pagoId, ids, destino, onCambiar, onCerrar, onEd
   const { data, isLoading } = useFetchQuery<DetalleOp>(["impagas-op", pagoId], `/api/impagas/pagos-internos/${pagoId}`, { staleTime: 0 });
   const [ocupado, setOcupado] = useState(false);
   const [confirmarAnular, setConfirmarAnular] = useState(false);
-  const pos = ids.indexOf(pagoId);
+  const [errorNumero, setErrorNumero] = useState<string | null>(null);
+  const anteriorId = data?.id === pagoId ? data.anteriorId : null;
+  const siguienteId = data?.id === pagoId ? data.siguienteId : null;
+  const cambiar = (id: number | null) => { if (id) { setConfirmarAnular(false); setErrorNumero(null); onCambiar(id); } };
 
   async function quitar(keys?: string[]) {
     setOcupado(true);
@@ -77,31 +127,32 @@ export function OrdenPagoModal({ pagoId, ids, destino, onCambiar, onCerrar, onEd
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onCerrar(); }}>
-      <DialogContent showCloseButton className="w-[calc(100vw-2rem)] sm:max-w-[900px] max-h-[86vh] flex flex-col gap-0 p-0 overflow-hidden">
-        <div className="px-5 pt-4 pb-3 border-b border-zinc-200 dark:border-zinc-700">
+      <DialogContent showCloseButton className="w-[calc(100vw-2rem)] sm:max-w-[900px] h-[min(86vh,720px)] flex flex-col gap-0 p-0 overflow-hidden">
+        <div className="px-5 pt-4 pb-3 border-b border-zinc-200 dark:border-zinc-700 shrink-0">
           <DialogTitle className="text-lg">
-            <span className="text-sky-700 dark:text-sky-400">{numeroOP(pagoId)}</span> · Pago a {destino}
+            <NumeroOP pagoId={pagoId} pdvOrigenId={pdvOrigenId} pdvDestinoId={pdvDestinoId} onIr={cambiar} error={errorNumero} setError={setErrorNumero} /> · Pago a {destino}
             {data?.anulada && <span className="ml-2 rounded px-1.5 py-0.5 text-xs bg-red-50 text-red-700">anulada</span>}
           </DialogTitle>
-          {data && (
-            <div className="text-xs text-muted-foreground mt-0.5">
+          <div className="text-xs text-muted-foreground mt-0.5 h-4">
+            {errorNumero ? <span className="text-red-600">{errorNumero} · escribí otro número</span> : data && data.id === pagoId && <>
               Cargada el {fmtFecha(data.creadoEn.slice(0, 10))}{data.creadoPor ? ` por ${data.creadoPor}` : ""}
-            </div>
-          )}
+              {data.anuladaEn && <span className="text-red-600"> · anulada el {fmtFecha(data.anuladaEn.slice(0, 10))}</span>}
+            </>}
+          </div>
         </div>
 
         {isLoading || !data ? (
-          <div className="py-12 flex justify-center"><Spinner size="lg" /></div>
+          <div className="flex-1 flex items-center justify-center"><Spinner size="lg" /></div>
         ) : (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 px-5 py-3 border-b border-zinc-200 dark:border-zinc-700">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 px-5 py-3 border-b border-zinc-200 dark:border-zinc-700 shrink-0">
               <Kpi titulo="Fecha de pago" valor={fmtFecha(data.fecha)} />
               <Kpi titulo="Total pagado" valor={fmtPesos(data.importe)} />
               <Kpi titulo={`Imputado · ${data.aplicaciones.length} mov.`} valor={fmtPesos(data.aplicado)} />
-              <Kpi titulo="Sin imputar" valor={fmtPesos(data.disponible)} destacado={data.disponible > 0.5} />
+              <Kpi titulo="Sin imputar" valor={data.anulada ? "—" : fmtPesos(data.disponible)} destacado={!data.anulada && data.disponible > 0.5} />
             </div>
 
-            <div className="grid sm:grid-cols-[1.6fr_1fr] flex-1 min-h-0 overflow-y-auto">
+            <div className={cn("grid sm:grid-cols-[1.6fr_1fr] content-start flex-1 min-h-0 overflow-y-auto", data.anulada && "opacity-60")}>
               <div className="px-5 py-3">
                 <div className="flex items-center mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Imputado a
@@ -113,7 +164,9 @@ export function OrdenPagoModal({ pagoId, ids, destino, onCambiar, onCerrar, onEd
                 </div>
                 {data.aplicaciones.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-2">
-                    Sin imputar. Para imputarla, tildá movimientos en la lista y elegí {numeroOP(pagoId)} como medio de pago.
+                    {data.anulada
+                      ? "Orden anulada: sus imputaciones se quitaron y esos movimientos volvieron a quedar impagos."
+                      : `Sin imputar. Para imputarla, tildá movimientos en la lista y elegí ${numeroOP(pagoId)} como medio de pago.`}
                   </p>
                 ) : (
                   <table className="w-full text-[13px]">
@@ -162,9 +215,9 @@ export function OrdenPagoModal({ pagoId, ids, destino, onCambiar, onCerrar, onEd
           </>
         )}
 
-        <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/60">
-          <button type="button" className={btn} disabled={pos <= 0} onClick={() => onCambiar(ids[pos - 1])}>‹ Anterior</button>
-          <button type="button" className={btn} disabled={pos < 0 || pos >= ids.length - 1} onClick={() => onCambiar(ids[pos + 1])}>Siguiente ›</button>
+        <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/60 shrink-0">
+          <button type="button" className={btn} disabled={!anteriorId} onClick={() => cambiar(anteriorId)}>‹ Anterior</button>
+          <button type="button" className={btn} disabled={!siguienteId} onClick={() => cambiar(siguienteId)}>Siguiente ›</button>
           <span className="ml-auto" />
           {data && !data.anulada && (confirmarAnular ? (
             <span className="inline-flex items-center gap-2 text-sm">
@@ -227,8 +280,8 @@ export function HistorialPagosModal({ pdvDestinoId, pdvOrigenId, origen, onVerOp
                 {data.eventos.map((e) => {
                   const t = TIPO[e.tipo] ?? { label: e.tipo, cls: "bg-zinc-100 text-zinc-600" };
                   return (
-                    <tr key={e.id} className={cn("border-b border-zinc-100 dark:border-zinc-800", !e.anulada && "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50")}
-                      onClick={() => { if (!e.anulada) onVerOp(e.pagoId); }}>
+                    <tr key={e.id} className="border-b border-zinc-100 dark:border-zinc-800 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                      onClick={() => onVerOp(e.pagoId)}>
                       <td className="py-2 pr-3 text-muted-foreground tabular-nums whitespace-nowrap">{e.cuando}</td>
                       <td className="py-2 pr-3 whitespace-nowrap"><span className={cn("rounded px-1.5 py-0.5 text-[11px] font-semibold", t.cls)}>{t.label}</span></td>
                       <td className={cn("py-2 pr-3", e.anulada && "line-through text-muted-foreground")}>
@@ -250,4 +303,3 @@ export function HistorialPagosModal({ pdvDestinoId, pdvOrigenId, origen, onVerOp
     </Dialog>
   );
 }
-

@@ -17,6 +17,7 @@ export interface MovimientoApertura {
   concepto: string;
   porcentaje: number;
   importe: number;        // parte del destino
+  totalCompra?: number;   // total del comprobante (todas las partes)
   aplicado: number;       // pagos al origen imputados a este movimiento
   esEmpleado?: boolean;   // sueldo / adelanto de un empleado (nombre completo desde la nómina)
   rubro?: string;         // rubro del concepto de caja (Gastos En Personal, Mercaderias…)
@@ -255,3 +256,20 @@ export function cursorTrasSignificativos(formateado: string, n: number): number 
 
 export const importeAInput = (n: number) =>
   formatearImporteAR(redondear(n).toFixed(2).replace(".", ",").replace(/,00$/, ""));
+
+// % de la regla de apertura de un grupo: "15%" si todos iguales, "10–15%" si varía.
+export function rangoPorcentaje(movs: Pick<MovimientoApertura, "porcentaje">[]): string | null {
+  const ps = movs.map((m) => m.porcentaje).filter((p) => Number.isFinite(p) && p > 0);
+  if (!ps.length) return null;
+  const fmt = (n: number) => `${Math.round(n * 10) / 10}`.replace(".", ",");
+  const min = Math.min(...ps), max = Math.max(...ps);
+  return Math.abs(max - min) < 0.05 ? `${fmt(min)}%` : `${fmt(min)}–${fmt(max)}%`;
+}
+
+// Tooltip del importe de un movimiento: la parte de este PDV sobre el total.
+export function textoParte(m: Pick<MovimientoApertura, "importe" | "totalCompra" | "porcentaje">, fmt: (n: number) => string): string {
+  const pct = `${Math.round(m.porcentaje * 10) / 10}`.replace(".", ",");
+  return m.totalCompra && Math.abs(m.totalCompra) > 0.5
+    ? `${fmt(m.importe)} de ${fmt(m.totalCompra)} (${pct}%)`
+    : `${fmt(m.importe)} (${pct}%)`;
+}
