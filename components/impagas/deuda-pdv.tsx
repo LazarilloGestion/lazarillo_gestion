@@ -28,8 +28,7 @@ export interface BodyPagoInterno {
 
 type ModoForm =
   | { tipo: "libre" }
-  | { tipo: "saldar"; keys: string[]; importe: number; desc: string }
-  | { tipo: "elegidos"; keys: string[]; importe: number; desc: string } // importe editable
+  | { tipo: "elegidos"; keys: string[]; importe: number; desc: string } // selección (o atajo Saldar), importe editable
   | { tipo: "editar"; pago: PagoInterno };
 
 export type BodyEditarPago = Omit<BodyPagoInterno, "pdvOrigenId" | "keys" | "usarOp" | "medio"> & { importe: number; medio: MedioPagoInterno };
@@ -58,6 +57,8 @@ export function FilasDeudaPdv(p: Props) {
   const [aEliminar, setAEliminar] = useState<number | null>(null);
   // Selección de movimientos pendientes para pagarlos juntos (suma el saldo).
   const [sel, setSel] = useState<Set<string>>(new Set());
+  // Nombre de lo elegido cuando vino de un atajo (Saldar / Saldar mes / Saldar todas).
+  const [selDesc, setSelDesc] = useState<string | null>(null);
   const k = `PDV${deuda.pdvOrigenId}`;
   const buscando = !!q.trim();
   const coincidePdv = buscando && sinEspacios(origenLabel).includes(sinEspacios(q));
@@ -77,12 +78,26 @@ export function FilasDeudaPdv(p: Props) {
   const movPorKey = new Map(deuda.movimientos.map((m) => [m.key, m]));
   const elegidos = [...sel].filter((x) => { const m = movPorKey.get(x); return m && saldoMov(m) > 0.5; });
   const totalElegido = elegidos.reduce((s, x) => s + saldoMov(movPorKey.get(x)!), 0);
-  const alternar = (keys: string[]) => setSel((prev) => {
-    const n = new Set(prev);
-    const todos = keys.every((x) => n.has(x));
-    keys.forEach((x) => (todos ? n.delete(x) : n.add(x)));
-    return n;
-  });
+  const haySel = elegidos.length > 0;
+  const alternar = (keys: string[]) => {
+    setForm(null);
+    setSelDesc(null);
+    setSel((prev) => {
+      const n = new Set(prev);
+      const todos = keys.every((x) => n.has(x));
+      keys.forEach((x) => (todos ? n.delete(x) : n.add(x)));
+      return n;
+    });
+  };
+  // Saldar / Saldar mes / Saldar todas son atajos: eligen esos movimientos y
+  // abren el mismo pago que la selección múltiple (importe editable).
+  const atajo = (keys: string[], desc: string) => {
+    setForm(null);
+    setSel(new Set(keys));
+    setSelDesc(desc);
+    if (!p.abiertos.has(k)) p.toggle(k);
+  };
+  const limpiarSel = () => { setSel(new Set()); setSelDesc(null); };
   // Tilde de un movimiento, un empleado o un mes (todos / algunos / ninguno elegidos).
   const tilde = (keys: string[], titulo: string) => {
     if (!keys.length) return <span className="inline-block w-3.5" />;
@@ -144,11 +159,10 @@ export function FilasDeudaPdv(p: Props) {
         <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(s)}</td>
         <td className="py-2 px-3"><Antiguedad fecha={m.fecha} hoy={hoy} /></td>
         <td className="py-2 px-3 hidden sm:table-cell">
-          {!ok && (
-            <Boton disabled={guardando} onClick={() => abrirForm({
-              tipo: "saldar", keys: [m.key], importe: s,
-              desc: m.comprobante ? fmtComprobante(m.comprobante) : `${m.proveedor} · ${m.concepto}`,
-            })}>Saldar</Boton>
+          {!ok && !haySel && (
+            <Boton disabled={guardando} onClick={() => atajo(
+              [m.key], m.comprobante ? fmtComprobante(m.comprobante) : `${m.proveedor} · ${m.concepto}`,
+            )}>Saldar</Boton>
           )}
         </td>
       </tr>
@@ -177,7 +191,7 @@ export function FilasDeudaPdv(p: Props) {
           {p.masVieja ? <Antiguedad fecha={p.masVieja} hoy={hoy} /> : <Chip cls="bg-emerald-50 text-emerald-700">al día</Chip>}
         </td>
         <td className="py-2.5 px-3 hidden sm:table-cell">
-          <span className="inline-flex gap-1.5">
+          {!haySel && <span className="inline-flex gap-1.5">
             <button
               type="button"
               disabled={guardando}
@@ -187,36 +201,34 @@ export function FilasDeudaPdv(p: Props) {
               Registrar pago
             </button>
             {p.saldo > 0.5 && (
-              <Boton disabled={guardando} onClick={() => {
-                const l = deuda.movimientos.filter((m) => saldoMov(m) > 0.5);
-                abrirForm({ tipo: "saldar", keys: l.map((m) => m.key), importe: l.reduce((s, m) => s + saldoMov(m), 0), desc: "todo" });
-              }}>Saldar todas</Boton>
+              <Boton disabled={guardando} onClick={() => atajo(pendientesDe(deuda.movimientos), "todo")}>Saldar todas</Boton>
             )}
-          </span>
+          </span>}
         </td>
       </tr>
 
-      {abierto && elegidos.length > 0 && !form && (
-        <tr className="bg-sky-100/70 dark:bg-sky-950/60 border-b border-sky-200 dark:border-sky-900">
-          <td colSpan={5} className="py-2 px-4 text-sm">
-            <span className="inline-flex items-center gap-3 flex-wrap">
-              <b>{elegidos.length} elegido{elegidos.length === 1 ? "" : "s"}</b>
-              <span className="tabular-nums">Saldo {fmtPesos(totalElegido)}</span>
-              <button
-                type="button"
-                disabled={guardando}
-                onClick={() => abrirForm({ tipo: "elegidos", keys: elegidos, importe: totalElegido, desc: `${elegidos.length} elegido${elegidos.length === 1 ? "" : "s"}` })}
-                className="h-7 px-2.5 rounded-md bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 text-xs disabled:opacity-40"
-              >
-                Registrar pago
-              </button>
-              <Boton onClick={() => setSel(new Set())}>Limpiar</Boton>
-            </span>
-          </td>
-        </tr>
+      {abierto && haySel && (
+        <FormPago
+          key="seleccion"
+          sticky
+          modo={{
+            tipo: "elegidos", keys: elegidos, importe: totalElegido,
+            desc: selDesc ?? `${elegidos.length} elegido${elegidos.length === 1 ? "" : "s"}`,
+          }}
+          ops={opsDisponibles}
+          saldo={p.saldo}
+          origenLabel={origenLabel}
+          guardando={guardando}
+          onCancel={limpiarSel}
+          onConfirm={async (b) => {
+            const err = await p.onRegistrar({ ...b, pdvOrigenId: deuda.pdvOrigenId });
+            if (!err) limpiarSel();
+            return err;
+          }}
+        />
       )}
 
-      {form && (
+      {form && !haySel && (
         <FormPago
           modo={form}
           ops={opsDisponibles}
@@ -228,13 +240,7 @@ export function FilasDeudaPdv(p: Props) {
             const err = form.tipo === "editar"
               ? await p.onEditar(form.pago.id, { ...b, medio: b.medio ?? "Transferencia", importe: b.importe ?? form.pago.importe })
               : await p.onRegistrar({ ...b, pdvOrigenId: deuda.pdvOrigenId });
-            if (!err) {
-              if (form.tipo === "elegidos" || form.tipo === "saldar") {
-                const pagados = new Set(form.keys);
-                setSel((prev) => new Set([...prev].filter((x) => !pagados.has(x))));
-              }
-              setForm(null);
-            }
+            if (!err) setForm(null);
             return err;
           }}
         />
@@ -298,15 +304,8 @@ export function FilasDeudaPdv(p: Props) {
               <td className={cn("py-2 px-3 text-right tabular-nums", cerrado && "line-through")}>{fmtPesos(mes.saldo)}</td>
               <td className="py-2 px-3"><Antiguedad fecha={`${mes.mes}-01`} hoy={hoy} /></td>
               <td className="py-2 px-3 hidden sm:table-cell">
-                {!cerrado && (
-                  <span className="inline-flex gap-1.5">
-                    <Boton disabled={guardando} onClick={() => abrirForm({
-                      tipo: "elegidos", keys: pendientesDe(mes.movimientos), importe: mes.saldo, desc: nombreMes(mes.mes),
-                    })}>Registrar pago</Boton>
-                    <Boton disabled={guardando} onClick={() => abrirForm({
-                      tipo: "saldar", keys: pendientesDe(mes.movimientos), importe: mes.saldo, desc: nombreMes(mes.mes),
-                    })}>Saldar mes</Boton>
-                  </span>
+                {!cerrado && !haySel && (
+                  <Boton disabled={guardando} onClick={() => atajo(pendientesDe(mes.movimientos), nombreMes(mes.mes))}>Saldar mes</Boton>
                 )}
               </td>
             </tr>
@@ -334,11 +333,8 @@ export function FilasDeudaPdv(p: Props) {
                     <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(fila.saldo)}</td>
                     <td className="py-2 px-3"><Antiguedad fecha={fila.movimientos[fila.movimientos.length - 1].fecha} hoy={hoy} /></td>
                     <td className="py-2 px-3 hidden sm:table-cell">
-                      {!ok && (
-                        <Boton disabled={guardando} onClick={() => {
-                          const l = fila.movimientos.filter((m) => saldoMov(m) > 0.5);
-                          abrirForm({ tipo: "saldar", keys: l.map((m) => m.key), importe: fila.saldo, desc: `${fila.nombre} · ${nombreMes(mes.mes)}` });
-                        }}>Saldar</Boton>
+                      {!ok && !haySel && (
+                        <Boton disabled={guardando} onClick={() => atajo(pendientesDe(fila.movimientos), `${fila.nombre} · ${nombreMes(mes.mes)}`)}>Saldar</Boton>
                       )}
                     </td>
                   </tr>
@@ -395,16 +391,15 @@ function ImporteInput({ value, onChange, readOnly, className }: {
   );
 }
 
-function FormPago({ modo, ops, saldo, origenLabel, guardando, onCancel, onConfirm }: {
+function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, onConfirm }: {
   modo: ModoForm; ops: PagoInterno[]; saldo: number; origenLabel: string; guardando: boolean;
+  sticky?: boolean; // la selección queda fija arriba mientras se baja por la lista
   onCancel: () => void;
   onConfirm: (b: Omit<BodyPagoInterno, "pdvOrigenId">) => Promise<string | null>;
 }) {
-  const fijo = modo.tipo === "saldar";
   const editando = modo.tipo === "editar";
-  const [importe, setImporte] = useState(importeAInput(
-    modo.tipo === "saldar" || modo.tipo === "elegidos" ? modo.importe : modo.tipo === "editar" ? modo.pago.importe : saldo
-  ));
+  const importeBase = modo.tipo === "elegidos" ? modo.importe : modo.tipo === "editar" ? modo.pago.importe : saldo;
+  const [importe, setImporte] = useState(importeAInput(importeBase));
   const [fecha, setFecha] = useState(editando ? modo.pago.fecha : hoyISO());
   // Medio: uno de los medios o "op:ID" = usar el disponible de una OP existente.
   const [medio, setMedio] = useState<string>(
@@ -414,23 +409,30 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, onCancel, onConfir
   const [error, setError] = useState<string | null>(null);
   const opElegida = medio.startsWith("op:") ? ops.find((o) => o.id === Number(medio.slice(3))) ?? null : null;
   const disp = opElegida ? disponibleOP(opElegida) : 0;
+  // Al tildar o destildar, el importe se rearma con la nueva suma (con una OP
+  // como medio, sin pasar su disponible); fecha, medio e ID se conservan.
+  const [base, setBase] = useState(importeBase);
+  if (base !== importeBase) {
+    setBase(importeBase);
+    setImporte(importeAInput(opElegida ? Math.min(importeBase, disp) : importeBase));
+  }
   const valorActual = parsearImporteAR(importe) ?? 0;
 
   function cambiarMedio(v: string) {
     setMedio(v);
     const o = v.startsWith("op:") ? ops.find((x) => x.id === Number(v.slice(3))) : null;
     // Con una OP, un importe editable no puede pasar su disponible.
-    if (o && !fijo && valorActual > disponibleOP(o)) setImporte(importeAInput(disponibleOP(o)));
+    if (o && valorActual > disponibleOP(o)) setImporte(importeAInput(disponibleOP(o)));
   }
 
   async function confirmar() {
     setError(null);
     const valor = parsearImporteAR(importe);
-    if (!fijo && !(valor && valor > 0)) { setError("Cargá un importe."); return; }
-    const keys = modo.tipo === "saldar" || modo.tipo === "elegidos" ? modo.keys : undefined;
+    if (!(valor && valor > 0)) { setError("Cargá un importe."); return; }
+    const keys = modo.tipo === "elegidos" ? modo.keys : undefined;
     if (opElegida) {
-      if (!fijo && valor! > disp + 0.005) { setError(`${numeroOP(opElegida.id)} tiene ${fmtPesos(disp)} disponibles.`); return; }
-      const err = await onConfirm({ fecha, referencia: null, usarOp: opElegida.id, keys, ...(fijo ? {} : { importe: valor! }) });
+      if (valor! > disp + 0.005) { setError(`${numeroOP(opElegida.id)} tiene ${fmtPesos(disp)} disponibles.`); return; }
+      const err = await onConfirm({ fecha, referencia: null, usarOp: opElegida.id, keys, importe: valor! });
       if (err) setError(err);
       return;
     }
@@ -441,28 +443,26 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, onCancel, onConfir
       if (!ref) { setError("Cargá el ID de la transferencia (letras y números)."); return; }
     }
     const err = await onConfirm({
-      fecha, medio: m, referencia: ref, keys,
-      ...(fijo ? {} : { importe: valor! }),
+      fecha, medio: m, referencia: ref, keys, importe: valor!,
     });
     if (err) setError(err);
   }
 
   const input = "h-8 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-2 text-sm";
-  const titulo = modo.tipo === "saldar" ? `Saldar ${modo.desc}`
-    : modo.tipo === "elegidos" ? `Pago · ${modo.desc}`
+  const titulo = modo.tipo === "elegidos" ? `Pago · ${modo.desc}`
     : modo.tipo === "editar" ? `Editar ${numeroOP(modo.pago.id)}` : `Pago a ${origenLabel}`;
   const aCuentaNuevo = modo.tipo === "elegidos" && !opElegida ? valorActual - modo.importe : 0;
   return (
     <tr className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-200 dark:border-sky-900">
-      <td colSpan={5} className="py-3 px-4">
+      <td colSpan={5} className={cn("py-3 px-4", sticky && "sticky top-[33px] z-[5] bg-sky-50 dark:bg-sky-950 shadow-[0_2px_6px_rgba(0,0,0,0.08)]")}>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <b>{titulo}</b>
+          {modo.tipo === "elegidos" && <span className="tabular-nums text-muted-foreground">Saldo {fmtPesos(modo.importe)}</span>}
           <label className="flex items-center gap-1.5">Importe
             <ImporteInput
               value={importe}
-              readOnly={fijo}
               onChange={setImporte}
-              className={cn(input, "w-44 text-right tabular-nums", fijo && "bg-zinc-100 dark:bg-zinc-700")}
+              className={cn(input, "w-44 text-right tabular-nums")}
             />
           </label>
           <label className="flex items-center gap-1.5">Medio
@@ -498,14 +498,13 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, onCancel, onConfir
           >
             {opElegida ? `Imputar ${numeroOP(opElegida.id)}` : "Confirmar"}
           </button>
-          <button type="button" onClick={onCancel} className="h-8 px-3 rounded-md border border-zinc-300 dark:border-zinc-600">Cancelar</button>
+          <button type="button" onClick={onCancel} className="h-8 px-3 rounded-md border border-zinc-300 dark:border-zinc-600">{sticky ? "Limpiar" : "Cancelar"}</button>
         </div>
         <div className="mt-1.5 text-[11px] text-muted-foreground">
           {opElegida
-            ? (fijo && disp + 0.005 < modo.importe
+            ? (modo.tipo === "elegidos" && disp + 0.005 < modo.importe
               ? `No crea una OP nueva. ${numeroOP(opElegida.id)} tiene ${fmtPesos(disp)}: salda eso (lo más viejo primero) y el resto queda pendiente.`
               : `No crea una OP nueva: se imputa el disponible de ${numeroOP(opElegida.id)} (fecha e ID son los de esa OP).`)
-            : modo.tipo === "saldar" ? "Se salda el saldo entero de lo elegido."
             : modo.tipo === "elegidos"
               ? (aCuentaNuevo > 0.5
                 ? `Salda todo lo elegido y ${fmtPesos(aCuentaNuevo)} quedan a cuenta, sin asociar.`
