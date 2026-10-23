@@ -114,6 +114,7 @@ export interface MovimientoSqlRow {
   aplicado: number;
   ops: number[] | null; // órdenes de pago que imputaron a este movimiento
   es_empleado: boolean;
+  rubro: string | null;
 }
 
 // Filas de compras de OTRO PDV aperturadas a este PDV (su parte), con lo que
@@ -132,6 +133,7 @@ export function movimientosAperturaSql(pdvId: number, desde: string): Prisma.Sql
       COALESCE(p.nombre, NULLIF(TRIM(CONCAT_WS(' ', e.nombre, e.apellido)), ''), c.proveedor, c.codigo) AS proveedor,
       (e.id IS NOT NULL)                                      AS es_empleado,
       COALESCE(cc.nombre, c.concepto)                         AS concepto,
+      rc.nombre                                               AS rubro,
       MAX(da.porcentaje)::float8                              AS porcentaje,
       SUM(da."importeCalculado")::float8                      AS importe,
       COALESCE(ap.aplicado, 0)::float8                        AS aplicado,
@@ -158,7 +160,7 @@ export function movimientosAperturaSql(pdvId: number, desde: string): Prisma.Sql
       AND COALESCE(c."fechaManual", c.fecha) >= ${desde}::date
       AND COALESCE(c."fechaManual", c.fecha) < NOW() + INTERVAL '60 days'
       AND ${visible}
-    GROUP BY c."rowId", c."puntoDeVentaId", c."fechaManual", c.fecha, c.comprobante, p.nombre, c.proveedor, c.codigo, cc.nombre, c.concepto, e.id, e.nombre, e.apellido, ap.aplicado, ap.ops
+    GROUP BY c."rowId", c."puntoDeVentaId", c."fechaManual", c.fecha, c.comprobante, p.nombre, c.proveedor, c.codigo, cc.nombre, c.concepto, rc.nombre, e.id, e.nombre, e.apellido, ap.aplicado, ap.ops
     HAVING ABS(SUM(da."importeCalculado")) > 0.5
     ORDER BY 3, 1
   `;

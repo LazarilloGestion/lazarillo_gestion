@@ -6,14 +6,21 @@ import { cn } from "@/lib/utils";
 import {
   MEDIOS_PAGO_INTERNO, aCuenta, contarAntesDelCursor, cursorTrasSignificativos, disponibleOP,
   formatearImporteAR, importeAInput, normalizarReferencia, parsearImporteAR,
-  agruparEmpleados, numeroOP, porMes, saldoMov,
+  ETIQUETA_MODO, MODOS_RUBRO, numeroOP, porRubro, saldoMov, type ModoRubro,
   type DeudaConPdv, type MedioPagoInterno, type MovimientoApertura, type PagoInterno,
 } from "@/lib/impagas/aperturas";
 import { dias, fmtComprobante, fmtFecha, fmtPesos, normalizarBusqueda } from "@/lib/impagas/clasificar";
 import { Antiguedad, Boton } from "./ui";
 
-const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const nombreMes = (m: string) => `${MESES[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
+// Cómo ve cada rubro el usuario (por proveedor / concepto / empleado), se recuerda en el navegador.
+const LS_MODOS = "impagas:modosRubro";
+function leerModos(): Record<string, ModoRubro> {
+  if (typeof window === "undefined") return {};
+  try {
+    const v = JSON.parse(localStorage.getItem(LS_MODOS) ?? "{}");
+    return v && typeof v === "object" ? v : {};
+  } catch { return {}; }
+}
 const sinEspacios = normalizarBusqueda;
 
 export interface BodyPagoInterno {
@@ -50,7 +57,8 @@ interface Props {
 }
 
 // Filas del PDV origen dentro de la tabla de Impagas: cabecera con la deuda,
-// formulario de pago, pagos registrados, meses y movimientos.
+// formulario de pago, pagos registrados y la deuda por rubro (cada rubro por
+// proveedor, concepto o empleado, a elección) hasta los movimientos.
 export function FilasDeudaPdv(p: Props) {
   const { deuda, origenLabel, hoy, q, guardando } = p;
   const [form, setForm] = useState<ModoForm | null>(null);
@@ -65,7 +73,16 @@ export function FilasDeudaPdv(p: Props) {
   const filtroMov = (m: MovimientoApertura) =>
     (!p.solo60 || dias(m.fecha, hoy) <= 60) &&
     (!buscando || coincidePdv || sinEspacios(`${m.proveedor}${m.comprobante ?? ""}${m.concepto}`).includes(sinEspacios(q)));
-  const meses = porMes(deuda.movimientos.filter(filtroMov));
+  // El modal solo se abre en el navegador, así que se lee directo al montar.
+  const [modos, setModos] = useState<Record<string, ModoRubro>>(leerModos);
+  const [menuRubro, setMenuRubro] = useState<string | null>(null);
+  const cambiarModo = (rubro: string, modo: ModoRubro) => {
+    const n = { ...modos, [rubro]: modo };
+    setModos(n);
+    setMenuRubro(null);
+    try { localStorage.setItem(LS_MODOS, JSON.stringify(n)); } catch { /* sin almacenamiento */ }
+  };
+  const rubros = porRubro(deuda.movimientos.filter(filtroMov), modos);
   const abierto = p.abiertos.has(k) || buscando;
   const pendientes = deuda.movimientos.filter((m) => saldoMov(m) > 0.5).length;
   const sobrante = aCuenta(deuda);
@@ -132,28 +149,22 @@ export function FilasDeudaPdv(p: Props) {
     );
   });
 
-  // Un movimiento suelto; dentro de un empleado se muestra solo el concepto.
-  const filaMovimiento = (m: MovimientoApertura, sangria: string, deEmpleado = false) => {
+  // Un movimiento: comprobante · fecha · y lo que no dice el grupo (si el grupo
+  // es un concepto, el proveedor; si es un proveedor o empleado, el concepto).
+  const filaMovimiento = (m: MovimientoApertura, sangria: string, grupoEsConcepto: boolean) => {
     const s = saldoMov(m);
     const ok = s < 0.5;
     return (
       <tr key={m.key} className={cn("border-b border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900", ok && "text-muted-foreground")}>
         <td className={cn("py-2 pr-3", sangria)}>
           <span className="mr-1.5 align-middle">{tilde(ok ? [] : [m.key], "Elegir para pagar")}</span>
-          {deEmpleado ? (
-            <span>{m.concepto || "—"}<span className="text-muted-foreground"> · {fmtFecha(m.fecha)}</span></span>
-          ) : (
-            <>
-              <span className="text-sky-700 dark:text-sky-400 tabular-nums">{m.comprobante ? fmtComprobante(m.comprobante) : "sin comprobante"}</span>
-              <span className="text-muted-foreground"> · {fmtFecha(m.fecha)} · </span>
-              <span className="font-medium">{m.proveedor}</span>
-            </>
-          )}
+          <span className="text-sky-700 dark:text-sky-400 tabular-nums">{m.comprobante ? fmtComprobante(m.comprobante) : "sin comprobante"}</span>
+          <span className="text-muted-foreground"> · {fmtFecha(m.fecha)} · </span>
+          <span className="font-medium">{grupoEsConcepto ? m.proveedor : m.concepto || "—"}</span>
           <Chip cls="ml-1.5 bg-zinc-100 text-zinc-600">{Math.round(m.porcentaje)}%</Chip>
           {ok ? <Chip cls="ml-1.5 bg-emerald-50 text-emerald-700">saldado</Chip>
             : m.aplicado > 0.5 ? <Chip cls="ml-1.5 bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(m.aplicado)}</Chip> : null}
           {chipsOP(m.ops)}
-          {!deEmpleado && m.concepto && <div className="text-[11px] text-muted-foreground truncate max-w-[32rem]">{m.concepto}</div>}
         </td>
         <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(m.importe)}</td>
         <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(s)}</td>
@@ -282,63 +293,98 @@ export function FilasDeudaPdv(p: Props) {
         </>
       )}
 
-      {abierto && meses.map((mes) => {
-        const km = `${k}M${mes.mes}`;
-        const abMes = p.abiertos.has(km) || buscando;
-        const pagadoMes = mes.total - mes.saldo;
-        const cerrado = mes.saldo < 0.5;
+      {abierto && rubros.map((ru) => {
+        const kr = `${k}R${ru.rubro}`;
+        const abRub = p.abiertos.has(kr) || buscando;
+        const cerrado = ru.saldo < 0.5;
+        const pagadoRub = ru.total - ru.saldo;
+        const pendRub = pendientesDe(ru.movimientos);
+        const masVieja = ru.movimientos.filter((m) => saldoMov(m) > 0.5).at(-1)?.fecha;
         return (
-          <Fragment key={km}>
-            <tr onClick={() => p.toggle(km)} className={cn("border-b border-zinc-100 dark:border-zinc-800 cursor-pointer bg-zinc-50 dark:bg-zinc-900/60 hover:bg-zinc-100 dark:hover:bg-zinc-800", cerrado && "text-muted-foreground")}>
+          <Fragment key={kr}>
+            <tr onClick={() => p.toggle(kr)} className={cn("border-b border-zinc-100 dark:border-zinc-800 cursor-pointer bg-zinc-50 dark:bg-zinc-900/60 hover:bg-zinc-100 dark:hover:bg-zinc-800", cerrado && "text-muted-foreground")}>
               <td className="py-2 pl-8 pr-3">
-                <span className="inline-flex items-center gap-1.5 flex-wrap">
-                  {tilde(pendientesDe(mes.movimientos), "Elegir todo el mes")}
-                  {abMes ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                  {nombreMes(mes.mes)}
-                  <span className="text-xs text-muted-foreground">{mes.movimientos.length} movimientos</span>
+                <span className="inline-flex items-center gap-1.5">
+                  {tilde(pendRub, "Elegir todo el rubro")}
+                  {abRub ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />}
+                  <span className="inline-block w-52 truncate font-semibold" title={ru.rubro}>{ru.rubro}</span>
+                  <span className="relative" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      title="Cómo ver este rubro"
+                      onClick={() => setMenuRubro(menuRubro === ru.rubro ? null : ru.rubro)}
+                      className="inline-flex w-[6.5rem] items-center justify-between rounded px-1.5 py-0.5 text-[10px] font-semibold bg-white border border-zinc-200 text-zinc-600 hover:border-sky-300 hover:text-sky-700 dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-300"
+                    >
+                      {ETIQUETA_MODO[ru.modo]} <ChevronDown className="w-2.5 h-2.5" />
+                    </button>
+                    {menuRubro === ru.rubro && (
+                      <>
+                        <span className="fixed inset-0 z-20" onClick={() => setMenuRubro(null)} />
+                        <span className="absolute left-0 top-full mt-1 z-30 flex w-40 flex-col rounded-md border border-zinc-200 bg-white py-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                          {MODOS_RUBRO.map((m) => m === "insumo" ? (
+                            <span key={m} className="px-3 py-1.5 text-muted-foreground cursor-not-allowed" title="Próximamente">
+                              {ETIQUETA_MODO[m]} <span className="text-[10px]">· próximamente</span>
+                            </span>
+                          ) : (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => cambiarModo(ru.rubro, m)}
+                              className={cn("px-3 py-1.5 text-left hover:bg-sky-50 dark:hover:bg-sky-950/40", ru.modo === m && "font-semibold text-sky-700 dark:text-sky-300")}
+                            >
+                              {ETIQUETA_MODO[m]}
+                            </button>
+                          ))}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">{ru.movimientos.length} mov.</span>
                   {cerrado ? <Chip cls="bg-emerald-50 text-emerald-700">saldado</Chip>
-                    : pagadoMes > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(pagadoMes)}</Chip> : null}
+                    : pagadoRub > 0.5 ? <Chip cls="bg-amber-50 text-amber-700 whitespace-nowrap">parcial · pagado {fmtPesos(pagadoRub)}</Chip> : null}
                 </span>
               </td>
-              <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(mes.total)}</td>
-              <td className={cn("py-2 px-3 text-right tabular-nums", cerrado && "line-through")}>{fmtPesos(mes.saldo)}</td>
-              <td className="py-2 px-3"><Antiguedad fecha={`${mes.mes}-01`} hoy={hoy} /></td>
+              <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(ru.total)}</td>
+              <td className={cn("py-2 px-3 text-right tabular-nums font-semibold", cerrado && "line-through")}>{fmtPesos(ru.saldo)}</td>
+              <td className="py-2 px-3">{masVieja && <Antiguedad fecha={masVieja} hoy={hoy} />}</td>
               <td className="py-2 px-3 hidden sm:table-cell">
                 {!cerrado && !haySel && (
-                  <Boton disabled={guardando} onClick={() => atajo(pendientesDe(mes.movimientos), nombreMes(mes.mes))}>Saldar mes</Boton>
+                  <Boton disabled={guardando} onClick={() => atajo(pendRub, ru.rubro)}>Saldar rubro</Boton>
                 )}
               </td>
             </tr>
-            {abMes && agruparEmpleados(mes.movimientos).map((fila) => {
-              if (fila.tipo === "mov") return filaMovimiento(fila.mov, "pl-14");
-              const ke = `${km}E${fila.nombre}`;
-              const abEmp = p.abiertos.has(ke) || buscando;
-              const ok = fila.saldo < 0.5;
+            {abRub && ru.grupos.map((g) => {
+              const kg = `${kr}G${g.clave}`;
+              const abG = p.abiertos.has(kg) || buscando;
+              const ok = g.saldo < 0.5;
+              const pendG = pendientesDe(g.movimientos);
+              const viejaG = g.movimientos.filter((m) => saldoMov(m) > 0.5).at(-1)?.fecha;
+              const grupoEsConcepto = !(ru.modo === "proveedor" || (ru.modo === "empleado" && g.esEmpleado));
               return (
-                <Fragment key={ke}>
-                  <tr onClick={() => p.toggle(ke)} className={cn("border-b border-zinc-100 dark:border-zinc-800 cursor-pointer bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/60", ok && "text-muted-foreground")}>
+                <Fragment key={kg}>
+                  <tr onClick={() => p.toggle(kg)} className={cn("border-b border-zinc-100 dark:border-zinc-800 cursor-pointer bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/60", ok && "text-muted-foreground")}>
                     <td className="py-2 pl-12 pr-3">
                       <span className="inline-flex items-center gap-1.5 flex-wrap">
-                        {tilde(pendientesDe(fila.movimientos), "Elegir todo el empleado")}
-                        {abEmp ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                        <span className="font-medium">{fila.nombre}</span>
-                        <Chip cls="bg-violet-50 text-violet-700">empleado</Chip>
-                        <span className="text-xs text-muted-foreground">{fila.movimientos.length} concepto{fila.movimientos.length === 1 ? "" : "s"}</span>
+                        {tilde(pendG, "Elegir todo el grupo")}
+                        {abG ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                        <span className="font-medium">{g.clave}</span>
+                        {g.esEmpleado && <Chip cls="bg-violet-50 text-violet-700">empleado</Chip>}
+                        <span className="text-xs text-muted-foreground">{g.movimientos.length}</span>
                         {ok ? <Chip cls="bg-emerald-50 text-emerald-700">saldado</Chip>
-                          : fila.aplicado > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(fila.aplicado)}</Chip> : null}
-                        {chipsOP([...new Set(fila.movimientos.flatMap((m) => m.ops ?? []))].sort((a, b) => a - b))}
+                          : g.aplicado > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(g.aplicado)}</Chip> : null}
+                        {chipsOP([...new Set(g.movimientos.flatMap((m) => m.ops ?? []))].sort((a, b) => a - b))}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(fila.total)}</td>
-                    <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(fila.saldo)}</td>
-                    <td className="py-2 px-3"><Antiguedad fecha={fila.movimientos[fila.movimientos.length - 1].fecha} hoy={hoy} /></td>
+                    <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(g.total)}</td>
+                    <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(g.saldo)}</td>
+                    <td className="py-2 px-3">{viejaG && <Antiguedad fecha={viejaG} hoy={hoy} />}</td>
                     <td className="py-2 px-3 hidden sm:table-cell">
                       {!ok && !haySel && (
-                        <Boton disabled={guardando} onClick={() => atajo(pendientesDe(fila.movimientos), `${fila.nombre} · ${nombreMes(mes.mes)}`)}>Saldar</Boton>
+                        <Boton disabled={guardando} onClick={() => atajo(pendG, `${g.clave} · ${ru.rubro}`)}>Saldar</Boton>
                       )}
                     </td>
                   </tr>
-                  {abEmp && fila.movimientos.map((m) => filaMovimiento(m, "pl-20", true))}
+                  {abG && g.movimientos.map((m) => filaMovimiento(m, "pl-[4.5rem]", grupoEsConcepto))}
                 </Fragment>
               );
             })}

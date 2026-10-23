@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  aCuenta, agruparEmpleados, contarAntesDelCursor, cursorTrasSignificativos, disponibleOP, imputarElegidos, numeroOP, reimputar, formatearImporteAR, imputarFifo, importeAInput, normalizarReferencia, parsearImporteAR,
+  aCuenta, agruparEmpleados, modoDefault, porRubro, contarAntesDelCursor, cursorTrasSignificativos, disponibleOP, imputarElegidos, numeroOP, reimputar, formatearImporteAR, imputarFifo, importeAInput, normalizarReferencia, parsearImporteAR,
   porMes, saldoDeuda, type DeudaConPdv, type MovimientoApertura,
 } from "./aperturas";
 
@@ -131,5 +131,33 @@ describe("importe en formato moneda e ID de transferencia", () => {
     expect(normalizarReferencia("0000003100012345678901234")).toHaveLength(25);
     expect(normalizarReferencia("12-34")).toBeNull();
     expect(normalizarReferencia("")).toBeNull();
+  });
+});
+
+describe("deuda con el PDV agrupada por rubro", () => {
+  const m = (key: string, fecha: string, rubro: string, proveedor: string, concepto: string, importe: number, esEmpleado = false, aplicado = 0): MovimientoApertura =>
+    ({ key, fecha, comprobante: null, proveedor, concepto, porcentaje: 50, importe, aplicado, rubro, esEmpleado });
+  const movs = [
+    m("s1", "2026-10-05", "Gastos En Personal", "Camila Cancino", "Liquidacion", 100, true),
+    m("s2", "2026-10-20", "Gastos En Personal", "Camila Cancino", "Presentismo", 20, true),
+    m("af", "2026-10-10", "Gastos En Personal", "AFIP", "Cargas Sociales Afip", 300),
+    m("e1", "2026-09-01", "Servicios", "Edenor", "Energia", 50),
+    m("e2", "2026-10-01", "Servicios", "Edenor", "Energia", 60, false, 60),
+    m("w1", "2026-10-02", "Servicios", "Meta", "Api - Whatsapp", 40),
+  ];
+  it("defaults: Personal por empleado, el resto por concepto", () => {
+    expect(modoDefault("Gastos En Personal")).toBe("empleado");
+    expect(modoDefault("Servicios")).toBe("concepto");
+    const r = porRubro(movs);
+    expect(r.map((x) => [x.rubro, x.saldo])).toEqual([["Gastos En Personal", 420], ["Servicios", 90]]);
+    const per = r[0];
+    expect(per.grupos.map((g) => [g.clave, g.saldo, g.esEmpleado])).toEqual([["Cargas Sociales Afip", 300, false], ["Camila Cancino", 120, true]]);
+    expect(per.grupos[1].movimientos.map((x) => x.key)).toEqual(["s2", "s1"]); // más nuevo primero
+  });
+  it("cada rubro se puede ver por proveedor", () => {
+    const r = porRubro(movs, { Servicios: "proveedor" });
+    const sv = r.find((x) => x.rubro === "Servicios")!;
+    expect(sv.modo).toBe("proveedor");
+    expect(sv.grupos.map((g) => [g.clave, g.total, g.saldo])).toEqual([["Edenor", 110, 50], ["Meta", 40, 40]]);
   });
 });

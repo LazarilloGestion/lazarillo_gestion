@@ -19,6 +19,7 @@ export interface MovimientoApertura {
   importe: number;        // parte del destino
   aplicado: number;       // pagos al origen imputados a este movimiento
   esEmpleado?: boolean;   // sueldo / adelanto de un empleado (nombre completo desde la nómina)
+  rubro?: string;         // rubro del concepto de caja (Gastos En Personal, Mercaderias…)
   ops?: number[];         // órdenes de pago imputadas a este movimiento
 }
 
@@ -155,6 +156,52 @@ export function agruparEmpleados(movs: MovimientoApertura[]): FilaMes[] {
     g.aplicado = redondear(g.aplicado + m.aplicado);
   }
   return out;
+}
+
+// ── Deuda con un PDV agrupada por rubro ─────────────────────────────────────
+// Cada rubro se ve como uno elija: por proveedor, por concepto o por empleado
+// (por insumo, próximamente). Por defecto Personal va por empleado y el resto
+// por concepto. Dentro de cada grupo, el movimiento más nuevo primero.
+export const MODOS_RUBRO = ["proveedor", "concepto", "empleado", "insumo"] as const;
+export type ModoRubro = (typeof MODOS_RUBRO)[number];
+export const ETIQUETA_MODO: Record<ModoRubro, string> = {
+  proveedor: "por proveedor", concepto: "por concepto", empleado: "por empleado", insumo: "por insumo",
+};
+export const modoDefault = (rubro: string): ModoRubro => (/personal/i.test(rubro) ? "empleado" : "concepto");
+
+export interface GrupoRubro { clave: string; movimientos: MovimientoApertura[]; total: number; saldo: number; aplicado: number; esEmpleado: boolean }
+export interface RubroDeuda { rubro: string; modo: ModoRubro; grupos: GrupoRubro[]; total: number; saldo: number; movimientos: MovimientoApertura[] }
+
+// En "por empleado" los que no son sueldos (cargas sociales, gastos varios del
+// personal) van por su concepto. "Por insumo" todavía no existe: va por concepto.
+function claveGrupo(m: MovimientoApertura, modo: ModoRubro): string {
+  if (modo === "proveedor") return m.proveedor || "—";
+  if (modo === "empleado" && m.esEmpleado) return m.proveedor || "—";
+  return m.concepto || "Sin concepto";
+}
+
+export function porRubro(movs: MovimientoApertura[], modos: Record<string, ModoRubro> = {}): RubroDeuda[] {
+  const rubros = new Map<string, MovimientoApertura[]>();
+  for (const m of ordenarMovimientos(movs).reverse()) {
+    const r = m.rubro || "Sin rubro";
+    if (!rubros.has(r)) rubros.set(r, []);
+    rubros.get(r)!.push(m);
+  }
+  const suma = (l: MovimientoApertura[], f: (m: MovimientoApertura) => number) => redondear(l.reduce((s, x) => s + f(x), 0));
+  return [...rubros.entries()].map(([rubro, l]) => {
+    const modo = modos[rubro] ?? modoDefault(rubro);
+    const g = new Map<string, MovimientoApertura[]>();
+    for (const m of l) {
+      const k = claveGrupo(m, modo);
+      if (!g.has(k)) g.set(k, []);
+      g.get(k)!.push(m);
+    }
+    const grupos = [...g.entries()].map(([clave, ms]) => ({
+      clave, movimientos: ms, total: suma(ms, (x) => x.importe), saldo: suma(ms, saldoMov), aplicado: suma(ms, (x) => x.aplicado),
+      esEmpleado: modo === "empleado" && ms.every((x) => x.esEmpleado),
+    })).sort((a, b) => b.saldo - a.saldo || b.total - a.total || a.clave.localeCompare(b.clave));
+    return { rubro, modo, grupos, movimientos: l, total: suma(l, (x) => x.importe), saldo: suma(l, saldoMov) };
+  }).sort((a, b) => b.saldo - a.saldo || b.total - a.total || a.rubro.localeCompare(b.rubro));
 }
 
 // ID de transferencia: alfanumérico, sin espacios, hasta 100 caracteres (los
