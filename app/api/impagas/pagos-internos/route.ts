@@ -17,7 +17,7 @@ const bodySchema = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   medio: z.enum(MEDIOS_PAGO_INTERNO).optional(),
   referencia: z.string().max(200).optional().nullable(),
-  // Pago libre: importe, se imputa a lo más viejo primero (desde el filtro "Desde").
+  // Pago libre (sin keys): importe; queda como OP sin imputar (todo a cuenta).
   importe: z.number().positive().optional(),
   desde: z.string().optional(),
   // Movimientos elegidos (un mes, un empleado o una selección): sin importe se
@@ -41,11 +41,12 @@ export async function POST(request: NextRequest) {
 
   if (b.usarOp !== undefined) return imputarConOp(b);
 
+  // ID de la operación: opcional (Transferencia o Bancos); si viene, alfanumérico y sin repetir.
   let referencia: string | null = null;
-  if (b.medio === "Transferencia") {
-    referencia = normalizarReferencia(b.referencia ?? "");
+  if (b.referencia?.trim()) {
+    referencia = normalizarReferencia(b.referencia);
     if (!referencia) {
-      return NextResponse.json({ error: "Falta el ID de la transferencia (letras y números)." }, { status: 400 });
+      return NextResponse.json({ error: "El ID tiene que ser de letras y números." }, { status: 400 });
     }
     const repetida = await prisma.pagoInterno.findUnique({ where: { referencia }, select: { id: true } });
     if (repetida) return NextResponse.json({ error: "Ese ID de transferencia ya está cargado." }, { status: 409 });
@@ -67,8 +68,10 @@ export async function POST(request: NextRequest) {
     importe = redondear(b.importe!);
     aplicaciones = imputarElegidos(movs, b.keys, importe).aplicaciones;
   } else {
+    // Pago sin selección: queda como orden de pago SIN IMPUTAR (todo a cuenta);
+    // después se imputa eligiendo movimientos y usando la OP como medio.
     importe = redondear(b.importe!);
-    aplicaciones = imputarFifo(movs, importe).aplicaciones;
+    aplicaciones = [];
   }
 
   try {

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -57,6 +58,7 @@ interface Props {
   onRegistrar: (b: BodyPagoInterno) => Promise<string | null>; // null = ok, si no el error
   onEditar: (id: number, b: BodyEditarPago) => Promise<string | null>;
   onEliminar: (id: number) => void;
+  barra?: HTMLElement | null; // pie del modal donde va el formulario de pago
 }
 
 // Filas del PDV origen dentro de la tabla de Impagas: cabecera con la deuda,
@@ -93,6 +95,8 @@ export function FilasDeudaPdv(p: Props) {
   const abrirForm = (m: ModoForm) => { setForm(m); if (!p.abiertos.has(k)) p.toggle(k); };
   const pagoPorId = new Map(deuda.pagos.map((pg) => [pg.id, pg]));
   const opsDisponibles = deuda.pagos.filter((pg) => disponibleOP(pg) > 0.5);
+  const sinImputar = opsDisponibles;
+  const imputadas = deuda.pagos.filter((pg) => disponibleOP(pg) <= 0.5);
 
   const pendientesDe = (l: MovimientoApertura[]) => l.filter((m) => saldoMov(m) > 0.5).map((m) => m.key);
   const movPorKey = new Map(deuda.movimientos.map((m) => [m.key, m]));
@@ -169,7 +173,6 @@ export function FilasDeudaPdv(p: Props) {
             : m.aplicado > 0.5 ? <Chip cls="ml-1.5 bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(m.aplicado)}</Chip> : null}
           {chipsOP(m.ops)}
         </td>
-        <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(m.importe)}</td>
         <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(s)}</td>
         <td className="py-2 px-3"><Antiguedad fecha={m.fecha} hoy={hoy} /></td>
         <td className="py-2 px-3 hidden sm:table-cell">
@@ -195,12 +198,11 @@ export function FilasDeudaPdv(p: Props) {
             <span className="text-xs text-muted-foreground">{pendientes}</span>
             {sobrante > 0.5 && (
               <span className="rounded px-1.5 py-0.5 text-[10px] bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
-                {fmtPesos(sobrante)} a cuenta
+                {fmtPesos(sobrante)} sin imputar
               </span>
             )}
           </span>
         </td>
-        <td className="hidden sm:table-cell" />
         <td className="py-2.5 px-3 text-right font-semibold tabular-nums">{fmtPesos(p.saldo)}</td>
         <td className="py-2.5 px-3">
           {p.masVieja ? <Antiguedad fecha={p.masVieja} hoy={hoy} /> : <Chip cls="bg-emerald-50 text-emerald-700">al día</Chip>}
@@ -222,16 +224,15 @@ export function FilasDeudaPdv(p: Props) {
         </td>
       </tr>
 
-      {abierto && haySel && (
+      {haySel && (
         <FormPago
           key="seleccion"
-          sticky
+          barra={p.barra}
           modo={{
             tipo: "elegidos", keys: elegidos, importe: totalElegido,
             desc: selDesc ?? `${elegidos.length} elegido${elegidos.length === 1 ? "" : "s"}`,
           }}
           ops={opsDisponibles}
-          saldo={p.saldo}
           origenLabel={origenLabel}
           guardando={guardando}
           onCancel={limpiarSel}
@@ -245,10 +246,9 @@ export function FilasDeudaPdv(p: Props) {
 
       {form && !haySel && (
         <FormPago
-          sticky
+          barra={p.barra}
           modo={form}
           ops={opsDisponibles}
-          saldo={p.saldo}
           origenLabel={origenLabel}
           guardando={guardando}
           onCancel={() => setForm(null)}
@@ -264,19 +264,35 @@ export function FilasDeudaPdv(p: Props) {
 
       {abierto && deuda.pagos.length > 0 && !buscando && (
         <>
-          <tr className="bg-zinc-100 dark:bg-zinc-800">
-            <td colSpan={5} className="py-1.5 pl-10 pr-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
-              Órdenes de pago a {origenLabel}
-            </td>
-          </tr>
-          {deuda.pagos.map((pg) => (
+          {[
+            { clave: `${k}OPS`, titulo: "Órdenes con saldo sin imputar", lista: sinImputar, abiertaPorDefecto: true },
+            { clave: `${k}OPI`, titulo: "Órdenes de pago imputadas", lista: imputadas, abiertaPorDefecto: false },
+          ].filter((g) => g.lista.length > 0).map((g) => {
+            // Las sin imputar arrancan abiertas (hay que imputarlas); las imputadas, cerradas.
+            const ab = g.abiertaPorDefecto ? !p.abiertos.has(g.clave) : p.abiertos.has(g.clave);
+            const total = g.lista.reduce((s, pg) => s + (g.abiertaPorDefecto ? disponibleOP(pg) : pg.importe), 0);
+            return (
+              <Fragment key={g.clave}>
+                <tr onClick={() => p.toggle(g.clave)} className="bg-zinc-100 dark:bg-zinc-800 cursor-pointer hover:bg-zinc-200/60 dark:hover:bg-zinc-700/60">
+                  <td className="py-1.5 pl-10 pr-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
+                    <span className="inline-flex items-center gap-1.5">
+                      {ab ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                      {g.titulo} <span className="font-normal normal-case text-muted-foreground">· {g.lista.length}</span>
+                    </span>
+                  </td>
+                  <td className="py-1.5 px-3 text-right text-xs tabular-nums font-semibold">
+                    {g.abiertaPorDefecto ? <span title="Disponible para imputar">{fmtPesos(total)}</span> : fmtPesos(total)}
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+                {ab && g.lista.map((pg) => (
             <tr key={`pg${pg.id}`} className="border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 text-xs">
-              <td className="py-2 pl-10 pr-3">
+              <td className="py-2 pl-14 pr-3">
                 <b className="text-sky-700 dark:text-sky-400">{numeroOP(pg.id)}</b> · {fmtFecha(pg.fecha)} · {pg.medio}{pg.referencia ? ` · ID ${pg.referencia}` : ""}
-                <span className="text-muted-foreground"> · imputado a {pg.movimientos} movimiento{pg.movimientos === 1 ? "" : "s"}
-                  {pg.importe - pg.aplicado > 0.5 ? ` · ${fmtPesos(pg.importe - pg.aplicado)} a cuenta` : ""}</span>
+                <span className="text-muted-foreground">
+                  {pg.movimientos > 0 ? ` · imputada a ${pg.movimientos} movimiento${pg.movimientos === 1 ? "" : "s"}` : ""}
+                  {disponibleOP(pg) > 0.5 ? ` · sin imputar ${fmtPesos(disponibleOP(pg))}` : ""}</span>
               </td>
-              <td className="hidden sm:table-cell" />
               <td className="py-2 px-3 text-right tabular-nums">{fmtPesos(pg.importe)}</td>
               <td />
               <td className="py-2 px-3 hidden sm:table-cell">
@@ -294,7 +310,10 @@ export function FilasDeudaPdv(p: Props) {
                 )}
               </td>
             </tr>
-          ))}
+                ))}
+              </Fragment>
+            );
+          })}
         </>
       )}
 
@@ -317,7 +336,6 @@ export function FilasDeudaPdv(p: Props) {
                     : pagadoMes > 0.5 ? <Chip cls="bg-amber-50 text-amber-700">parcial · pagado {fmtPesos(pagadoMes)}</Chip> : null}
                 </span>
               </td>
-              <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(mes.total)}</td>
               <td className={cn("py-2 px-3 text-right tabular-nums font-semibold", cerradoMes && "line-through")}>{fmtPesos(mes.saldo)}</td>
               <td className="py-2 px-3"><Antiguedad fecha={`${mes.mes}-01`} hoy={hoy} /></td>
               <td className="py-2 px-3 hidden sm:table-cell">
@@ -377,7 +395,6 @@ export function FilasDeudaPdv(p: Props) {
                           : pagadoRub > 0.5 ? <Chip cls="bg-amber-50 text-amber-700 whitespace-nowrap">parcial · pagado {fmtPesos(pagadoRub)}</Chip> : null}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(ru.total)}</td>
                     <td className={cn("py-2 px-3 text-right tabular-nums font-semibold", cerrado && "line-through")}>{fmtPesos(ru.saldo)}</td>
                     <td className="py-2 px-3">{masVieja && <Antiguedad fecha={masVieja} hoy={hoy} />}</td>
                     <td className="py-2 px-3 hidden sm:table-cell">
@@ -407,7 +424,6 @@ export function FilasDeudaPdv(p: Props) {
                               {chipsOP([...new Set(g.movimientos.flatMap((m) => m.ops ?? []))].sort((a, b) => a - b))}
                             </span>
                           </td>
-                          <td className="py-2 px-3 text-right tabular-nums text-muted-foreground hidden sm:table-cell">{fmtPesos(g.total)}</td>
                           <td className={cn("py-2 px-3 text-right tabular-nums", ok && "line-through")}>{fmtPesos(g.saldo)}</td>
                           <td className="py-2 px-3">{viejaG && <Antiguedad fecha={viejaG} hoy={hoy} />}</td>
                           <td className="py-2 px-3 hidden sm:table-cell">
@@ -472,15 +488,54 @@ function ImporteInput({ value, onChange, readOnly, className }: {
   );
 }
 
-function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, onConfirm }: {
-  modo: ModoForm; ops: PagoInterno[]; saldo: number; origenLabel: string; guardando: boolean;
-  sticky?: boolean; // la selección queda fija arriba mientras se baja por la lista
+// Fecha en dd/mm/aaaa siempre (el input nativo usa el idioma del navegador y
+// puede mostrar mm/dd/aaaa). Guarda en ISO; acepta el año con 2 dígitos.
+function isoADmy(iso: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
+}
+export function dmyAIso(t: string): string | null {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(t.trim());
+  if (!m) return null;
+  const d = Number(m[1]), mes = Number(m[2]);
+  const a = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+  const f = new Date(Date.UTC(a, mes - 1, d));
+  if (f.getUTCFullYear() !== a || f.getUTCMonth() !== mes - 1 || f.getUTCDate() !== d) return null;
+  return `${a}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+function FechaInput({ value, onChange, className }: { value: string; onChange: (iso: string) => void; className?: string }) {
+  const [txt, setTxt] = useState(isoADmy(value));
+  return (
+    <input
+      value={txt}
+      inputMode="numeric"
+      placeholder="dd/mm/aaaa"
+      onChange={(e) => {
+        // Barras automáticas: 23102026 → 23/10/2026
+        const dig = e.target.value.replace(/\D/g, "").slice(0, 8);
+        const t = dig.length > 4 ? `${dig.slice(0, 2)}/${dig.slice(2, 4)}/${dig.slice(4)}` : dig.length > 2 ? `${dig.slice(0, 2)}/${dig.slice(2)}` : dig;
+        setTxt(t);
+        const iso = dmyAIso(t);
+        if (iso && dig.length === 8) onChange(iso);
+      }}
+      onBlur={() => {
+        const iso = dmyAIso(txt);
+        if (iso) { onChange(iso); setTxt(isoADmy(iso)); } else setTxt(isoADmy(value));
+      }}
+      className={className}
+    />
+  );
+}
+
+function FormPago({ modo, ops, origenLabel, guardando, barra, onCancel, onConfirm }: {
+  modo: ModoForm; ops: PagoInterno[]; origenLabel: string; guardando: boolean;
+  barra?: HTMLElement | null; // si está, el formulario va fijo al pie del modal
   onCancel: () => void;
   onConfirm: (b: Omit<BodyPagoInterno, "pdvOrigenId">) => Promise<string | null>;
 }) {
   const editando = modo.tipo === "editar";
-  const importeBase = modo.tipo === "elegidos" ? modo.importe : modo.tipo === "editar" ? modo.pago.importe : saldo;
-  const [importe, setImporte] = useState(importeAInput(importeBase));
+  const importeBase = modo.tipo === "elegidos" ? modo.importe : modo.tipo === "editar" ? modo.pago.importe : 0;
+  const [importe, setImporte] = useState(importeBase > 0 ? importeAInput(importeBase) : "");
   const [fecha, setFecha] = useState(editando ? modo.pago.fecha : hoyISO());
   // Medio: uno de los medios o "op:ID" = usar el disponible de una OP existente.
   const [medio, setMedio] = useState<string>(
@@ -488,6 +543,7 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, 
   );
   const [referencia, setReferencia] = useState(editando ? modo.pago.referencia ?? "" : "");
   const [error, setError] = useState<string | null>(null);
+  const conId = medio === "Transferencia" || medio === "Bancos";
   const opElegida = medio.startsWith("op:") ? ops.find((o) => o.id === Number(medio.slice(3))) ?? null : null;
   const disp = opElegida ? disponibleOP(opElegida) : 0;
   // Al tildar o destildar, el importe se rearma con la nueva suma (con una OP
@@ -518,10 +574,11 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, 
       return;
     }
     const m = medio as MedioPagoInterno;
+    // ID opcional (Transferencia o Bancos); si se carga, letras y números.
     let ref: string | null = null;
-    if (m === "Transferencia") {
+    if (conId && referencia.trim()) {
       ref = normalizarReferencia(referencia);
-      if (!ref) { setError("Cargá el ID de la transferencia (letras y números)."); return; }
+      if (!ref) { setError("El ID tiene que ser de letras y números."); return; }
     }
     const err = await onConfirm({
       fecha, medio: m, referencia: ref, keys, importe: valor!,
@@ -533,24 +590,23 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, 
   const titulo = modo.tipo === "elegidos" ? `Pago · ${modo.desc}`
     : modo.tipo === "editar" ? `Editar ${numeroOP(modo.pago.id)}` : `Pago a ${origenLabel}`;
   const aCuentaNuevo = modo.tipo === "elegidos" && !opElegida ? valorActual - modo.importe : 0;
-  return (
-    <tr className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-200 dark:border-sky-900">
-      <td colSpan={5} className={cn("py-3 px-4", sticky && "sticky top-[32px] z-[5] bg-sky-50 dark:bg-sky-950 shadow-[0_2px_6px_rgba(0,0,0,0.08)]")}>
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <b>{titulo}</b>
-          {modo.tipo === "elegidos" && <span className="tabular-nums text-muted-foreground">Saldo {fmtPesos(modo.importe)}</span>}
-          <label className="flex items-center gap-1.5">Importe
-            <ImporteInput
-              value={importe}
-              onChange={setImporte}
-              className={cn(input, "w-44 text-right tabular-nums")}
-            />
+  const etiqueta = "w-12 shrink-0 text-muted-foreground";
+  const contenido = (
+    <div className="flex items-start gap-4">
+      <div className="min-w-0 flex-1">
+        <div className="grid w-fit grid-cols-[auto_auto_auto_auto] items-center gap-x-5 gap-y-2 text-sm">
+          <div className="flex items-baseline gap-2 pr-2">
+            <b className="whitespace-nowrap">{titulo}</b>
+            {modo.tipo === "elegidos" && <span className="tabular-nums text-muted-foreground whitespace-nowrap">Saldo {fmtPesos(modo.importe)}</span>}
+          </div>
+          <label className="flex items-center gap-1.5"><span className="text-muted-foreground">Importe</span>
+            <ImporteInput value={importe} onChange={setImporte} className={cn(input, "w-40 text-right tabular-nums")} />
           </label>
-          <label className="flex items-center gap-1.5">Medio
-            <select value={medio} onChange={(e) => cambiarMedio(e.target.value)} className={input}>
+          <label className="flex items-center gap-1.5"><span className={etiqueta}>Medio</span>
+            <select value={medio} onChange={(e) => cambiarMedio(e.target.value)} className={cn(input, "w-56")}>
               {MEDIOS_PAGO_INTERNO.map((m) => <option key={m} value={m}>{m}</option>)}
-              {!editando && ops.length > 0 && (
-                <optgroup label="Usar saldo a cuenta">
+              {modo.tipo === "elegidos" && ops.length > 0 && (
+                <optgroup label="Usar una orden sin imputar">
                   {ops.map((o) => (
                     <option key={o.id} value={`op:${o.id}`}>{numeroOP(o.id)} · disponible {fmtPesos(disponibleOP(o))}</option>
                   ))}
@@ -558,28 +614,21 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, 
               )}
             </select>
           </label>
-          {!opElegida && (
-            <label className="flex items-center gap-1.5">Fecha
-              <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={input} />
+          {!opElegida ? (
+            <label className="flex items-center gap-1.5"><span className="text-muted-foreground">Fecha</span>
+              <FechaInput value={fecha} onChange={setFecha} className={cn(input, "w-32 tabular-nums")} />
             </label>
-          )}
-          {medio === "Transferencia" && (
-            <label className="flex items-center gap-1.5">ID
+          ) : <span />}
+          {conId && (
+            <label className="col-start-3 flex items-center gap-1.5"><span className={etiqueta}>ID</span>
               <input
                 value={referencia}
                 onChange={(e) => setReferencia(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())}
-                placeholder="ID de la transferencia"
-                className={cn(input, "w-64 font-mono")}
+                placeholder="opcional"
+                className={cn(input, "w-56 font-mono")}
               />
             </label>
           )}
-          <button
-            type="button" disabled={guardando} onClick={confirmar}
-            className="h-8 px-3 rounded-md bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 disabled:opacity-40"
-          >
-            {opElegida ? `Imputar ${numeroOP(opElegida.id)}` : "Confirmar"}
-          </button>
-          <button type="button" onClick={onCancel} className="h-8 px-3 rounded-md border border-zinc-300 dark:border-zinc-600">{modo.tipo === "elegidos" ? "Limpiar" : "Cancelar"}</button>
         </div>
         <div className="mt-1.5 text-[11px] text-muted-foreground">
           {opElegida
@@ -588,13 +637,38 @@ function FormPago({ modo, ops, saldo, origenLabel, guardando, sticky, onCancel, 
               : `No crea una OP nueva: se imputa el disponible de ${numeroOP(opElegida.id)} (fecha e ID son los de esa OP).`)
             : modo.tipo === "elegidos"
               ? (aCuentaNuevo > 0.5
-                ? `Salda todo lo elegido y ${fmtPesos(aCuentaNuevo)} quedan a cuenta, sin asociar.`
-                : "Se imputa a lo elegido, del más viejo al más nuevo; si ponés menos, el último queda parcial; si ponés más, el excedente queda a cuenta.")
-            : modo.tipo === "editar" ? "Si cambiás el importe se vuelve a imputar: primero a los mismos movimientos, después a lo más viejo; lo que sobra queda a cuenta. Para deshacerla, Eliminar."
-            : "Se aplica a lo más viejo primero; si es menos, el último queda parcial; si es más, queda a cuenta."}
+                ? `Salda todo lo elegido y ${fmtPesos(aCuentaNuevo)} quedan a cuenta, sin imputar.`
+                : "Se imputa a lo elegido, del más viejo al más nuevo; si ponés menos, el último queda parcial; si ponés más, el excedente queda sin imputar.")
+            : modo.tipo === "editar" ? "Si cambiás el importe se vuelve a imputar a los mismos movimientos; lo que sobra queda sin imputar. Para deshacerla, Eliminar."
+            : "Queda como orden de pago sin imputar. Para imputarla, tildá los movimientos y elegila como medio de pago."}
         </div>
         {error && <div className="mt-1.5 text-xs text-destructive">{error}</div>}
-      </td>
+      </div>
+      <div className="flex shrink-0 flex-col gap-1.5">
+        <button
+          type="button" disabled={guardando} onClick={confirmar}
+          className="h-8 min-w-28 px-3 rounded-md bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 text-sm disabled:opacity-40"
+        >
+          {opElegida ? `Imputar ${numeroOP(opElegida.id)}` : "Confirmar"}
+        </button>
+        <button type="button" onClick={onCancel} className="h-8 min-w-28 px-3 rounded-md border border-zinc-300 dark:border-zinc-600 text-sm">
+          {modo.tipo === "elegidos" ? "Limpiar" : "Cancelar"}
+        </button>
+      </div>
+    </div>
+  );
+  // Al pie del modal, siempre a la vista: no corre la tabla ni tapa lo que se tilda.
+  if (barra) {
+    return createPortal(
+      <div className="border-t border-sky-200 dark:border-sky-900 bg-sky-50 dark:bg-sky-950 px-5 py-3 shadow-[0_-4px_10px_rgba(0,0,0,0.06)]">
+        {contenido}
+      </div>,
+      barra
+    );
+  }
+  return (
+    <tr className="bg-sky-50 dark:bg-sky-950/40 border-b border-sky-200 dark:border-sky-900">
+      <td colSpan={4} className="py-3 px-4">{contenido}</td>
     </tr>
   );
 }

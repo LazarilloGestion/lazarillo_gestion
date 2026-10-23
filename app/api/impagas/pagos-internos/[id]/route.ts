@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { movimientosAperturaSql, type MovimientoSqlRow } from "@/lib/impagas/query";
-import { MEDIOS_PAGO_INTERNO, normalizarReferencia, redondear, reimputar } from "@/lib/impagas/aperturas";
+import { MEDIOS_PAGO_INTERNO, imputarElegidos, normalizarReferencia, redondear } from "@/lib/impagas/aperturas";
 
 export const dynamic = "force-dynamic";
 
@@ -39,9 +39,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!pago) return NextResponse.json({ error: "Esa orden de pago ya no existe." }, { status: 404 });
 
   let referencia: string | null = null;
-  if (b.medio === "Transferencia") {
-    referencia = normalizarReferencia(b.referencia ?? "");
-    if (!referencia) return NextResponse.json({ error: "Falta el ID de la transferencia (letras y números)." }, { status: 400 });
+  if (b.referencia?.trim()) {
+    referencia = normalizarReferencia(b.referencia);
+    if (!referencia) return NextResponse.json({ error: "El ID tiene que ser de letras y números." }, { status: 400 });
     const otra = await prisma.pagoInterno.findUnique({ where: { referencia }, select: { id: true } });
     if (otra && otra.id !== id) return NextResponse.json({ error: "Ese ID de transferencia ya está cargado." }, { status: 409 });
   }
@@ -57,7 +57,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         const movs = (await tx.$queryRaw<MovimientoSqlRow[]>(movimientosAperturaSql(pago.pdvDestinoId, "1900-01-01")))
           .filter((m) => m.pdv_origen_id === pago.pdvOrigenId)
           .map((m) => ({ key: m.key, fecha: m.fecha, importe: Number(m.importe), aplicado: Number(m.aplicado) }));
-        const { aplicaciones } = reimputar(movs, antes, importe);
+        // Solo a los mismos movimientos que ya tenía; lo que sobra queda a cuenta
+        // (una OP sin imputar sigue sin imputar).
+        const { aplicaciones } = imputarElegidos(movs, antes, importe);
         if (aplicaciones.length) {
           await tx.aplicacionPagoInterno.createMany({
             data: aplicaciones.map((a) => ({ pagoId: id, compraRowId: a.key, importe: new Prisma.Decimal(a.importe) })),
