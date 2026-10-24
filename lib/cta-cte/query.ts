@@ -34,6 +34,9 @@ export function facturasCtaCteSql(codPro: string): Prisma.Sql {
       FROM compras c
       LEFT JOIN conceptos_caja cc ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
       WHERE c.codigo = ${codPro} AND c.comprobante IS NOT NULL AND c."puntoDeVentaId" IS NOT NULL
+        -- Solo las compras del proveedor del maestro: el mismo código se repite
+        -- en gastos varios y empleados de otros PDV (texto, sin proveedorId).
+        AND c."proveedorId" IN (SELECT id FROM proveedores WHERE codigo = ${codPro})
       GROUP BY c."puntoDeVentaId", c.comprobante
     ),
     pg AS (
@@ -93,6 +96,46 @@ export function buscarProveedoresSql(q: string): Prisma.Sql {
     HAVING ${q ? Prisma.sql`lower(COALESCE(MAX(p.nombre), MAX(c.proveedor), '')) LIKE ${patron} OR c.codigo = ${q}` : Prisma.sql`TRUE`}
     ORDER BY 3 DESC
     LIMIT 12
+  `;
+}
+
+// ─── Movimientos sin proveedor del maestro (empleados, gastos varios) ─────────
+// Se identifican por PDV + código + nombre (el código del ERP se repite entre
+// PDV y con "GASTOS VARIOS"). Sueldos y gastos varios no tienen comprobante:
+// en MaxiRest se cargan con su pago.
+
+export interface MovimientoCtaCteRow {
+  row_id: string; fecha: string | null; comprobante: string | null; concepto: string | null;
+  rubro: string | null; observac: string | null; importe: number;
+}
+
+export function movimientosCtaCteSql(pdvId: number, codigo: string, nombre: string): Prisma.Sql {
+  return Prisma.sql`
+    SELECT c."rowId" AS row_id,
+           TO_CHAR(COALESCE(c."fechaManual", c.fecha), 'YYYY-MM-DD') AS fecha,
+           c.comprobante,
+           COALESCE(cc.nombre, c.concepto) AS concepto,
+           rc.nombre AS rubro,
+           COALESCE(c."observacManual", c.observac) AS observac,
+           COALESCE(c."importeManual", c.importe, 0)::float8 AS importe
+    FROM compras c
+    LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
+    LEFT JOIN rubros_concepto_caja rc ON cc."codRga" = rc.codigo
+    WHERE c."puntoDeVentaId" = ${pdvId} AND c.codigo = ${codigo} AND c."proveedorId" IS NULL
+      AND LOWER(TRIM(c.proveedor)) = LOWER(TRIM(${nombre}))
+    ORDER BY 2 DESC, 1
+    LIMIT 5000
+  `;
+}
+
+export interface EncabezadoMovsRow { pdv: string | null; empleado: string | null }
+
+// PDV y, si es un empleado de la nómina, su nombre completo.
+export function encabezadoMovsSql(pdvId: number, codigo: string, nombre: string): Prisma.Sql {
+  return Prisma.sql`
+    SELECT (SELECT CONCAT(l.nombre, ' · ', pdv.nombre) FROM puntos_de_venta pdv JOIN locales l ON l.id = pdv."localId" WHERE pdv.id = ${pdvId}) AS pdv,
+           (SELECT NULLIF(TRIM(CONCAT_WS(' ', e.nombre, e.apellido)), '') FROM empleados e
+             WHERE e."puntoDeVentaId" = ${pdvId} AND e.codigo = ${codigo} AND LOWER(TRIM(e.nombre)) = LOWER(TRIM(${nombre})) LIMIT 1) AS empleado
   `;
 }
 

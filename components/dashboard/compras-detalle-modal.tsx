@@ -32,7 +32,7 @@ import { periodoInicial, aplicarPeriodo, labelPeriodo, type Periodo } from "@/li
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { useDashboard } from "@/hooks/use-dashboard-store";
-import { CtaCteContenido, CtaCteModal } from "@/components/cta-cte/cta-cte-proveedor";
+import { CtaCteContenido, CtaCteModal, origenDeFila, type OrigenCtaCte } from "@/components/cta-cte/cta-cte-proveedor";
 import { ETIQUETA_ESTADO, PUNTO_ESTADO } from "@/lib/cta-cte/estado";
 
 export interface ColDef {
@@ -224,6 +224,12 @@ function sortCompras(a: CompraDetalle, b: CompraDetalle, sort: SortState): numbe
   const cmp = va.localeCompare(vb, "es", { numeric: true });
   return sort.dir === "asc" ? cmp : -cmp;
 }
+
+// Cuenta corriente de la fila: proveedor del maestro (por código) o, si no lo
+// tiene (empleado, gastos varios), por PDV + código + nombre del ERP.
+const origenDeFilaDetalle = (item: CompraDetalle) => origenDeFila({
+  codigo: item.codigoProveedor, pdvId: item.pdvCompraId, nombre: item.proveedor, tieneMaestro: !!item.proveedorRef,
+});
 
 // ─── Row component ────────────────────────────────────────────────────────────
 
@@ -469,10 +475,11 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   // recálculo de apertura (compra distribuida o concepto nuevo con regla
   // activa) y se le pide OK antes de mandar el PATCH.
   const [pendienteConfirmacion, setPendienteConfirmacion] = useState<EditState | null>(null);
-  const [ctaCte, setCtaCte] = useState<{ codPro: string; resaltado: { pdvId: number; comprobante: string } | null } | null>(null);
+  const [ctaCte, setCtaCte] = useState<{ origen: OrigenCtaCte; resaltado: { pdvId: number; comprobante: string } | null } | null>(null);
   const abrirCtaCte = useCallback((item: CompraDetalle) => {
-    if (item.pdvCompraId != null && item.codigoProveedor) {
-      setCtaCte({ codPro: item.codigoProveedor, resaltado: item.comprobante ? { pdvId: item.pdvCompraId, comprobante: item.comprobante } : null });
+    const origen = origenDeFilaDetalle(item);
+    if (origen) {
+      setCtaCte({ origen, resaltado: item.comprobante && item.pdvCompraId != null ? { pdvId: item.pdvCompraId, comprobante: item.comprobante } : null });
     }
   }, []);
   const [apertura, setApertura] = useState<{
@@ -677,8 +684,9 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         // edición queda arriba, tal cual, y abajo la cuenta corriente del proveedor.
         extra={filter?.rowId ? (rows) => {
           const r = rows[0];
-          return r?.pdvCompraId != null && r.codigoProveedor
-            ? <CtaCteContenido key={r.codigoProveedor} codPro={r.codigoProveedor} resaltado={r.comprobante ? { pdvId: r.pdvCompraId, comprobante: r.comprobante } : null} />
+          const origen = r ? origenDeFilaDetalle(r) : null;
+          return r && origen
+            ? <CtaCteContenido key={`${origen.codPro}|${origen.nombre ?? ""}`} origen={origen} resaltado={r.comprobante && r.pdvCompraId != null ? { pdvId: r.pdvCompraId, comprobante: r.comprobante } : null} />
             : <p className="py-8 text-center text-sm text-muted-foreground">Este gasto no tiene proveedor: no hay cuenta corriente para mostrar.</p>;
         } : undefined}
         renderRow={(item, portalContainer) => (
@@ -709,14 +717,14 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
               origenPdvId: row.puntoDeVentaIdOrigen,
             })}
             // Con un registro puntual la cuenta corriente ya está abajo.
-            onOpenCtaCte={!filter?.rowId && item.pdvCompraId != null && item.codigoProveedor ? abrirCtaCte : null}
+            onOpenCtaCte={!filter?.rowId && origenDeFilaDetalle(item) ? abrirCtaCte : null}
             tieneReglaApertura={reglasActivasRegistro.has(item.rowId)}
             puedeAperturar={localId != null && pdvId != null}
           />
         )}
       />
       {ctaCte && (
-        <CtaCteModal codPro={ctaCte.codPro} resaltado={ctaCte.resaltado} onCerrar={() => setCtaCte(null)} />
+        <CtaCteModal origen={ctaCte.origen} resaltado={ctaCte.resaltado} onCerrar={() => setCtaCte(null)} />
       )}
       <CompraLineasModal
         compraId={selectedLineas?.rowId ?? null}

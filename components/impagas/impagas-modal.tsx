@@ -18,7 +18,7 @@ import { numeroOP, saldoDeuda, saldoMov, type DeudaConPdv } from "@/lib/impagas/
 import { FilasDeudaPdv, type BodyEditarPago, type BodyPagoInterno } from "./deuda-pdv";
 import { CuentaCorrientePanel } from "./cuenta-corriente-panel";
 import { OpMaxirestModal } from "./op-maxirest-modal";
-import { CtaCteModal } from "@/components/cta-cte/cta-cte-proveedor";
+import { CtaCteModal, origenDeFila, type OrigenCtaCte } from "@/components/cta-cte/cta-cte-proveedor";
 import { Antiguedad, Boton } from "./ui";
 
 export interface OpcionPdv { id: number; label: string }
@@ -170,7 +170,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [ctaCte, setCtaCte] = useState<{ codPro: string; resaltado: string } | null>(null);
   const [opMx, setOpMx] = useState<{ orden: string; fecha: string } | null>(null);
-  const [ctaCteCompleta, setCtaCteCompleta] = useState<{ codPro: string; resaltado: string } | null>(null);
+  const [ctaCteCompleta, setCtaCteCompleta] = useState<{ origen: OrigenCtaCte; resaltado: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
 
   const key = impagasQueryKey(pdvId, desde);
@@ -274,7 +274,17 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
         <td className="py-2.5 px-3">
           <span className="inline-flex items-center gap-1.5">
             {abierto ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
-            <span className="font-semibold">{g.proveedor}</span>
+            {(() => {
+              // Tocar el nombre abre la cuenta corriente; el resto de la fila despliega.
+              const origen = origenDeFila({ codigo: g.codPro, pdvId, nombre: g.proveedor, tieneMaestro: g.proveedorId != null });
+              return origen ? (
+                <button type="button" title="Ver cuenta corriente"
+                  onClick={(e) => { e.stopPropagation(); setCtaCteCompleta({ origen, resaltado: "" }); }}
+                  className="font-semibold text-sky-700 dark:text-sky-400 underline decoration-dotted underline-offset-2 hover:decoration-solid">
+                  {g.proveedor}
+                </button>
+              ) : <span className="font-semibold">{g.proveedor}</span>;
+            })()}
             {etiqueta}
             <span className="text-xs text-muted-foreground">{g.items.length}</span>
           </span>
@@ -600,12 +610,13 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
               onVerPago={(pg) => pg.orden && setOpMx({ orden: pg.orden, fecha: pg.fecha })}
               onVerCompleta={() => {
                 const f = todas.find((x) => x.id === ctaCte.resaltado);
-                setCtaCteCompleta({ codPro: ctaCte.codPro, resaltado: f?.comprobante ?? "" });
+                const origen = f && origenDeFila({ codigo: f.codPro, pdvId, nombre: f.proveedor, tieneMaestro: f.proveedorId != null });
+                if (origen) setCtaCteCompleta({ origen, resaltado: f?.comprobante ?? "" });
               }}
             />
           )}
           {ctaCteCompleta && pdvId && (
-            <CtaCteModal codPro={ctaCteCompleta.codPro} resaltado={ctaCteCompleta.resaltado ? { pdvId, comprobante: ctaCteCompleta.resaltado } : null} onCerrar={() => setCtaCteCompleta(null)} />
+            <CtaCteModal origen={ctaCteCompleta.origen} resaltado={ctaCteCompleta.resaltado ? { pdvId, comprobante: ctaCteCompleta.resaltado } : null} onCerrar={() => setCtaCteCompleta(null)} />
           )}
           {opMx && pdvId && (
             <OpMaxirestModal

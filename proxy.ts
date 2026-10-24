@@ -73,6 +73,7 @@ export const config = {
     // dinámica como /api/dashboard/compras/[rowId] puede coincidir por
     // casualidad (ej. un rowId que termine en ".png") y saltear el
     // middleware por completo si no se excluye explícitamente ese prefijo.
-    "/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest|(?!api/).*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // sw.js: el service worker "de baja" tiene que llegar aunque no haya sesión.
+    "/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest|sw\\.js|(?!api/).*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
