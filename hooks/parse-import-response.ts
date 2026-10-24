@@ -42,6 +42,13 @@ export function parseImportResponse(
   const results = Array.isArray(json.results) ? json.results.filter(isResultItem) : [];
 
   for (const item of results) {
+    if ("sinCambios" in item) {
+      // Misma huella de Drive que la última importación OK: no se procesó (no es error).
+      statuses[item.fileId] = "sin_cambios";
+      const f = new Date(item.importadoEn);
+      errors[item.fileId] = `Sin cambios desde la última importación (${f.toLocaleDateString("es-AR")} ${f.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })})`;
+      continue;
+    }
     if (!("report" in item)) {
       statuses[item.fileId] = "unsupported";
       errors[item.fileId] = item.errorMessage;

@@ -226,7 +226,7 @@ function DriveTab() {
           {ready && (() => {
             const allFiles = [...ready.maestros, ...ready.folders.filter((f) => f.localId).flatMap((f) => f.files)];
             const hayPendientes = allFiles.some((f) => !driveImport.fileStatuses[f.id] || driveImport.fileStatuses[f.id] === "idle" || driveImport.fileStatuses[f.id] === "error");
-            const todoDone = allFiles.length > 0 && allFiles.every((f) => driveImport.fileStatuses[f.id] === "success");
+            const todoDone = allFiles.length > 0 && allFiles.every((f) => driveImport.fileStatuses[f.id] === "success" || driveImport.fileStatuses[f.id] === "sin_cambios");
 
             if (todoDone) {
               return (
@@ -294,12 +294,13 @@ function DriveTab() {
       )}
 
       {/* Carpetas PDV */}
-      {ready && ready.folders.length > 0 && (
+      {ready && ready.folders.some((f) => f.localId) && (
         <span className="text-xs font-medium uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
           Transaccionales
         </span>
       )}
-      {ready?.folders.map((folder) => {
+      {/* Las carpetas de locales no reconocidos (otras organizaciones, ej. Palermo / Nuñez) no se muestran (Diego, 24/10). */}
+      {ready?.folders.filter((folder) => folder.localId).map((folder) => {
         const resolved = folder.localId
           ? [folder.localNombre, folder.pdvNombre].filter(Boolean).join(" · ")
           : null;

@@ -67,11 +67,13 @@ export function DriveFolder({
   const pendingFiles = files.filter((f) => !fileStatuses[f.id] || fileStatuses[f.id] === "idle" || fileStatuses[f.id] === "error");
   // Un archivo no soportado es un estado final igual que "success" — reintentarlo
   // da siempre el mismo resultado, así que no debe dejar la carpeta "incompleta".
-  const allDone = files.length > 0 && files.every((f) => fileStatuses[f.id] === "success" || fileStatuses[f.id] === "unsupported");
+  // "sin_cambios" (misma huella de Drive que la última importación OK) también es terminal.
+  const terminado = (id: string) => ["success", "unsupported", "sin_cambios"].includes(fileStatuses[id] ?? "");
+  const allDone = files.length > 0 && files.every((f) => terminado(f.id));
   const folderImporting = files.some((f) => fileStatuses[f.id] === "importing");
 
   // Mismo criterio que allDone: success/unsupported son estados terminales.
-  const importedCount = files.filter((f) => fileStatuses[f.id] === "success" || fileStatuses[f.id] === "unsupported").length;
+  const importedCount = files.filter((f) => terminado(f.id)).length;
 
   async function handleImportAll() {
     setBatchRunning(true);
@@ -195,10 +197,10 @@ export function DriveFolder({
                           {new Date(file.modifiedTime).toLocaleDateString("es-AR")}
                           {file.size && ` · ${formatBytes(Number(file.size))}`}
                         </p>
-                        {(status === "error" || status === "unsupported") && fileErrors[file.id] && (
+                        {(status === "error" || status === "unsupported" || status === "sin_cambios") && fileErrors[file.id] && (
                           <p className={cn(
                             "text-xs mt-0.5",
-                            status === "unsupported" ? "text-zinc-400 dark:text-zinc-500" : "text-destructive"
+                            status === "error" ? "text-destructive" : "text-zinc-400 dark:text-zinc-500"
                           )}>
                             {translateError(fileErrors[file.id])}
                           </p>
@@ -212,6 +214,16 @@ export function DriveFolder({
                           className="group shrink-0 disabled:pointer-events-none"
                         >
                           <CheckCircle2 className="w-4 h-4 text-success group-hover:hidden" />
+                          <RefreshCw className="w-4 h-4 text-zinc-400 hidden group-hover:block" />
+                        </button>
+                      ) : status === "sin_cambios" ? (
+                        <button
+                          onClick={async () => { onResetFile(file.id); await onImportOne(file, localId, puntoDeVentaId); }}
+                          disabled={batchRunning || globalImporting || blocked}
+                          title="No cambió desde la última importación — clic para reimportarlo igual"
+                          className="group shrink-0 disabled:pointer-events-none"
+                        >
+                          <CheckCircle2 className="w-4 h-4 text-zinc-300 dark:text-zinc-600 group-hover:hidden" />
                           <RefreshCw className="w-4 h-4 text-zinc-400 hidden group-hover:block" />
                         </button>
                       ) : status === "unsupported" ? (
