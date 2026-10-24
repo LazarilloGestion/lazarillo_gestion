@@ -53,8 +53,9 @@ export function useDriveImport() {
   const [fileReports, setFileReports] = useState<FileReports>({});
   const [fileErrors, setFileErrors] = useState<FileErrors>({});
   const [globalImporting, setGlobalImporting] = useState(false);
-  // Archivos que el usuario pidió REimportar (resetFile): esos se mandan con
-  // forzar, así se procesan aunque no hayan cambiado en Drive.
+  // Archivos que el usuario pidió reimportar UNO POR UNO (resetFile con forzar):
+  // esos se procesan aunque no hayan cambiado en Drive. "Reimportar" de carpeta
+  // o "Reimportar todo" NO fuerzan: validan y saltean lo que no cambió.
   const forzarIds = useRef<Set<string>>(new Set());
 
   const isImporting = Object.values(fileStatuses).some((s) => s === "importing");
@@ -297,8 +298,8 @@ export function useDriveImport() {
     }
   }
 
-  function resetFile(fileId: string) {
-    forzarIds.current.add(fileId);
+  function resetFile(fileId: string, forzar = false) {
+    if (forzar) forzarIds.current.add(fileId);
     setFileStatuses((s) => { const n = { ...s }; delete n[fileId]; return n; });
     setFileReports((r) => { const n = { ...r }; delete n[fileId]; return n; });
     setFileErrors((e) => { const n = { ...e }; delete n[fileId]; return n; });

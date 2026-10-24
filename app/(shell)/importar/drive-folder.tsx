@@ -59,7 +59,7 @@ export function DriveFolder({
   blocked?: boolean;
   blockedTitle?: string;
   globalImporting?: boolean;
-  onResetFile: (fileId: string) => void;
+  onResetFile: (fileId: string, forzar?: boolean) => void;
 }) {
   const [batchRunning, setBatchRunning] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
@@ -208,7 +208,7 @@ export function DriveFolder({
                       </div>
                       {status === "success" ? (
                         <button
-                          onClick={async () => { onResetFile(file.id); await onImportOne(file, localId, puntoDeVentaId); }}
+                          onClick={async () => { onResetFile(file.id, true); await onImportOne(file, localId, puntoDeVentaId); }}
                           disabled={batchRunning || globalImporting || blocked}
                           title="Reimportar archivo"
                           className="group shrink-0 disabled:pointer-events-none"
@@ -218,7 +218,7 @@ export function DriveFolder({
                         </button>
                       ) : status === "sin_cambios" ? (
                         <button
-                          onClick={async () => { onResetFile(file.id); await onImportOne(file, localId, puntoDeVentaId); }}
+                          onClick={async () => { onResetFile(file.id, true); await onImportOne(file, localId, puntoDeVentaId); }}
                           disabled={batchRunning || globalImporting || blocked}
                           title="No cambió desde la última importación — clic para reimportarlo igual"
                           className="group shrink-0 disabled:pointer-events-none"
@@ -232,7 +232,7 @@ export function DriveFolder({
                         </span>
                       ) : status === "error" ? (
                         <button
-                          onClick={async () => { onResetFile(file.id); await onImportOne(file, localId, puntoDeVentaId); }}
+                          onClick={async () => { onResetFile(file.id, true); await onImportOne(file, localId, puntoDeVentaId); }}
                           disabled={batchRunning || globalImporting || blocked}
                           title="Reimportar archivo"
                           className="group shrink-0 disabled:pointer-events-none"
