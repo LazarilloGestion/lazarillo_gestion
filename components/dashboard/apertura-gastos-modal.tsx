@@ -13,6 +13,7 @@ import { notify } from "@/lib/toast";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { validarSumaPorcentajes, encontrarDestinoDuplicado } from "@/lib/apertura/validaciones";
+import { autocompletarDestino } from "@/lib/apertura/autocompletar-destino";
 import type { ReglaAperturaDTO } from "@/lib/apertura/types";
 import type { NivelRegla } from "@/lib/apertura/schemas";
 import type { Local } from "@/lib/types/domain";
@@ -582,7 +583,11 @@ export function AperturaGastosModal({
                   <button
                     type="button"
                     onClick={() =>
-                      setDestinos((prev) => [...prev, { ...destinoVacio(), porcentaje: restanteDePorcentaje(prev) }])
+                      setDestinos((prev) => [
+                        ...prev,
+                        // Si queda una sola combinación libre (ej. San Justo · Canchas), viene elegida.
+                        autocompletarDestino({ ...destinoVacio(), porcentaje: restanteDePorcentaje(prev) }, locales, prev),
+                      ])
                     }
                     disabled={sinCombosDisponibles}
                     className="self-start inline-flex items-center gap-1 h-6 px-2 rounded text-xs text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:pointer-events-none"
