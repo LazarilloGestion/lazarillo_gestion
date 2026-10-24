@@ -585,3 +585,18 @@ model NotaUsuario {
 
   @@map("notas_usuario")
 }
+
+// Proyecciones de cierre de mes guardadas día a día (tooltip de Ingresos).
+model ProyeccionIngreso {
+  ambito     String // "<localId|*>/<pdvId|*>"
+  anio       Int
+  mes        Int
+  corte      DateTime @db.Date
+  metodo     String // "semanas" | "dias_mes"
+  facturado  Decimal  @db.Decimal(16, 2)
+  proyeccion Decimal  @db.Decimal(16, 2)
+  creadoEn   DateTime @default(now())
+
+  @@id([ambito, anio, mes, corte, metodo])
+  @@map("proyecciones_ingresos")
+}

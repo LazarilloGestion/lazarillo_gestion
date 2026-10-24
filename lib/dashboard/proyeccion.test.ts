@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { proyectarMes, debeProyectar, fmtMillones, type VentaDia } from "./proyeccion";
+import { proyectarMes, debeProyectar, fmtMillones, type VentaDia, type ProyeccionGuardada } from "./proyeccion";
 
 // Serie sintética: cada día vende según su día de semana × factor del mes.
 const BASE_DOW = [200, 100, 100, 100, 150, 400, 500]; // dom..sáb
@@ -71,6 +71,45 @@ describe("proyectarMes", () => {
     const d = serie("2026-01-01", "2026-10-21", (f) => (f.slice(5, 7) === "07" ? 2 : 1));
     const r = proyectarMes(d, "2026-10-21")!;
     expect(r.rango!.min).toBeGreaterThanOrEqual(r.facturado);
+  });
+});
+
+describe("dos métodos y elección por error", () => {
+  it("con ventas regulares los dos aciertan y se guarda cada uno", () => {
+    const todo = serie("2025-09-01", "2026-10-31");
+    const r = proyectarMes(todo.filter((d) => d.fecha <= "2026-10-21"), "2026-10-21")!;
+    const real = sumaMes(todo, "2026-10");
+    expect(r.proyecciones.semanas).toBeCloseTo(real, 6);
+    expect(r.proyecciones.dias_mes).toBeCloseTo(real, 6);
+    expect(r.backtest?.fuente).toBe("backtest");
+  });
+
+  it("días del mes: usa el promedio de ese día dentro del mes; si no pasó todavía, el de 8 semanas", () => {
+    // Octubre: los sábados del mes venden el doble de lo habitual.
+    const d = serie("2026-06-01", "2026-10-21", (f) => (f >= "2026-10-01" && new Date(f + "T00:00:00Z").getUTCDay() === 6 ? 2 : 1));
+    const r = proyectarMes(d, "2026-10-21")!;
+    expect(r.proyecciones.dias_mes).toBeGreaterThan(r.proyecciones.semanas);
+    // Día 3 (sábado 3/10 recién pasado, sin domingo aún): igual proyecta.
+    const r3 = proyectarMes(serie("2026-06-01", "2026-10-02"), "2026-10-02")!;
+    expect(r3.proyecciones.dias_mes).toBeCloseTo(r3.proyecciones.semanas, 6);
+  });
+
+  it("con 3+ meses cerrados guardados manda lo guardado y elige el que menos erró", () => {
+    const todo = serie("2025-09-01", "2026-10-31");
+    const reales: Record<number, number> = { 7: sumaMes(todo, "2026-07"), 8: sumaMes(todo, "2026-08"), 9: sumaMes(todo, "2026-09") };
+    const g: ProyeccionGuardada[] = [7, 8, 9].flatMap((mes) => [
+      { anio: 2026, mes, metodo: "semanas" as const, proyeccion: reales[mes] * 1.1 },
+      { anio: 2026, mes, metodo: "dias_mes" as const, proyeccion: reales[mes] * 0.98 },
+    ]);
+    const r = proyectarMes(todo.filter((d) => d.fecha <= "2026-10-21"), "2026-10-21", g)!;
+    expect(r.backtest?.fuente).toBe("guardadas");
+    expect(r.backtest?.meses).toBe(3);
+    expect(r.metodo).toBe("dias_mes");
+    expect(r.backtest?.errores.semanas).toBeCloseTo(0.1, 6);
+    expect(r.backtest?.errorMetodo).toBeCloseTo(0.02, 6);
+    // Con menos de 3 meses guardados sigue mandando el backtest.
+    const r2 = proyectarMes(todo.filter((d) => d.fecha <= "2026-10-21"), "2026-10-21", g.filter((x) => x.mes !== 7))!;
+    expect(r2.backtest?.fuente).toBe("backtest");
   });
 });
 

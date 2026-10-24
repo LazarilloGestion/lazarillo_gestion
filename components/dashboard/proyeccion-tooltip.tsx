@@ -3,6 +3,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { fmtMillones, DIA_SEMANA_CORTO, type ProyeccionMes } from "@/lib/dashboard/proyeccion";
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
+const pct1 = (x: number) => `${(x * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
 const ddmm = (f: string) => `${f.slice(8, 10)}/${f.slice(5, 7)}`;
 
 // Celda de Ingresos del mes incompleto: el valor subrayado (sin ensanchar la
@@ -48,9 +49,20 @@ export function ProyeccionIngresos({ p, children }: { p: ProyeccionMes; children
           </div>
           <Sep />
           <div className="opacity-60 mb-1">Cómo se calcula</div>
-          <div>
-            Cada día que falta vale lo que suele vender <b>ese día de la semana</b> (promedio de las últimas 8 semanas) × el{" "}
-            <b>ritmo del mes</b>: {mesLargo} viene al <b>{pct(p.ritmo)}</b> de lo habitual.
+          {p.metodo === "semanas" ? (
+            <div>
+              Cada día que falta vale lo que suele vender <b>ese día de la semana</b> (promedio de las últimas 8 semanas) × el{" "}
+              <b>ritmo del mes</b>: {mesLargo} viene al <b>{pct(p.ritmo)}</b> de lo habitual.
+            </div>
+          ) : (
+            <div>
+              Cada día que falta vale el <b>promedio de ese día de la semana en {mesLargo}</b> (los jueves que faltan, lo que vienen
+              vendiendo los jueves de este mes).
+            </div>
+          )}
+          <div className="opacity-60 mt-1">
+            Con el otro cálculo ({p.metodo === "semanas" ? "promedio de cada día en el mes" : "8 semanas × ritmo"}):{" "}
+            {fmtMillones(p.proyecciones[p.metodo === "semanas" ? "dias_mes" : "semanas"])}
           </div>
           <Sep />
           <div className="opacity-60">
@@ -62,9 +74,15 @@ export function ProyeccionIngresos({ p, children }: { p: ProyeccionMes; children
             <>
               <Sep />
               <div className="opacity-60">
-                Probado contra los {p.backtest.meses} meses anteriores cortando cada uno el día {p.backtest.dia}: este método erró{" "}
-                <b className="opacity-100">{pct(p.backtest.errorMetodo)}</b> en promedio; la regla de 3,{" "}
-                <b className="opacity-100">{pct(p.backtest.errorReglaDeTres)}</b>.
+                {p.backtest.fuente === "guardadas"
+                  ? <>Medido con lo que proyectó cada día en los últimos {p.backtest.meses} meses contra cómo cerraron: </>
+                  : <>Probado contra los {p.backtest.meses} meses anteriores cortando cada uno el día {p.backtest.dia}: </>}
+                este cálculo erró <b className="opacity-100">{pct1(p.backtest.errorMetodo)}</b> en promedio; el otro,{" "}
+                <b className="opacity-100">{pct1(p.backtest.errores[p.metodo === "semanas" ? "dias_mes" : "semanas"])}</b>
+                {p.backtest.errorReglaDeTres != null && (
+                  <>; la regla de 3, <b className="opacity-100">{pct1(p.backtest.errorReglaDeTres)}</b></>
+                )}
+                . Se usa el que menos erra, y cada día se guarda lo proyectado para seguir midiendo.
               </div>
             </>
           )}
