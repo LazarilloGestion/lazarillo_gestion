@@ -5,8 +5,8 @@ import { fmtMillones, DIA_SEMANA_CORTO, type ProyeccionMes } from "@/lib/dashboa
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const ddmm = (f: string) => `${f.slice(8, 10)}/${f.slice(5, 7)}`;
 
-// Celda de Ingresos del mes incompleto: el valor subrayado + chip "proy." y,
-// al pasar el mouse, cómo se llega a la proyección de cierre.
+// Celda de Ingresos del mes incompleto: el valor subrayado (sin ensanchar la
+// columna) y, al pasar el mouse, cómo se llega a la proyección de cierre.
 export function ProyeccionIngresos({ p, children }: { p: ProyeccionMes; children: React.ReactNode }) {
   const mesLargo = new Date(Date.UTC(p.anio, p.mes - 1, 1)).toLocaleDateString("es-AR", { month: "long", timeZone: "UTC" });
   const mesNombre = mesLargo.charAt(0).toUpperCase() + mesLargo.slice(1);
@@ -19,12 +19,7 @@ export function ProyeccionIngresos({ p, children }: { p: ProyeccionMes; children
     <TooltipProvider delayDuration={150}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="inline-flex items-center gap-1.5 cursor-help">
-            <span className="border-b-[1.5px] border-dashed border-[#5BC2EA]">{children}</span>
-            <span className="text-[10px] font-semibold leading-none rounded px-1.5 py-[3px] bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
-              proy. {fmtMillones(p.proyeccion)}
-            </span>
-          </span>
+          <span className="cursor-help border-b-[1.5px] border-dashed border-[#5BC2EA]">{children}</span>
         </TooltipTrigger>
         <TooltipContent side="bottom" align="end" className="block max-w-none w-[360px] p-3.5 text-[12.5px] leading-[1.45] font-normal text-left">
           <div className="opacity-60">Proyección de cierre · {mesNombre} {p.anio}</div>
