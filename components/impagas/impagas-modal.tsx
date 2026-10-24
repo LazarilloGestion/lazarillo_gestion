@@ -43,7 +43,7 @@ function guardarDesde(pdvId: number | undefined, mes: string | null) {
 
 // Mes aaaa-mm entre 2015 y el año que viene.
 export function mesValido(v: string): boolean {
-  const m = /^(\\d{4})-(\\d{2})$/.exec(v);
+  const m = /^(\d{4})-(\d{2})$/.exec(v);
   if (!m) return false;
   const anio = Number(m[1]), mes = Number(m[2]);
   return anio >= 2015 && anio <= new Date().getFullYear() + 1 && mes >= 1 && mes <= 12;

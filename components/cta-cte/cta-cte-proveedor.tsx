@@ -165,9 +165,9 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
   const fact = facturas.find((f) => claveF(f) === sel) ?? null;
   const valF = (f: FacturaCtaCte): string | number =>
     orden.campo === "importe" ? f.total : orden.campo === "estado" ? RANK[f.estado ?? ""] : orden.campo === "comp" ? f.comprobante : f.fecha;
-  const tn = t.replace(/[\\s-]/g, "");
+  const tn = t.replace(/[\s-]/g, "");
   const visiblesF = facturas
-    .filter((f) => enPeriodo(f.fecha) && (!tn || f.comprobante.toLowerCase().includes(tn) || fmtComprobante(f.comprobante).toLowerCase().replace(/[\\s-]/g, "").includes(tn)))
+    .filter((f) => enPeriodo(f.fecha) && (!tn || f.comprobante.toLowerCase().includes(tn) || fmtComprobante(f.comprobante).toLowerCase().replace(/[\s-]/g, "").includes(tn)))
     .sort((a, b) => cmp(valF(a), valF(b)));
   const totF = totalesCtaCte(visiblesF);
   const pagosLista = fact
