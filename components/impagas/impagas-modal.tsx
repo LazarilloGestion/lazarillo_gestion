@@ -605,7 +605,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
             />
           )}
           {ctaCteCompleta && pdvId && (
-            <CtaCteModal pdvId={pdvId} codPro={ctaCteCompleta.codPro} resaltado={ctaCteCompleta.resaltado} onCerrar={() => setCtaCteCompleta(null)} />
+            <CtaCteModal codPro={ctaCteCompleta.codPro} resaltado={ctaCteCompleta.resaltado ? { pdvId, comprobante: ctaCteCompleta.resaltado } : null} onCerrar={() => setCtaCteCompleta(null)} />
           )}
           {opMx && pdvId && (
             <OpMaxirestModal
