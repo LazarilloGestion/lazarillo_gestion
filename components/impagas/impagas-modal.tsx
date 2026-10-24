@@ -154,6 +154,8 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   const queryClient = useQueryClient();
   const [pdvId, setPdvId] = useState<number | undefined>(pdvInicial ?? pdvs[0]?.id);
   const [tab, setTab] = useState<"I" | "E">("I");
+  // Excluidas por rubro apagado: filtrar por rubro (proveedor por proveedor se hace largo).
+  const [rubroExcl, setRubroExcl] = useState<string>("");
   const [orden, setOrden] = useState<Orden>("saldo");
   const [dir, setDir] = useState<Direccion>("desc");
   const [desde, setDesde] = useState<string | undefined>(() => leerDesde(pdvInicial ?? pdvs[0]?.id));
@@ -403,7 +405,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
       const accion = todasForzadas
         ? <Boton disabled={guardando} onClick={() => forzar(g.items, false)}>Volver a excluir</Boton>
         : g.proveedorId
-          ? <Boton disabled={guardando} onClick={() => pagoAutomatico(g, true)}>Mover a excluidas</Boton>
+          ? <Boton disabled={guardando} onClick={() => pagoAutomatico(g, true)}>Pago automático / Retención</Boton>
           : null;
       return {
         saldo: g.saldo, masVieja: g.masVieja,
@@ -443,13 +445,30 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   function cuerpoExcluidas() {
     const motivos: Motivo[] = ["rubro", "auto", "nc"];
     return motivos.map((m) => {
-      const l = lista.filter((f) => motivo(f) === m);
-      if (!l.length) return null;
+      const deMotivo = lista.filter((f) => motivo(f) === m);
+      const rubros = m === "rubro"
+        ? [...new Set(deMotivo.flatMap((f) => (f.rubroOculto ?? "").split(", ").filter(Boolean)))].sort((a, b) => a.localeCompare(b, "es"))
+        : [];
+      const l = m === "rubro" && rubroExcl ? deMotivo.filter((f) => (f.rubroOculto ?? "").split(", ").includes(rubroExcl)) : deMotivo;
+      if (!deMotivo.length) return null;
       return (
         <Fragment key={m}>
           <tr className="bg-zinc-100 dark:bg-zinc-800">
             <td colSpan={5} className="py-2 px-3 text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
-              {MOTIVO_TITULO[m]} · {l.length} comprobante{l.length !== 1 ? "s" : ""} · {fmtPesos(sumaSaldos(l))}
+              <span className="inline-flex flex-wrap items-center gap-2">
+                {MOTIVO_TITULO[m]} · {l.length} comprobante{l.length !== 1 ? "s" : ""} · {fmtPesos(sumaSaldos(l))}
+                {m === "rubro" && rubros.length > 1 && (
+                  <select value={rubroExcl} onChange={(e) => setRubroExcl(e.target.value)}
+                    className="ml-2 h-7 rounded-md border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 px-2 text-xs font-normal normal-case tracking-normal">
+                    <option value="">Todos los rubros apagados ({rubros.length})</option>
+                    {rubros.map((r) => (
+                      <option key={r} value={r}>
+                        {r} · {deMotivo.filter((f) => (f.rubroOculto ?? "").split(", ").includes(r)).length}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </span>
             </td>
           </tr>
           {agrupar(l, orden, dir).map((g) => {
@@ -509,7 +528,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
     const forzadas = todas.filter((f) => f.forzada).length;
     return (
       <>
-        <Tarjeta titulo="Por rubro oculto" valor={fmtMillones(sumaSaldos(r))} sub={`${r.length} · según "Rubros visibles en panel"`} />
+        <Tarjeta titulo="Por rubro oculto" valor={fmtMillones(sumaSaldos(r))} sub={`${r.length} · apagados en Compras y en Resultados`} />
         <Tarjeta
           titulo="Por pago automático" valor={fmtMillones(sumaSaldos(a))}
           sub={`${a.length} · ${new Set(a.map((f) => f.codPro)).size} proveedores marcados`}

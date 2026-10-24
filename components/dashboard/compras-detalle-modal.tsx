@@ -3,7 +3,7 @@ import { useState, useMemo, useCallback } from "react";
 import { notify } from "@/lib/toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
-import { CalendarDays, Building2, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare } from "lucide-react";
+import { CalendarDays, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare } from "lucide-react";
 import type { NivelRegla } from "@/lib/apertura/schemas";
 import { AperturaGastosModal } from "./apertura-gastos-modal";
 import { AperturaSplitButton } from "./apertura-split-button";
@@ -32,6 +32,8 @@ import { periodoInicial, aplicarPeriodo, labelPeriodo, type Periodo } from "@/li
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { useDashboard } from "@/hooks/use-dashboard-store";
+import { useFetchQuery } from "@/hooks/use-fetch-query";
+import type { Local } from "@/lib/types/domain";
 import { CtaCteContenido, CtaCteModal, origenDeFila, type OrigenCtaCte } from "@/components/cta-cte/cta-cte-proveedor";
 import { ETIQUETA_ESTADO, PUNTO_ESTADO } from "@/lib/cta-cte/estado";
 
@@ -185,14 +187,15 @@ function ConceptoCombobox({
 // Anchos en % (table-fixed): Fecha/Local/Importe fijos y angostos; el resto se
 // reparte lo que queda y se comprime con puntos suspensivos + tooltip.
 const COMPRAS_COLS: ColDef[] = [
-  { label: "Fecha",       icon: CalendarDays,   color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "fecha",       filterKey: "fecha",       width: "w-[8.5rem]"  },
-  { label: "Local",       icon: Building2,      color: "text-muted-foreground",   bg: "bg-muted",                right: false,                         filterKey: "local",       width: "w-[8.5rem]"  },
-  { label: "Proveedor",   icon: Truck,          color: "text-cat-proveedor",      bg: "bg-cat-proveedor/12",     right: false, sortKey: "proveedor",   filterKey: "proveedor"                         },
-  { label: "Detalle",     icon: FileText,       color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "detalle",     filterKey: "detalle"                           },
-  { label: "Observación", icon: MessageSquare,  color: "text-cat-observacion",    bg: "bg-cat-observacion/12",   right: false, sortKey: "observacion", filterKey: "observacion"                       },
-  { label: "Rubro",       icon: Layers,         color: "text-cat-rubro",          bg: "bg-cat-rubro/12",         right: false,                         filterKey: "rubro"                             },
-  { label: "Concepto",    icon: Tag,            color: "text-cat-concepto",       bg: "bg-cat-concepto/12",      right: false, sortKey: "concepto",    filterKey: "concepto"                          },
-  { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground",   bg: "bg-muted",                right: true,  sortKey: "importe",     filterKey: "importe",     width: "w-[9rem]"    },
+  // Sin columna Local (va en el subtítulo del modal) y sin filtro por columna:
+  // anchos fijos y angostos para todo menos Observación, que se lleva el resto.
+  { label: "Fecha",       icon: CalendarDays,   color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "fecha",       width: "w-[8.5rem]"  },
+  { label: "Proveedor",   icon: Truck,          color: "text-cat-proveedor",      bg: "bg-cat-proveedor/12",     right: false, sortKey: "proveedor",   width: "w-[12rem]"   },
+  { label: "Detalle",     icon: FileText,       color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "detalle",     width: "w-[9.5rem]"  },
+  { label: "Observación", icon: MessageSquare,  color: "text-cat-observacion",    bg: "bg-cat-observacion/12",   right: false, sortKey: "observacion"                       },
+  { label: "Rubro",       icon: Layers,         color: "text-cat-rubro",          bg: "bg-cat-rubro/12",         right: false,                         width: "w-[10.5rem]" },
+  { label: "Concepto",    icon: Tag,            color: "text-cat-concepto",       bg: "bg-cat-concepto/12",      right: false, sortKey: "concepto",    width: "w-[12.5rem]" },
+  { label: "Importe",     icon: ArrowDownUp,    color: "text-muted-foreground",   bg: "bg-muted",                right: true,  sortKey: "importe",     width: "w-[9rem]"    },
 ];
 
 // ─── Sort ─────────────────────────────────────────────────────────────────────
@@ -293,9 +296,6 @@ function ComprasRow({
           />
         </td>
         <td className="px-3 py-1.5 truncate text-muted-foreground">
-          {normalize(item.local?.nombre)}
-        </td>
-        <td className="px-3 py-1.5 truncate text-muted-foreground">
           {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
         </td>
         <td className="px-3 py-1.5 truncate text-muted-foreground">
@@ -359,7 +359,6 @@ function ComprasRow({
           {fmtDate(effectiveFecha)}
         </span>
       </td>
-      <td className="px-3 py-1.5 truncate">{normalize(item.local?.nombre)}</td>
       <td className="px-3 py-1.5 truncate" title={normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}>
         {onOpenCtaCte ? (
           <button
@@ -623,21 +622,16 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     }
   }, [reglasApertura, guardarConfirmado]);
 
-  // Valor de cada columna para el filtro por columna (mismos textos que se ven en la fila).
-  const columnFields = useCallback((item: CompraDetalle): Record<string, string | null | undefined> => {
-    const concepto = item.conceptoCajaManual ?? item.conceptoCaja;
-    const importe = item.importeManual ?? item.importe;
-    return {
-      fecha: fmtDate(item.fechaManual ?? item.fecha),
-      local: item.local?.nombre,
-      proveedor: item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon,
-      detalle: item.detalle,
-      observacion: item.observacManual ?? item.observac,
-      rubro: concepto?.rubro?.nombre,
-      concepto: concepto?.nombre,
-      importe: importe != null ? `${fmtARS(Number(importe))} ${String(importe)}` : "",
-    };
-  }, []);
+  // Subtítulo: Local · PDV del filtro (la columna Local se sacó de la tabla).
+  const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
+  const subtitulo = useMemo(() => {
+    const lid = filter?.localId ?? localId;
+    const pid = filter?.pdvId ?? pdvId;
+    const l = locales?.find((x) => x.id === lid);
+    if (!l) return null;
+    const p = l.puntosDeVenta.find((x) => x.id === pid);
+    return p ? `${l.nombre} · ${p.nombre}` : l.nombre;
+  }, [locales, filter?.localId, filter?.pdvId, localId, pdvId]);
 
   const searchFields = useCallback((item: CompraDetalle) => [
     item.proveedor,
@@ -670,7 +664,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         resetKey={resetKey}
         onServerQuery={buscaEnServidor ? setQServidor : undefined}
         searchFields={searchFields}
-        columnFields={columnFields}
+        subtitle={subtitulo}
         sortFn={sortCompras}
         saveError={saveError}
         isEditing={editing !== null}

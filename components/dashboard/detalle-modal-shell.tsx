@@ -16,6 +16,8 @@ interface DetalleModalShellProps<T> {
   open: boolean;
   onClose: () => void;
   title: string;
+  // Segunda línea bajo el título (ej. "Ramos Mejía · Bar").
+  subtitle?: React.ReactNode;
   cols: ColDef[];
   queryKey: unknown[];
   queryFn: () => Promise<DetalleResponse<T>>;
@@ -46,6 +48,7 @@ export function DetalleModalShell<T>({
   open,
   onClose,
   title,
+  subtitle,
   cols,
   queryKey,
   queryFn,
@@ -120,7 +123,10 @@ export function DetalleModalShell<T>({
             con el scroll horizontal, dejando el título cortado. */}
         <div className="px-6 pt-4 pb-3 shrink-0 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0 flex-wrap">
-            <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
+            <div className="min-w-0">
+              <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
+              {subtitle && <div className="text-xs text-muted-foreground">{subtitle}</div>}
+            </div>
             {headerControls}
           </div>
           {!isLoading && !error && (count > 1 || !!query) && <SearchInput value={query} onChange={setQuery} className="w-44 shrink-0" />}

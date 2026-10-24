@@ -16,6 +16,14 @@ export function impagasDesde(param: string | null | undefined, env: string | und
   return IMPAGAS_DESDE_DEFAULT;
 }
 
+// Un rubro cuenta como "apagado" (descartado de Impagas y de la deuda con otros
+// PDV) solo si está apagado en Compras Y en Resultados (Diego, 24/10): si se ve
+// en alguno de los dos tableros, es un gasto real.
+export function rubroVisibleSql(): Prisma.Sql {
+  return Prisma.sql`(COALESCE(rc."visibleEnDashboard", ${sinRubroVisibleSql("visibleEnDashboard")})
+    OR COALESCE(rc."visibleEnResultados", ${sinRubroVisibleSql("visibleEnResultados")}))`;
+}
+
 export interface ImpagaSqlRow {
   comprobante: string;
   cod_pro: string;
@@ -39,7 +47,7 @@ export interface ImpagaSqlRow {
 // Rubro oculto: TODAS las líneas que no son percepción son de rubros apagados
 // en "Rubros visibles en panel" (las percepciones no cuentan: Agronatural).
 export function impagasSql(pdvId: number, desde: string): Prisma.Sql {
-  const visible = Prisma.sql`(COALESCE(rc."visibleEnDashboard", ${sinRubroVisibleSql("visibleEnDashboard")}))`;
+  const visible = rubroVisibleSql();
   const esPercepcion = Prisma.sql`(COALESCE(cc.nombre, c.concepto, '') ILIKE '%percep%')`;
   return Prisma.sql`
     WITH f AS (
@@ -124,7 +132,7 @@ export interface MovimientoSqlRow {
 // ya se le pagó al origen imputado a cada una. Fuera: rubros apagados en
 // "Rubros visibles en panel" (retiros, inversiones), igual que en compras.
 export function movimientosAperturaSql(pdvId: number, desde: string): Prisma.Sql {
-  const visible = Prisma.sql`(COALESCE(rc."visibleEnDashboard", ${sinRubroVisibleSql("visibleEnDashboard")}))`;
+  const visible = rubroVisibleSql();
   return Prisma.sql`
     SELECT
       c."rowId"                                               AS key,

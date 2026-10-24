@@ -576,3 +576,12 @@ model ImportLog {
   @@index([creadoEn])
   @@map("import_logs")
 }
+
+// Block de notas del menú lateral (una nota por usuario).
+model NotaUsuario {
+  email         String   @id
+  texto         String   @default("")
+  actualizadoEn DateTime @default(now()) @updatedAt
+
+  @@map("notas_usuario")
+}
