@@ -42,6 +42,16 @@ interface DetalleModalShellProps<T> {
   // Sección debajo de la tabla con los datos ya cargados (ej. la cuenta
   // corriente del proveedor cuando se abre un registro puntual).
   extra?: (data: T[]) => React.ReactNode;
+  // Selección múltiple (checkbox por fila + "tildar todo" en el encabezado, sobre
+  // lo filtrado). Las filas dibujan su propio checkbox como primera celda.
+  seleccion?: {
+    ids: Set<string>;
+    idDe: (item: T) => string;
+    onCambiar: (items: T[], tildar: boolean) => void;
+    onLimpiar: () => void;
+  };
+  // Ancho de la columna de íconos de la fila (default: lápiz + apertura).
+  anchoAcciones?: string;
 }
 
 export function DetalleModalShell<T>({
@@ -64,6 +74,8 @@ export function DetalleModalShell<T>({
   onServerQuery,
   resetKey,
   extra,
+  seleccion,
+  anchoAcciones = "w-[4.25rem]",
 }: DetalleModalShellProps<T>) {
   const { sort, handleSortClick } = useSortState();
   // Portal container para popovers/selects anidados: sin esto, montan en document.body
@@ -153,6 +165,22 @@ export function DetalleModalShell<T>({
             <table className="text-xs w-full table-fixed">
               <thead className="sticky top-0 z-10 bg-popover">
                 <tr className="border-b border-border/60">
+                  {seleccion && (() => {
+                    const ids = [...new Set(filtered.map(seleccion.idDe))];
+                    const tildados = ids.filter((id) => seleccion.ids.has(id)).length;
+                    return (
+                      <th className="w-8 pl-3">
+                        <input
+                          type="checkbox"
+                          aria-label="Tildar todos"
+                          className="size-3.5 accent-zinc-900 dark:accent-white align-middle cursor-pointer"
+                          checked={ids.length > 0 && tildados === ids.length}
+                          ref={(el) => { if (el) el.indeterminate = tildados > 0 && tildados < ids.length; }}
+                          onChange={(e) => seleccion.onCambiar(filtered, e.target.checked)}
+                        />
+                      </th>
+                    );
+                  })()}
                   <SortableTableHead
                     cols={cols}
                     sort={sort}
@@ -162,7 +190,7 @@ export function DetalleModalShell<T>({
                   />
                   {/* Ancho de EditActionButtons (2 × w-6 + gap-1) + px-2: la columna
                       no cambia al pasar de lápiz+split (más angostos) a ✓/✕. */}
-                  <th className="w-[4.25rem]" />
+                  <th className={anchoAcciones} />
                 </tr>
               </thead>
               <tbody>
@@ -186,6 +214,16 @@ export function DetalleModalShell<T>({
                 ? `${filtered.length} de ${count} registro${count !== 1 ? "s" : ""}`
                 : `${count} registro${count !== 1 ? "s" : ""}`}
               {periodoLabel ? ` — ${periodoLabel}` : ""}
+              {seleccion && seleccion.ids.size > 0 && (
+                <>
+                  {" · "}
+                  <span className="text-foreground font-medium">{seleccion.ids.size} tildado{seleccion.ids.size !== 1 ? "s" : ""}</span>
+                  {" · "}
+                  <button type="button" className="underline hover:text-foreground" onClick={seleccion.onLimpiar}>
+                    destildar
+                  </button>
+                </>
+              )}
             </span>
             {footerNote && <span className="text-muted-foreground">{footerNote}</span>}
           </div>
