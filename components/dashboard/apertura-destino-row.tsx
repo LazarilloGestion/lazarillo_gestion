@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { montoDesdePct, pctDesdeMonto } from "@/lib/apertura/conversion";
 import { formatearMonto, formatearMontoTipeado, parsearMonto, posicionTrasFormatear } from "@/lib/apertura/formato-monto";
 import { destinosSuperpuestos, type DestinoBasico } from "@/lib/apertura/validaciones";
+import { autocompletarDestino } from "@/lib/apertura/autocompletar-destino";
 import type { Local } from "@/lib/types/domain";
 
 export interface DestinoFormState {
@@ -136,7 +137,8 @@ export function AperturaDestinoRow({
     <div className="flex items-center gap-2">
       <Select
         value={destino.localId != null ? String(destino.localId) : ""}
-        onValueChange={(v) => onChange({ ...destino, localId: Number(v), puntoDeVentaId: null })}
+        // Si al elegir el local queda una sola opción de punto de venta libre, se elige sola.
+        onValueChange={(v) => onChange(autocompletarDestino({ ...destino, localId: Number(v), puntoDeVentaId: null }, locales, otrosDestinos))}
       >
         <SelectTrigger className="w-28 shrink-0 text-xs" size="sm">
           <SelectValue placeholder="Local" />
