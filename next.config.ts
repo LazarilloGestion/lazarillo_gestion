@@ -1,13 +1,6 @@
 import type { NextConfig } from "next";
-import withPWAInit from "@ducanh2912/next-pwa";
-
-const withPWA = withPWAInit({
-  dest: "public",
-  cacheOnFrontEndNav: true,
-  aggressiveFrontEndNavCaching: true,
-  reloadOnOnline: true,
-  disable: process.env.NODE_ENV === "development",
-});
+// Sin PWA: el build con turbopack no genera el service worker de next-pwa y el
+// que había quedado instalado servía versiones viejas (ver app/sw.js/route.ts).
 
 const nextConfig: NextConfig = {
   turbopack: {},
@@ -45,4 +38,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withPWA(nextConfig);
+export default nextConfig;
