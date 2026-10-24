@@ -5,7 +5,7 @@ import { requireAuth } from "@/lib/auth/require-auth";
 import { parseVentasParams } from "@/lib/dashboard/params";
 import { buildPivotConditions } from "@/lib/dashboard/query-builders";
 import { toNumber } from "@/lib/dashboard/pivot-utils";
-import { proyectarMes, debeProyectar } from "@/lib/dashboard/proyeccion";
+import { proyectarMes, debeProyectar, METODOS, type Metodo } from "@/lib/dashboard/proyeccion";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +47,38 @@ export async function GET(request: NextRequest) {
       ORDER BY 1
     `);
 
-    const proyeccion = proyectarMes(rows.map((r) => ({ fecha: r.fecha, total: toNumber(r.total) })), ultimo);
+    // Proyecciones guardadas de este local/PDV (para medir qué método erró menos).
+    const ambito = `${localId ?? "*"}/${pdvId ?? "*"}`;
+    const guardadas = await prisma.$queryRaw<{ anio: number; mes: number; metodo: Metodo; proyeccion: Prisma.Decimal }[]>(Prisma.sql`
+      SELECT anio, mes, metodo, proyeccion FROM proyecciones_ingresos
+      WHERE ambito = ${ambito} AND corte >= ${desde}::date
+    `).catch((err) => {
+      console.error("No se pudieron leer las proyecciones guardadas", err);
+      return [];
+    });
+
+    const proyeccion = proyectarMes(
+      rows.map((r) => ({ fecha: r.fecha, total: toNumber(r.total) })),
+      ultimo,
+      guardadas.map((g) => ({ anio: g.anio, mes: g.mes, metodo: g.metodo, proyeccion: toNumber(g.proyeccion) })),
+    );
+
+    // Se guarda la de hoy (los dos métodos). Mismo corte = se actualiza, no se duplica.
+    if (proyeccion) {
+      try {
+        for (const metodo of METODOS) {
+          await prisma.$executeRaw(Prisma.sql`
+            INSERT INTO proyecciones_ingresos (ambito, anio, mes, corte, metodo, facturado, proyeccion)
+            VALUES (${ambito}, ${proyeccion.anio}, ${proyeccion.mes}, ${ultimo}::date, ${metodo},
+                    ${Math.round(proyeccion.facturado * 100) / 100}, ${Math.round(proyeccion.proyecciones[metodo] * 100) / 100})
+            ON CONFLICT (ambito, anio, mes, corte, metodo)
+            DO UPDATE SET facturado = EXCLUDED.facturado, proyeccion = EXCLUDED.proyeccion, "creadoEn" = now()
+          `);
+        }
+      } catch (err) {
+        console.error("No se pudo guardar la proyección", err); // no frena el tooltip
+      }
+    }
     return NextResponse.json({ proyeccion });
   } catch (err) {
     console.error(err);

@@ -1,15 +1,24 @@
 // Proyección de cierre de un mes con ventas incompletas (tooltip de Ingresos).
 //
-// Método: cada día que falta vale lo que suele vender ese día de la semana
-// (promedio de las últimas 8 semanas hasta el corte) × el ritmo del mes
-// (lo facturado hasta el corte ÷ lo que se esperaba facturar hasta el corte
-// con ese mismo promedio). Al lado se informan la regla de 3 y "mismo ritmo
-// que el año anterior" para comparar, y un rango que sale del error que tuvo
-// este mismo cálculo en los meses anteriores cortando el mismo día.
+// Dos métodos, se usa el que menos erró en ese local/PDV:
+//  - "semanas": cada día que falta vale lo que suele vender ese día de la
+//    semana (promedio de las últimas 8 semanas) × el ritmo del mes (lo
+//    facturado hasta el corte ÷ lo esperado hasta el corte con ese promedio).
+//  - "dias_mes" (idea de Diego): cada día que falta vale el promedio de ese
+//    mismo día de la semana dentro del mes en curso. Si ese día todavía no
+//    pasó en el mes (ej. el día 3 sin sábados), usa el de "semanas".
+// El error de cada uno sale de las proyecciones guardadas día a día (cuando
+// hay al menos 3 meses cerrados) o, mientras tanto, de repetir el cálculo en
+// los 6 meses anteriores cortando el mismo día. Al lado se informan la regla
+// de 3 y "mismo ritmo que el año anterior", y un rango con ese error.
 //
 // Puro (sin DB): recibe las ventas diarias y la fecha de corte.
 
 export type VentaDia = { fecha: string; total: number }; // fecha YYYY-MM-DD
+export type Metodo = "semanas" | "dias_mes";
+export const METODOS: Metodo[] = ["semanas", "dias_mes"];
+// Proyección guardada un día cualquiera de un mes (tabla proyecciones_ingresos).
+export type ProyeccionGuardada = { anio: number; mes: number; metodo: Metodo; proyeccion: number };
 
 export interface ProyeccionMes {
   anio: number;
@@ -21,14 +30,25 @@ export interface ProyeccionMes {
   facturado: number;
   estimadoRestante: number;
   proyeccion: number;
-  ritmo: number; // 1 = vende como siempre
+  metodo: Metodo; // el que se usa (menor error)
+  proyecciones: Record<Metodo, number>; // los dos, para guardarlos y comparar
+  ritmo: number; // 1 = vende como siempre (método "semanas")
   // Cantidad de días que faltan por día de semana (0 = domingo), en el orden en que aparecen.
   restantesPorDia: { dow: number; cantidad: number }[];
   reglaDeTres: number;
   mismoRitmoAnioAnterior: number | null;
   cierreAnioAnterior: number | null;
-  // Error medio del método y de la regla de 3 en los meses anteriores (fracción, 0.05 = 5%).
-  backtest: { meses: number; dia: number; errorMetodo: number; errorReglaDeTres: number } | null;
+  // Error medio de cada método y de la regla de 3 (fracción, 0.05 = 5%).
+  // fuente "guardadas" = proyecciones reales guardadas día a día contra el cierre;
+  // "backtest" = repitiendo el cálculo en meses anteriores cortando el mismo día.
+  backtest: {
+    fuente: "guardadas" | "backtest";
+    meses: number;
+    dia: number;
+    errorMetodo: number;
+    errores: Record<Metodo, number>;
+    errorReglaDeTres: number | null;
+  } | null;
   rango: { min: number; max: number } | null;
 }
 
@@ -76,7 +96,7 @@ function sumaRango(s: Serie, desdeMs: number, hastaMs: number): number {
 }
 
 // Núcleo: estimación del cierre del mes de `corteMs` usando solo datos hasta el corte.
-function estimar(s: Serie, corteMs: number) {
+function estimar(s: Serie, corteMs: number, metodo: Metodo = "semanas") {
   const c = new Date(corteMs);
   const anio = c.getUTCFullYear();
   const mes = c.getUTCMonth() + 1;
@@ -98,12 +118,21 @@ function estimar(s: Serie, corteMs: number) {
   const prom = suma.map((v, i) => (cant[i] > 0 ? v / cant[i] : promGeneral));
 
   let esperadoHasta = 0;
-  for (let ms = inicioMes; ms <= corteMs; ms += DIA_MS) esperadoHasta += prom[dow(ms)];
-  const facturado = sumaRango(s, inicioMes, corteMs);
+  const sumaMes = new Array(7).fill(0);
+  const cantMes = new Array(7).fill(0);
+  for (let ms = inicioMes; ms <= corteMs; ms += DIA_MS) {
+    esperadoHasta += prom[dow(ms)];
+    sumaMes[dow(ms)] += venta(s, ms);
+    cantMes[dow(ms)] += 1;
+  }
+  const facturado = sumaMes.reduce((a, b) => a + b, 0);
   const ritmo = esperadoHasta > 0 ? facturado / esperadoHasta : 1;
 
   let restante = 0;
-  for (let ms = corteMs + DIA_MS; ms <= finMes; ms += DIA_MS) restante += prom[dow(ms)] * ritmo;
+  for (let ms = corteMs + DIA_MS; ms <= finMes; ms += DIA_MS) {
+    const d = dow(ms);
+    restante += metodo === "dias_mes" && cantMes[d] > 0 ? sumaMes[d] / cantMes[d] : prom[d] * ritmo;
+  }
 
   const diasMes = diasDelMes(anio, mes);
   const diasTranscurridos = Math.round((corteMs - inicioMes) / DIA_MS) + 1;
@@ -114,11 +143,17 @@ function estimar(s: Serie, corteMs: number) {
   };
 }
 
-export function proyectarMes(dias: VentaDia[], corte: string): ProyeccionMes | null {
+export function proyectarMes(
+  dias: VentaDia[],
+  corte: string,
+  guardadas: ProyeccionGuardada[] = [],
+): ProyeccionMes | null {
   if (!dias.length) return null;
   const s = armarSerie(dias);
   const corteMs = aMs(corte);
-  const e = estimar(s, corteMs);
+  const e = estimar(s, corteMs, "semanas");
+  const eMes = estimar(s, corteMs, "dias_mes");
+  const proyecciones: Record<Metodo, number> = { semanas: e.proyeccion, dias_mes: eMes.proyeccion };
   if (e.diasTranscurridos >= e.diasMes || e.facturado <= 0) return null;
 
   // Días que faltan agrupados por día de semana, en orden de aparición.
@@ -140,7 +175,7 @@ export function proyectarMes(dias: VentaDia[], corte: string): ProyeccionMes | n
   const lyHasta = hayLy ? sumaRango(s, lyInicio, lyCorte) : 0;
 
   // Backtest: los meses anteriores, cortados el mismo día del mes.
-  const errM: number[] = [];
+  const errBt: Record<Metodo, number[]> = { semanas: [], dias_mes: [] };
   const errR: number[] = [];
   for (let k = 1; k <= MESES_BACKTEST; k++) {
     const a = new Date(Date.UTC(e.anio, e.mes - 1 - k, 1));
@@ -153,18 +188,44 @@ export function proyectarMes(dias: VentaDia[], corte: string): ProyeccionMes | n
     if (bCorte - (VENTANA_DIAS - 1) * DIA_MS < s.primerDia) break;
     const real = sumaRango(s, bInicio, Date.UTC(ba, bm - 1, bDias));
     if (real <= 0) continue;
-    const b = estimar(s, bCorte);
-    errM.push(Math.abs(b.proyeccion - real) / real);
-    errR.push(Math.abs(b.reglaDeTres - real) / real);
+    for (const m of METODOS) errBt[m].push(Math.abs(estimar(s, bCorte, m).proyeccion - real) / real);
+    errR.push(Math.abs(estimar(s, bCorte).reglaDeTres - real) / real);
   }
   const media = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
-  const backtest = errM.length
-    ? { meses: errM.length, dia: e.diasTranscurridos, errorMetodo: media(errM), errorReglaDeTres: media(errR) }
-    : null;
-  // Lo ya facturado es seguro: el error se aplica solo sobre la parte estimada,
-  // pero expresado sobre el total (así lo midió el backtest).
+
+  // Proyecciones guardadas de meses ya cerrados (anteriores al del corte) contra su cierre real.
+  const errG: Record<Metodo, number[]> = { semanas: [], dias_mes: [] };
+  const mesesG = new Set<string>();
+  const realMes = new Map<string, number>();
+  for (const g of guardadas) {
+    if (g.anio * 12 + g.mes >= e.anio * 12 + e.mes) continue;
+    const clave = `${g.anio}-${g.mes}`;
+    if (!realMes.has(clave)) {
+      const ini = Date.UTC(g.anio, g.mes - 1, 1);
+      realMes.set(clave, ini >= s.primerDia ? sumaRango(s, ini, Date.UTC(g.anio, g.mes - 1, diasDelMes(g.anio, g.mes))) : 0);
+    }
+    const real = realMes.get(clave)!;
+    if (real <= 0 || !errG[g.metodo]) continue;
+    errG[g.metodo].push(Math.abs(g.proyeccion - real) / real);
+    mesesG.add(clave);
+  }
+
+  let backtest: ProyeccionMes["backtest"] = null;
+  if (mesesG.size >= 3 && METODOS.every((m) => errG[m].length > 0)) {
+    const errores = { semanas: media(errG.semanas), dias_mes: media(errG.dias_mes) };
+    backtest = { fuente: "guardadas", meses: mesesG.size, dia: e.diasTranscurridos, errorMetodo: 0, errores, errorReglaDeTres: errR.length ? media(errR) : null };
+  } else if (errBt.semanas.length) {
+    const errores = { semanas: media(errBt.semanas), dias_mes: media(errBt.dias_mes) };
+    backtest = { fuente: "backtest", meses: errBt.semanas.length, dia: e.diasTranscurridos, errorMetodo: 0, errores, errorReglaDeTres: media(errR) };
+  }
+  // Se usa el que menos erró; empate o sin datos → "semanas".
+  const metodo: Metodo = backtest && backtest.errores.dias_mes < backtest.errores.semanas ? "dias_mes" : "semanas";
+  if (backtest) backtest.errorMetodo = backtest.errores[metodo];
+  const elegido = metodo === "semanas" ? e : eMes;
+
+  // Lo ya facturado es seguro: el rango nunca baja de ahí.
   const rango = backtest
-    ? { min: e.proyeccion * (1 - backtest.errorMetodo), max: e.proyeccion * (1 + backtest.errorMetodo) }
+    ? { min: elegido.proyeccion * (1 - backtest.errorMetodo), max: elegido.proyeccion * (1 + backtest.errorMetodo) }
     : null;
   if (rango && rango.min < e.facturado) rango.min = e.facturado;
 
@@ -176,8 +237,10 @@ export function proyectarMes(dias: VentaDia[], corte: string): ProyeccionMes | n
     diasTranscurridos: e.diasTranscurridos,
     diasRestantes: e.diasMes - e.diasTranscurridos,
     facturado: e.facturado,
-    estimadoRestante: e.restante,
-    proyeccion: e.proyeccion,
+    estimadoRestante: elegido.restante,
+    proyeccion: elegido.proyeccion,
+    metodo,
+    proyecciones,
     ritmo: e.ritmo,
     restantesPorDia: orden.map((d) => ({ dow: d, cantidad: cuenta.get(d)! })),
     reglaDeTres: e.reglaDeTres,
