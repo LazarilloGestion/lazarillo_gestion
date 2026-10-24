@@ -106,7 +106,6 @@ export function CtaCteContenido({ codPro: codInicial, resaltado, onCerrar, titul
 
   const facturas = useMemo(() => data?.facturas ?? [], [data]);
   const fact = facturas.find((f) => claveF(f) === sel) ?? null;
-  const tot = useMemo(() => totalesCtaCte(facturas), [facturas]);
 
   const enPeriodo = (iso: string) =>
     per === "hist" || (per === "anio" ? iso.startsWith(String(anio)) : iso.startsWith(`${anio}-${String(mes + 1).padStart(2, "0")}`));
@@ -126,6 +125,9 @@ export function CtaCteContenido({ codPro: codInicial, resaltado, onCerrar, titul
   };
   const visibles = facturas.filter((f) => enPeriodo(f.fecha) && coincide(f))
     .sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * orden.dir);
+  // Pie: totales de lo que se ve (período + buscador).
+  const tot = totalesCtaCte(visibles);
+  const etiquetaPeriodo = per === "hist" ? "histórico" : per === "anio" ? String(anio) : `${MESES[mes]} ${anio}`;
 
   // Pagos de la factura tocada, o todos los del proveedor (más nuevo primero).
   const pagosLista = fact
@@ -143,15 +145,7 @@ export function CtaCteContenido({ codPro: codInicial, resaltado, onCerrar, titul
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 shrink-0">
         <BuscadorProveedor valor={data?.proveedor ?? ""} onElegir={cambiarProv} />
         {titulo ? titulo(tituloNodo) : tituloNodo}
-        {data && (
-          <>
-            <span className="text-[13.5px] text-zinc-600 dark:text-zinc-300">A cuenta <b className="text-zinc-400">—</b></span>
-            <span className="text-[13.5px] text-zinc-600 dark:text-zinc-300">
-              Saldo <b className={tot.saldo > 0.5 ? "text-[#c62828]" : "text-[#159457]"}>{fmtPesos(tot.saldo)}</b>
-            </span>
-            {data.pagoAutomatico && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-zinc-100 text-zinc-600">pago automático</span>}
-          </>
-        )}
+        {data?.pagoAutomatico && <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-zinc-100 text-zinc-600">pago automático</span>}
         {onCerrar && (
           <button type="button" onClick={onCerrar} aria-label="Cerrar" className="ml-auto text-zinc-400 hover:text-zinc-700"><X className="h-5 w-5" /></button>
         )}
@@ -174,17 +168,18 @@ export function CtaCteContenido({ codPro: codInicial, resaltado, onCerrar, titul
                   <button type="button" onClick={() => mover(1)} className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 text-[13px] text-zinc-600">›</button>
                 </>
               )}
-              <span className="ml-auto inline-flex overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+              {/* Buscador en la misma línea: más lugar para las facturas. */}
+              <span className="relative flex-1 min-w-[10rem]">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar comprobante..."
+                  className="h-8 w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 pl-8 pr-2 text-[13px] outline-none focus:border-sky-500" />
+              </span>
+              <span className="inline-flex overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
                 {([["mes", "Mes"], ["anio", "Año"], ["hist", "Histórico"]] as [Periodo, string][]).map(([k, t]) => (
                   <button key={k} type="button" onClick={() => setPer(k)}
                     className={cn("px-2.5 py-1 text-[11.5px] font-bold", per === k ? "bg-zinc-900 text-white dark:bg-white dark:text-zinc-900" : "text-zinc-500")}>{t}</button>
                 ))}
               </span>
-            </div>
-            <div className="relative mb-2 shrink-0">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar comprobante (tipo, prefijo o número)..."
-                className="h-9 w-full rounded-lg border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-900 pl-8 pr-2 text-[13px] outline-none focus:border-sky-500" />
             </div>
             <div className="flex gap-2.5 px-3 pb-1.5 text-[10.5px] font-bold text-zinc-500 shrink-0">
               <span className="w-[13px]" />
@@ -198,14 +193,15 @@ export function CtaCteContenido({ codPro: codInicial, resaltado, onCerrar, titul
                 const on = fact != null && claveF(f) === claveF(fact);
                 return (
                   <div key={claveF(f)} ref={on ? filaSel : undefined} onClick={() => setSel(on ? null : claveF(f))}
-                    className={cn("flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer border-b border-zinc-100 dark:border-zinc-800",
+                    className={cn("flex items-center gap-2.5 px-3 py-1.5 rounded-md cursor-pointer border-b border-zinc-100 dark:border-zinc-800",
                       on ? "bg-[#eef6fb] dark:bg-sky-950/40" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40")}>
                     {f.estado && f.estado !== "paga" ? <Gris><input type="checkbox" disabled className="h-[13px] w-[13px]" /></Gris> : <span className="w-[13px]" />}
                     <span className="w-[62px] text-[12.5px] text-zinc-600 dark:text-zinc-300 tabular-nums">{dmy(f.fecha)}</span>
-                    <span className="flex-1 min-w-0 text-[13px]">
-                      <span className="tabular-nums">{fmtComprobante(f.comprobante)}</span>
-                      {f.solo80 && <span className="ml-1.5 text-[10px] text-muted-foreground" title="El pago está en el informe 80 pero la factura no está en el 14">solo 80</span>}
-                      <span className="block truncate text-[11.5px] text-zinc-500" title={f.conceptos}>{f.pdv}{f.conceptos ? ` · ${f.conceptos}` : ""}</span>
+                    {/* Una sola fila: comprobante y, a la derecha, el PDV en gris. */}
+                    <span className="flex-1 min-w-0 flex items-baseline gap-2 text-[13px] whitespace-nowrap">
+                      <span className="tabular-nums shrink-0">{fmtComprobante(f.comprobante)}</span>
+                      {f.solo80 && <span className="text-[10px] text-muted-foreground shrink-0" title="El pago está en el informe 80 pero la factura no está en el 14">solo 80</span>}
+                      <span className="truncate text-[11.5px] text-zinc-500" title={f.pdv}>{f.pdv}</span>
                     </span>
                     <span className="w-[110px] text-right text-[13px] font-semibold tabular-nums">{fmtPesos(f.total)}</span>
                     <span className="w-[78px] text-right">
@@ -278,6 +274,18 @@ export function CtaCteContenido({ codPro: codInicial, resaltado, onCerrar, titul
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ===== pie: totales ===== */}
+      {data && (
+        <div className="mt-3 -mx-6 -mb-4 px-6 py-2.5 border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/60 flex flex-wrap items-center gap-x-6 gap-y-1 shrink-0 text-[13.5px]">
+          <span className="text-[11.5px] text-zinc-500">{visibles.length} factura{visibles.length === 1 ? "" : "s"} · {etiquetaPeriodo}</span>
+          <span className="ml-auto text-zinc-600 dark:text-zinc-300">Total <b className="tabular-nums text-zinc-900 dark:text-zinc-100">{fmtPesos(tot.total)}</b></span>
+          <span className="text-zinc-600 dark:text-zinc-300" title="MaxiRest no registra pagos a cuenta: se van a cargar desde el panel (etapa 4)">A cuenta <b className="text-zinc-400">—</b></span>
+          <span className="text-zinc-600 dark:text-zinc-300">
+            Saldo <b className={cn("tabular-nums", tot.saldo > 0.5 ? "text-[#c62828]" : "text-[#159457]")}>{fmtPesos(tot.saldo)}</b>
+          </span>
         </div>
       )}
 
