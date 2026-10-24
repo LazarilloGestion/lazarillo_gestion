@@ -20,6 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { NotasSidebar } from "@/components/notas-sidebar";
 
 const NAV = [
   { href: "/dashboard", label: "Panel de Gestión", icon: LayoutDashboard },
@@ -70,6 +71,11 @@ export function AppSidebar({ user }: { user: User | null }) {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Block de notas: solo con el menú abierto. */}
+        <div className="mt-2 group-data-[collapsible=icon]:hidden">
+          <NotasSidebar />
+        </div>
       </SidebarContent>
 
       <SidebarFooter className="border-t p-2 space-y-1">
