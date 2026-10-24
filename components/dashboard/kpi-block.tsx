@@ -2,6 +2,9 @@ import { cn, fmtARS } from "@/lib/utils";
 import { heatmapFill, RESULT_COLORS } from "@/lib/dashboard/resultados-calc";
 import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
 import { StickyCardCell } from "./sticky-card-cell";
+import { ProyeccionIngresos } from "./proyeccion-tooltip";
+import { useProyeccionIngresos } from "@/hooks/use-proyeccion-ingresos";
+import { useDashboard } from "@/hooks/use-dashboard-store";
 
 type KpiBlockProps = {
   months: number[];
@@ -31,7 +34,14 @@ export function KpiBlock({
 }: KpiBlockProps) {
   const bordered = variant !== "borderless";
   const roundedTop = variant !== "flush-top";
-  const ingresosVisibles = months.map((m) => ingresosPorMes[m]).filter((v): v is number => v != null && v > 0);
+  // Mes con ventas incompletas → chip "proy." + tooltip con la proyección de cierre.
+  // Para el color del mapa de calor ese mes cuenta con lo proyectado, no con lo
+  // facturado a medias (si no, siempre saldría como el peor mes).
+  const { year } = useDashboard();
+  const proy = useProyeccionIngresos();
+  const mesProy = proy && proy.anio === year ? proy.mes : null;
+  const valorHeatmap = (m: number) => (m === mesProy && ingresosPorMes[m] > 0 ? proy!.proyeccion : ingresosPorMes[m]);
+  const ingresosVisibles = months.map(valorHeatmap).filter((v): v is number => v != null && v > 0);
   const minIngresos = ingresosVisibles.length ? Math.min(...ingresosVisibles) : 0;
   const maxIngresos = ingresosVisibles.length ? Math.max(...ingresosVisibles) : 1;
 
@@ -45,7 +55,7 @@ export function KpiBlock({
           const val = ingresosPorMes[mes];
           const hasVal = val != null && val > 0;
           const hasHeatmap = ingresosReady && hasVal;
-          const fill = hasHeatmap ? heatmapFill(val, minIngresos, maxIngresos) : null;
+          const fill = hasHeatmap ? heatmapFill(valorHeatmap(mes), minIngresos, maxIngresos) : null;
           return (
             <td
               key={mes}
@@ -58,7 +68,7 @@ export function KpiBlock({
               style={fill ? { backgroundColor: fill.background, color: fill.foreground } : val != null ? { color: RESULT_COLORS.positive } : undefined}
               onClick={() => { if (hasVal) onIngresoCellClick?.(mes); }}
             >
-              {fmtARS(val)}
+              {mesProy === mes && hasVal ? <ProyeccionIngresos p={proy!}>{fmtARS(val)}</ProyeccionIngresos> : fmtARS(val)}
             </td>
           );
         })}
