@@ -7,6 +7,9 @@ import { CalendarDays, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare 
 import type { NivelRegla } from "@/lib/apertura/schemas";
 import { AperturaGastosModal } from "./apertura-gastos-modal";
 import { AperturaSplitButton } from "./apertura-split-button";
+import { MoverPdvButton } from "./mover-pdv-button";
+import { cuerpoMover, filasAMover, type DestinoMover } from "@/lib/apertura/mover";
+import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command, CommandEmpty, CommandInput, CommandItem, CommandList,
@@ -251,6 +254,8 @@ function ComprasRow({
   onOpenCtaCte,
   tieneReglaApertura,
   puedeAperturar,
+  seleccion,
+  mover,
 }: {
   item: CompraDetalle;
   editing: EditState | null;
@@ -270,6 +275,10 @@ function ComprasRow({
   puedeAperturar: boolean;
   saving: boolean;
   onOpenLineas: (rowId: string, detalle: string | null) => void;
+  // Selección múltiple: checkbox como primera celda (null = sin selección en este modo).
+  seleccion: { tildado: boolean; onToggle: () => void } | null;
+  // Ícono ⇄ "Mover a otro PDV" (null = no se puede mover esta fila).
+  mover: React.ReactNode;
 }) {
   const isEditing = editing?.rowId === item.rowId && editing.distribucionId === item.distribucionId;
   const effectiveFecha = item.fechaManual ?? item.fecha;
@@ -287,6 +296,17 @@ function ComprasRow({
   if (isEditing) {
     return (
       <tr className="border-b border-border/40 last:border-0 bg-muted/20">
+        {seleccion && (
+          <td className="pl-3 py-1.5">
+            <input
+              type="checkbox"
+              aria-label="Tildar registro"
+              className="size-3.5 accent-zinc-900 dark:accent-white align-middle cursor-pointer"
+              checked={seleccion.tildado}
+              onChange={seleccion.onToggle}
+            />
+          </td>
+        )}
         <td className="px-3 py-1.5">
           <Input
             type="date"
@@ -352,7 +372,18 @@ function ComprasRow({
   }
 
   return (
-    <tr className="group border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors">
+    <tr className={cn("group border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors", seleccion?.tildado && "bg-sky-50 dark:bg-sky-950/30")}>
+      {seleccion && (
+        <td className="pl-3 py-1.5">
+          <input
+            type="checkbox"
+            aria-label="Tildar registro"
+            className="size-3.5 accent-zinc-900 dark:accent-white align-middle cursor-pointer"
+            checked={seleccion.tildado}
+            onChange={seleccion.onToggle}
+          />
+        </td>
+      )}
       <td className="px-3 py-1.5 truncate">
         <span className="flex items-center gap-1.5">
           {isEdited(item) && <EditedDot />}
@@ -449,6 +480,7 @@ function ComprasRow({
             tieneReglaActiva={tieneReglaApertura}
             onClick={() => onOpenApertura(item)}
           />
+          {mover}
         </div>
       </td>
     </tr>
@@ -624,6 +656,64 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
 
   // Subtítulo: Local · PDV del filtro (la columna Local se sacó de la tabla).
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
+
+  // ── Selección múltiple + mover a otro PDV (punto 1, Diego 24/10) ──
+  // Map rowId → fila: una compra distribuida aparece N veces con el mismo rowId
+  // y se tilda/mueve una sola vez. Se limpia al cambiar el filtro o cerrar.
+  const [tildadas, setTildadas] = useState<Map<string, CompraDetalle>>(() => new Map());
+  const [resetPrevio, setResetPrevio] = useState(resetKey);
+  if (resetPrevio !== resetKey) {
+    setResetPrevio(resetKey);
+    setTildadas(new Map());
+  }
+  const conSeleccion = !filter?.rowId;
+  const cambiarTildadas = useCallback((items: CompraDetalle[], tildar: boolean) => {
+    setTildadas((prev) => {
+      const n = new Map(prev);
+      for (const it of items) {
+        if (tildar) n.set(it.rowId, it);
+        else n.delete(it.rowId);
+      }
+      return n;
+    });
+  }, []);
+
+  const moverFilas = useCallback(async (filas: CompraDetalle[], destino: DestinoMover) => {
+    const aMover = filasAMover(filas, destino);
+    let movidas = 0;
+    let conRegla = 0;
+    let fallidas = 0;
+    for (const f of aMover) {
+      try {
+        const res = await fetch("/api/apertura/reglas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(cuerpoMover(f, destino)),
+        });
+        if (res.ok) movidas++;
+        else if (res.status === 409) conRegla++;
+        else fallidas++;
+      } catch {
+        fallidas++;
+      }
+    }
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["apertura-reglas"] }),
+      queryClient.invalidateQueries({ queryKey: ["apertura-preview-total"] }),
+      queryClient.invalidateQueries({ queryKey: ["pivot"] }),
+      queryClient.invalidateQueries({ queryKey: ["detalle"] }),
+    ]);
+    setTildadas(new Map());
+    const yaEstaban = filas.length - aMover.length;
+    const detalle = [
+      conRegla ? `${conRegla} ya tenía${conRegla !== 1 ? "n" : ""} una apertura propia (editala desde ⅄)` : null,
+      yaEstaban ? `${yaEstaban} ya estaba${yaEstaban !== 1 ? "n" : ""} en ${destino.etiqueta}` : null,
+      fallidas ? `${fallidas} no se pudo mover` : null,
+    ].filter(Boolean).join(" · ");
+    if (movidas > 0 && !conRegla && !fallidas) toast.success(`${movidas} registro${movidas !== 1 ? "s" : ""} movido${movidas !== 1 ? "s" : ""} a ${destino.etiqueta}`, detalle ? { description: detalle } : undefined);
+    else if (movidas > 0) toast.warning(`${movidas} movido${movidas !== 1 ? "s" : ""} a ${destino.etiqueta}`, { description: detalle });
+    else toast.error(`No se movió ningún registro`, { description: detalle || undefined });
+  }, [queryClient]);
   const subtitulo = useMemo(() => {
     const lid = filter?.localId ?? localId;
     const pid = filter?.pdvId ?? pdvId;
@@ -649,6 +739,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   const handleClose = useCallback(() => {
     setEditing(null);
     setSelectedLineas(null);
+    setTildadas(new Map());
     onClose();
   }, [onClose]);
 
@@ -666,6 +757,13 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         searchFields={searchFields}
         subtitle={subtitulo}
         sortFn={sortCompras}
+        seleccion={conSeleccion ? {
+          ids: new Set(tildadas.keys()),
+          idDe: (r) => r.rowId,
+          onCambiar: cambiarTildadas,
+          onLimpiar: () => setTildadas(new Map()),
+        } : undefined}
+        anchoAcciones="w-[5rem]"
         saveError={saveError}
         isEditing={editing !== null}
         headerControls={conPeriodo && periodo ? <DetallePeriodoControls periodo={periodo} onChange={setPeriodo} /> : null}
@@ -714,6 +812,24 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
             onOpenCtaCte={!filter?.rowId && origenDeFilaDetalle(item) ? abrirCtaCte : null}
             tieneReglaApertura={reglasActivasRegistro.has(item.rowId)}
             puedeAperturar={localId != null && pdvId != null}
+            seleccion={conSeleccion ? {
+              tildado: tildadas.has(item.rowId),
+              onToggle: () => cambiarTildadas([item], !tildadas.has(item.rowId)),
+            } : null}
+            mover={item.puntoDeVentaIdOrigen != null && locales ? (() => {
+              // Con la fila tildada actúa sobre todas las tildadas; si no, solo sobre ella.
+              const filas = tildadas.has(item.rowId) ? [...tildadas.values()] : [item];
+              const importe = filas.reduce((acc, f) => acc + Number(f.importeBase ?? f.importeManual ?? f.importe ?? 0), 0);
+              return (
+                <MoverPdvButton
+                  filas={filas}
+                  importeTotal={importe}
+                  locales={locales}
+                  portalContainer={portalContainer}
+                  onMover={moverFilas}
+                />
+              );
+            })() : null}
           />
         )}
       />
