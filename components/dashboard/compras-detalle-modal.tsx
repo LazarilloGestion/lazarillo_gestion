@@ -5,7 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import { CalendarDays, Truck, Tag, Layers, ArrowDownUp, FileText, MessageSquare } from "lucide-react";
 import type { NivelRegla } from "@/lib/apertura/schemas";
-import { AperturaGastosModal } from "./apertura-gastos-modal";
+import { AperturaGastosModal, type RegistroLote } from "./apertura-gastos-modal";
+import { cambiosLote, describirCambios, type CamposLote, type CuerpoLote } from "@/lib/dashboard/edicion-lote";
 import { AperturaSplitButton } from "./apertura-split-button";
 import { MoverPdvButton } from "./mover-pdv-button";
 import { cuerpoMover, filasAMover, type DestinoMover } from "@/lib/apertura/mover";
@@ -77,6 +78,9 @@ type EditState = {
   conceptoCodigoManual: string;
   observacManual: string;
   rubroFiltro: string; // solo filtra el combo de conceptos, nunca se guarda
+  // Valores al abrir el formulario: con filas tildadas, solo lo que cambió
+  // respecto de esto se aplica a las demás (ver lib/dashboard/edicion-lote).
+  inicial: CamposLote;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -468,6 +472,11 @@ function ComprasRow({
                 conceptoCodigoManual: initialConcepto,
                 observacManual: item.observacManual ?? "",
                 rubroFiltro: initialRubro,
+                inicial: {
+                  fecha: toDateInputValue(item.fechaManual ?? item.fecha),
+                  concepto: initialConcepto,
+                  observac: item.observacManual ?? "",
+                },
               });
             }}
           />
@@ -519,6 +528,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     entidadNombre: string;
     origenLocalId: number | null;
     origenPdvId: number | null;
+    lote: RegistroLote[] | null;
   } | null>(null);
 
   const reglasActivasRegistro = useMemo(
@@ -578,6 +588,21 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     [suggestions]
   );
 
+  // ── Selección múltiple (punto 1, Diego 24/10): Map rowId → fila. Va antes del
+  // guardado porque ✎ sobre una fila tildada aplica el cambio a todas.
+  const [tildadas, setTildadas] = useState<Map<string, CompraDetalle>>(() => new Map());
+  // Las otras tildadas (sin la que se edita) y lo que se les aplica.
+  const loteDeEdicion = useCallback((state: EditState): { otras: CompraDetalle[]; cuerpo: CuerpoLote } | null => {
+    if (!tildadas.has(state.rowId) || tildadas.size < 2) return null;
+    const cuerpo = cambiosLote(state.inicial, {
+      fecha: state.fechaManual,
+      concepto: state.conceptoCodigoManual,
+      observac: state.observacManual,
+    });
+    if (Object.keys(cuerpo).length === 0) return null;
+    return { otras: [...tildadas.values()].filter((f) => f.rowId !== state.rowId), cuerpo };
+  }, [tildadas]);
+
   const guardarConfirmado = useCallback(async (state: EditState) => {
     const importeResult = resolverImporteParaPatch({
       esDistribuida: state.esDistribuida,
@@ -619,6 +644,25 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
       return;
     }
 
+    // Lote: lo que cambió (fecha/concepto/observación, nunca el importe) va a
+    // las otras tildadas, una por una (cada PATCH reevalúa su apertura).
+    const lote = loteDeEdicion(state);
+    let fallidasLote = 0;
+    if (lote) {
+      for (const f of lote.otras) {
+        try {
+          const res = await fetch(`/api/dashboard/compras/${f.rowId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(lote.cuerpo),
+          });
+          if (!res.ok) fallidasLote++;
+        } catch {
+          fallidasLote++;
+        }
+      }
+    }
+
     // El PATCH ya guardó en este punto — un fallo del refetch posterior no es
     // "no se guardó" (los datos ya están persistidos del lado del servidor),
     // así que no lo tratamos como error de guardado.
@@ -635,9 +679,16 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
       console.error("[compras-detalle-modal] guardado OK pero falló el refetch posterior", err);
     }
     setEditing(null);
-    notify.registroActualizado();
+    if (lote) {
+      const total = lote.otras.length + 1;
+      setTildadas(new Map());
+      if (fallidasLote) toast.warning(`${total - fallidasLote} de ${total} registros actualizados`, { description: `${fallidasLote} no se pudo guardar` });
+      else toast.success(`${total} registros actualizados`);
+    } else {
+      notify.registroActualizado();
+    }
     setSaving(false);
-  }, [queryClient, queryKey]);
+  }, [queryClient, queryKey, loteDeEdicion]);
 
   // Decide si el guardado necesita confirmación: compra distribuida (se
   // recalcula el reparto) o concepto nuevo con una regla de apertura activa
@@ -645,6 +696,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   const handleSave = useCallback((state: EditState) => {
     const conceptoNuevo = state.conceptoCodigoManual;
     const requiereConfirmacion =
+      loteDeEdicion(state) !== null ||
       state.esDistribuida ||
       (!!conceptoNuevo && reglasApertura.some((r) => r.estado === "activa" && r.nivel === "concepto" && r.entidadId === conceptoNuevo));
     if (requiereConfirmacion) {
@@ -652,7 +704,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     } else {
       void guardarConfirmado(state);
     }
-  }, [reglasApertura, guardarConfirmado]);
+  }, [reglasApertura, guardarConfirmado, loteDeEdicion]);
 
   // Subtítulo: Local · PDV del filtro (la columna Local se sacó de la tabla).
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
@@ -660,7 +712,6 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   // ── Selección múltiple + mover a otro PDV (punto 1, Diego 24/10) ──
   // Map rowId → fila: una compra distribuida aparece N veces con el mismo rowId
   // y se tilda/mueve una sola vez. Se limpia al cambiar el filtro o cerrar.
-  const [tildadas, setTildadas] = useState<Map<string, CompraDetalle>>(() => new Map());
   const [resetPrevio, setResetPrevio] = useState(resetKey);
   if (resetPrevio !== resetKey) {
     setResetPrevio(resetKey);
@@ -771,7 +822,11 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         // La tabla muestra la fracción de esta fila, pero el input corrige el
         // total de la compra: al guardar se reparte de nuevo entre destinos.
         // Va en el pie y no bajo el input para no agrandar la fila.
-        footerNote={editing?.esDistribuida ? "El importe es el total de la compra, se reparte según la regla" : null}
+        footerNote={
+          editing && tildadas.has(editing.rowId) && tildadas.size > 1
+            ? `Fecha, concepto y observación se aplican a los ${tildadas.size} tildados; el importe, solo a este`
+            : editing?.esDistribuida ? "El importe es el total de la compra, se reparte según la regla" : null
+        }
         // Un registro puntual (click en un gasto de la vista económica): la
         // edición queda arriba, tal cual, y abajo la cuenta corriente del proveedor.
         extra={filter?.rowId ? (rows) => {
@@ -801,13 +856,23 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
             onCancel={() => setEditing(null)}
             saving={saving}
             onOpenLineas={(rowId, detalle) => setSelectedLineas({ rowId, detalle })}
-            onOpenApertura={(row) => setApertura({
-              nivel: "registro",
-              entidadId: row.rowId,
-              entidadNombre: buildEntidadNombre(row),
-              origenLocalId: row.localIdOrigen,
-              origenPdvId: row.puntoDeVentaIdOrigen,
-            })}
+            onOpenApertura={(row) => {
+              // Con la fila tildada (y 2+ tildadas) la regla nueva va para todas.
+              const filas = tildadas.has(row.rowId) && tildadas.size > 1 ? [...tildadas.values()] : null;
+              setApertura({
+                nivel: "registro",
+                entidadId: row.rowId,
+                entidadNombre: buildEntidadNombre(row),
+                origenLocalId: row.localIdOrigen,
+                origenPdvId: row.puntoDeVentaIdOrigen,
+                lote: filas?.map((f) => ({
+                  entidadId: f.rowId,
+                  origenLocalId: f.localIdOrigen,
+                  origenPdvId: f.puntoDeVentaIdOrigen,
+                  importe: Number(f.importeBase ?? f.importeManual ?? f.importe ?? 0),
+                })) ?? null,
+              });
+            }}
             // Con un registro puntual la cuenta corriente ya está abajo.
             onOpenCtaCte={!filter?.rowId && origenDeFilaDetalle(item) ? abrirCtaCte : null}
             tieneReglaApertura={reglasActivasRegistro.has(item.rowId)}
@@ -847,6 +912,8 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         entidadNombre={apertura?.entidadNombre ?? ""}
         origenLocalId={apertura?.origenLocalId ?? null}
         origenPdvId={apertura?.origenPdvId ?? null}
+        lote={apertura?.lote ?? null}
+        onLoteGuardado={() => setTildadas(new Map())}
         onClose={() => setApertura(null)}
       />
       <ConfirmDialog
@@ -854,8 +921,13 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         // Cancelar solo cierra el diálogo: la fila queda en edición y no se
         // manda ningún PATCH.
         onOpenChange={(open) => { if (!open) setPendienteConfirmacion(null); }}
-        title="Recalcular apertura de gastos"
-        description="Esto va a recalcular la apertura de este registro según las reglas de apertura vigentes. ¿Confirmás?"
+        title={pendienteConfirmacion && loteDeEdicion(pendienteConfirmacion) ? "Aplicar a los registros tildados" : "Recalcular apertura de gastos"}
+        description={(() => {
+          const lote = pendienteConfirmacion ? loteDeEdicion(pendienteConfirmacion) : null;
+          return lote
+            ? `Se cambia ${describirCambios(lote.cuerpo)} en los ${lote.otras.length + 1} registros tildados (el importe solo en este). Si alguno tiene apertura, se recalcula. ¿Confirmás?`
+            : "Esto va a recalcular la apertura de este registro según las reglas de apertura vigentes. ¿Confirmás?";
+        })()}
         confirmLabel="Confirmar y guardar"
         confirming={saving}
         onConfirm={() => {

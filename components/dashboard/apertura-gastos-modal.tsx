@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Plus, Pencil, Trash2, Ban, Inbox } from "lucide-react";
 import { cn, fmtARS } from "@/lib/utils";
 import { notify } from "@/lib/toast";
+import { toast } from "sonner";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { validarSumaPorcentajes, encontrarDestinoDuplicado } from "@/lib/apertura/validaciones";
@@ -53,6 +54,15 @@ const VIGENCIA_REGISTRO: VigenciaFormState = {
   modo: "historico",
   fechaDesde: "",
   fechaHasta: "",
+  extremosInclusivos: true,
+  confirmarHistorico: true,
+};
+
+// Lo mismo que manda handleGuardar para un registro (histórico, sin fechas).
+const VIGENCIA_REGISTRO_CUERPO = {
+  modo: "historico" as const,
+  fechaDesde: null,
+  fechaHasta: null,
   extremosInclusivos: true,
   confirmarHistorico: true,
 };
@@ -111,12 +121,23 @@ const AVISO_SIN_VIGENTE: Record<NivelRegla, string> = {
   registro: "Ninguna regla vigente — este registro no se apertura.",
 };
 
+// Varios registros tildados en Detalle de compras (⅄ con selección, Diego
+// 24/10/2026): la misma regla nueva se crea para cada uno, con su propio origen.
+export type RegistroLote = {
+  entidadId: string;
+  origenLocalId: number | null;
+  origenPdvId: number | null;
+  importe: number;
+};
+
 export function AperturaGastosModal({
   nivel,
   entidadId,
   entidadNombre,
   origenLocalId,
   origenPdvId,
+  lote = null,
+  onLoteGuardado,
   onClose,
 }: {
   nivel: NivelRegla;
@@ -126,10 +147,14 @@ export function AperturaGastosModal({
   // desde el modal. Al editar una regla existente sí se usa el selector.
   origenLocalId: number | null;
   origenPdvId: number | null;
+  // 2+ registros: el modal abre directo en "nueva regla" y la guarda en cada uno.
+  lote?: RegistroLote[] | null;
+  onLoteGuardado?: () => void;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<"lista" | "formulario">("lista");
+  const esLote = nivel === "registro" && lote != null && lote.length > 1;
+  const [view, setView] = useState<"lista" | "formulario">(esLote ? "formulario" : "lista");
   const [editando, setEditando] = useState<ReglaAperturaDTO | null>(null);
   const [vigencia, setVigencia] = useState<VigenciaFormState>(VIGENCIA_VACIA);
   const [destinos, setDestinos] = useState<DestinoFormState[]>(() => destinosIniciales(origenLocalId, origenPdvId));
@@ -187,9 +212,15 @@ export function AperturaGastosModal({
   // El origen exige local Y punto de venta — "todo el local" se sacó de uso
   // (sesión 19-sep-2026, ambigüedad de negocio). El backend (validarOrigen)
   // rechaza un origen sin PDV, así que sin PDV no hay preview ni guardado posible.
-  const origenCompleto = origen.localId != null && origen.puntoDeVentaId != null;
+  const origenCompleto = esLote
+    ? lote!.every((r) => r.origenLocalId != null && r.origenPdvId != null)
+    : origen.localId != null && origen.puntoDeVentaId != null;
+  // En lote cada registro conserva su origen; si no coinciden se avisa.
+  const origenesLote = esLote ? new Set(lote!.map((r) => `${r.origenLocalId}|${r.origenPdvId}`)).size : 1;
+  const importeLote = esLote ? lote!.reduce((acc, r) => acc + r.importe, 0) : 0;
 
   const vigenciaCompletaParaPreview =
+    !esLote &&
     entidadId != null &&
     origenCompleto &&
     (vigencia.modo === "historico" ||
@@ -227,8 +258,9 @@ export function AperturaGastosModal({
   // en el agregado del header como en el $ de cada destino. `total` (suma de
   // todo el período) alimenta el header; `ultimoValor` (solo el mes más
   // reciente con compras) es la base del %↔$ de cada destino.
-  const total = previewUrl !== null && !previewLoading ? previewData?.total ?? null : null;
-  const ultimoValor = previewUrl !== null && !previewLoading ? previewData?.ultimoValor ?? null : null;
+  // En lote no hay preview por servidor: el total es la suma de los registros.
+  const total = esLote ? importeLote : previewUrl !== null && !previewLoading ? previewData?.total ?? null : null;
+  const ultimoValor = esLote ? importeLote : previewUrl !== null && !previewLoading ? previewData?.ultimoValor ?? null : null;
 
   // Reset de estado local al cerrarse el modal (entidadId -> null) —
   // ajuste durante el render en vez de useEffect (evita la cascada de
@@ -241,6 +273,16 @@ export function AperturaGastosModal({
       setView("lista");
       setEditando(null);
       setErrorGuardar(null);
+    } else if (esLote) {
+      // Lote: directo al formulario de regla nueva (no hay lista común a N registros).
+      setEditando(null);
+      setVigencia(VIGENCIA_REGISTRO);
+      setDestinos(destinosIniciales(origenLocalId, origenPdvId));
+      setOrigen({ localId: origenLocalId, puntoDeVentaId: origenPdvId });
+      setErrorGuardar(null);
+      setView("formulario");
+    } else {
+      setView("lista");
     }
   }
 
@@ -296,7 +338,60 @@ export function AperturaGastosModal({
     ]);
   }
 
+  // Lote: la misma regla (destinos) para cada registro, cada uno con su origen.
+  // Un 409 = ese registro ya tiene su propia apertura (se edita desde su ⅄).
+  async function handleGuardarLote() {
+    if (!lote) return;
+    setGuardando(true);
+    setErrorGuardar(null);
+    let creadas = 0;
+    let conRegla = 0;
+    let fallidas = 0;
+    const cuerpoDestinos = destinos.map((d) => ({ localId: d.localId, puntoDeVentaId: d.puntoDeVentaId, porcentaje: d.porcentaje }));
+    for (const r of lote) {
+      try {
+        const res = await fetch("/api/apertura/reglas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            nivel: "registro",
+            entidadId: r.entidadId,
+            origenLocalId: r.origenLocalId,
+            origenPuntoDeVentaId: r.origenPdvId,
+            ...VIGENCIA_REGISTRO_CUERPO,
+            destinos: cuerpoDestinos,
+          }),
+        });
+        if (res.ok) creadas++;
+        else if (res.status === 409) conRegla++;
+        else fallidas++;
+      } catch {
+        fallidas++;
+      }
+    }
+    setGuardando(false);
+    const detalle = [
+      conRegla ? `${conRegla} ya tenía${conRegla !== 1 ? "n" : ""} una apertura propia (editala desde su ⅄)` : null,
+      fallidas ? `${fallidas} no se pudo guardar` : null,
+    ].filter(Boolean).join(" · ");
+    if (creadas === 0) {
+      setErrorGuardar(`No se aperturó ningún registro${detalle ? `: ${detalle}` : "."}`);
+      return;
+    }
+    const titulo = `${creadas} registro${creadas !== 1 ? "s" : ""} aperturado${creadas !== 1 ? "s" : ""}`;
+    if (detalle) toast.warning(titulo, { description: detalle });
+    else toast.success(titulo);
+    onLoteGuardado?.();
+    onClose();
+    try {
+      await refetchDependientes();
+    } catch (err) {
+      console.error("[apertura] no se pudieron refrescar los datos tras aperturar el lote", err);
+    }
+  }
+
   async function handleGuardar() {
+    if (esLote) return handleGuardarLote();
     if (entidadId === null) return;
     setGuardando(true);
     setErrorGuardar(null);
@@ -434,7 +529,9 @@ export function AperturaGastosModal({
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <Badge variant="secondary" className="w-fit">{NIVEL_LABELS[nivel]}</Badge>
-            <DialogTitle className="text-base">Apertura de gastos — {entidadNombre}</DialogTitle>
+            <DialogTitle className="text-base">
+              Apertura de gastos — {esLote ? `${lote!.length} registros tildados` : entidadNombre}
+            </DialogTitle>
           </DialogHeader>
 
           <Separator />
@@ -537,7 +634,16 @@ export function AperturaGastosModal({
               ) : (
                 <div className="flex flex-col gap-1.5">
                   <span className="text-xs text-muted-foreground">Origen de la regla</span>
-                  <p className="text-sm">{describirOrigen(locales, origen.localId, origen.puntoDeVentaId)}</p>
+                  <p className="text-sm">
+                    {esLote && origenesLote > 1
+                      ? "El de cada registro (están en distintos PDV)"
+                      : describirOrigen(locales, origen.localId, origen.puntoDeVentaId)}
+                  </p>
+                  {esLote && (
+                    <p className="text-xs text-muted-foreground">
+                      Se crea la misma regla en cada uno de los {lote!.length} registros. Cada uno se deshace desde su ⅄.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -557,7 +663,7 @@ export function AperturaGastosModal({
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>Destinos</span>
                   <span className="flex items-center gap-1.5">
-                    Total del período:{" "}
+                    {esLote ? "Total de los registros:" : "Total del período:"}{" "}
                     {previewLoading ? (
                       <Skeleton className="h-3.5 w-16" />
                     ) : total === null ? (
@@ -616,7 +722,7 @@ export function AperturaGastosModal({
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
-                    onClick={() => setView("lista")}
+                    onClick={() => (esLote ? onClose() : setView("lista"))}
                     disabled={guardando}
                     className="h-8 px-3 rounded-md border text-xs hover:bg-muted disabled:opacity-50"
                   >
@@ -636,7 +742,9 @@ export function AperturaGastosModal({
                     className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-1.5"
                   >
                     {guardando && <Spinner size="sm" className="text-primary-foreground" />}
-                    {reactivaRegla ? "Guardar y reactivar" : editando ? "Guardar cambios" : "Crear regla"}
+                    {esLote
+                      ? `Aperturar ${lote!.length} registros`
+                      : reactivaRegla ? "Guardar y reactivar" : editando ? "Guardar cambios" : "Crear regla"}
                   </button>
                 </div>
                 {!guardando &&
