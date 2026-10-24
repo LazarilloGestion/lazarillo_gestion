@@ -85,4 +85,6 @@ export interface ETLReport {
 // sin abortar el resto del batch (a diferencia de una excepción real).
 export type DriveImportResultItem =
   | { fileId: string; fileName: string; report: ETLReport }
-  | { fileId: string; fileName: string; unsupported: true; errorMessage: string };
+  | { fileId: string; fileName: string; unsupported: true; errorMessage: string }
+  // El archivo no cambió (misma huella de Drive) desde la última importación OK: no se procesó.
+  | { fileId: string; fileName: string; sinCambios: true; importadoEn: string };

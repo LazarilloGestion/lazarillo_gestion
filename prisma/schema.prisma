@@ -571,7 +571,13 @@ model ImportLog {
   triggeredBy String // user.id de requireAuthUser()
   creadoEn    DateTime @default(now())
 
+  // Huella del archivo de Drive ("<modifiedTime>|<size>"): si no cambió desde la
+  // última importación OK, se saltea sin descargarlo (Diego, 24/10/2026).
+  driveFileId String?
+  driveHuella String?
+
   @@index([batchId])
+  @@index([driveFileId, creadoEn])
   @@index([fileType, creadoEn])
   @@index([creadoEn])
   @@map("import_logs")

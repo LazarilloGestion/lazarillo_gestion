@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { notify } from "@/lib/toast";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
@@ -24,7 +24,7 @@ import { chunk } from "@/lib/chunk";
 // sin tener que adivinar un número.
 const CHUNK_SIZE = 1;
 
-export type FileImportStatus = "idle" | "importing" | "success" | "error" | "unsupported";
+export type FileImportStatus = "idle" | "importing" | "success" | "error" | "unsupported" | "sin_cambios";
 export type FileStates = Record<string, FileImportStatus>;
 export type FileReports = Record<string, ETLReport[]>;
 export type FileErrors = Record<string, string>;
@@ -53,6 +53,9 @@ export function useDriveImport() {
   const [fileReports, setFileReports] = useState<FileReports>({});
   const [fileErrors, setFileErrors] = useState<FileErrors>({});
   const [globalImporting, setGlobalImporting] = useState(false);
+  // Archivos que el usuario pidió REimportar (resetFile): esos se mandan con
+  // forzar, así se procesan aunque no hayan cambiado en Drive.
+  const forzarIds = useRef<Set<string>>(new Set());
 
   const isImporting = Object.values(fileStatuses).some((s) => s === "importing");
   const anyImporting = isImporting || globalImporting;
@@ -138,13 +141,19 @@ export function useDriveImport() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            files: batch.map((f) => ({ file_id: f.id, file_name: f.name })),
+            files: batch.map((f) => ({
+              file_id: f.id,
+              file_name: f.name,
+              huella: `${f.modifiedTime}|${f.size ?? ""}`,
+              forzar: forzarIds.current.has(f.id),
+            })),
             local_id: localId,
             punto_de_venta_id: puntoDeVentaId,
           }),
         });
         const json = await res.json();
 
+        for (const f of batch) forzarIds.current.delete(f.id);
         const parsed = parseImportResponse(batch, res.ok, json);
         finalStatuses = parsed.statuses;
         finalErrors = parsed.errors;
@@ -237,7 +246,6 @@ export function useDriveImport() {
     let totalUnsupported = 0;
     let totalRecords = 0;
     let foldersBlocked = false;
-    let skippedFolders = 0;
     try {
       let maestrosConErrores = false;
       if (ready.maestros.length > 0) {
@@ -263,7 +271,8 @@ export function useDriveImport() {
           return;
         }
         for (const folder of ready.folders) {
-          if (!folder.localId) { skippedFolders++; continue; }
+          // Carpetas de locales no reconocidos: no se muestran ni se avisan (Diego, 24/10).
+          if (!folder.localId) continue;
           const r = await importAllFiles(folder.files, folder.localId ?? undefined, folder.puntoDeVentaId ?? undefined);
           totalFiles += r.total;
           totalErrors += r.errors;
@@ -276,7 +285,6 @@ export function useDriveImport() {
       if (foldersBlocked) {
         notify.maestrosNoCargados(totalFiles);
       } else {
-        if (skippedFolders > 0) notify.localNoReconocido(skippedFolders);
         if (totalUnsupported > 0) notify.archivosNoSoportados(totalUnsupported);
         if (totalFiles > 0) {
           if (totalErrors === 0) {
@@ -290,6 +298,7 @@ export function useDriveImport() {
   }
 
   function resetFile(fileId: string) {
+    forzarIds.current.add(fileId);
     setFileStatuses((s) => { const n = { ...s }; delete n[fileId]; return n; });
     setFileReports((r) => { const n = { ...r }; delete n[fileId]; return n; });
     setFileErrors((e) => { const n = { ...e }; delete n[fileId]; return n; });

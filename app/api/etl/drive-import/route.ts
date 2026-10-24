@@ -60,11 +60,16 @@ function isValidExcel(buf: Buffer): boolean {
   return h.equals(XLSX_MAGIC) || h.equals(XLS_MAGIC);
 }
 
-type FileInput = { file_id: string; file_name: string };
+type FileInput = { file_id: string; file_name: string; huella?: string; forzar?: boolean };
 
+// huella = "<modifiedTime>|<size>" del listado de Drive. Si coincide con la de la
+// última importación OK de ese mismo archivo, se saltea sin descargarlo, salvo
+// forzar (Reimportar) — Diego, 24/10/2026.
 const fileInputSchema = z.object({
   file_id: z.string().min(1),
   file_name: z.string().min(1),
+  huella: z.string().max(200).optional(),
+  forzar: z.boolean().optional(),
 });
 
 // Body: { files: FileInput[]; local_id?: number; punto_de_venta_id?: number }
@@ -154,11 +159,32 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Archivos sin cambios desde su última importación OK: no se descargan ni procesan.
+    const results: DriveImportResultItem[] = [];
+    const aProcesar: FileInput[] = [];
+    for (const f of fileInputs) {
+      if (f.huella && !f.forzar) {
+        const ultimo = await prisma.importLog.findFirst({
+          where: { driveFileId: f.file_id },
+          orderBy: { creadoEn: "desc" },
+          select: { estado: true, errors: true, driveHuella: true, creadoEn: true },
+        });
+        const limpio = ultimo?.estado === "ok" && !(Array.isArray(ultimo.errors) && ultimo.errors.length > 0);
+        if (ultimo && limpio && ultimo.driveHuella === f.huella) {
+          results.push({ fileId: f.file_id, fileName: f.file_name, sinCambios: true, importadoEn: ultimo.creadoEn.toISOString() });
+          continue;
+        }
+      }
+      aProcesar.push(f);
+    }
+    const huellaDe = new Map(fileInputs.map((f) => [f.file_id, f.huella ?? null]));
+    if (aProcesar.length === 0) return NextResponse.json({ results });
+
     const accessToken = await refreshGoogleAccessToken(config.refresh_token);
 
     // Descargar todos los archivos en paralelo
     const downloaded = await Promise.all(
-      fileInputs.map(async (f) => ({
+      aProcesar.map(async (f) => ({
         file_id: f.file_id,
         file_name: f.file_name,
         buffer: await downloadDriveFile(accessToken, f.file_id),
@@ -193,7 +219,6 @@ export async function POST(req: NextRequest) {
     // respuesta solo devolvía ETLReport[] sin ninguna forma de correlacionar
     // cada resultado con el archivo que lo generó (hallazgo de eficiencia,
     // code-review 24-ago-2026).
-    const results: DriveImportResultItem[] = [];
 
     const [localRecord, pdvRecord] = await Promise.all([
       localId != null ? prisma.local.findUnique({ where: { id: localId }, select: { nombre: true } }) : null,
@@ -241,6 +266,8 @@ export async function POST(req: NextRequest) {
               estado: "no_soportado",
               errorMessage,
               triggeredBy: user.id,
+              driveFileId: file_id,
+              driveHuella: huellaDe.get(file_id) ?? null,
             },
           });
         } catch (logErr) {
@@ -271,6 +298,8 @@ export async function POST(req: NextRequest) {
               estado: "error",
               errorMessage: message,
               triggeredBy: user.id,
+              driveFileId: file_id,
+              driveHuella: huellaDe.get(file_id) ?? null,
             },
           });
         } catch (logErr) {
@@ -311,6 +340,8 @@ export async function POST(req: NextRequest) {
             skippedRows: report.skippedRows?.slice(0, 500) as unknown as Prisma.InputJsonValue | undefined,
             durationMs: report.durationMs,
             triggeredBy: user.id,
+            driveFileId: file_id,
+            driveHuella: huellaDe.get(file_id) ?? null,
           },
         });
       } catch (logErr) {

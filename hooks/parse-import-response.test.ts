@@ -108,4 +108,20 @@ describe("parseImportResponse", () => {
     expect(result.errors.c).toContain("otro archivo del mismo lote falló antes");
     expect(result.errorCount).toBe(2);
   });
+
+  it("archivo sin cambios desde la última importación -> status sin_cambios, no cuenta como error", () => {
+    const files = [file("a"), file("b")];
+    const json = {
+      results: [
+        { fileId: "a", fileName: "a.xlsx", sinCambios: true, importadoEn: "2026-10-24T11:05:00Z" },
+        { fileId: "b", fileName: "b.xlsx", report: okReport({ created: 1, updated: 0 }) },
+      ],
+    };
+    const result = parseImportResponse(files, true, json);
+    expect(result.statuses.a).toBe("sin_cambios");
+    expect(result.errors.a).toContain("Sin cambios desde la última importación");
+    expect(result.statuses.b).toBe("success");
+    expect(result.errorCount).toBe(0);
+    expect(result.recordCount).toBe(1);
+  });
 });
