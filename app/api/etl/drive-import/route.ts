@@ -167,10 +167,11 @@ export async function POST(req: NextRequest) {
         const ultimo = await prisma.importLog.findFirst({
           where: { driveFileId: f.file_id },
           orderBy: { creadoEn: "desc" },
-          select: { estado: true, errors: true, driveHuella: true, creadoEn: true },
+          select: { estado: true, driveHuella: true, creadoEn: true },
         });
-        const limpio = ultimo?.estado === "ok" && !(Array.isArray(ultimo.errors) && ultimo.errors.length > 0);
-        if (ultimo && limpio && ultimo.driveHuella === f.huella) {
+        // Con estado ok alcanza: si el archivo es el mismo, reprocesarlo da las
+        // mismas filas con error (ej. el 14 homologado 2025 tiene 1 fija).
+        if (ultimo?.estado === "ok" && ultimo.driveHuella === f.huella) {
           results.push({ fileId: f.file_id, fileName: f.file_name, sinCambios: true, importadoEn: ultimo.creadoEn.toISOString() });
           continue;
         }

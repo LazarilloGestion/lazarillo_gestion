@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { DashboardFilters } from "@/components/dashboard/dashboard-filters";
 import { DashboardTabContent } from "@/components/dashboard/dashboard-tab-content";
 import { useFiltersPanel } from "@/hooks/use-dashboard-store";
+import { ActualizadoAl } from "@/components/dashboard/actualizado-al";
 export function DashboardContent() {
   // showFilters se seedea sincrónicamente desde localStorage en el store
   // (ver readPersistedField) — el primer render de cliente ya tiene el
@@ -39,7 +40,7 @@ export function DashboardContent() {
             Panel de Gestión
           </h1>
           <p className="text-sm text-muted-foreground truncate">
-            Resumen general de operaciones
+            Resumen general de operaciones · <ActualizadoAl />
           </p>
         </div>
         <div className="pt-6 pb-6">
