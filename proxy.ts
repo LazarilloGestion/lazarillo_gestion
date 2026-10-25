@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createMiddlewareClient } from "@/lib/supabase/middleware";
 import { isAllowedEmail } from "@/lib/auth/allowed-emails";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback"];
+// /api/cron: lo llama el cron de Vercel sin sesión; la ruta valida su propio secreto.
+const PUBLIC_PATHS = ["/login", "/auth/callback", "/api/cron"];
 
 export async function proxy(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;

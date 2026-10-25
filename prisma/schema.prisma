@@ -606,3 +606,17 @@ model ProyeccionIngreso {
   @@id([ambito, anio, mes, corte, metodo])
   @@map("proyecciones_ingresos")
 }
+
+// De qué esquema/PDV de Render (donde el kit sube los informes cada día) sale
+// cada punto de venta del Panel. Ej: container/BAR → Ramos Mejía · Bar.
+model RenderOrigen {
+  id             Int     @id @default(autoincrement())
+  esquema        String
+  pdv            String
+  localId        Int
+  puntoDeVentaId Int
+  activo         Boolean @default(true)
+
+  @@unique([esquema, pdv])
+  @@map("render_origenes")
+}

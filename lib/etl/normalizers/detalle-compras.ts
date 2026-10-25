@@ -20,7 +20,7 @@ function makeComprobante(r: ETLRow): string | null {
 
 // makeRowId opera siempre sobre la fila cruda — el hash tiene que ser estable
 // entre reimports del mismo archivo.
-function makeRowId(r: ETLRow): string {
+export function makeRowId(r: ETLRow): string {
   // El ERP no exporta número de línea — CANTIDAD+NETO son los únicos
   // diferenciadores cuando el mismo artículo aparece dos veces en la misma factura.
   const key = [r["COD_CPB"], r["NUMERO1"], r["NUMERO2"], r["CODIGO"], r["CANTIDAD"], r["NETO"]]
