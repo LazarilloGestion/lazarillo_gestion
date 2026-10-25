@@ -12,7 +12,7 @@ import { normalizeDetalleCompras } from "./normalizers/detalle-compras";
 import { normalizeVentas } from "./normalizers/ventas";
 import { normalizePagos } from "./normalizers/pagos";
 import { normalizeNomina } from "./normalizers/nomina";
-import type { ETLReport, ETLContext, ETLRow, ETLRowError, ETLSkippedRow, ETLReconciliacionAmbigua, DbClient } from "./types";
+import type { ETLReport, ETLContext, ETLRow, ETLRowError, ETLSkippedRow, ETLReconciliacionAmbigua, DbClient, ETLFileType } from "./types";
 
 type NormalizerFn = (
   rows: ETLRow[],
@@ -81,5 +81,37 @@ export async function runETL(
     reconciliacionesAmbiguas,
     durationMs: Date.now() - startMs,
     storagePath,
+  };
+}
+
+// Mismo proceso que runETL pero con las filas ya armadas (sin Excel): lo usa la
+// lectura directa desde Render (lib/render). Las filas tienen que venir con la
+// misma forma que readExcelBuffer (claves en mayúscula, fechas como serial de
+// Excel) para que el rowId sea el mismo que al importar el archivo.
+export async function runETLFilas(
+  fileType: ETLFileType,
+  rows: ETLRow[],
+  ctx: ETLContext,
+  db: DbClient
+): Promise<ETLReport> {
+  const startMs = Date.now();
+  const normalizer = NORMALIZERS[fileType];
+  if (!normalizer) throw new Error(`No hay normalizer registrado para el tipo de archivo: ${fileType}`);
+  const {
+    created, updated, skipped, skippedRows, errors,
+    comprasDistribuidasModificadas, comprasReconciliadas, reconciliacionesAmbiguas,
+  } = await normalizer(rows, db, ctx);
+  return {
+    fileType,
+    totalRows: rows.length,
+    created,
+    updated,
+    skipped,
+    skippedRows,
+    errors,
+    comprasDistribuidasModificadas,
+    comprasReconciliadas,
+    reconciliacionesAmbiguas,
+    durationMs: Date.now() - startMs,
   };
 }

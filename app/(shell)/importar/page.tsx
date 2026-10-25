@@ -13,6 +13,7 @@ import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { useDriveImport } from "@/hooks/use-drive-import";
 import type { DriveConfig, DriveFilesResponse } from "@/lib/drive/types";
 import { DriveFolder } from "./drive-folder";
+import { RenderSync } from "./render-sync";
 
 // ── Reconectar Drive ──────────────────────────────────────────────────────────
 
@@ -56,9 +57,11 @@ export default function ImportarPage() {
           Importar datos
         </h1>
         <p className="text-sm text-muted-foreground">
-          Importá archivos Excel del ERP desde Google Drive.
+          Los informes del ERP llegan solos desde Render. Google Drive queda de respaldo (y para los maestros y años viejos).
         </p>
       </div>
+
+      <RenderSync />
 
       <DriveTab />
     </div>
