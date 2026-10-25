@@ -558,6 +558,10 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   const buscaEnServidor = conPeriodo && periodo != null && periodo.modo !== "mes";
   const [qServidor, setQServidor] = useState("");
   const q = buscaEnServidor ? qServidor : "";
+  // Buscador y filtros se limpian solo al abrir el modal con otro filtro, NO al
+  // navegar ‹ Mes/Año/Histórico › (Diego, 25/10: "me borra lo que tengo escrito").
+  const resetBusqueda = useMemo(() => ["detalle", stableFilter], [stableFilter]);
+  // Las tildadas sí se limpian al cambiar de período (no actuar sobre filas que no se ven).
   const resetKey = useMemo(() => ["detalle", filtroEfectivo], [filtroEfectivo]);
   const queryKey = useMemo(() => ["detalle", filtroEfectivo, q], [filtroEfectivo, q]);
 
@@ -804,7 +808,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         cols={COMPRAS_COLS}
         queryKey={queryKey}
         queryFn={queryFn}
-        resetKey={resetKey}
+        resetKey={resetBusqueda}
         onServerQuery={buscaEnServidor ? setQServidor : undefined}
         searchFields={searchFields}
         subtitle={subtitulo}
