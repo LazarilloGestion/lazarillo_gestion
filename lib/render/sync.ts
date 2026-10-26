@@ -176,21 +176,88 @@ export async function finalizarLocal(localId: number, reports: ETLReport[]): Pro
   if (huboComprasTocadas) await sincronizarTrasImport(getEtlClient(), comprasModificadas);
 }
 
-// Corrida completa (la usa el cron diario): todo lo pendiente, con tope de tiempo.
-export async function sincronizarTodo(opts: { presupuestoMs: number; triggeredBy?: string | null }) {
+// Corrida completa: todo lo pendiente, con tope de tiempo. onItem informa el
+// avance (lo usa la corrida en el servidor para que la pantalla lo muestre).
+export async function sincronizarTodo(opts: {
+  presupuestoMs: number;
+  triggeredBy?: string | null;
+  onInicio?: (total: number) => Promise<void>;
+  onItem?: (it: ItemRender, r: ResultadoItem | null, hechos: number) => Promise<void>;
+}) {
   const inicio = Date.now();
   const items = await listarItems();
+  await opts.onInicio?.(items.length);
   const resultados: ResultadoItem[] = [];
   const reportsPorLocal = new Map<number, ETLReport[]>();
   let pendientes = 0;
+  let hechos = 0;
   for (const it of items) {
     if (Date.now() - inicio > opts.presupuestoMs) { pendientes++; continue; }
+    await opts.onItem?.(it, null, hechos).catch(() => {});
     const r = await sincronizarItem(it, { triggeredBy: opts.triggeredBy });
     resultados.push(r);
+    hechos++;
+    await opts.onItem?.(it, r, hechos).catch(() => {});
     if ("report" in r && it.localId) reportsPorLocal.set(it.localId, [...(reportsPorLocal.get(it.localId) ?? []), r.report]);
   }
   for (const [localId, reports] of reportsPorLocal) {
     try { await finalizarLocal(localId, reports); } catch (e) { console.error("[render] finalizar", localId, e); }
   }
   return { resultados, pendientes };
+}
+
+// ── Corrida en el servidor (botón "Actualizar ahora" y cron) ──────────────────
+// Una sola a la vez: si hay una corriendo hace menos de 6 minutos (el tope de la
+// función es 5), se devuelve esa. El avance queda en render_corridas para que la
+// pantalla lo muestre aunque el usuario cierre la página (Diego, 26/10/2026).
+const VIGENCIA_CANDADO_MS = 6 * 60_000;
+
+export type ResultadoCorto = "sin_cambios" | "leido" | `error:${string}`;
+const corto = (r: ResultadoItem): ResultadoCorto =>
+  "sinCambios" in r ? "sin_cambios" : "report" in r ? "leido" : `error:${r.error}`;
+
+export async function corridaEnCurso() {
+  return prisma.renderCorrida.findFirst({
+    where: { estado: "corriendo", inicio: { gt: new Date(Date.now() - VIGENCIA_CANDADO_MS) } },
+    orderBy: { inicio: "desc" },
+  });
+}
+
+export async function ultimaCorrida() {
+  return prisma.renderCorrida.findFirst({ orderBy: { inicio: "desc" } });
+}
+
+// Reserva el candado. null si ya hay una corrida en curso.
+export async function abrirCorrida(origen: "boton" | "cron"): Promise<number | null> {
+  if (await corridaEnCurso()) return null;
+  const c = await prisma.renderCorrida.create({ data: { estado: "corriendo", origen, resumen: {} } });
+  return c.id;
+}
+
+export async function ejecutarCorrida(id: number, triggeredBy: string | null) {
+  const resultados: Record<string, ResultadoCorto> = {};
+  try {
+    const { pendientes } = await sincronizarTodo({
+      presupuestoMs: 230_000,
+      triggeredBy,
+      onInicio: async (total) => { await prisma.renderCorrida.update({ where: { id }, data: { total } }); },
+      onItem: async (it, r, hechos) => {
+        if (r) resultados[it.id] = corto(r);
+        await prisma.renderCorrida.update({
+          where: { id },
+          data: { hechos, actual: r ? null : `${it.nombre} · ${it.pdv}`, resumen: resultados as unknown as Prisma.InputJsonValue },
+        });
+      },
+    });
+    await prisma.renderCorrida.update({
+      where: { id },
+      data: { estado: "ok", fin: new Date(), actual: null, resumen: { ...resultados, _pendientes: pendientes } as unknown as Prisma.InputJsonValue },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await prisma.renderCorrida.update({
+      where: { id },
+      data: { estado: "error", fin: new Date(), actual: null, resumen: { ...resultados, _error: msg } as unknown as Prisma.InputJsonValue },
+    }).catch(() => {});
+  }
 }

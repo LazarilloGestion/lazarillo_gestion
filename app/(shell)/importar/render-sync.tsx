@@ -1,16 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Database, RefreshCw, CheckCircle2, AlertCircle, Clock, Ban, ChevronDown } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import type { Local } from "@/lib/types/domain";
-import type { ItemRender, ResultadoItem } from "@/lib/render/sync";
+import type { ItemRender, ResultadoCorto } from "@/lib/render/sync";
 
-type Respuesta = { configurado: boolean; items: ItemRender[]; error?: string };
-type EstadoLocal = { corriendo?: boolean; resultado?: ResultadoItem };
+type Corrida = {
+  id: number;
+  inicio: string;
+  fin: string | null;
+  estado: "corriendo" | "ok" | "error";
+  origen: string;
+  total: number;
+  hechos: number;
+  actual: string | null;
+  resumen: Record<string, ResultadoCorto | number | string> | null;
+};
+type Respuesta = { configurado: boolean; items: ItemRender[]; corrida: Corrida | null; error?: string };
 
 const fmtFechaHora = (iso: string) => {
   const d = new Date(iso);
@@ -23,22 +34,24 @@ function alDia(it: ItemRender): boolean {
   return !!it.ultimo && it.ultimo.estado === "ok" && new Date(it.ultimo.creadoEn) >= new Date(it.cargadoEnRender);
 }
 
-function Estado({ it, local }: { it: ItemRender; local?: EstadoLocal }) {
-  if (local?.corriendo) return <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Spinner size="sm" /> Leyendo…</span>;
-  const r = local?.resultado;
-  if (r && "error" in r) return <span className="inline-flex items-center gap-1 text-xs text-destructive" title={r.error}><AlertCircle className="h-3.5 w-3.5" /> Error</span>;
-  if (r && "sinCambios" in r) return <span className="inline-flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Sin cambios</span>;
-  if (r && "report" in r) return (
+function Estado({ it, res, leyendo }: { it: ItemRender; res?: ResultadoCorto; leyendo: boolean }) {
+  if (leyendo) return <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Spinner size="sm" /> Leyendo…</span>;
+  if (res?.startsWith("error:")) return <span className="inline-flex items-center gap-1 text-xs text-destructive" title={res.slice(6)}><AlertCircle className="h-3.5 w-3.5" /> Error</span>;
+  if (res === "sin_cambios") return <span className="inline-flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Sin cambios</span>;
+  if (res === "leido" && it.ultimo) return (
     <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
-      <CheckCircle2 className="h-3.5 w-3.5" /> {fmtN(r.report.created)} nuevos · {fmtN(r.report.updated)} actualizados
+      <CheckCircle2 className="h-3.5 w-3.5" /> {fmtN(it.ultimo.created ?? 0)} nuevos · {fmtN(it.ultimo.updated ?? 0)} actualizados
     </span>
   );
+  if (res === "leido") return <span className="inline-flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Leído</span>;
   if (it.bloqueado) return <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" title={it.bloqueado}><Ban className="h-3.5 w-3.5" /> Por ahora desde Drive</span>;
   if (it.ultimo?.estado === "error") return <span className="inline-flex items-center gap-1 text-xs text-destructive"><AlertCircle className="h-3.5 w-3.5" /> Error {fmtFechaHora(it.ultimo.creadoEn)}</span>;
   if (alDia(it)) return <span className="inline-flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Leído {fmtFechaHora(it.ultimo!.creadoEn)}</span>;
   return <span className="inline-flex items-center gap-1 text-xs text-amber-700"><Clock className="h-3.5 w-3.5" /> Pendiente</span>;
 }
 
+// La lectura corre en el SERVIDOR (Diego, 26/10/2026: poder cambiar de pantalla
+// mientras actualiza). Acá solo se larga y se muestra el avance, preguntando cada 3 s.
 export function RenderSync() {
   const queryClient = useQueryClient();
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
@@ -52,9 +65,9 @@ export function RenderSync() {
     queryKey: ["render-items"],
     queryFn: async () => (await fetch("/api/etl/render")).json(),
     staleTime: 30_000,
+    refetchInterval: (query) => (query.state.data?.corrida?.estado === "corriendo" ? 3000 : false),
   });
-  const [estados, setEstados] = useState<Record<string, EstadoLocal>>({});
-  const [corriendo, setCorriendo] = useState(false);
+  const [lanzando, setLanzando] = useState(false);
   // Minimizada por defecto (Diego 26/10: "ocupa mucho espacio"); se recuerda en el navegador.
   const [abierta, setAbierta] = useState(false);
   useEffect(() => {
@@ -70,14 +83,32 @@ export function RenderSync() {
     });
   }
 
+  const corrida = q.data?.corrida ?? null;
+  const corriendo = corrida?.estado === "corriendo";
+  // Al terminar una corrida que se vio en curso, se refrescan las vistas que dependen de los datos.
+  const venia = useRef(false);
+  useEffect(() => {
+    if (venia.current && !corriendo) {
+      void queryClient.invalidateQueries({ queryKey: ["pivot"] });
+      void queryClient.invalidateQueries({ queryKey: ["detalle"] });
+      void queryClient.invalidateQueries({ queryKey: ["actualizado-al"] });
+    }
+    venia.current = corriendo;
+  }, [corriendo, queryClient]);
+  const resultadoDe = (it: ItemRender): ResultadoCorto | undefined => {
+    const r = corrida?.resumen?.[it.id];
+    return typeof r === "string" ? (r as ResultadoCorto) : undefined;
+  };
+  const leyendo = (it: ItemRender) => corriendo && corrida?.actual === `${it.nombre} · ${it.pdv}`;
+
   const items = q.data?.items ?? [];
   // Resumen para la tarjeta minimizada.
   const resumen = (() => {
     let ok = 0, pend = 0, err = 0, drive = 0;
     for (const it of items) {
-      const r = estados[it.id]?.resultado;
+      const r = resultadoDe(it);
       if (it.bloqueado) drive++;
-      else if ((r && "error" in r) || (!r && it.ultimo?.estado === "error")) err++;
+      else if (r?.startsWith("error:") || (!r && it.ultimo?.estado === "error")) err++;
       else if (r || alDia(it)) ok++;
       else pend++;
     }
@@ -89,45 +120,20 @@ export function RenderSync() {
     grupos.set(k, [...(grupos.get(k) ?? []), it]);
   }
 
-  async function actualizar(soloIds?: string[], forzar = false) {
-    setCorriendo(true);
-    const aLeer = items.filter((i) => !i.bloqueado && (!soloIds || soloIds.includes(i.id)));
-    const leidos = new Set<number>();
-    const comprasPorLocal = new Map<number, { created: number; updated: number; comprasDistribuidasModificadas?: string[] }[]>();
-    for (const it of aLeer) {
-      setEstados((s) => ({ ...s, [it.id]: { corriendo: true } }));
-      let resultado: ResultadoItem;
-      try {
-        const res = await fetch("/api/etl/render", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: it.id, forzar }),
-        });
-        resultado = await res.json().catch(() => ({ id: it.id, error: `Error ${res.status}` }));
-      } catch {
-        resultado = { id: it.id, error: "Error de red" };
-      }
-      if ("report" in resultado && it.localId) leidos.add(it.localId);
-      if ("report" in resultado && resultado.report.fileType === "compras") {
-        const { created, updated, comprasDistribuidasModificadas } = resultado.report;
-        comprasPorLocal.set(it.localId, [...(comprasPorLocal.get(it.localId) ?? []), { created, updated, comprasDistribuidasModificadas }]);
-      }
-      setEstados((s) => ({ ...s, [it.id]: { resultado } }));
+  async function actualizar() {
+    setLanzando(true);
+    try {
+      const res = await fetch("/api/etl/render/correr", { method: "POST" });
+      const d = await res.json().catch(() => null);
+      if (!res.ok) toast.error(d?.error ?? "No se pudo arrancar la actualización");
+      else if (d?.yaCorriendo) toast.info("Ya se está actualizando: te muestro el avance");
+      else toast.success("Actualizando en el servidor: podés cambiar de pantalla");
+    } catch {
+      toast.error("Error de red");
+    } finally {
+      setLanzando(false);
+      await queryClient.invalidateQueries({ queryKey: ["render-items"] });
     }
-    for (const localId of leidos) {
-      await fetch("/api/etl/render/finalizar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ local_id: localId, compras: comprasPorLocal.get(localId) ?? [] }),
-      }).catch(() => {});
-    }
-    setCorriendo(false);
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["render-items"] }),
-      queryClient.invalidateQueries({ queryKey: ["pivot"] }),
-      queryClient.invalidateQueries({ queryKey: ["detalle"] }),
-      queryClient.invalidateQueries({ queryKey: ["actualizado-al"] }),
-    ]);
   }
 
   return (
@@ -139,7 +145,12 @@ export function RenderSync() {
           <div className="min-w-0">
             <div className="text-sm font-medium">Desde Render · automático</div>
             <div className="text-xs text-muted-foreground truncate">
-              {abierta || !q.data?.configurado || items.length === 0 ? (
+              {corriendo ? (
+                <span className="text-sky-700">
+                  Actualizando en el servidor · {corrida!.hechos} de {corrida!.total}
+                  {corrida!.actual ? ` · ${corrida!.actual}` : ""} — podés cambiar de pantalla
+                </span>
+              ) : abierta || !q.data?.configurado || items.length === 0 ? (
                 "El kit sube los informes cada mañana y el Panel los lee solo a las 9:40. Lo que no cambió se saltea."
               ) : (
                 <>
@@ -156,10 +167,10 @@ export function RenderSync() {
           <button
             type="button"
             onClick={() => actualizar()}
-            disabled={corriendo}
+            disabled={corriendo || lanzando}
             className="inline-flex shrink-0 items-center gap-1.5 h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50"
           >
-            {corriendo ? <Spinner size="sm" className="text-primary-foreground" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {corriendo || lanzando ? <Spinner size="sm" className="text-primary-foreground" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Actualizar ahora
           </button>
         )}
@@ -191,7 +202,7 @@ export function RenderSync() {
                       kit {fmtFechaHora(it.cargadoEnRender)} · {fmtN(it.filas)} filas
                     </span>
                     <span>
-                      <Estado it={it} local={estados[it.id]} />
+                      <Estado it={it} res={resultadoDe(it)} leyendo={leyendo(it)} />
                     </span>
                   </div>
                 ))}

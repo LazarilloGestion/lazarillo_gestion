@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { renderConfigurado } from "@/lib/render/db";
-import { sincronizarTodo } from "@/lib/render/sync";
+import { abrirCorrida, ejecutarCorrida, ultimaCorrida } from "@/lib/render/sync";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -18,13 +18,11 @@ function autorizado(req: NextRequest): boolean {
 export async function GET(req: NextRequest) {
   if (!autorizado(req)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   if (!renderConfigurado()) return NextResponse.json({ ok: false, motivo: "Falta RENDER_DATABASE_URL" });
-  const { resultados, pendientes } = await sincronizarTodo({ presupuestoMs: 240_000, triggeredBy: "cron-render" });
-  const resumen = {
-    leidos: resultados.filter((r) => "report" in r).length,
-    sinCambios: resultados.filter((r) => "sinCambios" in r).length,
-    errores: resultados.filter((r) => "error" in r).map((r) => ("error" in r ? `${r.id}: ${r.error}` : "")),
-    pendientes,
-  };
-  console.log("[cron/render]", JSON.stringify(resumen));
-  return NextResponse.json({ ok: true, ...resumen });
+  // Misma corrida que el botón (con el mismo candado: si alguien ya la largó, no se duplica).
+  const id = await abrirCorrida("cron");
+  if (id == null) return NextResponse.json({ ok: true, yaCorriendo: true });
+  await ejecutarCorrida(id, "cron-render");
+  const c = await ultimaCorrida();
+  console.log("[cron/render]", JSON.stringify({ estado: c?.estado, hechos: c?.hechos, total: c?.total }));
+  return NextResponse.json({ ok: true, estado: c?.estado, hechos: c?.hechos, total: c?.total });
 }
