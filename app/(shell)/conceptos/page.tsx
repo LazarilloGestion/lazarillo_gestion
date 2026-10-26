@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Copy, Check, Search, Tags } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Copy, Check, Search, Tags, ChevronDown } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
@@ -9,7 +9,24 @@ import { cn } from "@/lib/utils";
 import { rangosLibres, cantidadLibres, textoRango, libreDesde, MAX_CODIGO_CONCEPTO } from "@/lib/conceptos/codigos-libres";
 import type { ConceptoMaestro } from "@/lib/render/db";
 
-type Respuesta = { fuente: "render" | "panel"; conceptos: ConceptoMaestro[] };
+type Respuesta = { fuente: "render" | "panel"; conceptos: ConceptoMaestro[]; conRegistros: string[] | null };
+
+// Preferencias de esta pantalla guardadas en el navegador (qué quedó abierto).
+function usePreferencia(clave: string, inicial: boolean): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState(inicial);
+  useEffect(() => {
+    try {
+      const g = localStorage.getItem(clave);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- preferencia guardada en este navegador
+      if (g != null) setV(g === "1");
+    } catch { /* sin storage */ }
+  }, [clave]);
+  return [v, (n: boolean) => { setV(n); try { localStorage.setItem(clave, n ? "1" : "0"); } catch { /* sin storage */ } }];
+}
+
+const Flecha = ({ abierta }: { abierta: boolean }) => (
+  <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", !abierta && "-rotate-90")} />
+);
 
 function CopiarCodigo({ codigo, grande = false }: { codigo: number; grande?: boolean }) {
   const [ok, setOk] = useState(false);
@@ -37,6 +54,11 @@ export default function ConceptosPage() {
   const { data, isLoading, error } = useFetchQuery<Respuesta>(["conceptos-maestro"], "/api/conceptos", { staleTime: 60_000 });
   const [desde, setDesde] = useState("");
   const [q, setQ] = useState("");
+  const [libresAbierta, setLibresAbierta] = usePreferencia("conceptos-libres-abierta", false);
+  // Rubros abiertos (por defecto todos cerrados); con búsqueda se abren solos.
+  const [rubrosAbiertos, setRubrosAbiertos] = useState<Set<string>>(() => new Set());
+  const conRegistros = useMemo(() => (data?.conRegistros ? new Set(data.conRegistros) : null), [data]);
+  const sinUso = (c: ConceptoMaestro) => conRegistros != null && !conRegistros.has(String(c.codigo));
 
   const conceptos = useMemo(() => data?.conceptos ?? [], [data]);
   const porCodigo = useMemo(() => new Map(conceptos.map((c) => [c.codigo, c])), [conceptos]);
@@ -47,6 +69,7 @@ export default function ConceptosPage() {
   const consulta = desde !== "" && Number.isInteger(nDesde) && nDesde >= 1 ? nDesde : null;
   const ocupadoPor = consulta != null ? porCodigo.get(consulta) : undefined;
   const sugerido = libreDesde(rangos, consulta ?? 1);
+  const primerLibre = libreDesde(rangos, 1);
 
   const grupos = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -78,13 +101,23 @@ export default function ConceptosPage() {
         <>
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 p-4 flex flex-col gap-4">
             <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
+              <button type="button" onClick={() => setLibresAbierta(!libresAbierta)} aria-expanded={libresAbierta} className="flex items-start gap-2 text-left">
+                <span className="pt-0.5"><Flecha abierta={libresAbierta} /></span>
+                <span>
                 <div className="text-sm font-medium">Códigos libres</div>
                 <div className="text-xs text-muted-foreground">
                   {cantidadLibres(rangos)} libres de {maximo} · {conceptos.length} en uso ·{" "}
                   {data?.fuente === "render" ? "MaxiRest de hoy (Render)" : "maestro importado al Panel"}
                 </div>
-              </div>
+                </span>
+              </button>
+              {!libresAbierta ? (
+                primerLibre != null && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    Próximo libre <CopiarCodigo codigo={primerLibre} grande />
+                  </div>
+                )
+              ) : (
               <div className="flex items-end gap-3">
                 <label className="flex flex-col gap-1 text-xs text-muted-foreground">
                   Buscar libre desde
@@ -109,7 +142,9 @@ export default function ConceptosPage() {
                   </div>
                 )}
               </div>
+              )}
             </div>
+            {libresAbierta && (
             <div className="flex flex-wrap gap-1.5">
               {rangos.map((r) => (
                 <button
@@ -126,30 +161,62 @@ export default function ConceptosPage() {
                 </button>
               ))}
             </div>
+            )}
           </div>
 
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 overflow-hidden">
             <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50">
-              <div className="flex items-center gap-2 text-sm font-medium"><Tags className="h-4 w-4 text-muted-foreground" /> En uso</div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 text-sm font-medium"><Tags className="h-4 w-4 text-muted-foreground" /> En uso</div>
+                <button
+                  type="button"
+                  onClick={() => setRubrosAbiertos(rubrosAbiertos.size >= grupos.length ? new Set() : new Set(grupos.map(([r]) => r)))}
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                >
+                  {rubrosAbiertos.size >= grupos.length ? "Cerrar todos" : "Abrir todos"}
+                </button>
+                {conRegistros && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><span className="size-1.5 rounded-full bg-zinc-300" /> sin registros en el Panel</span>}
+              </div>
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar código, concepto o rubro" className="h-8 w-64 pl-7 text-xs" />
               </div>
             </div>
             <div className="max-h-[60vh] overflow-auto divide-y divide-zinc-100 dark:divide-zinc-700/50">
-              {grupos.map(([rubro, cs]) => (
-                <div key={rubro} className="px-4 py-2">
-                  <div className="mb-1 text-xs font-medium text-muted-foreground">{rubro}</div>
-                  <div className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-sm sm:grid-cols-[3.5rem_minmax(0,1fr)_3.5rem_minmax(0,1fr)]">
-                    {cs.map((c) => (
-                      <div key={c.codigo} className="contents">
-                        <span className="tabular-nums text-muted-foreground text-right">{c.codigo}</span>
-                        <span className="truncate">{c.nombre}</span>
+              {grupos.map(([rubro, cs]) => {
+                const abierto = q.trim() !== "" || rubrosAbiertos.has(rubro);
+                const nSinUso = cs.filter(sinUso).length;
+                return (
+                  <div key={rubro} className="px-4 py-2">
+                    <button
+                      type="button"
+                      aria-expanded={abierto}
+                      onClick={() => {
+                        const n = new Set(rubrosAbiertos);
+                        if (n.has(rubro)) n.delete(rubro); else n.add(rubro);
+                        setRubrosAbiertos(n);
+                      }}
+                      className="flex w-full items-center gap-2 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      <Flecha abierta={abierto} />
+                      <span className="text-foreground">{rubro}</span>
+                      <span className="font-normal">· {cs.length} concepto{cs.length === 1 ? "" : "s"}{nSinUso ? ` · ${nSinUso} sin registros` : ""}</span>
+                    </button>
+                    {abierto && (
+                      // Dos columnas que se leen de arriba abajo: primero la izquierda, después la derecha.
+                      <div className="mt-1 columns-1 gap-x-8 text-sm sm:columns-2">
+                        {cs.map((c) => (
+                          <div key={c.codigo} className="flex break-inside-avoid items-center gap-3 py-0.5" title={sinUso(c) ? "Sin registros en el Panel" : undefined}>
+                            <span className="w-10 shrink-0 tabular-nums text-muted-foreground text-right">{c.codigo}</span>
+                            <span className={cn("truncate", sinUso(c) && "text-muted-foreground")}>{c.nombre}</span>
+                            {sinUso(c) && <span className="size-1.5 shrink-0 rounded-full bg-zinc-300" />}
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {grupos.length === 0 && <p className="px-4 py-6 text-center text-sm text-muted-foreground">Sin resultados.</p>}
             </div>
           </div>
