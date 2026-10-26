@@ -95,7 +95,7 @@ export async function leerTabla(
   });
 }
 
-export type ConceptoMaestro = { codigo: number; nombre: string; tipo: string | null; codRubro: number | null; rubro: string | null };
+export type ConceptoMaestro = { codigo: number; nombre: string; tipo: string | null; codRubro: number | null; rubro: string | null; imputacion?: string | null };
 
 // Maestro 17 (conceptos de caja) tal como lo sube el kit cada día desde MaxiRest.
 export async function leerConceptos(esquema: string): Promise<ConceptoMaestro[]> {
