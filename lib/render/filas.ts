@@ -44,6 +44,23 @@ export function serialExcel(valor: string): number | null {
   return fraccion ? dias + fraccion : dias;
 }
 
+// El kit (inf22_pdv.py) escribe el comprobante del 22 como "  %-3s %04d-%08d ":
+// dos espacios ADELANTE ("  FCB 0006-00004888 "), y Render lo guarda recortado
+// ("FCB 0006-00004888"). El rowId de ventas hashea el comprobante crudo, así que
+// se rearma igual que en el Excel (si no, la misma venta leída de Render y del
+// Excel daría dos registros).
+export function comprobanteDelExcel(s: string): string | null {
+  const m = /^(\S+) (\d{4}-\d{8})$/.exec(s.trim());
+  return m ? `  ${m[1].padEnd(3)} ${m[2]} ` : null;
+}
+
+// HORA: en el Excel es fracción del día (13:09 → 0,5479…); Render la trae "13:09:00".
+export function horaDelExcel(s: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(s.trim());
+  // 16 cifras: así lo escribe openpyxl en el .xlsx del kit (0,010416666666666666 → 0,01041666666666667).
+  return m ? Number(((+m[1] * 3600 + +m[2] * 60 + +(m[3] ?? 0)) / 86_400).toPrecision(16)) : null;
+}
+
 export function filaDeRender(fila: Record<string, unknown>, tipos: Record<string, TipoColumna>): ETLRow {
   const out: ETLRow = {};
   for (const [col, valor] of Object.entries(fila)) {
@@ -57,6 +74,14 @@ export function filaDeRender(fila: Record<string, unknown>, tipos: Record<string
         continue;
       }
       const s = String(valor);
+      if (clave === "COMPROBANT") {
+        const c = comprobanteDelExcel(s);
+        if (c) { out[clave] = c; continue; }
+      }
+      if (clave === "HORA") {
+        const h = horaDelExcel(s);
+        if (h != null) { out[clave] = h; continue; }
+      }
       out[clave] = ancho != null ? s.padEnd(ancho) : s;
       continue;
     }
@@ -74,9 +99,10 @@ export function filaDeRender(fila: Record<string, unknown>, tipos: Record<string
 
 // Informes de Render que el Panel lee, con el tipo de archivo que reconoce el ETL.
 // Orden = orden de dependencia (compras antes que detalle/pagos).
-// Ventas (22) queda afuera hasta que el kit suba el orden de las filas: sus
-// cobros partidos heredan turno/comprobante de la fila anterior, y una tabla de
-// Postgres no garantiza el orden (medido: Render devuelve el 22 desordenado).
+// Ventas (22) necesita el orden de las filas: sus cobros partidos heredan
+// turno/comprobante de la fila anterior, y una tabla de Postgres no garantiza el
+// orden. Desde el 26/10/2026 el kit sube la columna `fila`; cada PDV se lee recién
+// cuando TODAS sus filas la tienen (ver leerCargas).
 // `maestro`: tabla de la organización (sin columna pdv, ej. m17); se lee entera.
 export const INFORMES_RENDER: { prefijo: string; fileType: ETLFileType; nombre: string; requiereOrden?: boolean; maestro?: boolean }[] = [
   { prefijo: "m17_conceptos_de_caja", fileType: "conceptosCaja", nombre: "Conceptos de caja (maestro 17)", maestro: true },
