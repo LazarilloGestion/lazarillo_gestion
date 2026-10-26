@@ -7,7 +7,7 @@ import { sincronizarTrasImport } from "@/lib/apertura/reimportacion";
 import { accumulateAperturaInputs } from "@/hooks/accumulate-apertura-inputs";
 import type { DbClient, ETLReport } from "@/lib/etl/types";
 import { filaDeRender, informeDeTabla } from "./filas";
-import { huellaTabla, leerCargas, leerTabla } from "./db";
+import { huellaTabla, leerCargas, leerTabla, PDV_MAESTROS } from "./db";
 
 // Un ítem = una tabla de Render para un PDV (ej. i14 2026 del BAR → Ramos · Bar).
 export type ItemRender = {
@@ -47,11 +47,13 @@ export async function listarItems(): Promise<ItemRender[]> {
   const anios = aniosVigentes();
   const items: ItemRender[] = [];
   for (const [esquema, origs] of porEsquema) {
-    const cargas = await leerCargas(esquema, origs.map((o) => o.pdv));
+    const cargas = await leerCargas(esquema, [...origs.map((o) => o.pdv), PDV_MAESTROS]);
     for (const c of cargas) {
       const inf = informeDeTabla(c.tabla);
       if (!inf || (inf.anio != null && !anios.has(inf.anio))) continue;
-      const o = origs.find((x) => x.pdv === c.pdv)!;
+      // Maestro de la organización: va con localId/PDV 0 (no es de un PDV).
+      if (inf.informe.maestro !== (c.pdv === PDV_MAESTROS)) continue;
+      const o = inf.informe.maestro ? { localId: 0, puntoDeVentaId: 0 } : origs.find((x) => x.pdv === c.pdv)!;
       items.push({
         id: `${esquema}.${c.tabla}.${c.pdv}`,
         esquema,
@@ -84,7 +86,7 @@ export async function listarItems(): Promise<ItemRender[]> {
     }
   }
   // Orden de dependencia: compras → detalle → pagos → nómina → ventas.
-  const orden = ["compras", "detalleCompras", "pagos", "nomina", "ventas"];
+  const orden = ["conceptosCaja", "compras", "detalleCompras", "pagos", "nomina", "ventas"];
   return items.sort((a, b) => a.localId - b.localId || a.puntoDeVentaId - b.puntoDeVentaId || orden.indexOf(a.fileType) - orden.indexOf(b.fileType) || (a.anio ?? 0) - (b.anio ?? 0));
 }
 
@@ -108,12 +110,33 @@ export async function sincronizarItem(item: ItemRender, opts: { forzar?: boolean
     if (ultimo?.estado === "ok" && ultimo.driveHuella === huella) return { id: item.id, sinCambios: true };
   }
 
+  // Conceptos nuevos de un rubro que el Panel todavía no tiene: el rubro se crea
+  // con el nombre que trae el maestro 17 (Render no tiene el maestro 11).
+  if (item.fileType === "conceptosCaja") {
+    try {
+      const { filas } = await leerTabla(item.esquema, item.tabla, item.pdv, false);
+      const rubros = new Map<string, string>();
+      for (const f of filas) {
+        const cod = f.cod_rga != null ? String(f.cod_rga) : null;
+        if (cod && Number(cod) > 0 && f.rubro) rubros.set(cod, String(f.rubro).trim());
+      }
+      if (rubros.size) {
+        await prisma.rubroConceptoCaja.createMany({
+          data: [...rubros].map(([codigo, nombre]) => ({ codigo, nombre })),
+          skipDuplicates: true,
+        });
+      }
+    } catch (e) {
+      console.error("[render] rubros de conceptos", e);
+    }
+  }
+
   const base = {
     batchId: crypto.randomUUID(),
     fileType: item.fileType,
     fileName: `Render · ${item.nombre} · ${item.pdv}`,
-    localId: item.localId,
-    puntoDeVentaId: item.puntoDeVentaId,
+    localId: item.localId || null,
+    puntoDeVentaId: item.puntoDeVentaId || null,
     triggeredBy: opts.triggeredBy ?? "render",
     driveFileId: claveLog(item.id),
     driveHuella: huella,
@@ -122,7 +145,8 @@ export async function sincronizarItem(item: ItemRender, opts: { forzar?: boolean
   try {
     const { filas, tipos } = await leerTabla(item.esquema, item.tabla, item.pdv, item.fileType === "ventas");
     const rows = filas.map((f) => filaDeRender(f, tipos));
-    report = await runETLFilas(item.fileType, rows, { localId: item.localId, puntoDeVentaId: item.puntoDeVentaId }, getEtlClient() as unknown as DbClient);
+    const ctx = item.localId ? { localId: item.localId, puntoDeVentaId: item.puntoDeVentaId } : {};
+    report = await runETLFilas(item.fileType, rows, ctx, getEtlClient() as unknown as DbClient);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";
     await prisma.importLog.create({ data: { ...base, estado: "error", errorMessage: message } }).catch(() => {});
@@ -163,7 +187,7 @@ export async function sincronizarTodo(opts: { presupuestoMs: number; triggeredBy
     if (Date.now() - inicio > opts.presupuestoMs) { pendientes++; continue; }
     const r = await sincronizarItem(it, { triggeredBy: opts.triggeredBy });
     resultados.push(r);
-    if ("report" in r) reportsPorLocal.set(it.localId, [...(reportsPorLocal.get(it.localId) ?? []), r.report]);
+    if ("report" in r && it.localId) reportsPorLocal.set(it.localId, [...(reportsPorLocal.get(it.localId) ?? []), r.report]);
   }
   for (const [localId, reports] of reportsPorLocal) {
     try { await finalizarLocal(localId, reports); } catch (e) { console.error("[render] finalizar", localId, e); }

@@ -32,6 +32,8 @@ describe("informeDeTabla", () => {
     expect(informeDeTabla("i000_nomina")).toMatchObject({ anio: null, informe: { fileType: "nomina" } });
     expect(informeDeTabla("i22_ventas_detalladas_2025")).toMatchObject({ informe: { fileType: "ventas", requiereOrden: true } });
     expect(informeDeTabla("i12_ventas_por_articulo_ranking_detallado_por_dia_2026")).toBeNull();
+    expect(informeDeTabla("m17_conceptos_de_caja")).toMatchObject({ anio: null, informe: { fileType: "conceptosCaja", maestro: true } });
+    expect(informeDeTabla("m6_listado_de_articulos")).toBeNull();
   });
 });
 

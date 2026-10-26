@@ -41,6 +41,9 @@ async function conRender<T>(fn: (c: Client) => Promise<T>): Promise<T> {
   }
 }
 
+// Así anota el kit en _cargas las tablas de maestros (una por organización, sin pdv).
+export const PDV_MAESTROS = "(maestros)";
+
 export type CargaRender = { pdv: string; tabla: string; filas: number; cargado: string; tieneFila: boolean };
 
 // Última carga del kit por PDV y tabla (tabla _cargas de cada esquema), y si la
@@ -68,8 +71,8 @@ export async function huellaTabla(esquema: string, tabla: string, pdv: string): 
   return conRender(async (c) => {
     const { rows } = await c.query<{ n: string; h: string | null }>(
       `SELECT count(*) AS n, md5(string_agg(md5(t::text), '' ORDER BY md5(t::text))) AS h
-         FROM ${ident(esquema)}.${ident(tabla)} t WHERE pdv = $1`,
-      [pdv]
+         FROM ${ident(esquema)}.${ident(tabla)} t${pdv === PDV_MAESTROS ? "" : " WHERE pdv = $1"}`,
+      pdv === PDV_MAESTROS ? [] : [pdv]
     );
     return `${rows[0]?.n ?? 0}|${rows[0]?.h ?? ""}`;
   });
@@ -83,8 +86,8 @@ export async function leerTabla(
 ): Promise<{ filas: Record<string, unknown>[]; tipos: Record<string, TipoColumna> }> {
   return conRender(async (c) => {
     const r = await c.query(
-      `SELECT * FROM ${ident(esquema)}.${ident(tabla)} WHERE pdv = $1${ordenarPorFila ? " ORDER BY fila" : ""}`,
-      [pdv]
+      `SELECT * FROM ${ident(esquema)}.${ident(tabla)}${pdv === PDV_MAESTROS ? "" : " WHERE pdv = $1"}${ordenarPorFila ? " ORDER BY fila" : ""}`,
+      pdv === PDV_MAESTROS ? [] : [pdv]
     );
     const tipos: Record<string, TipoColumna> = {};
     for (const f of r.fields) tipos[f.name] = tipoDeOid(f.dataTypeID);
