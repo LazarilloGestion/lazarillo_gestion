@@ -213,6 +213,13 @@ export async function GET(request: NextRequest) {
     year, localId, pdvId, mes, meses, proveedorId, proveedorTexto, codigo, sinProveedor,
     rubroCodigo, conceptoCodigo, observacionQuery, importeQuery, historico,
   });
+  // Vista Insumos: compras que traen ese insumo en el 25 / compras sin insumos (van por concepto).
+  const lineas = (filtro: Prisma.Sql) => Prisma.sql`EXISTS (SELECT 1 FROM detalle_compras d
+    WHERE d.comprobante = cb.comprobante AND d."codPro" = cb.codigo AND d."localId" = cb."localId" AND d."codCga" = cb."codCga"
+      AND NULLIF(TRIM(d.medida), '') IS NOT NULL AND ${filtro})`;
+  const insumoCodigo = codigoSchema.safeParse(searchParams.get("insumoCodigo") ?? undefined).data;
+  if (insumoCodigo) condiciones.push(lineas(Prisma.sql`d.codigo = ${insumoCodigo}`));
+  if (searchParams.get("sinInsumos") === "1") condiciones.push(Prisma.sql`NOT ${lineas(Prisma.sql`TRUE`)}`);
   if (q) {
     const campos = [
       Prisma.sql`c.proveedor`, Prisma.sql`p.nombre`, Prisma.sql`p.razon`, Prisma.sql`c."observacManual"`,

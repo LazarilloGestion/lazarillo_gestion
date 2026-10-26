@@ -72,6 +72,86 @@ export async function GET(request: NextRequest) {
   if (localId) conditionsComposicion.push(Prisma.sql`c."localIdOrigen" = ${localId}`);
   const whereComposicion = Prisma.join(conditionsComposicion, " AND ");
 
+  // Vista Insumos (punto 8 de Etapa 3, Diego 26/10): cada gasto por sus insumos
+  // (informe 25) y, si no tiene detalle, por su concepto. Los totales dan igual que
+  // por Concepto: el importe de la fila se reparte entre sus líneas en proporción a
+  // lo que vale cada una. Las líneas SIN unidad de medida son el concepto mismo (así
+  // lista MaxiRest una factura cargada por concepto) y van al concepto.
+  if (agrupacion === "insumo") {
+    const filas = await prisma.$queryRaw<SqlRow[]>(Prisma.sql`
+      WITH c AS (
+        SELECT
+          COALESCE(rc.codigo, '__sin_rubro')                                  AS rubro_codigo,
+          COALESCE(rc.nombre, 'Sin Rubro')                                   AS rubro_nombre,
+          COALESCE(cc.codigo, '__sin_concepto')                              AS concepto_codigo,
+          COALESCE(cc.nombre, 'Sin Concepto')                                AS concepto_nombre,
+          p.id                                                                AS proveedor_id,
+          COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor')         AS proveedor_nombre,
+          c.proveedor                                                        AS proveedor_texto_crudo,
+          c.codigo                                                           AS proveedor_codigo,
+          EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int        AS mes,
+          COALESCE(c."importeManual", c.importe)                             AS total,
+          c."rowId"                                                           AS row_id,
+          c."distribucionId"                                                  AS distribucion_id,
+          c."pagoRef"                                                         AS pago_ref,
+          TO_CHAR(COALESCE(c."fechaManual", c.fecha), 'YYYY-MM-DD')         AS fecha,
+          COALESCE(c."observacManual", c.observac)                           AS observac,
+          (c."importeManual" IS NOT NULL OR c."fechaManual" IS NOT NULL
+            OR c."conceptoCodigoManual" IS NOT NULL OR c."observacManual" IS NOT NULL) AS has_manual_override,
+          c."localIdOrigen"          AS local_id_origen,
+          c."puntoDeVentaIdOrigen"   AS punto_de_venta_id_origen,
+          co.comprobante, co.codigo AS cod_pro, co."localId" AS lid, co."codCga" AS cga
+        FROM ${fuente} c
+        JOIN compras co                   ON co."rowId" = c."rowId"
+        LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
+        LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
+        LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
+        WHERE ${where}
+      ),
+      l AS (
+        SELECT d.comprobante, d."codPro", d."localId", d."codCga",
+          CASE WHEN NULLIF(TRIM(d.medida), '') IS NULL THEN NULL ELSE d.codigo END AS ins,
+          MAX(d.nombre) AS nombre,
+          SUM(COALESCE(d."totalIns", 0) + COALESCE(d."ivaTot", 0) + COALESCE(d."impNtTot", 0)) AS w
+        FROM detalle_compras d
+        WHERE EXISTS (SELECT 1 FROM c WHERE c.comprobante = d.comprobante AND c.cod_pro = d."codPro" AND c.lid = d."localId" AND c.cga = d."codCga")
+        GROUP BY 1, 2, 3, 4, 5
+      ),
+      lt AS (
+        SELECT comprobante, "codPro", "localId", "codCga", SUM(w) AS wt,
+          BOOL_OR(ins IS NOT NULL) AS con_insumo
+        FROM l GROUP BY 1, 2, 3, 4
+      )
+      -- Filas con insumos: una por línea, con su parte del importe.
+      SELECT c.rubro_codigo, c.rubro_nombre,
+        CASE WHEN l.ins IS NULL THEN c.concepto_codigo ELSE 'ins:' || l.ins END AS concepto_codigo,
+        CASE WHEN l.ins IS NULL THEN c.concepto_nombre ELSE l.nombre END        AS concepto_nombre,
+        c.proveedor_id, c.proveedor_nombre, c.proveedor_texto_crudo, c.proveedor_codigo, c.mes,
+        c.total * l.w / lt.wt AS total,
+        c.row_id, c.distribucion_id,
+        COALESCE(c.pago_ref, '') || '|' || COALESCE(l.ins, 'c') AS pago_ref,
+        c.fecha, c.observac, c.has_manual_override, c.local_id_origen, c.punto_de_venta_id_origen
+      FROM c
+      JOIN lt ON lt.comprobante = c.comprobante AND lt."codPro" = c.cod_pro AND lt."localId" = c.lid AND lt."codCga" = c.cga
+      JOIN l  ON l.comprobante = c.comprobante AND l."codPro" = c.cod_pro AND l."localId" = c.lid AND l."codCga" = c.cga
+      WHERE lt.con_insumo AND lt.wt <> 0
+      UNION ALL
+      -- Sin insumos: por su concepto, como en la vista por Concepto.
+      SELECT c.rubro_codigo, c.rubro_nombre, c.concepto_codigo, c.concepto_nombre,
+        c.proveedor_id, c.proveedor_nombre, c.proveedor_texto_crudo, c.proveedor_codigo, c.mes,
+        c.total, c.row_id, c.distribucion_id, c.pago_ref,
+        c.fecha, c.observac, c.has_manual_override, c.local_id_origen, c.punto_de_venta_id_origen
+      FROM c
+      WHERE NOT EXISTS (
+        SELECT 1 FROM lt
+        WHERE lt.comprobante = c.comprobante AND lt."codPro" = c.cod_pro AND lt."localId" = c.lid AND lt."codCga" = c.cga
+          AND lt.con_insumo AND lt.wt <> 0
+      )
+      ORDER BY rubro_nombre NULLS LAST, concepto_nombre NULLS LAST, fecha NULLS LAST, proveedor_nombre NULLS LAST
+    `);
+    return NextResponse.json(buildPivotData(filas, {}));
+  }
+
   const rowsQuery = prisma.$queryRaw<SqlRow[]>(Prisma.sql`
     SELECT
       COALESCE(rc.codigo, '__sin_rubro')                                  AS rubro_codigo,

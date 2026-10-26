@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Users } from "lucide-react";
+import { ChevronDown, ChevronUp, Package, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MONTHS } from "@/lib/dashboard/constants";
 import { KpiBlock } from "./kpi-block";
@@ -90,6 +90,20 @@ export function PivotTableHead({
             >
               <Users className="w-3 h-3" />
               Proveedor
+            </button>
+            <button
+              onClick={() => onAgrupacionChange("insumo")}
+              aria-pressed={agrupacionCompras === "insumo"}
+              title="Cada gasto por sus insumos (informe 25); sin detalle, por su concepto"
+              className={cn(
+                "h-7 px-2.5 rounded-md text-xs font-medium transition-all inline-flex items-center gap-1",
+                agrupacionCompras === "insumo"
+                  ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Package className="w-3 h-3" />
+              Insumos
             </button>
           </div>
           {/* Toggle $ / % ing: cada celda mensual pasa a mostrar su peso sobre los

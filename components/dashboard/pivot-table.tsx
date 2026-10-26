@@ -5,5 +5,7 @@ import { PivotTableByProveedor } from "./pivot-table-por-proveedor";
 
 export function PivotTable() {
   const { agrupacionCompras } = useDashboard();
-  return agrupacionCompras === "proveedor" ? <PivotTableByProveedor /> : <PivotTableByConcepto />;
+  if (agrupacionCompras === "proveedor") return <PivotTableByProveedor />;
+  // Vista Insumos: mismo árbol que Concepto, con insumos (o el concepto si no tiene detalle) en el 2do nivel.
+  return agrupacionCompras === "insumo" ? <PivotTableByConcepto key="insumo" agrupacion="insumo" /> : <PivotTableByConcepto />;
 }
