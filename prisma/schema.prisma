@@ -202,6 +202,8 @@ model Compra {
   fechaPago        DateTime?
   cajaPago         String?
   periodo          DateTime?
+  // 'lazarillo' = cargada desde el Panel (Etapa 4); null = importada de MaxiRest.
+  origen           String?
 
   // Overrides manuales — sobreviven re-importaciones
   importeManual  Decimal?
@@ -240,6 +242,7 @@ model Compra {
   @@index([fecha])
   @@index([localId, puntoDeVentaId])
   @@index([comprobante])
+  @@index([origen, localId, comprobante, codigo])
   @@map("compras")
 }
 
@@ -273,6 +276,9 @@ model DetalleCompra {
   codCga String?
   nomCga String?
 
+  // 'lazarillo' = línea de una factura cargada desde el Panel; null = del informe 25.
+  origen String?
+
   compraId String?
   compra   Compra? @relation(fields: [compraId], references: [rowId])
 
@@ -289,6 +295,7 @@ model DetalleCompra {
   @@index([compraId])
   @@index([localId])
   @@index([codCga])
+  @@index([origen, localId, comprobante, codPro])
   @@map("detalle_compras")
 }
 

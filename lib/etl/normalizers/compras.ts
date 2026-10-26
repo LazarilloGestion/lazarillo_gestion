@@ -18,6 +18,7 @@ import {
 } from "./compra-identity";
 import { camposErpCambiaron, type CompraErpFields } from "./compras-diff";
 import { canonicalDecimal } from "./compra-identity";
+import { comprobantesDeLazarillo } from "@/lib/facturas/saltear-lazarillo";
 import { resolveProveedorId, type ProveedorCandidato } from "./proveedor-match";
 import { normalizarProveedorTexto } from "../../text-normalize";
 import { insertChunkWithRowFallback } from "../chunked-upsert";
@@ -194,7 +195,24 @@ export async function normalizeCompras(
     }
     rowIdMap.set(pr.rowId, pr);
   }
-  const filtered = Array.from(rowIdMap.values());
+  // Comprobantes ya cargados en Lazarillo: se saltean (gana esa versión, no se duplica).
+  const enLazarillo = await comprobantesDeLazarillo(
+    prisma, "compras", ctx?.localId,
+    [...rowIdMap.values()].map((pr) => parseComprobanteFromDetalle(pr.row["DETALLE"]) ?? ""),
+  );
+  const filtered = Array.from(rowIdMap.values()).filter((pr) => {
+    const cpb = parseComprobanteFromDetalle(pr.row["DETALLE"]);
+    if (!cpb || !enLazarillo.has(`${cpb}|${pr.data.CODIGO ?? ""}`)) return true;
+    skippedRows.push({
+      fecha: formatFechaDisplay(pr.row["FECHA"]),
+      concepto: trim(pr.row["CONCEPTO"]) ?? undefined,
+      importe: toDecimalStr(pr.row["IMPORTE"]) ?? undefined,
+      proveedor: trim(pr.row["PROVEEDOR"]) ?? undefined,
+      motivo: "cargada_en_lazarillo",
+      ...filaCruda(pr.row, pr.idx),
+    });
+    return false;
+  });
   const skipped = skippedRows.length;
 
   // Todos los rowId que este archivo va a computar, de punta a punta — no solo

@@ -6,6 +6,7 @@ import { DashboardTabContent } from "@/components/dashboard/dashboard-tab-conten
 import { useFiltersPanel } from "@/hooks/use-dashboard-store";
 import { ActualizadoAl } from "@/components/dashboard/actualizado-al";
 import { SwitchEcoFin } from "@/components/dashboard/switch-eco-fin";
+import { CargarFactura } from "@/components/facturas/cargar-factura";
 export function DashboardContent() {
   // showFilters se seedea sincrónicamente desde localStorage en el store
   // (ver readPersistedField) — el primer render de cliente ya tiene el
@@ -46,8 +47,12 @@ export function DashboardContent() {
               <ActualizadoAl />
             </p>
           </div>
-          {/* Switch Económica / Financiera (punto 4 de Etapa 3): arriba, a la altura del título. */}
-          <SwitchEcoFin />
+          <div className="flex flex-col items-start gap-2 md:flex-row md:items-start md:gap-3">
+            {/* Carga de facturas (Etapa 4, punto 1). */}
+            <CargarFactura />
+            {/* Switch Económica / Financiera (punto 4 de Etapa 3): arriba, a la altura del título. */}
+            <SwitchEcoFin />
+          </div>
         </div>
         <div className="pt-6 pb-6">
           <DashboardFilters />
