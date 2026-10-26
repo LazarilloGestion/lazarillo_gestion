@@ -140,7 +140,7 @@ export function buildPivotDataByProveedor(
 
     const linea: PivotLineaRow = {
       level: 3,
-      id: `${concKey}|${row_id}|${distribucion_id ?? "orig"}`,
+      id: `${concKey}|${row_id}|${distribucion_id ?? "orig"}${row.pago_ref ? `|${row.pago_ref}` : ""}`,
       rowId: row_id,
       distribucionId: distribucion_id,
       conceptoCodigo: concepto_codigo,

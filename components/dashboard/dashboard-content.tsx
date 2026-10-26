@@ -5,6 +5,7 @@ import { DashboardFilters } from "@/components/dashboard/dashboard-filters";
 import { DashboardTabContent } from "@/components/dashboard/dashboard-tab-content";
 import { useFiltersPanel } from "@/hooks/use-dashboard-store";
 import { ActualizadoAl } from "@/components/dashboard/actualizado-al";
+import { SwitchEcoFin } from "@/components/dashboard/switch-eco-fin";
 export function DashboardContent() {
   // showFilters se seedea sincrónicamente desde localStorage en el store
   // (ver readPersistedField) — el primer render de cliente ya tiene el
@@ -35,14 +36,18 @@ export function DashboardContent() {
         onAnimationStart={() => setClipping(true)}
         onAnimationComplete={() => setClipping(!showFilters)}
       >
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white truncate">
-            Panel de Gestión
-          </h1>
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-            <span className="truncate">Resumen general de operaciones</span>
-            <ActualizadoAl />
-          </p>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="flex flex-col gap-1 min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white truncate">
+              Panel de Gestión
+            </h1>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+              <span className="truncate">Resumen general de operaciones</span>
+              <ActualizadoAl />
+            </p>
+          </div>
+          {/* Switch Económica / Financiera (punto 4 de Etapa 3): arriba, a la altura del título. */}
+          <SwitchEcoFin />
         </div>
         <div className="pt-6 pb-6">
           <DashboardFilters />

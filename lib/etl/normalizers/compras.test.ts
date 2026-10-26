@@ -207,7 +207,7 @@ describe("normalizeCompras", () => {
   it("cuando el insert en lote falla, reintenta fila por fila y aísla solo la fila inválida (no pierde las demás)", async () => {
     const db = createMockDb();
     (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
-      if (sql.values.length > 21) throw new Error("simulated batch failure");
+      if (sql.values.length > 24) throw new Error("simulated batch failure");
       if (sql.values[5] === "BAD") throw new Error("valor fuera de rango numérico");
       return 1;
     });
@@ -674,7 +674,7 @@ describe("normalizeCompras", () => {
       };
       const db = createMockDb({ compra: compraModel });
       (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
-        if (sql.values.length > 21) throw new Error("simulated batch failure");
+        if (sql.values.length > 24) throw new Error("simulated batch failure");
         if (sql.values[12] === "BAD") throw new Error("valor fuera de rango numérico"); // IMPUTAC
         return 1;
       });
@@ -706,7 +706,7 @@ describe("normalizeCompras", () => {
       };
       const db = createMockDb({ compra: compraModel });
       (db.$executeRaw as ReturnType<typeof vi.fn>).mockImplementation(async (sql: { values: unknown[] }) => {
-        if (sql.values.length > 21) throw new Error("simulated batch failure");
+        if (sql.values.length > 24) throw new Error("simulated batch failure");
         if (sql.values[12] === "BAD") throw new Error("valor fuera de rango numérico"); // IMPUTAC
         return 1;
       });

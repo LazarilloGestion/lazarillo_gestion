@@ -11,6 +11,7 @@ import {
   type ComposicionOriginalRow,
 } from "@/lib/dashboard/apertura-composicion";
 import { buildPivotDataByProveedor } from "@/lib/dashboard/pivot-por-proveedor";
+import { fuenteCompras } from "@/lib/dashboard/fuente-compras";
 import type {
   PivotData,
   PivotRubroRow,
@@ -29,7 +30,9 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const params = parseDashboardParams(searchParams);
 
-  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, months, vista, agrupacion } = params;
+  const { year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, months, vista, agrupacion, modo } = params;
+  // Económica (por fecha de factura) o Financiera (por fecha de pago): ver fuente-compras.ts.
+  const fuente = fuenteCompras(modo);
   const visibilidadCol = vista === "resultados" ? "visibleEnResultados" : "visibleEnDashboard";
 
   try {
@@ -83,13 +86,14 @@ export async function GET(request: NextRequest) {
       COALESCE(c."importeManual", c.importe)                             AS total,
       c."rowId"                                                           AS row_id,
       c."distribucionId"                                                  AS distribucion_id,
+      c."pagoRef"                                                         AS pago_ref,
       TO_CHAR(COALESCE(c."fechaManual", c.fecha), 'YYYY-MM-DD')         AS fecha,
       COALESCE(c."observacManual", c.observac)                           AS observac,
       (c."importeManual" IS NOT NULL OR c."fechaManual" IS NOT NULL
         OR c."conceptoCodigoManual" IS NOT NULL OR c."observacManual" IS NOT NULL) AS has_manual_override,
       c."localIdOrigen"          AS local_id_origen,
       c."puntoDeVentaIdOrigen"   AS punto_de_venta_id_origen
-    FROM v_compras_distribuidas c
+    FROM ${fuente} c
     LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
     LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
     LEFT JOIN proveedores p           ON c."proveedorId"     = p.id
@@ -119,7 +123,7 @@ export async function GET(request: NextRequest) {
       c.codigo                                                     AS proveedor_codigo,
       da.porcentaje                                                AS pct,
       SUM(da."importeCalculado")                                   AS importe_calculado
-    FROM v_compras_distribuidas c
+    FROM ${fuente} c
     JOIN distribuciones_apertura da  ON da.id = c."distribucionId"
     JOIN destinos_regla dr           ON dr.id = da."destinoId"
     LEFT JOIN locales l              ON l.id = dr."localId"
@@ -146,7 +150,7 @@ export async function GET(request: NextRequest) {
         EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int AS mes,
         da."compraRowId",
         da."importeOriginal"                                        AS importe_original
-      FROM v_compras_distribuidas c
+      FROM ${fuente} c
       JOIN distribuciones_apertura da  ON da.id = c."distribucionId"
       LEFT JOIN conceptos_caja cc       ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc.codigo
       LEFT JOIN rubros_concepto_caja rc ON cc."codRga"         = rc.codigo
@@ -197,6 +201,7 @@ function buildPivotData(
       total,
       row_id,
       distribucion_id,
+      pago_ref,
       fecha,
       observac,
       has_manual_override,
@@ -242,7 +247,8 @@ function buildPivotData(
 
     const provRow: PivotProveedorRow = {
       level: 2,
-      id: `${concKey}|${row_id}|${distribucion_id ?? "orig"}`,
+      // En Financiera una factura puede venir en varias filas (una por pago).
+      id: `${concKey}|${row_id}|${distribucion_id ?? "orig"}${pago_ref ? `|${pago_ref}` : ""}`,
       rowId: row_id,
       distribucionId: distribucion_id,
       nombre: proveedor_nombre,

@@ -175,6 +175,8 @@ export type DetalleFilter = BaseDashboardFilter & {
   meses?: number[];
   // Toggle Histórico del modal: todos los años (year y mes/meses se ignoran).
   historico?: boolean;
+  // Switch del panel: en Financiera el detalle lista los pagos del período.
+  modo?: "economica" | "financiera";
 };
 
 export type VentasDetalleFilter = BaseDashboardFilter & {
@@ -212,6 +214,8 @@ export type SqlRow = {
   total: DecimalLike;
   row_id: string;
   distribucion_id: number | null;
+  // Vista Financiera: id del pago del 80 (una factura viene en una fila por pago). null en Económica.
+  pago_ref?: string | null;
   fecha: string | null;
   observac: string | null;
   has_manual_override: boolean;
@@ -289,6 +293,12 @@ export type CompraDetalle = {
   // compra base, su PDV y el estado de pago (14 cruzado con el informe 80).
   comprobante?: string | null;
   codigoProveedor?: string | null;
+  // Fecha e importe con que la fila cuenta en la vista elegida (Financiera: el
+  // pago y la parte que cubre; Económica: el período de un sueldo). La edición
+  // sigue usando fecha/importe de la compra.
+  fechaVista?: string | null;
+  importeVista?: string | number | null;
+  pagoRef?: string | null;
   pdvCompraId?: number | null;
   estadoPago?: { estado: import("@/lib/cta-cte/estado").EstadoPago; total: number; pagado: number } | null;
 };

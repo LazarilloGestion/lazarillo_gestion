@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { buildDashboardUrl, buildVentasPivotUrl, type Vista, type AgrupacionCompras } from "@/lib/dashboard/params";
 import type { PivotData, PivotDataPorProveedor } from "@/lib/dashboard/types";
+import { useDashboardStore } from "@/hooks/use-dashboard-store";
 
 interface UseOperacionKpisParams {
   year: number;
@@ -24,15 +25,17 @@ export function useOperacionKpis<T extends PivotData | PivotDataPorProveedor = P
   year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
   months, activeMonths, configVersion, vista, agrupacion,
 }: UseOperacionKpisParams) {
+  // Switch Económica / Financiera: solo cambian los egresos (los ingresos quedan igual).
+  const modo = useDashboardStore((s) => s.modoPanel) === "financiera" ? "financiera" as const : undefined;
   const url = useMemo(() => {
     const base = buildDashboardUrl("/api/dashboard/pivot", {
-      year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, months: activeMonths, vista, agrupacion,
+      year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, months: activeMonths, vista, agrupacion, modo,
     });
     return configVersion > 0 ? `${base}&_rcv=${configVersion}` : base;
-  }, [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, activeMonths, configVersion, vista, agrupacion]);
+  }, [year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, activeMonths, configVersion, vista, agrupacion, modo]);
 
   const { data, isLoading, error } = useFetchQuery<T>(
-    ["pivot", vista ?? "compras", agrupacion ?? "concepto", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, months, configVersion],
+    ["pivot", vista ?? "compras", agrupacion ?? "concepto", year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery, months, configVersion, modo ?? "economica"],
     url
   );
 
