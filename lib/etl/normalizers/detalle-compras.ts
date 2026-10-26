@@ -7,6 +7,7 @@ import type { ETLRow, ETLRowError, ETLSkippedRow } from "../types";
 import { detalleCompraRowSchema, type DetalleCompraRow } from "../schemas/detalle-compras";
 import { formatZodError } from "../schemas/common";
 import { insertChunkWithRowFallback } from "../chunked-upsert";
+import { comprobantesDeLazarillo } from "@/lib/facturas/saltear-lazarillo";
 
 const CHUNK_SIZE = 500;
 
@@ -85,7 +86,22 @@ export async function normalizeDetalleCompras(
     }
     rowIdMap.set(pr.rowId, pr);
   }
-  const filtered = Array.from(rowIdMap.values());
+  // Comprobantes ya cargados en Lazarillo: se saltean (gana esa versión, no se duplica).
+  const enLazarillo = await comprobantesDeLazarillo(
+    prisma, "detalle", ctx?.localId, [...rowIdMap.values()].map((pr) => makeComprobante(pr.row) ?? ""),
+  );
+  const filtered = Array.from(rowIdMap.values()).filter((pr) => {
+    if (!enLazarillo.has(`${makeComprobante(pr.row) ?? ""}|${pr.data.COD_PRO ?? ""}`)) return true;
+    skippedRows.push({
+      fecha: formatFecha(pr.row["FECHA"]),
+      concepto: trim(pr.row["CODIGO"]) ?? trim(pr.row["NOMBRE"]) ?? undefined,
+      importe: toDecimalStr(pr.row["NETO"]) ?? toDecimalStr(pr.row["TOTALINS"]) ?? undefined,
+      proveedor: trim(pr.row["COD_PRO"]) ?? undefined,
+      motivo: "cargada_en_lazarillo",
+      ...filaCruda(pr.row, pr.idx),
+    });
+    return false;
+  });
   const skipped = skippedRows.length;
 
   const codigosArt = [...new Set(filtered.map((pr) => pr.data.CODIGO).filter((v): v is string => v != null))];

@@ -317,6 +317,8 @@ function ReportCard({ report }: { report: ETLReport }) {
                   <span className="text-zinc-400 dark:text-zinc-500">
                     {row.motivo === "sin_datos"
                       ? "Fila incompleta — falta código de cuenta o fecha"
+                      : row.motivo === "cargada_en_lazarillo"
+                        ? "Factura ya cargada en Lazarillo — queda la versión de Lazarillo"
                       : row.original
                         ? `Fila repetida dentro del archivo — repite a la fila ${row.original.fila}, que sí se cargó`
                         : "Fila repetida dentro del archivo"}

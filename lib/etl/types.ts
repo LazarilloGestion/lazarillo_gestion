@@ -49,7 +49,8 @@ export interface ETLSkippedRow {
   concepto?: string;
   importe?: string;
   proveedor?: string;
-  motivo: "sin_datos" | "duplicado";
+  // cargada_en_lazarillo: el comprobante ya se cargó desde el Panel y gana esa versión.
+  motivo: "sin_datos" | "duplicado" | "cargada_en_lazarillo";
   // Fila completa de la omitida (logs viejos no lo traen).
   fila?: number;
   columnas?: Record<string, string>;
