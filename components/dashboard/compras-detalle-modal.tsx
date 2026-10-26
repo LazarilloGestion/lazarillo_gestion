@@ -197,7 +197,9 @@ function ConceptoCombobox({
 const COMPRAS_COLS: ColDef[] = [
   // Sin columna Local (va en el subtítulo del modal) y sin filtro por columna:
   // anchos fijos y angostos para todo menos Observación, que se lleva el resto.
-  { label: "Fecha",       icon: CalendarDays,   color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "fecha",       width: "w-[7rem]"    },
+  // Fecha gasto (la que se edita) y Fecha pago (Diego, 26/10: para corregir fechas, ej. el IVA).
+  { label: "F. gasto",    icon: CalendarDays,   color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "fecha",       width: "w-[8rem]"    },
+  { label: "F. pago",     icon: CalendarDays,   color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "fechaPago",   width: "w-[7.5rem]"  },
   { label: "Proveedor",   icon: Truck,          color: "text-cat-proveedor",      bg: "bg-cat-proveedor/12",     right: false, sortKey: "proveedor",   width: "w-[9rem]"    },
   { label: "Detalle",     icon: FileText,       color: "text-muted-foreground",   bg: "bg-muted",                right: false, sortKey: "detalle",     width: "w-[6rem]"    },
   { label: "Observación", icon: MessageSquare,  color: "text-cat-observacion",    bg: "bg-cat-observacion/12",   right: false, sortKey: "observacion"                       },
@@ -217,8 +219,11 @@ function sortCompras(a: CompraDetalle, b: CompraDetalle, sort: SortState): numbe
   }
   let va = "", vb = "";
   if (sort.key === "fecha") {
-    va = String(a.fechaVista ?? a.fechaManual ?? a.fecha ?? "").slice(0, 10);
-    vb = String(b.fechaVista ?? b.fechaManual ?? b.fecha ?? "").slice(0, 10);
+    va = String(a.fechaGasto ?? a.fechaManual ?? a.fecha ?? "").slice(0, 10);
+    vb = String(b.fechaGasto ?? b.fechaManual ?? b.fecha ?? "").slice(0, 10);
+  } else if (sort.key === "fechaPago") {
+    va = String(a.fechaPago ?? "").slice(0, 10);
+    vb = String(b.fechaPago ?? "").slice(0, 10);
   } else if (sort.key === "proveedor") {
     va = String(a.proveedor || a.proveedorRef?.nombre || a.proveedorRef?.razon || "");
     vb = String(b.proveedor || b.proveedorRef?.nombre || b.proveedorRef?.razon || "");
@@ -241,6 +246,24 @@ function sortCompras(a: CompraDetalle, b: CompraDetalle, sort: SortState): numbe
 const origenDeFilaDetalle = (item: CompraDetalle) => origenDeFila({
   codigo: item.codigoProveedor, pdvId: item.pdvCompraId, nombre: item.proveedor, tieneMaestro: !!item.proveedorRef,
 });
+
+// Fecha de pago: la del 80 (si hubo varios pagos, el último) o la de la caja del
+// gasto vario / sueldo. "—" si todavía no se pagó o no hay dato.
+function FechaPago({ item }: { item: CompraDetalle }) {
+  if (!item.fechaPago) return <span className="opacity-50">—</span>;
+  const n = item.pagoRef ? 1 : item.estadoPago?.pagos ?? 0;
+  const parcial = item.estadoPago?.estado === "parcial" && !item.pagoRef;
+  const detalle = [
+    n > 1 ? `último de ${n} pagos` : null,
+    parcial ? "pago parcial" : null,
+    item.cajaPago ? `caja: ${item.cajaPago}` : null,
+  ].filter(Boolean).join(" · ");
+  return (
+    <span title={detalle || undefined} className={cn(detalle && "underline decoration-dotted underline-offset-2")}>
+      {fmtDate(item.fechaPago)}{n > 1 || parcial ? "*" : ""}
+    </span>
+  );
+}
 
 // ─── Row component ────────────────────────────────────────────────────────────
 
@@ -287,7 +310,7 @@ function ComprasRow({
 }) {
   const isEditing = editing?.rowId === item.rowId && editing.distribucionId === item.distribucionId;
   // Lo que cuenta en la vista elegida (Financiera: el pago); si el servidor no lo manda, lo de la compra.
-  const effectiveFecha = item.fechaVista ?? item.fechaManual ?? item.fecha;
+  const effectiveFecha = item.fechaGasto ?? item.fechaManual ?? item.fecha;
   const effectiveImporte = item.importeVista ?? item.importeManual ?? item.importe;
   const effectiveConcepto = item.conceptoCajaManual ?? item.conceptoCaja;
 
@@ -321,6 +344,7 @@ function ComprasRow({
             onChange={e => onEdit({ ...editing!, fechaManual: e.target.value })}
           />
         </td>
+        <td className="px-3 py-1.5 truncate text-muted-foreground"><FechaPago item={item} /></td>
         <td className="px-3 py-1.5 truncate text-muted-foreground">
           {normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}
         </td>
@@ -396,6 +420,7 @@ function ComprasRow({
           {fmtDate(effectiveFecha)}
         </span>
       </td>
+      <td className="px-3 py-1.5 truncate text-muted-foreground"><FechaPago item={item} /></td>
       <td className="px-3 py-1.5 truncate" title={normalize(item.proveedor ?? item.proveedorRef?.nombre ?? item.proveedorRef?.razon)}>
         {onOpenCtaCte ? (
           <button

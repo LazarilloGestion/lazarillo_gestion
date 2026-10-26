@@ -14,6 +14,9 @@ export interface DetalleSqlRow {
   fechaVista: Date | null;
   importeVista: Prisma.Decimal | null;
   pagoRef: string | null;
+  fechaGasto: Date | null;
+  fechaPago: Date | null;
+  cajaPago: string | null;
   conceptoCodigoManual: string | null;
   concepto: string | null;
   detalle: string | null;
@@ -59,6 +62,9 @@ export function reshapeDetalle(r: DetalleSqlRow) {
     fechaVista: r.fechaVista,
     importeVista: r.importeVista,
     pagoRef: r.pagoRef,
+    fechaGasto: r.fechaGasto,
+    fechaPago: r.fechaPago,
+    cajaPago: r.cajaPago,
     conceptoCodigoManual: r.conceptoCodigoManual,
     concepto: r.concepto,
     detalle: r.detalle,

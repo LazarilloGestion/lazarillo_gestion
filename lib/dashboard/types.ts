@@ -299,8 +299,12 @@ export type CompraDetalle = {
   fechaVista?: string | null;
   importeVista?: string | number | null;
   pagoRef?: string | null;
+  // Detalle de compras: "Fecha gasto" (económica) y "Fecha pago" (80 / caja del gasto vario).
+  fechaGasto?: string | null;
+  fechaPago?: string | null;
+  cajaPago?: string | null;
   pdvCompraId?: number | null;
-  estadoPago?: { estado: import("@/lib/cta-cte/estado").EstadoPago; total: number; pagado: number } | null;
+  estadoPago?: { estado: import("@/lib/cta-cte/estado").EstadoPago; total: number; pagado: number; ultimoPago?: string | null; pagos?: number } | null;
 };
 
 // --- Línea de detalle_compras devuelta por /api/dashboard/compra-lineas/[compraId] ---

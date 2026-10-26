@@ -142,9 +142,10 @@ export function encabezadoMovsSql(pdvId: number, codigo: string, nombre: string)
 // ─── Estado de pago para filas sueltas (semáforo de Detalle de compras) ───────
 
 export interface ClaveEstado { pdvId: number | null; comprobante: string | null; codigo: string | null; fecha: string | null }
-export interface EstadoFila { estado: EstadoPago; total: number; pagado: number }
+// ultimoPago/pagos: fecha del último pago del 80 y cuántos hubo (columna "Fecha pago" del Detalle de compras).
+export interface EstadoFila { estado: EstadoPago; total: number; pagado: number; ultimoPago?: string | null; pagos?: number }
 
-interface EstadoSqlRow { pdv: number; cpb: string; cod: string; total14: number | null; total80: number | null; pagado: number | null; auto: boolean | null }
+interface EstadoSqlRow { pdv: number; cpb: string; cod: string; total14: number | null; total80: number | null; pagado: number | null; auto: boolean | null; ultimo: string | null; n: number | null }
 
 export async function estadosDePago(claves: ClaveEstado[]): Promise<Map<string, EstadoFila>> {
   const unicas = new Map<string, ClaveEstado>();
@@ -166,7 +167,11 @@ export async function estadosDePago(claves: ClaveEstado[]): Promise<Map<string, 
         WHERE p."puntoDeVentaId" = k.pdv AND p.comprobante = k.cpb AND p."codPro" = k.cod) AS total80,
       (SELECT SUM(p.importe)::float8 FROM pagos p
         WHERE p."puntoDeVentaId" = k.pdv AND p.comprobante = k.cpb AND p."codPro" = k.cod) AS pagado,
-      (SELECT BOOL_OR(pr."pagoAutomatico") FROM proveedores pr WHERE pr.codigo = k.cod) AS auto
+      (SELECT BOOL_OR(pr."pagoAutomatico") FROM proveedores pr WHERE pr.codigo = k.cod) AS auto,
+      (SELECT TO_CHAR(MAX(p."fechaPago"), 'YYYY-MM-DD') FROM pagos p
+        WHERE p."puntoDeVentaId" = k.pdv AND p.comprobante = k.cpb AND p."codPro" = k.cod) AS ultimo,
+      (SELECT COUNT(*)::int FROM pagos p
+        WHERE p."puntoDeVentaId" = k.pdv AND p.comprobante = k.cpb AND p."codPro" = k.cod) AS n
     FROM k
   `);
   const desde = impagasDesde(null, process.env.IMPAGAS_DESDE);
@@ -175,7 +180,7 @@ export async function estadosDePago(claves: ClaveEstado[]): Promise<Map<string, 
     const total = Number(r.total80 ?? r.total14 ?? 0);
     const pagado = Number(r.pagado ?? 0);
     const e = estadoPago({ comprobante: r.cpb, fecha: unicas.get(k)?.fecha ?? null, total, pagado, pagoAutomatico: !!r.auto }, desde);
-    if (e) res.set(k, { estado: e, total, pagado });
+    if (e) res.set(k, { estado: e, total, pagado, ultimoPago: r.ultimo, pagos: Number(r.n ?? 0) });
   }
   return res;
 }
