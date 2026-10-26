@@ -244,3 +244,24 @@ export function esReconciliacionSegura(
   }
   return { segura: true };
 }
+
+// Renombre de concepto en MaxiRest (hallazgo 25/10/2026: "Inflable" pasó a
+// llamarse "Inflable Alquiler" y los gastos sin comprobante se duplicaron,
+// porque el nombre del concepto entra en el hash y en el ancla). Es la MISMA
+// compra si coinciden código de concepto, fecha, código, importe, comprobante
+// (o ninguno de los dos tiene) y la observación es idéntica y no vacía; solo
+// cambió el nombre. Regla dura de Diego: nunca duplicar registros.
+export function esRenombreDeConcepto(
+  nueva: { codCga: string | null; fechaISO: string | null; codigo: string | null; concepto: string | null; comprobante: string | null; observac: string | null; importe: string | null },
+  existente: { codCga: string | null; fechaISO: string | null; codigo: string | null; concepto: string | null; comprobante: string | null; observac: string | null; importe: string | null }
+): boolean {
+  if (!nueva.observac || nueva.observac !== existente.observac) return false;
+  if ((nueva.concepto ?? "") === (existente.concepto ?? "")) return false;
+  return (
+    nueva.codCga === existente.codCga &&
+    nueva.fechaISO === existente.fechaISO &&
+    nueva.codigo === existente.codigo &&
+    nueva.importe === existente.importe &&
+    (nueva.comprobante ?? null) === (existente.comprobante ?? null)
+  );
+}

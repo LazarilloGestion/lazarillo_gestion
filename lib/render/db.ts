@@ -91,3 +91,21 @@ export async function leerTabla(
     return { filas: r.rows, tipos };
   });
 }
+
+export type ConceptoMaestro = { codigo: number; nombre: string; tipo: string | null; codRubro: number | null; rubro: string | null };
+
+// Maestro 17 (conceptos de caja) tal como lo sube el kit cada día desde MaxiRest.
+export async function leerConceptos(esquema: string): Promise<ConceptoMaestro[]> {
+  return conRender(async (c) => {
+    const { rows } = await c.query<{ codigo: string; nombre: string; tipo: string | null; cod_rga: string | null; rubro: string | null }>(
+      `SELECT codigo, nombre, tipo, cod_rga, rubro FROM ${ident(esquema)}.m17_conceptos_de_caja ORDER BY codigo`
+    );
+    return rows.map((r) => ({
+      codigo: Number(r.codigo),
+      nombre: (r.nombre ?? "").trim(),
+      tipo: r.tipo,
+      codRubro: r.cod_rga != null ? Number(r.cod_rga) : null,
+      rubro: r.rubro?.trim() ?? null,
+    }));
+  });
+}

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Upload } from "lucide-react";
+import { LayoutDashboard, Upload, Tags } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import {
   Sidebar,
@@ -25,6 +25,7 @@ import { NotasSidebar } from "@/components/notas-sidebar";
 const NAV = [
   { href: "/dashboard", label: "Panel de Gestión", icon: LayoutDashboard },
   { href: "/importar", label: "Importar datos", icon: Upload },
+  { href: "/conceptos", label: "Conceptos de caja", icon: Tags },
 ];
 
 export function AppSidebar({ user }: { user: User | null }) {
