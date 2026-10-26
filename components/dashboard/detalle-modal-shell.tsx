@@ -141,7 +141,8 @@ export function DetalleModalShell<T>({
             </div>
             {headerControls}
           </div>
-          {!isLoading && !error && (count > 1 || !!query) && <SearchInput value={query} onChange={setQuery} className="w-44 shrink-0" />}
+          {/* Con texto escrito el buscador queda visible también mientras carga otro período. */}
+          {!error && (!!query || (!isLoading && count > 1)) && <SearchInput value={query} onChange={setQuery} className="w-44 shrink-0" />}
         </div>
 
         {isLoading && <div className="flex items-center justify-center py-12"><Spinner size="lg" /></div>}
