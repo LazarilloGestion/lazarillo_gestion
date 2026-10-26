@@ -620,3 +620,20 @@ model RenderOrigen {
   @@unique([esquema, pdv])
   @@map("render_origenes")
 }
+
+// Corridas de la lectura desde Render en el servidor (botón "Actualizar ahora" o
+// cron diario): sirve de candado (una sola a la vez) y de avance para la pantalla.
+model RenderCorrida {
+  id      Int       @id @default(autoincrement())
+  inicio  DateTime  @default(now())
+  fin     DateTime?
+  estado  String // 'corriendo' | 'ok' | 'error'
+  origen  String // 'boton' | 'cron'
+  total   Int       @default(0)
+  hechos  Int       @default(0)
+  actual  String?
+  resumen Json?
+
+  @@index([inicio])
+  @@map("render_corridas")
+}

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuthUser } from "@/lib/auth/require-auth";
 import { renderConfigurado } from "@/lib/render/db";
-import { listarItems, sincronizarItem } from "@/lib/render/sync";
+import { listarItems, sincronizarItem, ultimaCorrida } from "@/lib/render/sync";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -11,9 +11,10 @@ export const maxDuration = 300;
 export async function GET() {
   const auth = await requireAuthUser();
   if (auth.response) return auth.response;
-  if (!renderConfigurado()) return NextResponse.json({ configurado: false, items: [] });
+  if (!renderConfigurado()) return NextResponse.json({ configurado: false, items: [], corrida: null });
   try {
-    return NextResponse.json({ configurado: true, items: await listarItems() });
+    const [items, corrida] = await Promise.all([listarItems(), ultimaCorrida()]);
+    return NextResponse.json({ configurado: true, items, corrida });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error desconocido";
     return NextResponse.json({ configurado: true, items: [], error: `No se pudo leer Render: ${msg}` }, { status: 502 });
