@@ -12,6 +12,7 @@ import {
   computeCompraAnchor,
   pickReconciliationCandidate,
   esReconciliacionSegura,
+  esRenombreDeConcepto,
   type CompraIdentityInput,
   type CompraAnchor,
 } from "./compra-identity";
@@ -359,6 +360,58 @@ export async function normalizeCompras(
           existingMap.set(pr.rowId, elegido);
         } else {
           reconciliacionPorRowId.set(pr.rowId, { tipo: "ambigua", candidatos: candidatos.map((c) => c.rowId) });
+        }
+      }
+
+      // 4) Renombre de concepto en MaxiRest: filas nuevas sin candidato por
+      //    ancla (el ancla incluye el nombre del concepto) que coinciden en
+      //    todo lo demás —mismo PDV, código de concepto, fecha, código,
+      //    importe, comprobante y observación idéntica— con UNA sola compra
+      //    existente que tiene otro nombre de concepto. Es la misma compra:
+      //    se renombra su rowId y conserva ediciones y aperturas (Diego,
+      //    26/10/2026: "nunca se pueden duplicar registros").
+      const sinCandidato = puntoDeVentaId == null ? [] : filasNuevas.filter(
+        (f) => !reconciliacionPorRowId.has(f.pr.rowId) && !!f.identidad.observacNormalizado
+      );
+      for (let j = 0; j < sinCandidato.length; j += ANCHOR_BATCH) {
+        const lote = sinCandidato.slice(j, j + ANCHOR_BATCH);
+        const encontrados = await prisma.compra.findMany({
+          where: {
+            rowId: { notIn: [...rowIdsEnArchivo] },
+            puntoDeVentaId,
+            OR: lote.map(({ anchor, identidad }) => ({
+              codCga: anchor.codCga,
+              fecha: new Date(anchor.fechaISO as string),
+              codigo: anchor.codigo,
+              importe: new Prisma.Decimal(anchor.importe as string),
+              observac: identidad.observacNormalizado,
+              NOT: { concepto: anchor.concepto ?? "" },
+            })),
+          },
+          select: {
+            rowId: true, esDistribuido: true,
+            codCga: true, concepto: true, fecha: true, codigo: true, proveedor: true,
+            detalle: true, observac: true, importe: true, impInt: true, imputac: true,
+            per1: true, per2: true, per3: true,
+            comprobante: true, localId: true,
+          },
+        });
+        for (const { pr, identidad, anchor } of lote) {
+          const nueva = { ...anchor, comprobante: identidad.comprobante, observac: identidad.observacNormalizado };
+          const candidatos = encontrados.filter((c) => {
+            if (candidatosUsados.has(c.rowId)) return false;
+            const id = compraIdentityFromDbRecord(c);
+            return esRenombreDeConcepto(nueva, {
+              codCga: id.codCga, fechaISO: id.fechaISO, codigo: id.codigo, concepto: id.concepto,
+              comprobante: id.comprobante, observac: id.observacNormalizado, importe: id.importe,
+            });
+          });
+          if (candidatos.length !== 1) continue;
+          const elegido = candidatos[0];
+          await prisma.compra.update({ where: { rowId: elegido.rowId }, data: { rowId: pr.rowId } });
+          candidatosUsados.add(elegido.rowId);
+          reconciliacionPorRowId.set(pr.rowId, { tipo: "reconciliada", rowIdViejo: elegido.rowId });
+          existingMap.set(pr.rowId, elegido);
         }
       }
     } catch (err) {

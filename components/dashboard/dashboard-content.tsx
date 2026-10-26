@@ -39,8 +39,9 @@ export function DashboardContent() {
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white truncate">
             Panel de Gestión
           </h1>
-          <p className="text-sm text-muted-foreground truncate">
-            Resumen general de operaciones · <ActualizadoAl />
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+            <span className="truncate">Resumen general de operaciones</span>
+            <ActualizadoAl />
           </p>
         </div>
         <div className="pt-6 pb-6">
