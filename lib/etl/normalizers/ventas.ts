@@ -17,7 +17,7 @@ const CHUNK_SIZE = 2000;
 // makeRowId opera sobre la fila ya "rellenada" por fillPartialRows (igual que el
 // comportamiento original) pero nunca sobre datos coercionados por Zod — el hash
 // tiene que ser estable entre reimports del mismo archivo.
-function makeRowId(r: ETLRow): string {
+export function makeRowId(r: ETLRow): string {
   // FECHA incluida para evitar colisiones entre transacciones sin TURNO/COMPROBANT
   // (ventas de cancha sin turno asignado): distintos días con mismo COBRO/IMPORTE
   // colisionaban y se perdían. Secondary rows (FECHA=null) pueden colidir entre sí,
@@ -31,7 +31,7 @@ function makeRowId(r: ETLRow): string {
 // Completa TURNO→NOMBRESUC cuando una venta tiene múltiples formas de pago (pago partido).
 // El ERP deja esos campos vacíos en las filas secundarias; se heredan de la fila anterior.
 // Soporta N formas de cobro consecutivas (el cliente puede pagar con 4, 5 o 6 métodos).
-function fillPartialRows(rows: ETLRow[]): ETLRow[] {
+export function fillPartialRows(rows: ETLRow[]): ETLRow[] {
   const CARRY_FIELDS = ["TURNO", "COMPROBANT", "HORA", "TIPO", "MESA", "MOZO", "COD_SUC", "NOMBRESUC"];
   const last: Partial<ETLRow> = {};
   return rows.map((r) => {

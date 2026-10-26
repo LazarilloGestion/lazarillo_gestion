@@ -61,7 +61,22 @@ export async function leerCargas(esquema: string, pdvs: string[]): Promise<Carga
       [esquema]
     );
     const tablasConFila = new Set(conFila.rows.map((r) => r.table_name));
-    return rows.map((r) => ({ pdv: r.pdv, tabla: r.tabla, filas: Number(r.filas), cargado: r.cargado, tieneFila: tablasConFila.has(r.tabla) }));
+    // La columna es de la tabla, pero cada PDV la llena recién cuando SU PC corre
+    // con el kit nuevo (Canchas Ramos a veces tarda en tomarlo): hasta que todas
+    // sus filas tengan número, ese PDV sigue sin orden.
+    const out: CargaRender[] = [];
+    for (const r of rows) {
+      let tieneFila = false;
+      if (tablasConFila.has(r.tabla)) {
+        const q = await c.query<{ sin: boolean }>(
+          `SELECT EXISTS (SELECT 1 FROM ${ident(esquema)}.${ident(r.tabla)} WHERE pdv = $1 AND fila IS NULL) AS sin`,
+          [r.pdv]
+        );
+        tieneFila = !q.rows[0]?.sin;
+      }
+      out.push({ pdv: r.pdv, tabla: r.tabla, filas: Number(r.filas), cargado: r.cargado, tieneFila });
+    }
+    return out;
   });
 }
 
