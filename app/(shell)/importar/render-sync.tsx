@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Database, RefreshCw, CheckCircle2, AlertCircle, Clock, Ban } from "lucide-react";
+import { Database, RefreshCw, CheckCircle2, AlertCircle, Clock, Ban, ChevronDown } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
+import { cn } from "@/lib/utils";
 import type { Local } from "@/lib/types/domain";
 import type { ItemRender, ResultadoItem } from "@/lib/render/sync";
 
@@ -42,6 +43,7 @@ export function RenderSync() {
   const queryClient = useQueryClient();
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
   const nombrePdv = (localId: number, pdvId: number) => {
+    if (!localId) return "Maestros de la organización";
     const l = locales?.find((x) => x.id === localId);
     const p = l?.puntosDeVenta.find((x) => x.id === pdvId);
     return l ? (p ? `${l.nombre} · ${p.nombre}` : l.nombre) : `Local ${localId}`;
@@ -53,8 +55,34 @@ export function RenderSync() {
   });
   const [estados, setEstados] = useState<Record<string, EstadoLocal>>({});
   const [corriendo, setCorriendo] = useState(false);
+  // Minimizada por defecto (Diego 26/10: "ocupa mucho espacio"); se recuerda en el navegador.
+  const [abierta, setAbierta] = useState(false);
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- preferencia guardada en este navegador
+      if (localStorage.getItem("render-sync-abierta") === "1") setAbierta(true);
+    } catch { /* sin storage: queda minimizada */ }
+  }, []);
+  function alternar() {
+    setAbierta((a) => {
+      try { localStorage.setItem("render-sync-abierta", a ? "0" : "1"); } catch { /* sin storage */ }
+      return !a;
+    });
+  }
 
   const items = q.data?.items ?? [];
+  // Resumen para la tarjeta minimizada.
+  const resumen = (() => {
+    let ok = 0, pend = 0, err = 0, drive = 0;
+    for (const it of items) {
+      const r = estados[it.id]?.resultado;
+      if (it.bloqueado) drive++;
+      else if ((r && "error" in r) || (!r && it.ultimo?.estado === "error")) err++;
+      else if (r || alDia(it)) ok++;
+      else pend++;
+    }
+    return { ok, pend, err, drive };
+  })();
   const grupos = new Map<string, ItemRender[]>();
   for (const it of items) {
     const k = `${it.localId}|${it.puntoDeVentaId}`;
@@ -79,7 +107,7 @@ export function RenderSync() {
       } catch {
         resultado = { id: it.id, error: "Error de red" };
       }
-      if ("report" in resultado) leidos.add(it.localId);
+      if ("report" in resultado && it.localId) leidos.add(it.localId);
       if ("report" in resultado && resultado.report.fileType === "compras") {
         const { created, updated, comprasDistribuidasModificadas } = resultado.report;
         comprasPorLocal.set(it.localId, [...(comprasPorLocal.get(it.localId) ?? []), { created, updated, comprasDistribuidasModificadas }]);
@@ -104,16 +132,26 @@ export function RenderSync() {
 
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/30 overflow-hidden">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className={cn("flex items-center justify-between gap-3 px-4 py-3", abierta && "border-b border-zinc-100 dark:border-zinc-700/50")}>
+        <button type="button" onClick={alternar} aria-expanded={abierta} className="flex items-center gap-2 min-w-0 text-left">
+          <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", !abierta && "-rotate-90")} />
           <Database className="h-4 w-4 text-sky-600 shrink-0" />
           <div className="min-w-0">
             <div className="text-sm font-medium">Desde Render · automático</div>
-            <div className="text-xs text-muted-foreground">
-              El kit sube los informes cada mañana y el Panel los lee solo a las 9:40. Lo que no cambió se saltea.
+            <div className="text-xs text-muted-foreground truncate">
+              {abierta || !q.data?.configurado || items.length === 0 ? (
+                "El kit sube los informes cada mañana y el Panel los lee solo a las 9:40. Lo que no cambió se saltea."
+              ) : (
+                <>
+                  <span className="text-emerald-700">{resumen.ok} al día</span>
+                  {resumen.pend > 0 && <span className="text-amber-700"> · {resumen.pend} pendientes</span>}
+                  {resumen.err > 0 && <span className="text-destructive"> · {resumen.err} con error</span>}
+                  {resumen.drive > 0 && <> · {resumen.drive} por Drive</>}
+                </>
+              )}
             </div>
           </div>
-        </div>
+        </button>
         {q.data?.configurado && items.length > 0 && (
           <button
             type="button"
@@ -127,7 +165,7 @@ export function RenderSync() {
         )}
       </div>
 
-      {q.isLoading ? (
+      {!abierta ? null : q.isLoading ? (
         <div className="px-4 py-6 flex justify-center"><Spinner /></div>
       ) : !q.data?.configurado ? (
         <div className="px-4 py-3 text-xs text-amber-800 bg-amber-50 dark:bg-amber-950/30">

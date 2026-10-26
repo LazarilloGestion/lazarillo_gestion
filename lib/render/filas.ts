@@ -77,7 +77,9 @@ export function filaDeRender(fila: Record<string, unknown>, tipos: Record<string
 // Ventas (22) queda afuera hasta que el kit suba el orden de las filas: sus
 // cobros partidos heredan turno/comprobante de la fila anterior, y una tabla de
 // Postgres no garantiza el orden (medido: Render devuelve el 22 desordenado).
-export const INFORMES_RENDER: { prefijo: string; fileType: ETLFileType; nombre: string; requiereOrden?: boolean }[] = [
+// `maestro`: tabla de la organización (sin columna pdv, ej. m17); se lee entera.
+export const INFORMES_RENDER: { prefijo: string; fileType: ETLFileType; nombre: string; requiereOrden?: boolean; maestro?: boolean }[] = [
+  { prefijo: "m17_conceptos_de_caja", fileType: "conceptosCaja", nombre: "Conceptos de caja (maestro 17)", maestro: true },
   { prefijo: "i14_gastos_compras_detallado", fileType: "compras", nombre: "14 · gastos y compras" },
   { prefijo: "i25_compras_detalle_de_compras", fileType: "detalleCompras", nombre: "25 · detalle de compras" },
   { prefijo: "i80_compras_detalle_de_pagos", fileType: "pagos", nombre: "80 · pagos" },
