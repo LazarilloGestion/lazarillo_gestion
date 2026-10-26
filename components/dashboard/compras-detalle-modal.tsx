@@ -211,14 +211,14 @@ const COMPRAS_COLS: ColDef[] = [
 function sortCompras(a: CompraDetalle, b: CompraDetalle, sort: SortState): number {
   if (!sort) return 0;
   if (sort.key === "importe") {
-    const va = Number(a.importeManual ?? a.importe ?? 0);
-    const vb = Number(b.importeManual ?? b.importe ?? 0);
+    const va = Number(a.importeVista ?? a.importeManual ?? a.importe ?? 0);
+    const vb = Number(b.importeVista ?? b.importeManual ?? b.importe ?? 0);
     return sort.dir === "asc" ? va - vb : vb - va;
   }
   let va = "", vb = "";
   if (sort.key === "fecha") {
-    va = String(a.fechaManual ?? a.fecha ?? "").slice(0, 10);
-    vb = String(b.fechaManual ?? b.fecha ?? "").slice(0, 10);
+    va = String(a.fechaVista ?? a.fechaManual ?? a.fecha ?? "").slice(0, 10);
+    vb = String(b.fechaVista ?? b.fechaManual ?? b.fecha ?? "").slice(0, 10);
   } else if (sort.key === "proveedor") {
     va = String(a.proveedor || a.proveedorRef?.nombre || a.proveedorRef?.razon || "");
     vb = String(b.proveedor || b.proveedorRef?.nombre || b.proveedorRef?.razon || "");
@@ -286,8 +286,9 @@ function ComprasRow({
   mover: React.ReactNode;
 }) {
   const isEditing = editing?.rowId === item.rowId && editing.distribucionId === item.distribucionId;
-  const effectiveFecha = item.fechaManual ?? item.fecha;
-  const effectiveImporte = item.importeManual ?? item.importe;
+  // Lo que cuenta en la vista elegida (Financiera: el pago); si el servidor no lo manda, lo de la compra.
+  const effectiveFecha = item.fechaVista ?? item.fechaManual ?? item.fecha;
+  const effectiveImporte = item.importeVista ?? item.importeManual ?? item.importe;
   const effectiveConcepto = item.conceptoCajaManual ?? item.conceptoCaja;
 
   const rubroFiltro = editing?.rubroFiltro;
@@ -506,7 +507,7 @@ class GuardError extends Error {}
 
 export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter | null; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const { localId, pdvId } = useDashboard();
+  const { localId, pdvId, modoPanel } = useDashboard();
   const { reglas: reglasApertura } = useReglasApertura();
   const [editing, setEditing] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -563,14 +564,14 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   const resetBusqueda = useMemo(() => ["detalle", stableFilter], [stableFilter]);
   // Las tildadas sí se limpian al cambiar de período (no actuar sobre filas que no se ven).
   const resetKey = useMemo(() => ["detalle", filtroEfectivo], [filtroEfectivo]);
-  const queryKey = useMemo(() => ["detalle", filtroEfectivo, q], [filtroEfectivo, q]);
+  const queryKey = useMemo(() => ["detalle", filtroEfectivo, q, modoPanel], [filtroEfectivo, q, modoPanel]);
 
   const queryFn = useCallback(async (): Promise<DetalleResponse<CompraDetalle>> => {
-    const url = buildComprasDetalleUrl(filtroEfectivo!);
+    const url = buildComprasDetalleUrl({ ...filtroEfectivo!, modo: modoPanel });
     const res = await fetch(q ? `${url}&q=${encodeURIComponent(q)}` : url);
     if (!res.ok) throw new Error("Error cargando detalle");
     return res.json();
-  }, [filtroEfectivo, q]);
+  }, [filtroEfectivo, q, modoPanel]);
 
   const { data: suggestions } = useQuery<Array<{ type: string; value: string; label: string; rubroNombre?: string; rubroCodigo?: string }>>({
     queryKey: ["suggestions"],
@@ -850,7 +851,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
           // el formulario aparezca solo en la fila que el usuario abrió, no en
           // las N que comparten rowId.
           <ComprasRow
-            key={item.distribucionId != null ? `d-${item.distribucionId}` : item.rowId}
+            key={`${item.distribucionId != null ? `d-${item.distribucionId}` : item.rowId}${item.pagoRef ? `|${item.pagoRef}` : ""}`}
             item={item}
             editing={editing}
             conceptoOptions={conceptoOptions}

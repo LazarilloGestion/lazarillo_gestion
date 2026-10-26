@@ -197,6 +197,11 @@ model Compra {
   per1             Decimal?
   per2             Decimal?
   per3             Decimal?
+  // Columnas del kit (26/10/2026), solo gastos varios (G) y sueldos (E):
+  // fecha y caja del pago (vista financiera) y mes que liquida el sueldo (vista económica).
+  fechaPago        DateTime?
+  cajaPago         String?
+  periodo          DateTime?
 
   // Overrides manuales — sobreviven re-importaciones
   importeManual  Decimal?

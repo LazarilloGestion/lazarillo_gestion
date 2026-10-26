@@ -5,6 +5,7 @@ import { requireAuth } from "@/lib/auth/require-auth";
 import { mesSchema, yearSchema, idSchema, codigoSchema, textoLibreSchema } from "@/lib/dashboard/schemas";
 import { monthsParam, parseObservacionQuery, parseImporteQuery } from "@/lib/dashboard/params";
 import { buildDetalleConditions } from "@/lib/dashboard/detalle-conditions";
+import { fuenteCompras } from "@/lib/dashboard/fuente-compras";
 import { recortarConHasMore } from "@/lib/dashboard/recortar-has-more";
 import { DETALLE_COMPRAS_LIMITE } from "@/lib/dashboard/constants";
 import { reshapeDetalle, type DetalleSqlRow } from "@/lib/dashboard/reshape-detalle";
@@ -27,16 +28,23 @@ function normalizarTexto(s: string): string {
 // v_compras_distribuidas + reshapeDetalle (hallazgo de code-review,
 // 24-ago-2026): un campo nuevo tenía que agregarse en 3 lugares para no
 // desincronizarse.
-const DETALLE_SELECT_JOIN = Prisma.sql`
+// `fuente`: compras según el switch Económica / Financiera (ver fuente-compras.ts).
+// fecha/importe son los de la COMPRA (los que corrige el modal de edición);
+// fechaVista/importeVista, los que cuentan en la vista elegida (en Financiera, el
+// pago y la parte que cubre).
+const detalleSelectJoin = (fuente: Prisma.Sql) => Prisma.sql`
   SELECT
     c."rowId",
     c."distribucionId",
     (c."distribucionId" IS NOT NULL) AS "esDistribuido",
     COALESCE(cb."importeManual", cb.importe) AS "importeBase",
-    c.fecha,
-    c."fechaManual",
-    c.importe,
-    c."importeManual",
+    cb.fecha,
+    cb."fechaManual",
+    CASE WHEN c."distribucionId" IS NULL THEN cb.importe ELSE da."importeCalculado" END AS importe,
+    CASE WHEN c."distribucionId" IS NULL THEN cb."importeManual" END AS "importeManual",
+    COALESCE(c."fechaManual", c.fecha)     AS "fechaVista",
+    COALESCE(c."importeManual", c.importe) AS "importeVista",
+    c."pagoRef",
     c."conceptoCodigoManual",
     c.concepto,
     c.detalle,
@@ -60,10 +68,11 @@ const DETALLE_SELECT_JOIN = Prisma.sql`
     cb.comprobante      AS "comprobante",
     cb.codigo           AS "codigoProveedor",
     cb."puntoDeVentaId" AS "pdvCompraId"
-  FROM v_compras_distribuidas c
+  FROM ${fuente} c
   -- Compra base: en una fila de fan-out la vista trae solo la fracción del
   -- destino, y el modal de edición necesita el total para poder corregirlo.
   JOIN compras cb                    ON cb."rowId" = c."rowId"
+  LEFT JOIN distribuciones_apertura da ON da.id = c."distribucionId"
   LEFT JOIN proveedores p            ON c."proveedorId" = p.id
   LEFT JOIN locales l                ON c."localId" = l.id
   LEFT JOIN puntos_de_venta pdv      ON c."puntoDeVentaId" = pdv.id
@@ -125,7 +134,7 @@ export async function GET(request: NextRequest) {
       // query anidado de Prisma, una forma que podía desincronizarse de
       // reshapeDetalle (hallazgo de code-review, 24-ago-2026).
       const rows = await prisma.$queryRaw<DetalleSqlRow[]>(Prisma.sql`
-        ${DETALLE_SELECT_JOIN}
+        ${detalleSelectJoin(fuenteCompras(undefined))}
         WHERE c."rowId" = ${rowId} AND c."distribucionId" = ${distribucionId}
         LIMIT 1
       `);
@@ -184,6 +193,7 @@ export async function GET(request: NextRequest) {
   const observacionQuery = parseObservacionQuery(searchParams.get("observacionQuery"));
   const importeQuery = parseImporteQuery(searchParams.get("importeQuery"));
   const historico = searchParams.get("historico") === "1";
+  const modo = searchParams.get("modo") === "financiera" ? "financiera" as const : undefined;
   // Buscador del modal (Año / Histórico): mismo criterio que el filtro de la
   // tabla — algún campo contiene el texto, sin mayúsculas ni acentos.
   const qRaw = (searchParams.get("q") ?? "").trim().slice(0, 80);
@@ -209,7 +219,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const rows = await prisma.$queryRaw<DetalleSqlRow[]>(Prisma.sql`
-      ${DETALLE_SELECT_JOIN}
+      ${detalleSelectJoin(fuenteCompras(modo))}
       -- Concepto/rubro EFECTIVO — solo para filtrar (mismo criterio que pivot).
       LEFT JOIN conceptos_caja cc_ef        ON COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") = cc_ef.codigo
       LEFT JOIN rubros_concepto_caja rc_ef  ON cc_ef."codRga" = rc_ef.codigo
@@ -218,7 +228,7 @@ export async function GET(request: NextRequest) {
       -- sobreviven al corte de DETALLE_COMPRAS_LIMITE, debe ser estable. Si hay
       -- que cortar, quedan los MÁS NUEVOS (antes quedaban los más viejos y en
       -- Histórico no aparecía lo último); después se devuelven en orden ascendente.
-      ORDER BY COALESCE(c."fechaManual", c.fecha) DESC, c."rowId" DESC, c."distribucionId" DESC NULLS LAST
+      ORDER BY COALESCE(c."fechaManual", c.fecha) DESC, c."rowId" DESC, c."distribucionId" DESC NULLS LAST, c."pagoRef" DESC NULLS LAST
       LIMIT ${DETALLE_COMPRAS_LIMITE + 1}
     `);
 

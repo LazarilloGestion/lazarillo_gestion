@@ -16,6 +16,8 @@ export interface DashboardParams {
   months?: number[];
   vista?: Vista;
   agrupacion?: AgrupacionCompras;
+  // Switch Económica / Financiera; ausente = Económica.
+  modo?: "financiera";
 }
 
 export interface VentasDashboardParams {
@@ -82,6 +84,11 @@ const agrupacionParam = z.preprocess(
   z.literal("proveedor").optional()
 );
 
+const modoParam = z.preprocess(
+  (v) => (v === "financiera" ? "financiera" : undefined),
+  z.literal("financiera").optional()
+);
+
 const dashboardParamsSchema = z.object({
   year: yearParam,
   localId: optionalIntParam,
@@ -94,6 +101,7 @@ const dashboardParamsSchema = z.object({
   months: monthsParam,
   vista: vistaParam,
   agrupacion: agrupacionParam,
+  modo: modoParam,
 });
 
 const ventasParamsSchema = z.object({
@@ -116,6 +124,7 @@ export function parseDashboardParams(sp: URLSearchParams): DashboardParams {
     months: sp.get("months"),
     vista: sp.get("vista"),
     agrupacion: sp.get("agrupacion"),
+    modo: sp.get("modo"),
   });
 }
 
@@ -140,6 +149,7 @@ export function buildDashboardUrl(base: string, params: DashboardParams): string
   if (params.months?.length) sp.set("months", params.months.join(","));
   if (params.vista) sp.set("vista", params.vista);
   if (params.agrupacion) sp.set("agrupacion", params.agrupacion);
+  if (params.modo) sp.set("modo", params.modo);
   return `${base}?${sp.toString()}`;
 }
 
@@ -170,6 +180,7 @@ export function buildComprasDetalleUrl(filter: DetalleFilter): string {
   else if (filter.sinProveedor) params.set("sinProveedor", "1");
   if (filter.rowId) params.set("rowId", filter.rowId);
   if (filter.distribucionId != null) params.set("distribucionId", String(filter.distribucionId));
+  if (filter.modo === "financiera") params.set("modo", "financiera");
   return `/api/dashboard/detalle?${params}`;
 }
 

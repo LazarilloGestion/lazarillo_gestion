@@ -458,7 +458,10 @@ export async function normalizeCompras(
             ${conceptoCodigo},
             ${localId}::integer,
             ${puntoDeVentaId}::integer,
-            ${proveedorTextoNormalizado}
+            ${proveedorTextoNormalizado},
+            ${data.FECHA_PAGO ?? null}::timestamp,
+            ${data.CAJA_PAGO},
+            ${data.PERIODO ?? null}::timestamp
           )`;
         });
 
@@ -466,7 +469,8 @@ export async function normalizeCompras(
           INSERT INTO compras (
             "rowId", "codCga", concepto, comprobante, fecha, codigo, proveedor, detalle, observac,
             importe, "importeTrabajado", "impInt", imputac, per1, per2, per3,
-            "proveedorId", "conceptoCodigo", "localId", "puntoDeVentaId", "proveedorTextoNormalizado"
+            "proveedorId", "conceptoCodigo", "localId", "puntoDeVentaId", "proveedorTextoNormalizado",
+            "fechaPago", "cajaPago", periodo
           )
           VALUES ${Prisma.join(rowValues)}
           ON CONFLICT ("rowId") DO UPDATE SET
@@ -485,6 +489,10 @@ export async function normalizeCompras(
             per1               = EXCLUDED.per1,
             per2               = EXCLUDED.per2,
             per3               = EXCLUDED.per3,
+            -- COALESCE: un 14 viejo (sin estas columnas) no borra lo que trajo uno nuevo.
+            "fechaPago"        = COALESCE(EXCLUDED."fechaPago", compras."fechaPago"),
+            "cajaPago"         = COALESCE(EXCLUDED."cajaPago", compras."cajaPago"),
+            periodo            = COALESCE(EXCLUDED.periodo, compras.periodo),
             "proveedorId"      = EXCLUDED."proveedorId",
             "conceptoCodigo"   = EXCLUDED."conceptoCodigo",
             "proveedorTextoNormalizado" = EXCLUDED."proveedorTextoNormalizado",

@@ -45,6 +45,9 @@ type DashboardStore = {
   // Toggle $ / % ing de las celdas mensuales de la tabla de compras (punto 6 Etapa 3).
   modoCelda: "importe" | "pct";
   setModoCelda: (m: "importe" | "pct") => void;
+  // Switch Económica / Financiera del panel (punto 4 Etapa 3): cambia la fecha con que cuentan los egresos.
+  modoPanel: "economica" | "financiera";
+  setModoPanel: (m: "economica" | "financiera") => void;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
 
@@ -92,7 +95,7 @@ const EMPTY_FILTERS: SearchFilters = {
 // ocurrió con agrupacionCompras, ver commit fed696b).
 export const PERSISTED_FIELD_KEYS = [
   "stored", "sortCol", "sortDir", "year", "tab", "localId", "pdvId",
-  "agrupacionCompras", "modoCelda", "showFilters", "sidebarOpen",
+  "agrupacionCompras", "modoCelda", "modoPanel", "showFilters", "sidebarOpen",
 ] as const satisfies readonly (keyof DashboardStore)[];
 
 export const useDashboardStore = create<DashboardStore>()(
@@ -132,6 +135,8 @@ export const useDashboardStore = create<DashboardStore>()(
       setAgrupacionCompras: (a) => set({ agrupacionCompras: a }),
       modoCelda: "importe" as "importe" | "pct",
       setModoCelda: (m) => set({ modoCelda: m }),
+      modoPanel: "economica" as "economica" | "financiera",
+      setModoPanel: (m) => set({ modoPanel: m }),
 
       // search
       rubroCodigo: undefined,
@@ -259,6 +264,7 @@ export function useDashboard() {
     setYear: s.setYear, setTab: s.setTab, setLocalId: s.setLocalId, setPdvId: s.setPdvId,
     agrupacionCompras: s.agrupacionCompras, setAgrupacionCompras: s.setAgrupacionCompras,
     modoCelda: s.modoCelda, setModoCelda: s.setModoCelda,
+    modoPanel: s.modoPanel, setModoPanel: s.setModoPanel,
     // search
     rubroCodigo: s.rubroCodigo, conceptoCodigo: s.conceptoCodigo,
     proveedorId: s.proveedorId, observacionQuery: s.observacionQuery, importeQuery: s.importeQuery, searchLabel: s.searchLabel,
