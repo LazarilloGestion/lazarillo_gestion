@@ -31,3 +31,15 @@ describe("14 con las columnas nuevas del kit", () => {
     expect(compraRowSchema.parse({ ...base, FECHA_PAGO: "basura" }).FECHA_PAGO).toBeNull();
   });
 });
+
+describe("Vista Insumos: parámetros", async () => {
+  const { parseDashboardParams, buildComprasDetalleUrl } = await import("./params");
+  it("acepta agrupacion=insumo y descarta valores raros", () => {
+    expect(parseDashboardParams(new URLSearchParams("year=2026&agrupacion=insumo")).agrupacion).toBe("insumo");
+    expect(parseDashboardParams(new URLSearchParams("year=2026&agrupacion=x")).agrupacion).toBeUndefined();
+  });
+  it("el detalle filtra por insumo o por compras sin insumos", () => {
+    expect(buildComprasDetalleUrl({ year: 2026, insumoCodigo: "17" })).toContain("insumoCodigo=17");
+    expect(buildComprasDetalleUrl({ year: 2026, conceptoCodigo: "201", sinInsumos: true })).toContain("sinInsumos=1");
+  });
+});

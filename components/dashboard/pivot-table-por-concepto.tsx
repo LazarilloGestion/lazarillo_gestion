@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef } from "react";
 import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
 import { usePivotScreenData } from "@/hooks/use-pivot-screen-data";
 import { ExpandableButton } from "@/components/ui/expandable-button";
@@ -18,7 +19,10 @@ import { EditedDot, AperturaDot } from "./edit-row-controls";
 import type { PivotRubroRow, PivotConceptoRow } from "@/lib/dashboard/types";
 import { AperturaSplitButton } from "./apertura-split-button";
 
-export function PivotTableByConcepto() {
+// agrupacion="insumo": Vista Insumos (punto 8 de Etapa 3). Mismo árbol, pero el 2do
+// nivel es el insumo (o el concepto, si el gasto no trae detalle); los totales dan igual.
+export function PivotTableByConcepto({ agrupacion }: { agrupacion?: "insumo" } = {}) {
+  const porInsumo = agrupacion === "insumo";
   const {
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     months, activeMonths, sortCol, sortDir, handleSortClick,
@@ -34,7 +38,7 @@ export function PivotTableByConcepto() {
 
   const { data, isLoading, error, ventasData, ventasLoading } = useOperacionKpis({
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
-    months, activeMonths, configVersion: rubroConfigVersion,
+    months, activeMonths, configVersion: rubroConfigVersion, agrupacion,
   });
 
   const {
@@ -44,6 +48,16 @@ export function PivotTableByConcepto() {
     data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     rubroCodigo, activeMonths,
   });
+
+  // Vista Insumos: arrancan abiertos los rubros que tienen insumos (Mercaderías); el resto cerrado.
+  const abiertos = useRef(false);
+  useEffect(() => {
+    if (!porInsumo || abiertos.current || !data) return;
+    abiertos.current = true;
+    for (const r of data.rows) {
+      if (r.children.some((c) => c.conceptoCodigo.startsWith("ins:")) && !expanded.has(r.id)) toggleRow(r.id);
+    }
+  }, [porInsumo, data, expanded, toggleRow]);
 
   // usePctMode llama a useState internamente — tiene que ejecutarse antes de
   // cualquier return condicional (reglas de hooks). data?.grandTotal ?? 0 es
@@ -111,6 +125,12 @@ export function PivotTableByConcepto() {
               if (item.type === "concepto") {
                 const concepto = item.data as PivotConceptoRow;
                 const isExpanded = expanded.has(concepto.id);
+                // Vista Insumos: el click abre las compras que traen ese insumo, o las de ese
+                // concepto que no tienen insumos (las que suma esta fila).
+                const insumo = porInsumo && concepto.conceptoCodigo.startsWith("ins:") ? concepto.conceptoCodigo.slice(4) : null;
+                const filtroFila = insumo
+                  ? { insumoCodigo: insumo, rubroCodigo: concepto.rubroCodigo }
+                  : porInsumo ? { conceptoCodigo: concepto.conceptoCodigo, sinInsumos: true } : { conceptoCodigo: concepto.conceptoCodigo };
                 return (
                   <tr
                     key={concepto.id}
@@ -126,9 +146,12 @@ export function PivotTableByConcepto() {
                           iconSize="w-3.5 h-3.5"
                           className="flex-1 min-w-0"
                         >
-                          {concepto.nombre}
+                          {insumo ? normalize(concepto.nombre) : concepto.nombre}
+                          {porInsumo && !insumo && (
+                            <span className="ml-1.5 rounded-full border border-zinc-200 dark:border-zinc-700 px-1.5 text-[10px] font-normal text-muted-foreground">concepto</span>
+                          )}
                         </ExpandableButton>
-                        <AperturaSplitButton
+                        {!insumo && <AperturaSplitButton
                           variant="block"
                           puedeAperturar={localId != null && pdvId != null}
                           tieneReglaActiva={reglasActivasPorNivel.concepto.has(concepto.conceptoCodigo)}
@@ -140,7 +163,7 @@ export function PivotTableByConcepto() {
                             origenLocalId: localId ?? null,
                             origenPdvId: pdvId ?? null,
                           })}
-                        />
+                        />}
                       </div>
                     </td>
                     {months.map((mes) => (
@@ -153,7 +176,7 @@ export function PivotTableByConcepto() {
                           onClick={(e) => {
                             e.stopPropagation();
                             if (hasValue(concepto.values[mes]))
-                              openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo });
+                              openDetalle({ mes, ...filtroFila });
                           }}
                         >
                           {fmtCelda(concepto.values[mes], mes)}
@@ -164,7 +187,7 @@ export function PivotTableByConcepto() {
                       className="text-right px-4 py-2 tabular-nums text-muted-foreground font-semibold text-sm cursor-pointer hover:text-foreground"
                       onClick={(e) => {
                         e.stopPropagation();
-                        openDetalle({ conceptoCodigo: concepto.conceptoCodigo });
+                        openDetalle(filtroFila);
                       }}
                     >
                       {fmtARS(concepto.rowTotal)}

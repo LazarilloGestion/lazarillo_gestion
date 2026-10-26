@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { DetalleFilter, VentasDetalleFilter } from "./types";
 
 export type Vista = "compras" | "resultados";
-export type AgrupacionCompras = "concepto" | "proveedor";
+export type AgrupacionCompras = "concepto" | "proveedor" | "insumo";
 
 export interface DashboardParams {
   year: number;
@@ -80,8 +80,8 @@ const vistaParam = z.preprocess(
 );
 
 const agrupacionParam = z.preprocess(
-  (v) => (v === "proveedor" ? "proveedor" : undefined),
-  z.literal("proveedor").optional()
+  (v) => (v === "proveedor" || v === "insumo" ? v : undefined),
+  z.enum(["proveedor", "insumo"]).optional()
 );
 
 const modoParam = z.preprocess(
@@ -181,6 +181,8 @@ export function buildComprasDetalleUrl(filter: DetalleFilter): string {
   if (filter.rowId) params.set("rowId", filter.rowId);
   if (filter.distribucionId != null) params.set("distribucionId", String(filter.distribucionId));
   if (filter.modo === "financiera") params.set("modo", "financiera");
+  if (filter.insumoCodigo) params.set("insumoCodigo", filter.insumoCodigo);
+  if (filter.sinInsumos) params.set("sinInsumos", "1");
   return `/api/dashboard/detalle?${params}`;
 }
 

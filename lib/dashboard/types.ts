@@ -177,6 +177,9 @@ export type DetalleFilter = BaseDashboardFilter & {
   historico?: boolean;
   // Switch del panel: en Financiera el detalle lista los pagos del período.
   modo?: "economica" | "financiera";
+  // Vista Insumos: compras que traen ese insumo (código del maestro) / compras sin insumos (van por concepto).
+  insumoCodigo?: string;
+  sinInsumos?: boolean;
 };
 
 export type VentasDetalleFilter = BaseDashboardFilter & {
