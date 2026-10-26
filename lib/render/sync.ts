@@ -52,7 +52,7 @@ export async function listarItems(): Promise<ItemRender[]> {
       const inf = informeDeTabla(c.tabla);
       if (!inf || (inf.anio != null && !anios.has(inf.anio))) continue;
       // Maestro de la organización: va con localId/PDV 0 (no es de un PDV).
-      if (inf.informe.maestro !== (c.pdv === PDV_MAESTROS)) continue;
+      if (Boolean(inf.informe.maestro) !== (c.pdv === PDV_MAESTROS)) continue;
       const o = inf.informe.maestro ? { localId: 0, puntoDeVentaId: 0 } : origs.find((x) => x.pdv === c.pdv)!;
       items.push({
         id: `${esquema}.${c.tabla}.${c.pdv}`,
