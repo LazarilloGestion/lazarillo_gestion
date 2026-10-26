@@ -45,6 +45,12 @@ const detalleSelectJoin = (fuente: Prisma.Sql) => Prisma.sql`
     COALESCE(c."fechaManual", c.fecha)     AS "fechaVista",
     COALESCE(c."importeManual", c.importe) AS "importeVista",
     c."pagoRef",
+    -- Fecha de gasto (económica: la editada en Lazarillo, el período de un sueldo
+    -- o la del comprobante) y fecha de pago (el pago de esta fila en Financiera;
+    -- si no, la de un gasto vario/sueldo; la de una factura sale del 80, abajo).
+    COALESCE(cb."fechaManual", cb.periodo, cb.fecha) AS "fechaGasto",
+    COALESCE(CASE WHEN c."pagoRef" IS NOT NULL THEN c.fecha END, cb."fechaPago") AS "fechaPago",
+    cb."cajaPago",
     c."conceptoCodigoManual",
     c.concepto,
     c.detalle,
@@ -89,6 +95,7 @@ const detalleSelectJoin = (fuente: Prisma.Sql) => Prisma.sql`
 type FilaConClave = {
   comprobante?: string | null; codigoProveedor?: string | null; pdvCompraId?: number | null;
   fecha?: Date | null; fechaManual?: Date | null;
+  fechaPago?: Date | string | null; pagoRef?: string | null;
 };
 async function conEstado<T extends FilaConClave>(filas: T[]): Promise<(T & { estadoPago: EstadoFila | null })[]> {
   const iso = (f: FilaConClave) => (f.fechaManual ?? f.fecha)?.toISOString().slice(0, 10) ?? null;
@@ -102,7 +109,10 @@ async function conEstado<T extends FilaConClave>(filas: T[]): Promise<(T & { est
   }
   return filas.map((f) => {
     const k = claveComprobante(f.pdvCompraId ?? null, f.comprobante ?? null, f.codigoProveedor ?? null);
-    return { ...f, estadoPago: (k && estados.get(k)) || null };
+    const estado = (k && estados.get(k)) || null;
+    // Factura en Económica: fecha del último pago del 80 (en Financiera cada fila ya es un pago).
+    const fechaPago = f.fechaPago ?? (!f.pagoRef && estado?.ultimoPago ? estado.ultimoPago : null);
+    return { ...f, fechaPago, estadoPago: estado };
   });
 }
 
