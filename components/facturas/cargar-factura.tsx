@@ -17,7 +17,7 @@ type Maestros = {
 };
 type PdvRef = { id: number; nombre: string; localId: number };
 
-// Botón "+ Cargar factura" del Panel y el modal de carga (Etapa 4, punto 1).
+// Botón "+ Cargar Gastos" del Panel (a la izquierda de Impagas) y el modal de carga (Etapa 4, punto 1).
 // Carga en el PDV elegido arriba (es el "PDV de gestión" del prototipo).
 export function CargarFactura() {
   const { localId, pdvId } = useDashboard();
@@ -54,9 +54,9 @@ export function CargarFactura() {
         onClick={() => setAbierto(true)}
         disabled={!puede}
         title={puede ? "Cargar una factura en este PDV" : "Elegí un local y un PDV para cargar"}
-        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-zinc-900 px-3 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-40 dark:bg-white dark:text-zinc-900"
+        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-zinc-900 px-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-40 dark:bg-white dark:text-zinc-900"
       >
-        <Plus className="h-3.5 w-3.5" /> Cargar factura
+        <Plus className="h-3.5 w-3.5" /> Cargar Gastos
       </button>
       {abierto && puede && (
         maestros && !isLoading ? (
