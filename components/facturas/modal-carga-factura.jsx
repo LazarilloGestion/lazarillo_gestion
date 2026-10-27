@@ -14,6 +14,8 @@
 //     factura existente, Repetir / precargar estructura, subir factura (lectura),
 //     alta de proveedor y "guardar como regla".
 import React, { useState, useRef, useEffect } from "react";
+import { useMediosPago } from "@/hooks/use-medios-pago";
+import { mediosParaElegir } from "@/lib/medios-pago/abm";
 
 const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const TIPOS_CPB = ["FcA", "FcB", "FcC", "Ticket", "NC-A"];
@@ -415,11 +417,19 @@ function ModalNuevaCarga(props) {
   const [importeV, setImporteV] = useState("");
 
   // pago
+  // "Registrar el pago ahora" (Etapa 4, paso 4): arranca destildado; sin pago la factura queda IMPAGA.
   const [pagarAhora, setPagarAhora] = useState(false);
   const formas = [];
   const [formaId, setFormaId] = useState(0);
-  const [fechaPago, setFechaPago] = useState(fechaDefault);
-  const [pagadoPor, setPagadoPor] = useState(PDVS[0]);
+  const [fechaPago, setFechaPago] = useState(hoyISO());
+  const [pagadoPor, setPagadoPor] = useState(pdvActual || PDVS[0]);
+  const { data: mediosData } = useMediosPago();
+  const mediosPago = mediosParaElegir(mediosData);
+  const [medioPagoSel, setMedioPago] = useState("");
+  const medioPago = medioPagoSel || (mediosPago[0] && mediosPago[0].nombre) || "";
+  const pidePagoId = !!(mediosPago.find((m) => m.nombre === medioPago) || {}).pideId;
+  const [refPago, setRefPago] = useState("");
+  const [importePago, setImportePago] = useState(""); // vacío = el total de la factura
   const [enCuotas, setEnCuotas] = useState(false);
   const [nCuotas, setNCuotas] = useState(12);
 
@@ -525,6 +535,10 @@ function ModalNuevaCarga(props) {
       if (total <= 0) faltan.push("Poné el importe del gasto.");
     }
     if (yaCargada) faltan.push("Esta factura ya está cargada: no se vuelve a cargar.");
+    if (modo === "factura" && vista === "nueva" && pagarAhora) {
+      if (!medioPago) faltan.push("Elegí el medio de pago (se dan de alta en Medios de pago, en el menú).");
+      if (!fechaValida(fechaPago)) faltan.push("Falta una fecha de pago válida.");
+    }
     // Fecha posterior a hoy: casi siempre es un error de tipeo (pasó con un ticket guardado en noviembre).
     if (fechaValida(fAct) && fAct > HOY && futuraOk !== fAct && !(ede && ede.fecha === fAct)) {
       faltan.push(`La fecha de factura (${dmy4(fAct)}) es posterior a hoy. Revisala; si está bien, tocá Guardar de nuevo.`);
@@ -564,6 +578,11 @@ function ModalNuevaCarga(props) {
       observacion: obs || null, registros,
       percepciones: percepciones.filter((x) => parseImp(x.importe) > 0).map((x) => ({ tipo: x.tipo, importe: parseImp(x.importe) })),
       impIntGeneral: impIntLineas > 0 ? 0 : parseImp(impIntG),
+      // Pago en la misma transacción que la factura (sin importe: la salda entera).
+      ...(vista === "nueva" && pagarAhora ? { pago: {
+        fecha: fechaPago, medio: medioPago, referencia: pidePagoId && refPago.trim() ? refPago.trim() : null,
+        pdvPagaId: idPdv(pagadoPor), ...(parseImp(importePago) > 0 ? { importe: parseImp(importePago) } : {}),
+      } } : {}),
     };
     setGuardando(true);
     fetch(vista === "editar" ? `/api/facturas/${editRowId}` : "/api/facturas", { method: vista === "editar" ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
@@ -887,6 +906,42 @@ function ModalNuevaCarga(props) {
               {impIntTotal > 0 && <span>Imp. internos <b>{$fmt(impIntTotal)}</b></span>}
               <span style={{ marginLeft: "auto" }}>TOTAL <b style={{ fontSize: 15 }}>{$fmt(totalFactura)}</b></span>
             </div>
+
+            {/* ── Pago al pie (Etapa 4): "Registrar el pago ahora" ── */}
+            {vista === "nueva" && (
+              <div style={{ marginTop: 12, border: `1.5px solid ${pagarAhora ? "#bae6fd" : C.borde}`, background: pagarAhora ? "#f0f9ff" : "#fff", borderRadius: 11, padding: "10px 14px" }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+                  <input type="checkbox" checked={pagarAhora} onChange={(e) => setPagarAhora(e.target.checked)} style={{ width: 15, height: 15 }} />
+                  Registrar el pago ahora
+                  {!pagarAhora && <span style={{ fontSize: 12, fontWeight: 400, color: "#999" }}>— si no, la factura queda IMPAGA</span>}
+                </label>
+                {pagarAhora && (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: "150px 1fr 140px 1fr" + (pidePagoId ? " 160px" : ""), gap: 10, marginTop: 10, alignItems: "end" }}>
+                      <div><span style={lab}>Importe</span>
+                        <input style={{ ...inp, textAlign: "right" }} value={importePago} placeholder={fmtNum(Math.round(totalFactura * 100) / 100)}
+                          title="Vacío = el total de la factura" onChange={(e) => setImportePago(fmtImp(e.target.value))} /></div>
+                      <div><span style={lab}>Medio</span>
+                        <select style={inp} value={medioPago} onChange={(e) => setMedioPago(e.target.value)}>
+                          {mediosPago.map((m) => <option key={m.id} value={m.nombre}>{m.nombre}</option>)}
+                        </select></div>
+                      <div><span style={lab}>Fecha de pago</span>
+                        <FechaInput style={inp} iso={fechaPago} onISO={(v) => setFechaPago(v)} /></div>
+                      <div><span style={lab}>Paga</span>
+                        <select style={inp} value={pagadoPor} onChange={(e) => setPagadoPor(e.target.value)}>{PDVS.map((x) => <option key={x}>{x}</option>)}</select></div>
+                      {pidePagoId && <div><span style={lab}>ID</span>
+                        <input style={{ ...inp, fontFamily: "monospace" }} value={refPago} placeholder="opcional"
+                          onChange={(e) => setRefPago(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} /></div>}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "#888", marginTop: 6 }}>
+                      {parseImp(importePago) > 0 && parseImp(importePago) < totalFactura - 0.005 ? "Paga una parte: la factura queda PARCIAL."
+                        : parseImp(importePago) > totalFactura + 0.005 ? `Salda la factura y ${$fmt(parseImp(importePago) - totalFactura)} quedan a cuenta del proveedor.`
+                        : "Salda la factura entera. Se guarda junto con la factura (si el pago no se puede registrar, no se guarda nada)."}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             </>)}
 
           </>
@@ -925,6 +980,7 @@ function ModalNuevaCarga(props) {
                 <span style={{ fontSize: 12.5, color: C.rojo, display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", maxWidth: 560 }}>
                   <span>⚠ Está paga: <b>{$fmt(pagosAlBorrar.importe)}</b> en {pagosAlBorrar.total} pago{pagosAlBorrar.total === 1 ? "" : "s"}.
                     {pagosAlBorrar.internos > 0 && <> Se eliminan también {pagosAlBorrar.internos === 1 ? "el pago cargado" : `los ${pagosAlBorrar.internos} pagos cargados`} en el Panel.</>}
+                    {pagosAlBorrar.lazarillo > 0 && <> {pagosAlBorrar.lazarillo === 1 ? "El pago al proveedor cargado en el Panel vuelve" : `Los ${pagosAlBorrar.lazarillo} pagos al proveedor cargados en el Panel vuelven`} a quedar a cuenta.</>}
                     {pagosAlBorrar.maxirest > 0 && <> {pagosAlBorrar.maxirest === 1 ? "El pago" : "Los pagos"} de MaxiRest {pagosAlBorrar.maxirest === 1 ? "queda" : "quedan"} como “solo 80”.</>}
                     {" "}¿Eliminar igual?</span>
                   <span onClick={() => { setPagosAlBorrar(null); eliminar(true); }} style={{ fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>Sí, eliminar</span>
