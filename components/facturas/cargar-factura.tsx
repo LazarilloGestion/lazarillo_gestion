@@ -21,7 +21,8 @@ export type PdvRef = { id: number; nombre: string; localId: number };
 // regla de apertura activa de cada concepto para el PDV de gestión.
 export function useCargaFactura(activo: boolean, pdvGestion: number | null | undefined, localGestion: number | null | undefined) {
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
-  const { data: maestros, isLoading } = useFetchQuery<Maestros>(["facturas-maestros"], activo ? "/api/facturas/maestros" : null);
+  // Los maestros cambian poco: 5 minutos sin volver a pedirlos (abrir el modal es instantáneo).
+  const { data: maestros, isLoading } = useFetchQuery<Maestros>(["facturas-maestros"], activo ? "/api/facturas/maestros" : null, { staleTime: 5 * 60_000 });
   const { reglas } = useReglasApertura();
   const pdvsRef = useMemo<PdvRef[]>(
     () => (locales ?? []).flatMap((l) => l.puntosDeVenta.map((p) => ({ id: p.id, nombre: `${l.nombre} · ${p.nombre}`, localId: l.id }))),
