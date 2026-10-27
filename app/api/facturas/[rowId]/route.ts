@@ -119,6 +119,11 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     : `${prov}\n${[fa.c.comprobante, pdv, `$ ${total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}`].filter(Boolean).join(" · ")}`;
   await prisma.$transaction(async (tx) => {
     if (pagos.internos) await tx.aplicacionPagoInterno.deleteMany({ where: { compraRowId: { in: filas.map((x) => x.rowId) } } });
+    // Pagos al proveedor cargados en Lazarillo: se sueltan de la factura y vuelven a quedar a cuenta.
+    if (pagos.lazarillo) {
+      const pdvs = (await tx.puntoDeVenta.findMany({ where: { localId: { in: fa.locales } }, select: { id: true } })).map((x) => x.id);
+      await tx.aplicacionPagoProveedor.deleteMany({ where: { comprobante: fa.c.comprobante, codPro: fa.c.codigo, pdvId: { in: pdvs } } });
+    }
     await borrarFilas(tx, fa.c.comprobante, fa.c.codigo, fa.locales);
     await registrarActividad(tx, { tipo: "factura", accion: "eliminada", descripcion: desc, refId: null, localId: fa.c.localId, usuario, datos: f ? { payload: f, pagos } : null });
   });

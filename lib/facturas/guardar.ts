@@ -99,16 +99,21 @@ export class Duplicada extends Error {}
 // (imputados a sus filas). Con pagos no se cambia el número / proveedor; borrarla
 // pide confirmación (Diego, 27/10/2026).
 export async function pagosDe(tx: Tx | PrismaClient, comprobante: string, codigo: string, locales: number[], rowIds: string[]) {
-  const [p80, internos] = await Promise.all([
+  const [p80, internos, lazarillo] = await Promise.all([
     tx.pago.aggregate({ where: { comprobante, codPro: codigo, localId: { in: locales } }, _count: true, _sum: { importe: true } }),
     rowIds.length
       ? tx.aplicacionPagoInterno.aggregate({ where: { compraRowId: { in: rowIds } }, _count: true, _sum: { importe: true } })
       : Promise.resolve({ _count: 0, _sum: { importe: null } }),
+    // Pagos al proveedor cargados en Lazarillo (Etapa 4) imputados a esta factura.
+    tx.aplicacionPagoProveedor.aggregate({
+      where: { comprobante, codPro: codigo, pago: { anuladoEn: null }, pdvId: { in: (await tx.puntoDeVenta.findMany({ where: { localId: { in: locales } }, select: { id: true } })).map((x) => x.id) } },
+      _count: true, _sum: { importe: true },
+    }),
   ]);
   return {
-    maxirest: p80._count, internos: internos._count,
-    importe: Number(p80._sum.importe ?? 0) + Number(internos._sum.importe ?? 0),
-    total: p80._count + internos._count,
+    maxirest: p80._count, internos: internos._count, lazarillo: lazarillo._count,
+    importe: Number(p80._sum.importe ?? 0) + Number(internos._sum.importe ?? 0) + Number(lazarillo._sum.importe ?? 0),
+    total: p80._count + internos._count + lazarillo._count,
   };
 }
 
