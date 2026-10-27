@@ -10,6 +10,11 @@ import { fmtComprobante, fmtPesos } from "@/lib/impagas/clasificar";
 import { ETIQUETA_ESTADO, totalesCtaCte, type EstadoPago } from "@/lib/cta-cte/estado";
 import { OpMaxirestModal } from "@/components/impagas/op-maxirest-modal";
 import { VerFactura } from "@/components/facturas/ver-factura";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import type { Local } from "@/lib/types/domain";
+import { numeroPago } from "@/lib/pagos-proveedor/imputar";
+import { FormPagoProveedor, type CuerpoPagoProv, type ModoPagoProv, type PagoACuentaUI } from "./pago-proveedor";
 
 // Cuenta corriente — SOLO LECTURA (punto 4, Etapa 3), diseño de ModalCtaCte_etapa3.
 // Dos modos:
@@ -18,7 +23,8 @@ import { VerFactura } from "@/components/facturas/ver-factura";
 //  - Sin proveedor del maestro (empleado, gastos varios): sus movimientos del 14
 //    en ese PDV (sueldos, adelantos…) agrupados por período, y a la derecha los
 //    conceptos liquidados sumados.
-// Lo de la etapa 4 (cargar, editar, repetir) va en gris.
+// Etapa 4 (27/10/2026): pagos cargados en Lazarillo — tildar facturas y pagarlas,
+// pago a cuenta, aplicar un pago a cuenta, corregir, quitar de una factura y anular.
 
 export interface OrigenCtaCte {
   codPro: string;
@@ -27,15 +33,16 @@ export interface OrigenCtaCte {
 }
 
 interface PagoCtaCte { fecha: string; importe: number; medio: string | null; orden: string | null }
+interface PagoLzCtaCte { pagoId: number; fecha: string; importe: number; totalPago: number; medio: string; referencia: string | null; pdvPaga: string; conciliado: boolean }
 interface FacturaCtaCte {
   pdvId: number; pdv: string; comprobante: string; fecha: string; total: number; pagado: number; conceptos: string;
-  rowId: string | null; solo80: boolean; estado: EstadoPago | null; pagos: PagoCtaCte[];
+  rowId: string | null; solo80: boolean; estado: EstadoPago | null; pagos: PagoCtaCte[]; pagosLz: PagoLzCtaCte[]; deMas: boolean;
 }
 interface MovimientoCtaCte {
   rowId: string; fecha: string; comprobante: string | null; concepto: string; rubro: string | null; observac: string; importe: number;
 }
 type CtaCteResp =
-  | { modo: "facturas"; codPro: string; proveedor: string; cuit: string | null; pagoAutomatico: boolean; desdeCobertura: string; facturas: FacturaCtaCte[] }
+  | { modo: "facturas"; codPro: string; proveedor: string; cuit: string | null; pagoAutomatico: boolean; desdeCobertura: string; aCuenta: PagoACuentaUI[]; facturas: FacturaCtaCte[] }
   | { modo: "movimientos"; codPro: string; pdvId: number; pdv: string; nombre: string; proveedor: string; esEmpleado: boolean; movimientos: MovimientoCtaCte[] };
 
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -56,6 +63,8 @@ const BADGE: Record<EstadoPago, string> = {
   nc: "bg-sky-600 text-white",
   "sin-datos": "bg-zinc-200 text-zinc-600",
 };
+const PAGABLE = (e: EstadoPago | null) => e === "impaga" || e === "parcial" || e === "auto";
+const saldoDe = (f: { total: number; pagado: number }) => Math.max(0, Math.round((f.total - f.pagado) * 100) / 100);
 const RANK: Record<string, number> = { impaga: 0, parcial: 1, auto: 2, "sin-datos": 3, nc: 4, paga: 5, "": 6 };
 
 type Periodo = "mes" | "anio" | "hist";
@@ -147,6 +156,14 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
   const [agrupar, setAgrupar] = useState(esMovs);
   const [opMx, setOpMx] = useState<{ pdvId: number; orden: string; fecha: string } | null>(null);
   const filaSel = useRef<HTMLDivElement | null>(null);
+  // ---- pagos (etapa 4) ----
+  const queryClient = useQueryClient();
+  const [tildadas, setTildadas] = useState<Set<string>>(() => new Set());
+  const [form, setForm] = useState<{ tipo: "facturas" } | { tipo: "cuenta" } | { tipo: "editar"; pagoId: number } | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [anulando, setAnulando] = useState<number | null>(null);
+  const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
+  const pdvs = useMemo(() => (locales ?? []).flatMap((l) => l.puntosDeVenta.map((p) => ({ id: p.id, label: `${l.nombre} · ${p.nombre}` }))), [locales]);
 
   const enPeriodo = (iso: string) =>
     per === "hist" || (per === "anio" ? iso.startsWith(String(anio)) : iso.startsWith(`${anio}-${String(mes + 1).padStart(2, "0")}`));
@@ -165,6 +182,62 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
   // ---- modo facturas ----
   const facturas = useMemo(() => (data?.modo === "facturas" ? data.facturas : []), [data]);
   const fact = facturas.find((f) => claveF(f) === sel) ?? null;
+  const aCuenta = data?.modo === "facturas" ? data.aCuenta : [];
+  const disponibleACuenta = aCuenta.reduce((s, p) => s + p.disponible, 0);
+  const elegidas = facturas.filter((f) => tildadas.has(claveF(f)) && PAGABLE(f.estado));
+  const saldoElegidas = elegidas.reduce((s, f) => s + saldoDe(f), 0);
+  // Todos los pagos de Lazarillo del proveedor (para "ver orden", editar y anular).
+  const pagosLzPorId = new Map<number, PagoLzCtaCte & { facturas: FacturaCtaCte[] }>();
+  for (const f of facturas) for (const p of f.pagosLz) {
+    const x = pagosLzPorId.get(p.pagoId) ?? { ...p, facturas: [] };
+    x.facturas.push(f); pagosLzPorId.set(p.pagoId, x);
+  }
+
+  async function llamar(url: string, init: RequestInit, ok: string): Promise<string | null> {
+    setGuardando(true);
+    try {
+      const res = await fetch(url, init);
+      const b = await res.json().catch(() => null);
+      if (!res.ok) return b?.error ?? "No se pudo guardar.";
+      toast.success(ok);
+      for (const k of ["cta-cte", "impagas", "detalle", "pivot", "actividad"]) void queryClient.invalidateQueries({ queryKey: [k] });
+      return null;
+    } catch {
+      return "No se pudo guardar. Intentá de nuevo.";
+    } finally {
+      setGuardando(false);
+    }
+  }
+  async function confirmarPago(b: CuerpoPagoProv): Promise<string | null> {
+    if (!form || data?.modo !== "facturas") return null;
+    if (form.tipo === "editar") {
+      const err = await llamar(`/api/pagos-proveedor/${form.pagoId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) }, `${numeroPago(form.pagoId)} corregido`);
+      if (!err) setForm(null);
+      return err;
+    }
+    const body = { codPro: data.codPro, ...b, ...(form.tipo === "facturas" ? { facturas: elegidas.map((f) => ({ pdvId: f.pdvId, comprobante: f.comprobante })) } : {}) };
+    const err = await llamar("/api/pagos-proveedor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+      b.usarPago ? `${numeroPago(b.usarPago)} aplicado` : form.tipo === "cuenta" ? "Pago a cuenta registrado" : "Pago registrado");
+    if (!err) { setForm(null); setTildadas(new Set()); }
+    return err;
+  }
+  async function quitar(pagoId: number, f: FacturaCtaCte) {
+    const err = await llamar(`/api/pagos-proveedor/${pagoId}/aplicaciones?pdvId=${f.pdvId}&comprobante=${encodeURIComponent(f.comprobante)}`, { method: "DELETE" },
+      `Quitado de ${fmtComprobante(f.comprobante)}: el importe queda a cuenta`);
+    if (err) toast.error(err);
+  }
+  async function anular(pagoId: number) {
+    const err = await llamar(`/api/pagos-proveedor/${pagoId}`, { method: "DELETE" }, `${numeroPago(pagoId)} anulado`);
+    if (err) toast.error(err);
+    setAnulando(null);
+  }
+  async function aplicarACuenta(p: PagoACuentaUI) {
+    if (data?.modo !== "facturas" || !elegidas.length) return;
+    const err = await llamar("/api/pagos-proveedor", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ codPro: data.codPro, usarPago: p.id, facturas: elegidas.map((f) => ({ pdvId: f.pdvId, comprobante: f.comprobante })) }) },
+      `${numeroPago(p.id)} aplicado`);
+    if (err) toast.error(err); else setTildadas(new Set());
+  }
   const valF = (f: FacturaCtaCte): string | number =>
     orden.campo === "importe" ? f.total : orden.campo === "estado" ? RANK[f.estado ?? ""] : orden.campo === "comp" ? f.comprobante : f.fecha;
   const tn = t.replace(/[\s-]/g, "");
@@ -175,6 +248,9 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
   const pagosLista = fact
     ? fact.pagos.map((p) => ({ ...p, f: fact }))
     : facturas.flatMap((f) => f.pagos.map((p) => ({ ...p, f }))).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  const pagosLzLista = fact
+    ? fact.pagosLz.map((p) => ({ p, f: fact }))
+    : facturas.flatMap((f) => f.pagosLz.map((p) => ({ p, f }))).sort((a, b) => b.p.fecha.localeCompare(a.p.fecha));
 
   // ---- modo movimientos ----
   const movs = useMemo(() => (data?.modo === "movimientos" ? data.movimientos : []), [data]);
@@ -197,7 +273,7 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
 
   useEffect(() => { filaSel.current?.scrollIntoView({ block: "center" }); }, [data]);
 
-  const cambiarProv = (c: string) => { setOrigen({ codPro: c }); setSel(null); setBusca(""); setAgrupar(false); };
+  const cambiarProv = (c: string) => { setOrigen({ codPro: c }); setSel(null); setBusca(""); setAgrupar(false); setTildadas(new Set()); setForm(null); };
   const tituloNodo = <span className="text-[19px] font-normal whitespace-nowrap">— cuenta corriente</span>;
   const nombreHeader = data?.proveedor ?? origen.nombre ?? "";
 
@@ -232,12 +308,25 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
   const filaFactura = (f: FacturaCtaCte) => {
     const on = fact != null && claveF(f) === claveF(fact);
     return (
-      <div key={claveF(f)} ref={on ? filaSel : undefined} onClick={() => setSel(on ? null : claveF(f))}
+      <div key={claveF(f)} ref={on ? filaSel : undefined}
+        onClick={() => {
+          // Gesto unificado (prototipo): click en la fila = tildar/destildar y ver sus pagos.
+          const k = claveF(f);
+          if (PAGABLE(f.estado)) {
+            const n = new Set(tildadas);
+            if (n.has(k)) n.delete(k); else n.add(k);
+            setTildadas(n);
+            setSel(k);
+            if (form?.tipo === "facturas" && n.size === 0) setForm(null);
+          } else setSel(on ? null : k);
+        }}
         onDoubleClick={() => { if (f.rowId) setVerFact({ rowId: f.rowId, detalle: fmtComprobante(f.comprobante) }); }}
         title={f.rowId ? "Doble clic: ver la factura" : undefined}
         className={cn("flex items-center gap-2.5 px-3 py-1.5 rounded-md cursor-pointer border-b border-zinc-100 dark:border-zinc-800",
           on ? "bg-[#eef6fb] dark:bg-sky-950/40" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40")}>
-        {f.estado && f.estado !== "paga" ? <Gris><input type="checkbox" disabled className="h-[13px] w-[13px]" /></Gris> : <span className="w-[13px]" />}
+        {PAGABLE(f.estado)
+          ? <input type="checkbox" readOnly checked={tildadas.has(claveF(f))} className="h-[13px] w-[13px] accent-zinc-900 cursor-pointer" />
+          : <span className="w-[13px]" />}
         <span className="w-[62px] text-[12.5px] text-zinc-600 dark:text-zinc-300 tabular-nums">{dmy(f.fecha)}</span>
         {/* Una sola fila: comprobante y, a la derecha, el PDV en gris. */}
         <span className="flex-1 min-w-0 flex items-baseline gap-2 text-[13px] whitespace-nowrap">
@@ -390,16 +479,44 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
                       title="Cargar una factura nueva con la estructura de esta"
                       className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800">⟳ Repetir</button>
                   : <Gris><button type="button" disabled className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold">⟳ Repetir</button></Gris>}
-                <Gris><button type="button" disabled className="rounded-lg bg-zinc-900 px-4 py-1.5 text-[13px] font-semibold text-white">+ Cargar pago</button></Gris>
+                {elegidas.length > 0
+                  ? <button type="button" onClick={() => setForm({ tipo: "facturas" })}
+                      className="rounded-lg bg-zinc-900 px-4 py-1.5 text-[13px] font-semibold text-white dark:bg-white dark:text-zinc-900">
+                      Pagar seleccionada{elegidas.length === 1 ? "" : "s"} ({elegidas.length} · {fmtPesos(saldoElegidas)})
+                    </button>
+                  : <button type="button" onClick={() => setForm({ tipo: "cuenta" })} title="Sin facturas tildadas: queda a cuenta del proveedor"
+                      className="rounded-lg bg-zinc-900 px-4 py-1.5 text-[13px] font-semibold text-white dark:bg-white dark:text-zinc-900">+ Cargar pago</button>}
               </span>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto">
-              {pagosLista.length === 0 && <p className="py-2 text-[13px] text-zinc-500">Sin pagos registrados.</p>}
+              {pagosLista.length === 0 && pagosLzLista.length === 0 && <p className="py-2 text-[13px] text-zinc-500">Sin pagos registrados.</p>}
+              {pagosLzLista.map(({ p, f }) => (
+                <div key={`lz-${p.pagoId}-${claveF(f)}`} className={cn("mb-2 rounded-xl border px-3.5 py-2.5", p.conciliado ? "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900/60" : "border-[#bfe6f6] bg-white dark:border-sky-900 dark:bg-zinc-900")}>
+                  <div className="flex items-center justify-between gap-3 text-[13.5px]">
+                    <b className="tabular-nums">{dmy(p.fecha)} · {fmtPesos(p.importe)}</b>
+                    <span className="flex items-center gap-3 text-[11.5px] text-zinc-500">
+                      <button type="button" onClick={() => setForm({ tipo: "editar", pagoId: p.pagoId })} className="hover:text-zinc-800" title="Corregir fecha, medio, ID o PDV">✎</button>
+                      <button type="button" onClick={() => void quitar(p.pagoId, f)} className="underline-offset-2 hover:underline" title="Sacar este pago de la factura: el importe queda a cuenta">quitar</button>
+                      {anulando === p.pagoId
+                        ? <span className="text-red-600">¿Anular {numeroPago(p.pagoId)}? <button type="button" onClick={() => void anular(p.pagoId)} className="font-semibold underline">Sí</button> · <button type="button" onClick={() => setAnulando(null)} className="underline">No</button></span>
+                        : <button type="button" onClick={() => setAnulando(p.pagoId)} className="underline-offset-2 hover:underline hover:text-red-600">anular</button>}
+                    </span>
+                  </div>
+                  {!fact && <div className="mt-0.5 text-[12px] text-zinc-500">a {fmtComprobante(f.comprobante)} · {dmy(f.fecha)}</div>}
+                  <div className="mt-0.5 text-[12.5px] text-zinc-600 dark:text-zinc-300">
+                    {p.medio}{p.referencia && <span className="font-mono text-[11.5px]"> · ID {p.referencia}</span>} · {numeroPago(p.pagoId)}
+                    {p.totalPago - p.importe > 0.004 && <span className="text-zinc-400"> · parte de {fmtPesos(p.totalPago)}</span>}
+                    <span className="ml-1.5 rounded border border-[#5BC2EA] bg-[#ecfaff] px-1 text-[10px] font-semibold text-[#0e7490]">Lazarillo</span>
+                  </div>
+                  <div className="mt-0.5 text-[12.5px] text-[#0d6fa8]">Pagado por: <b>{p.pdvPaga}</b></div>
+                  {p.conciliado && <div className="mt-1 text-[11.5px] text-zinc-500">También está en MaxiRest (mismo importe y fecha): se cuenta una sola vez.</div>}
+                </div>
+              ))}
               {pagosLista.map((p, i) => (
                 <div key={`${claveF(p.f)}-${i}`} className="mb-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-[#fafaf8] dark:bg-zinc-900/60 px-3.5 py-2.5">
                   <div className="flex items-center justify-between text-[13.5px]">
                     <b className="tabular-nums">{dmy(p.fecha)} · {fmtPesos(p.importe)}</b>
-                    <Gris className="gap-3 items-center"><span className="text-zinc-400">✎</span><span className="text-[11.5px] text-zinc-500">eliminar</span></Gris>
+                    <span className="text-[11px] text-zinc-400" title="Viene del informe 80 de MaxiRest: se corrige allá">solo lectura</span>
                   </div>
                   {!fact && <div className="mt-0.5 text-[12px] text-zinc-500">a {fmtComprobante(p.f.comprobante)} · {dmy(p.f.fecha)}</div>}
                   <div className="mt-0.5 text-[12.5px] text-zinc-600 dark:text-zinc-300">
@@ -413,6 +530,11 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
                   <div className="mt-0.5 text-[12.5px] text-[#0d6fa8]">Pagado por: <b>{p.f.pdv}</b></div>
                 </div>
               ))}
+              {fact?.deMas && (
+                <div className="mb-2.5 rounded-xl border-[1.5px] border-red-300 bg-red-50 px-3.5 py-2 text-[13px] text-red-700 dark:bg-red-950/40">
+                  ⚠ Pagada de más: entre MaxiRest y Lazarillo suman {fmtPesos(fact.pagado)} sobre {fmtPesos(fact.total)}. Revisá si un pago está cargado dos veces.
+                </div>
+              )}
               {fact && (fact.estado === "impaga" || fact.estado === "parcial") && (
                 <div className="mb-2.5 rounded-xl border-[1.5px] border-[#f0c179] px-3.5 py-2 text-[13px] text-[#e08900]">
                   Saldo pendiente de esta factura: <b>{fmtPesos(fact.total - fact.pagado)}</b>
@@ -430,10 +552,51 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
                     : "Nota de crédito."}
                 </div>
               )}
+              {aCuenta.length > 0 && (
+                <>
+                  <div className="mt-3 mb-1.5 text-[10.5px] font-bold uppercase tracking-wide text-zinc-500">Pagos a cuenta — crédito disponible</div>
+                  {aCuenta.map((p) => (
+                    <div key={p.id} className="mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-[#bfe6f6] bg-[#f0faff] dark:border-sky-900 dark:bg-sky-950/40 px-3.5 py-2.5 text-[13px]">
+                      <div className="min-w-0">
+                        <b>{numeroPago(p.id)}</b> · {dmy(p.fecha)} · {p.medio}{p.referencia && <span className="font-mono text-[11.5px]"> · ID {p.referencia}</span>}
+                        <div className="text-[12px] text-zinc-500">
+                          Pagado {fmtPesos(p.importe)} · usado {fmtPesos(p.importe - p.disponible)} · <b className="text-[#0e7490]">disponible {fmtPesos(p.disponible)}</b>
+                        </div>
+                      </div>
+                      <span className="ml-auto flex items-center gap-3 text-[11.5px] text-zinc-500">
+                        {elegidas.length > 0
+                          ? <button type="button" disabled={guardando} onClick={() => void aplicarACuenta(p)}
+                              className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-100">
+                              Aplicar a seleccionada{elegidas.length === 1 ? "" : "s"}
+                            </button>
+                          : <span>tildá facturas para aplicarlo</span>}
+                        {anulando === p.id
+                          ? <span className="text-red-600">¿Anular? <button type="button" onClick={() => void anular(p.id)} className="font-semibold underline">Sí</button> · <button type="button" onClick={() => setAnulando(null)} className="underline">No</button></span>
+                          : <button type="button" onClick={() => setAnulando(p.id)} className="underline-offset-2 hover:underline hover:text-red-600">anular</button>}
+                      </span>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           </div>
         </div>
       )}
+
+      {/* ===== barra de pago (etapa 4) ===== */}
+      {form && data?.modo === "facturas" && (() => {
+        const pe = form.tipo === "editar" ? pagosLzPorId.get(form.pagoId) : null;
+        const modo: ModoPagoProv | null = form.tipo === "facturas" ? (elegidas.length ? { tipo: "facturas", n: elegidas.length, saldo: saldoElegidas } : null)
+          : form.tipo === "cuenta" ? { tipo: "cuenta" }
+          : pe ? { tipo: "editar", pago: { id: pe.pagoId, fecha: pe.fecha, medio: pe.medio, referencia: pe.referencia, importe: pe.totalPago,
+              pdvPagaId: pdvs.find((x) => x.label === pe.pdvPaga)?.id ?? pdvs[0]?.id ?? 0 } } : null;
+        if (!modo) return null;
+        return (
+          <FormPagoProveedor key={form.tipo === "editar" ? `e${form.pagoId}` : form.tipo}
+            modo={modo} proveedor={data.proveedor} pdvs={pdvs} pdvDefault={elegidas[0]?.pdvId ?? fact?.pdvId ?? null}
+            aCuenta={aCuenta} guardando={guardando} onCancel={() => { if (form.tipo === "facturas") setTildadas(new Set()); setForm(null); }} onConfirm={confirmarPago} />
+        );
+      })()}
 
       {/* ===== pie: totales de lo que se ve ===== */}
       {data && (
@@ -447,9 +610,11 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
             <>
               <span className="text-[11.5px] text-zinc-500">{visiblesF.length} factura{visiblesF.length === 1 ? "" : "s"} · {etiquetaPeriodo}</span>
               <span className="ml-auto text-zinc-600 dark:text-zinc-300">Total <b className="tabular-nums text-zinc-900 dark:text-zinc-100">{fmtPesos(totF.total)}</b></span>
-              <span className="text-zinc-600 dark:text-zinc-300" title="MaxiRest no registra pagos a cuenta: se van a cargar desde el panel (etapa 4)">A cuenta <b className="text-zinc-400">—</b></span>
-              <span className="text-zinc-600 dark:text-zinc-300">
-                Saldo <b className={cn("tabular-nums", totF.saldo > 0.5 ? "text-[#c62828]" : "text-[#159457]")}>{fmtPesos(totF.saldo)}</b>
+              <span className="text-zinc-600 dark:text-zinc-300" title="Pagos cargados en Lazarillo que todavía no se aplicaron a facturas">
+                A cuenta <b className={disponibleACuenta > 0.004 ? "tabular-nums text-[#0e7490]" : "text-zinc-400"}>{disponibleACuenta > 0.004 ? fmtPesos(disponibleACuenta) : "—"}</b>
+              </span>
+              <span className="text-zinc-600 dark:text-zinc-300" title="Lo que se debe de las facturas que se ven, menos lo que hay a cuenta">
+                Saldo <b className={cn("tabular-nums", totF.saldo - disponibleACuenta > 0.5 ? "text-[#c62828]" : "text-[#159457]")}>{fmtPesos(Math.max(0, totF.saldo - disponibleACuenta))}</b>
               </span>
             </>
           )}

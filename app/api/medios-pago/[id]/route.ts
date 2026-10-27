@@ -32,6 +32,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     await tx.medioPago.update({ where: { id }, data: { nombre: b.nombre, tipo: b.tipo, pideId: b.pideId, activo: b.activo ?? actual.activo } });
     if (b.nombre !== actual.nombre) {
       await tx.pagoInterno.updateMany({ where: { medio: actual.nombre }, data: { medio: b.nombre } });
+      await tx.pagoProveedor.updateMany({ where: { medio: actual.nombre }, data: { medio: b.nombre } });
     }
   });
   return NextResponse.json({ ok: true });
@@ -45,7 +46,8 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   if (!id) return NextResponse.json({ error: "id inválido" }, { status: 400 });
   const actual = await prisma.medioPago.findUnique({ where: { id } });
   if (!actual) return NextResponse.json({ error: "Ese medio ya no existe." }, { status: 404 });
-  const usos = await prisma.pagoInterno.count({ where: { medio: actual.nombre } });
+  const usos = (await prisma.pagoInterno.count({ where: { medio: actual.nombre } }))
+    + (await prisma.pagoProveedor.count({ where: { medio: actual.nombre } }));
   if (usos > 0) {
     return NextResponse.json({ error: `Lo usan ${usos} pago${usos === 1 ? "" : "s"}: desactivalo en vez de borrarlo.` }, { status: 409 });
   }
