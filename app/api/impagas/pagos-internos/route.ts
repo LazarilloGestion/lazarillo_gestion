@@ -6,9 +6,10 @@ import { requireAuthUser } from "@/lib/auth/require-auth";
 import { registrarEvento } from "@/lib/impagas/eventos";
 import { impagasDesde, movimientosAperturaSql, type MovimientoSqlRow } from "@/lib/impagas/query";
 import {
-  MEDIOS_PAGO_INTERNO, imputarElegidos, imputarFifo, normalizarReferencia, numeroOP, redondear,
+  imputarElegidos, imputarFifo, normalizarReferencia, numeroOP, redondear,
 } from "@/lib/impagas/aperturas";
 import { fmtPesos } from "@/lib/impagas/clasificar";
+import { medioValido } from "@/lib/medios-pago/validar";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,8 @@ const bodySchema = z.object({
   pdvOrigenId: z.number().int().positive(),
   pdvDestinoId: z.number().int().positive(),
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  medio: z.enum(MEDIOS_PAGO_INTERNO).optional(),
+  // Uno de los medios activos del gestor de medios de pago.
+  medio: z.string().trim().min(1).max(40).optional(),
   referencia: z.string().max(200).optional().nullable(),
   // Pago libre (sin keys): importe; queda como OP sin imputar (todo a cuenta).
   importe: z.number().positive().optional(),
@@ -42,6 +44,9 @@ export async function POST(request: NextRequest) {
   if (b.pdvOrigenId === b.pdvDestinoId) return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
 
   if (b.usarOp !== undefined) return imputarConOp(b, usuario);
+  if (!(await medioValido(prisma, b.medio!))) {
+    return NextResponse.json({ error: "Ese medio de pago no existe o está desactivado." }, { status: 400 });
+  }
 
   // ID de la operación: opcional (Transferencia o Bancos); si viene, alfanumérico y sin repetir.
   let referencia: string | null = null;

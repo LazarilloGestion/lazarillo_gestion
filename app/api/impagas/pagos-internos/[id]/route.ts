@@ -4,7 +4,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, requireAuthUser } from "@/lib/auth/require-auth";
 import { aplicacionesOpSql, movimientosAperturaSql, type AplicacionOpSqlRow, type MovimientoSqlRow } from "@/lib/impagas/query";
-import { MEDIOS_PAGO_INTERNO, imputarElegidos, normalizarReferencia, redondear } from "@/lib/impagas/aperturas";
+import { imputarElegidos, normalizarReferencia, redondear } from "@/lib/impagas/aperturas";
+import { medioValido } from "@/lib/medios-pago/validar";
 import { fmtFecha, fmtPesos } from "@/lib/impagas/clasificar";
 import { registrarEvento } from "@/lib/impagas/eventos";
 
@@ -17,7 +18,7 @@ async function leerId(params: Promise<{ id: string }>) {
 
 const patchSchema = z.object({
   fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  medio: z.enum(MEDIOS_PAGO_INTERNO),
+  medio: z.string().trim().min(1).max(40),
   referencia: z.string().max(200).optional().nullable(),
   importe: z.number().positive(),
 });
@@ -39,6 +40,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     include: { aplicaciones: { select: { compraRowId: true } } },
   });
   if (!pago || pago.anuladoEn) return NextResponse.json({ error: "Esa orden de pago ya no existe o está anulada." }, { status: 404 });
+  if (!(await medioValido(prisma, b.medio, pago.medio))) {
+    return NextResponse.json({ error: "Ese medio de pago no existe o está desactivado." }, { status: 400 });
+  }
 
   let referencia: string | null = null;
   if (b.referencia?.trim()) {
