@@ -82,7 +82,31 @@ export function fuenteCompras(modo: ModoPanel | undefined, desde = impagasDesde(
       AND pg."fechaPago" IS NOT NULL AND pg.importe IS NOT NULL
     WHERE NOT b.es_gv
     UNION ALL
-    -- Sin pagos en el 80 pero cuentan en su fecha (NC, pago automático, antes de la cobertura).
+    -- Pagos cargados en Lazarillo (Etapa 4): una fila por imputación, por la parte que
+    -- cubre. El mismo pago que ya trae el 80 (importe ±1 peso, fecha ±10 días) no se repite.
+    SELECT ${COLS("b")},
+      COALESCE(b."importeManual", b.importe) * a.importe
+        / COALESCE(NULLIF((
+            SELECT MAX(x.total) FROM pagos x
+            WHERE x."puntoDeVentaId" = b.pdv_compra AND x.comprobante = b.comp AND x."codPro" = b.codigo
+          ), 0), NULLIF((
+            SELECT SUM(COALESCE(x."importeManual", x.importe)) FROM compras x
+            WHERE x."puntoDeVentaId" = b.pdv_compra AND x.comprobante = b.comp AND x.codigo = b.codigo
+          ), 0))  AS importe,
+      NULL::numeric AS "importeManual",
+      pp.fecha::timestamp(3) AS fecha, NULL::timestamp(3) AS "fechaManual",
+      ('lz:' || a.id)::text AS "pagoRef"
+    FROM base b
+    JOIN aplicaciones_pago_proveedor a ON a."pdvId" = b.pdv_compra AND a.comprobante = b.comp AND a."codPro" = b.codigo
+    JOIN pagos_proveedor pp ON pp.id = a."pagoId" AND pp."anuladoEn" IS NULL
+    WHERE NOT b.es_gv
+      AND NOT EXISTS (
+        SELECT 1 FROM pagos pg
+        WHERE pg."puntoDeVentaId" = b.pdv_compra AND pg.comprobante = b.comp AND pg."codPro" = b.codigo
+          AND pg."fechaPago" IS NOT NULL AND ABS(pg.importe - a.importe) <= 1 AND ABS(pg."fechaPago"::date - pp.fecha) <= 10
+      )
+    UNION ALL
+    -- Sin pagos en el 80 ni en Lazarillo pero cuentan en su fecha (NC, pago automático, antes de la cobertura).
     SELECT ${COLS("b")},
       b.importe, b."importeManual",
       b.fecha, b."fechaManual",
@@ -93,6 +117,10 @@ export function fuenteCompras(modo: ModoPanel | undefined, desde = impagasDesde(
         SELECT 1 FROM pagos pg
         WHERE pg."puntoDeVentaId" = b.pdv_compra AND pg.comprobante = b.comp AND pg."codPro" = b.codigo
           AND pg."fechaPago" IS NOT NULL AND pg.importe IS NOT NULL
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM aplicaciones_pago_proveedor a JOIN pagos_proveedor pp ON pp.id = a."pagoId" AND pp."anuladoEn" IS NULL
+        WHERE a."pdvId" = b.pdv_compra AND a.comprobante = b.comp AND a."codPro" = b.codigo
       )
       AND (UPPER(LEFT(b.comp, 1)) = 'N' OR b.auto OR COALESCE(b."fechaManual", b.fecha) < ${desde}::date)
   )`;

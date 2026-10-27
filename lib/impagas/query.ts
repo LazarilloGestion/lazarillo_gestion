@@ -37,6 +37,7 @@ export interface ImpagaSqlRow {
   forzada: boolean;
   conceptos: string | null;
   pagos: { fecha: string; importe: number; medio: string | null; orden: string | null }[] | null;
+  pagos_lz: { fecha: string; importe: number; medio: string; pagoId: number }[] | null; // pagos cargados en Lazarillo
 }
 
 // Un comprobante = (PDV, comprobante, código de proveedor): en el 14 una
@@ -88,6 +89,16 @@ export function impagasSql(pdvId: number, desde: string): Prisma.Sql {
       FROM pagos
       WHERE "puntoDeVentaId" = ${pdvId}
       GROUP BY comprobante, "codPro"
+    ),
+    -- Pagos cargados en Lazarillo (Etapa 4): el route los combina con los del 80.
+    lz AS (
+      SELECT a.comprobante, a."codPro",
+        JSON_AGG(JSON_BUILD_OBJECT('fecha', TO_CHAR(pp.fecha, 'YYYY-MM-DD'), 'importe', a.importe::float8, 'medio', pp.medio, 'pagoId', pp.id)
+          ORDER BY pp.fecha, pp.id) AS pagos_lz
+      FROM aplicaciones_pago_proveedor a
+      JOIN pagos_proveedor pp ON pp.id = a."pagoId" AND pp."anuladoEn" IS NULL
+      WHERE a."pdvId" = ${pdvId}
+      GROUP BY a.comprobante, a."codPro"
     )
     SELECT
       f.comprobante,
@@ -101,9 +112,11 @@ export function impagasSql(pdvId: number, desde: string): Prisma.Sql {
       f.pago_automatico,
       (fz.id IS NOT NULL)                              AS forzada,
       f.conceptos,
-      pg.pagos
+      pg.pagos,
+      lz.pagos_lz
     FROM f
     LEFT JOIN pg ON pg.comprobante = f.comprobante AND pg."codPro" = f.cod_pro
+    LEFT JOIN lz ON lz.comprobante = f.comprobante AND lz."codPro" = f.cod_pro
     LEFT JOIN impagas_forzadas fz
       ON fz."puntoDeVentaId" = ${pdvId} AND fz.comprobante = f.comprobante AND fz."codPro" = f.cod_pro
     WHERE ABS(COALESCE(pg.total80, f.total14) - COALESCE(pg.pagado, 0)) > 1

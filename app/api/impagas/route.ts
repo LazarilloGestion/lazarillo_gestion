@@ -7,6 +7,7 @@ import {
 } from "@/lib/impagas/query";
 import type { DeudaConPdv } from "@/lib/impagas/aperturas";
 import type { ComprobanteImpago, ImpagasResponse } from "@/lib/impagas/clasificar";
+import { combinarPagos } from "@/lib/pagos-proveedor/imputar";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,13 @@ export async function GET(request: NextRequest) {
       prisma.$queryRaw<MovimientoSqlRow[]>(movimientosAperturaSql(pdvId, desde)),
       prisma.$queryRaw<PagoInternoSqlRow[]>(pagosInternosSql(pdvId)),
     ]);
-    const data: ComprobanteImpago[] = rows.map((r) => ({
+    const data: ComprobanteImpago[] = rows.map((r) => {
+      // Pagos del 80 + los cargados en Lazarillo (el mismo pago en los dos lados cuenta una vez).
+      const total = Number(r.total);
+      const p80 = (r.pagos ?? []).map((x) => ({ fecha: x.fecha, importe: Number(x.importe) }));
+      const plz = r.pagos_lz ?? [];
+      const comb = combinarPagos(p80, plz.map((x) => ({ fecha: x.fecha, importe: Number(x.importe) })), total);
+      return {
       id: `${pdvId}|${r.comprobante}|${r.cod_pro}`,
       pdvId,
       comprobante: r.comprobante,
@@ -37,14 +44,18 @@ export async function GET(request: NextRequest) {
       proveedor: r.proveedor?.trim() || `Proveedor ${r.cod_pro}`,
       proveedorId: r.proveedor_id,
       fecha: r.fecha,
-      total: Number(r.total),
-      pagado: Number(r.pagado),
+      total,
+      pagado: comb.pagado,
       rubroOculto: r.rubro_oculto,
       pagoAutomatico: r.pago_automatico,
       forzada: r.forzada,
       conceptos: r.conceptos ?? "",
-      pagos: r.pagos ?? [],
-    }));
+      pagos: [
+        ...(r.pagos ?? []),
+        ...plz.filter((_, i) => !comb.conciliados.includes(i)).map((x) => ({ fecha: x.fecha, importe: Number(x.importe), medio: `${x.medio} · Lazarillo`, orden: null })),
+      ].sort((a, b) => a.fecha.localeCompare(b.fecha)),
+      };
+    }).filter((c) => Math.abs(c.total - c.pagado) > 1); // pagadas con pagos de Lazarillo: fuera
     const deudas = new Map<number, DeudaConPdv>();
     const deuda = (id: number) => {
       if (!deudas.has(id)) deudas.set(id, { pdvOrigenId: id, movimientos: [], pagos: [] });
