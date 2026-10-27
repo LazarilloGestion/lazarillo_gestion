@@ -21,6 +21,7 @@ import { useAnioRange } from "@/hooks/use-anio-range";
 import type { Local } from "@/lib/types/domain";
 import { autoSeleccion } from "@/lib/dashboard/auto-seleccion";
 import { ImpagasBoton } from "@/components/impagas/impagas-boton";
+import { CargarFactura } from "@/components/facturas/cargar-factura";
 
 const PALETTE_PARAM_LABELS: Record<string, string> = {
   rubroCodigo:      "Rubro",
@@ -181,6 +182,8 @@ export function DashboardFilters() {
 
         {!isVentas && (
           <div className="flex items-center gap-2 ml-auto shrink-0">
+            {/* "Cargar Gastos" a la izquierda de Impagas (Diego, 27/10/2026). */}
+            <CargarFactura />
             <ImpagasBoton locales={locales} pdvId={pdvId} />
             {!isMobile && <RubrosConfigModal {...rubrosConfigProps} />}
             <button

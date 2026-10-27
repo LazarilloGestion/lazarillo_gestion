@@ -7,7 +7,7 @@ import { fmtMillones, separar, sumaSaldos, type ImpagasResponse } from "@/lib/im
 import type { Local } from "@/lib/types/domain";
 import { ImpagasModal, impagasQueryKey, leerDesde, resumenDeuda, type OpcionPdv } from "./impagas-modal";
 
-// Botón del panel "● Impagas: N · $X M" — cuenta las del PDV elegido en el panel
+// Botón del panel "● Impagas · $X M" (sin la cantidad: Diego, 27/10/2026) — cuenta las del PDV elegido en el panel
 // y abre el listado filtrado en ese PDV (se puede cambiar adentro).
 export function ImpagasBoton({ locales, pdvId }: { locales: Local[]; pdvId: number | undefined }) {
   const [open, setOpen] = useState(false);
@@ -47,7 +47,7 @@ export function ImpagasBoton({ locales, pdvId }: { locales: Local[]; pdvId: numb
         )}
       >
         <span className={cn("h-2 w-2 rounded-full", resumen?.n ? "bg-red-500" : "bg-zinc-300")} />
-        {resumen ? `Impagas: ${resumen.n} · ${fmtMillones(resumen.saldo)}` : "Impagas"}
+        {resumen ? `Impagas · ${fmtMillones(resumen.saldo)}` : "Impagas"}
       </button>
       <ImpagasModal open={open} onClose={() => { setOpen(false); setLeido((n) => n + 1); }} pdvs={pdvs} pdvInicial={pdvId} />
     </>
