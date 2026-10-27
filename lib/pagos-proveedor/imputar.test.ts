@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { combinarPagos, imputarFacturas } from "./imputar";
+import { combinarPagos, imputarFacturas, recortarAplicaciones } from "./imputar";
+
+describe("recortarAplicaciones", () => {
+  const apl = [{ id: 1, fecha: "2026-10-01", importe: 147621.46 }, { id: 2, fecha: "2026-10-09", importe: 410879.14 }];
+  it("si alcanza, no toca nada", () => {
+    expect(recortarAplicaciones(apl, 600000)).toEqual([{ id: 1, importe: 147621.46 }, { id: 2, importe: 410879.14 }]);
+  });
+  it("si no alcanza, suelta primero lo de la factura más nueva", () => {
+    expect(recortarAplicaciones(apl, 500000)).toEqual([{ id: 1, importe: 147621.46 }, { id: 2, importe: 352378.54 }]);
+    expect(recortarAplicaciones(apl, 100000)).toEqual([{ id: 1, importe: 100000 }, { id: 2, importe: 0 }]);
+  });
+});
 
 describe("combinarPagos", () => {
   const p = (fecha: string, importe: number) => ({ fecha, importe });

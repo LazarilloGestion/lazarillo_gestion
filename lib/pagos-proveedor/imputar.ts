@@ -53,5 +53,19 @@ export function imputarFacturas(facturas: FacturaAImputar[], importe?: number): 
   return { aplicaciones, sobrante: Math.max(0, resto) };
 }
 
+// Bajar el importe de un pago: si ya no alcanza para lo imputado, se suelta lo de las
+// facturas más nuevas primero (la más vieja queda pagada). Devuelve cómo queda cada imputación.
+export function recortarAplicaciones<T extends { id: number; fecha: string; importe: number }>(apl: T[], importe: number): { id: number; importe: number }[] {
+  let sobra = r2(apl.reduce((s, a) => s + a.importe, 0) - importe);
+  const res = new Map(apl.map((a) => [a.id, a.importe]));
+  for (const a of [...apl].sort((x, y) => y.fecha.localeCompare(x.fecha) || y.id - x.id)) {
+    if (sobra <= 0.004) break;
+    const x = r2(Math.min(sobra, a.importe));
+    res.set(a.id, r2(a.importe - x));
+    sobra = r2(sobra - x);
+  }
+  return [...res.entries()].map(([id, imp]) => ({ id, importe: imp }));
+}
+
 export const numeroPago = (id: number) => `Pago Nº ${id}`;
 export const claveFactura = (pdvId: number, comprobante: string) => `${pdvId}|${comprobante}`;

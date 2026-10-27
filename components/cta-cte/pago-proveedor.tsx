@@ -70,7 +70,8 @@ export function FormPagoProveedor({ modo, proveedor, pdvs, pdvDefault, aCuenta, 
       if (pdvPaga == null) { setError("Elegí qué PDV paga."); return; }
       let ref: string | null = null;
       if (conId && referencia.trim()) { ref = normalizarReferencia(referencia); if (!ref) { setError("El ID tiene que ser de letras y números."); return; } }
-      const err = await onConfirm({ fecha, medio, referencia: ref, pdvPagaId: pdvPaga });
+      if (!(valor > 0)) { setError("Cargá un importe."); return; }
+      const err = await onConfirm({ fecha, medio, referencia: ref, pdvPagaId: pdvPaga, importe: valor });
       if (err) setError(err);
       return;
     }
@@ -94,7 +95,10 @@ export function FormPagoProveedor({ modo, proveedor, pdvs, pdvDefault, aCuenta, 
   const titulo = modo.tipo === "facturas" ? `Pagar ${modo.n} factura${modo.n === 1 ? "" : "s"} · ${proveedor}`
     : modo.tipo === "cuenta" ? `Pago a cuenta · ${proveedor}` : `Editar ${numeroPago(modo.pago.id)}`;
   const excedente = modo.tipo === "facturas" && !usado ? valor - modo.saldo : 0;
-  const ayuda = editando ? "Fecha, medio, ID y PDV que paga. Para cambiar el importe, anulá el pago y cargalo de nuevo."
+  const ayuda = editando
+    ? (valor > modo.pago.importe + 0.005 ? `Lo que sumás (${fmtPesos(valor - modo.pago.importe)}) queda a cuenta de ${proveedor}.`
+      : valor < modo.pago.importe - 0.005 ? "Si no alcanza para lo que ya pagó, se suelta primero lo de las facturas más nuevas (quedan parciales o impagas)."
+      : "Fecha, medio, ID, PDV que paga e importe.")
     : usado ? `No crea un pago nuevo: se aplica el disponible de ${numeroPago(usado.id)}, de la factura más vieja a la más nueva.`
     : modo.tipo === "cuenta" ? `Queda a cuenta de ${proveedor}. Después lo aplicás tildando facturas.`
     : excedente > 0.5 ? `Salda las facturas tildadas y ${fmtPesos(excedente)} quedan a cuenta de ${proveedor}.`
@@ -111,7 +115,7 @@ export function FormPagoProveedor({ modo, proveedor, pdvs, pdvDefault, aCuenta, 
           </div>
           <div className="grid w-fit grid-cols-[auto_auto_auto] items-center gap-x-5 gap-y-2 text-sm">
             <label className="flex items-center gap-1.5"><span className={etiqueta}>Importe</span>
-              <ImporteInput value={importe} onChange={setImporte} readOnly={editando} className={cn(input, "w-40 text-right tabular-nums", editando && "opacity-60")} />
+              <ImporteInput value={importe} onChange={setImporte} className={cn(input, "w-40 text-right tabular-nums")} />
             </label>
             <label className="flex items-center gap-1.5"><span className={etiqueta}>Medio</span>
               <select value={medio} onChange={(e) => cambiarMedio(e.target.value)} className={cn(input, "w-56")}>
