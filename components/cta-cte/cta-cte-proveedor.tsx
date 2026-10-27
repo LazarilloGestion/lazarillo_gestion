@@ -135,7 +135,7 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
   const esMovs = !!(origen.nombre && origen.pdvId);
   const { data, isLoading, isError } = useFetchQuery<CtaCteResp>(["cta-cte", origen.codPro, origen.pdvId ?? null, origen.nombre ?? null], urlDe(origen));
   const [sel, setSel] = useState<string | null>(resaltado ? claveF(resaltado) : null);
-  const [verFact, setVerFact] = useState<{ rowId: string; detalle: string } | null>(null);
+  const [verFact, setVerFact] = useState<{ rowId: string; detalle: string; repetir?: boolean } | null>(null);
   const [per, setPer] = useState<Periodo>("hist");
   const hoy = new Date();
   const [mes, setMes] = useState(hoy.getMonth());
@@ -385,7 +385,11 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
                 {/* Ver la factura con el formato de la carga (y editarla / eliminarla si es de Lazarillo). */}
                 {fact?.rowId && <button type="button" onClick={() => setVerFact({ rowId: fact.rowId!, detalle: fmtComprobante(fact.comprobante) })}
                   className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800">Ver / editar {fmtComprobante(fact.comprobante)}</button>}
-                <Gris><button type="button" disabled className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold">⟳ Repetir</button></Gris>
+                {fact?.rowId
+                  ? <button type="button" onClick={() => setVerFact({ rowId: fact.rowId!, detalle: fmtComprobante(fact.comprobante), repetir: true })}
+                      title="Cargar una factura nueva con la estructura de esta"
+                      className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800">⟳ Repetir</button>
+                  : <Gris><button type="button" disabled className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold">⟳ Repetir</button></Gris>}
                 <Gris><button type="button" disabled className="rounded-lg bg-zinc-900 px-4 py-1.5 text-[13px] font-semibold text-white">+ Cargar pago</button></Gris>
               </span>
             </div>
@@ -452,7 +456,7 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
         </div>
       )}
 
-      {verFact && <VerFactura rowId={verFact.rowId} detalle={verFact.detalle} onClose={() => setVerFact(null)} />}
+      {verFact && <VerFactura rowId={verFact.rowId} detalle={verFact.detalle} vistaInicial={verFact.repetir ? "repetir" : "ver"} onClose={() => setVerFact(null)} />}
       {opMx && (
         <OpMaxirestModal pdvId={opMx.pdvId} orden={opMx.orden} fecha={opMx.fecha}
           onCambiar={(fecha) => setOpMx({ ...opMx, fecha })} onCerrar={() => setOpMx(null)} />
