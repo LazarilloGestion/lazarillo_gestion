@@ -298,7 +298,7 @@ export function edeDesdeFactura(rowId, f, { maestros, pdvsRef }) {
 /** @param {any} props */
 function ModalNuevaCarga(props) {
   const { ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCerrar, onGuardado,
-    vista = "nueva", editRowId = null, editable = false, aviso = null, onEditar, onEliminado, embebido = false } = props;
+    vista = "nueva", editRowId = null, editable = false, aviso = null, onEditar, onEliminado, onRepetir, embebido = false } = props;
   const soloVer = vista === "ver";
   // ── Adaptación a datos reales (lo único que cambia respecto del prototipo v136) ──
   const HOY = hoyISO();
@@ -355,7 +355,7 @@ function ModalNuevaCarga(props) {
   // Insumo: el total neto de la línea (lo que dice la factura) manda si está; si no, cant × unitario.
   const netoDe = (l) => l.tipo === "insumo" ? (l.ntot !== undefined && l.ntot !== "" ? parseImp(l.ntot) : (parseFloat(l.cant) || 0) * parseImp(l.unit)) : parseImp(l.neto);
   const [percepciones, setPercepciones] = useState(((rde || ede) ? ((rde || ede).percepciones || []) : []).map((p) => ({ ...p })));
-  const [impIntG, setImpIntG] = useState(ede && ede.impInt > 0 && !(ede.lineas || []).some((l) => parseImp(l.impint) > 0) ? fmtNum(ede.impInt) : "");
+  const [impIntG, setImpIntG] = useState(() => { const b = ede || rde; return b && b.impInt > 0 && !(b.lineas || []).some((l) => parseImp(l.impint) > 0) ? fmtNum(b.impInt) : ""; });
   const [leida, setLeida] = useState(false);
   const [existente, setExistente] = useState(!!ede);
   const [editId, setEditId] = useState(ede ? ede.id : null);
@@ -400,7 +400,27 @@ function ModalNuevaCarga(props) {
     return null;
   };
   const setLinea = (i, campo, v) => setLineas((ls) => ls.map((l, ix) => ix === i ? { ...l, [campo]: v } : l));
-  const ultConLineas = () => null; // "Precargar esa estructura": va con Repetir (próximo paso)
+  // "Precargar esa estructura" (Repetir): la última factura de este proveedor en el local,
+  // de MaxiRest o de Lazarillo, con el mismo formato del modal (Diego, 27/10/2026).
+  const [ultFact, setUltFact] = useState(null);
+  useEffect(() => {
+    setUltFact(null);
+    if (vista !== "nueva" || rde) return;
+    const p = proveedores.find((x) => x.nombre === prov);
+    const pdvSel = pdvsRef.find((x) => x.nombre === (pdvActual || PDVS[0]));
+    if (!p || !pdvSel) return;
+    let vivo = true;
+    fetch(`/api/facturas/ultima?proveedorId=${p.id}&localId=${pdvSel.localId}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!vivo || !d || !d.ultima) return;
+        const e = edeDesdeFactura(d.ultima.rowId, d.ultima.factura, { maestros, pdvsRef });
+        setUltFact({ ...e, importe: d.ultima.totalFilas });
+      })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [prov]);
+  const ultConLineas = () => ultFact;
   const cuerpoVisible = existente || !!origenPre || !!(prov && tipoCpb && compNum && fecha);
   useEffect(() => {
     if (modo === "factura" && cuerpoVisible && lineas.length === 0 && !existente)
@@ -842,6 +862,7 @@ function ModalNuevaCarga(props) {
         {soloVer ? (
           <div style={{ display: "flex", gap: 10, marginTop: 16, alignItems: "center" }}>
             {editable && <button style={btn(true)} onClick={onEditar}>Editar</button>}
+            {onRepetir && <button style={btn(false)} onClick={onRepetir} title="Cargar una factura nueva con esta misma estructura">⟳ Repetir</button>}
             <button style={btn(false)} onClick={onCerrar}>Cerrar</button>
             {editable && <span style={{ marginLeft: "auto" }}>{borrando ? <span style={{ fontSize: 12, color: C.gris }}>Eliminando…</span>
               : <BtnEliminar onConfirmar={eliminar} style={{ fontSize: 13, color: C.rojo }} />}</span>}

@@ -22,8 +22,11 @@ const fecha = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("es-AR")
 // Ver una factura con el mismo formato de la carga (Etapa 4, punto 3): desde ahí,
 // si es de Lazarillo, Editar o Eliminar. Si la fila no es una factura (gasto
 // vario, sueldo) queda el detalle de líneas de siempre.
-export function VerFactura({ rowId, detalle, onClose }: { rowId: string | null; detalle: string | null; onClose: () => void }) {
-  const [vista, setVista] = useState<"ver" | "editar">("ver");
+// vistaInicial "repetir": abre directo la carga de una factura NUEVA con esta estructura.
+export function VerFactura({ rowId, detalle, onClose, vistaInicial = "ver" }: {
+  rowId: string | null; detalle: string | null; onClose: () => void; vistaInicial?: "ver" | "repetir";
+}) {
+  const [vista, setVista] = useState<"ver" | "editar" | "repetir">(vistaInicial);
   const queryClient = useQueryClient();
   const { data, isLoading } = useFetchQuery<Respuesta>(["factura", rowId], rowId ? `/api/facturas/${rowId}` : null);
   const fa = data && !data.noEsFactura ? data : null;
@@ -34,7 +37,8 @@ export function VerFactura({ rowId, detalle, onClose }: { rowId: string | null; 
   if (!rowId) return null;
   if (data?.noEsFactura) return <CompraLineasModal compraId={rowId} comprobante={detalle} onClose={onClose} />;
 
-  const cerrar = () => { setVista("ver"); onClose(); };
+  const cerrar = () => { setVista(vistaInicial); onClose(); };
+  const ede = fa && maestros ? edeDesdeFactura(fa.rowId, fa.factura, { maestros, pdvsRef }) : null;
   const aviso = !fa ? null
     : fa.origen === "maxirest"
       ? `Cargada desde MaxiRest: se ve con el formato de la carga, pero se modifica en MaxiRest.${fa.estimado ? " Sin detalle de insumos (informe 25): el neto y el IVA se estiman al 21% sobre el importe." : ""}`
@@ -47,12 +51,29 @@ export function VerFactura({ rowId, detalle, onClose }: { rowId: string | null; 
         <DialogTitle className="sr-only">{detalle ?? "Factura"}</DialogTitle>
         {isLoading || !fa || !maestros ? (
           <div className="flex items-center justify-center py-16"><Spinner size="lg" /></div>
+        ) : vista === "repetir" ? (
+          <ModalNuevaCarga
+            key="repetir"
+            embebido
+            vista="nueva"
+            ctx={{ repetirDe: ede }}
+            maestros={maestros}
+            pdvsRef={pdvsRef}
+            pdvActual={pdvActual}
+            reglaDe={reglaDe}
+            onCerrar={vistaInicial === "repetir" ? cerrar : () => setVista("ver")}
+            onGuardado={(d: { comprobante: string; total: number }) => {
+              toast.success("Factura cargada", { description: `${d.comprobante} · $ ${d.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}` });
+              refrescarCompras(queryClient);
+              cerrar();
+            }}
+          />
         ) : (
           <ModalNuevaCarga
             key={vista}
             embebido
             vista={vista}
-            ctx={{ editarDe: edeDesdeFactura(fa.rowId, fa.factura, { maestros, pdvsRef }) }}
+            ctx={{ editarDe: ede }}
             editRowId={fa.rowId}
             editable={fa.editable}
             aviso={aviso}
@@ -61,6 +82,7 @@ export function VerFactura({ rowId, detalle, onClose }: { rowId: string | null; 
             pdvActual={pdvActual}
             reglaDe={reglaDe}
             onEditar={() => setVista("editar")}
+            onRepetir={() => setVista("repetir")}
             onCerrar={vista === "editar" ? () => setVista("ver") : cerrar}
             onGuardado={(d: { comprobante: string; total: number }) => {
               toast.success("Factura modificada", { description: `${d.comprobante} · $ ${d.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}` });
