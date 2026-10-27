@@ -127,3 +127,32 @@ export async function leerConceptos(esquema: string): Promise<ConceptoMaestro[]>
     }));
   });
 }
+
+// Maestro de insumos de MaxiRest (m0): cada insumo con su rubro y el concepto de
+// caja de ese rubro (en MaxiRest cada rubro de insumo tiene uno; 0 = sin concepto).
+export type InsumoMaestro = { codigo: string; nombre: string; medida: string | null; rubro: string | null; codCga: string | null; precio: number | null; discontinuado: boolean };
+
+export async function leerInsumos(esquema: string): Promise<InsumoMaestro[]> {
+  return conRender(async (c) => {
+    const { rows } = await c.query<{ codigo: string | null; nombre: string | null; unidad_med: string | null; rubro: string | null; cod_cga: string | null; precio: string | null; discontinuado: string | null }>(
+      `SELECT codigo, nombre, unidad_med, rubro, cod_cga, precio, discontinuado FROM ${ident(esquema)}.m0_listado_de_insumos_con_discontinuados`
+    );
+    return rows.flatMap((r) => {
+      const cod = Number(r.codigo);
+      const nombre = (r.nombre ?? "").trim();
+      if (!Number.isFinite(cod) || !nombre) return [];
+      const cga = Number(r.cod_cga);
+      const precio = Number(r.precio);
+      const disc = String(r.discontinuado ?? "").trim().toUpperCase();
+      return [{
+        codigo: String(cod),
+        nombre,
+        medida: r.unidad_med?.trim() || null,
+        rubro: r.rubro?.trim() || null,
+        codCga: Number.isFinite(cga) && cga > 0 ? String(cga) : null,
+        precio: Number.isFinite(precio) && precio > 0 ? precio : null,
+        discontinuado: disc === "S" || disc === "SI" || disc === "1" || disc === "TRUE",
+      }];
+    });
+  });
+}

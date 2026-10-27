@@ -58,12 +58,18 @@ const Imp = ({ v, sufijo = "", strong, max = 16 }) => {
   );
 };
 // Grilla de registros del modal de carga: nombre flexible (se lee completo), importes en px fijos
-const GRID_LIN = "minmax(0, 1fr) 78px 124px 130px 54px 124px 140px 50px";
+const GRID_LIN = "minmax(0, 1fr) 78px 124px 130px 76px 124px 140px 50px";
 const dmy = (iso) => { const [a, m, d] = iso.split("-"); return `${d}/${m}/${a.slice(2)}`; };
 const C = { neg: "#111", gris: "#8a8a8a", verde: "#159457", nar: "#e08900", rojo: "#c62828", cel: "#0d6fa8", borde: "#e8e8e6", fondo: "#f6f6f4" };
 const card = { background: "#fff", borderRadius: 14, border: `1px solid ${C.borde}` };
 const btn = (dark) => ({ padding: "9px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 600, cursor: "pointer", border: dark ? "none" : `1px solid ${C.borde}`, background: dark ? "#111" : "#fff", color: dark ? "#fff" : "#333" });
-const inp = { padding: "8px 10px", borderRadius: 9, border: "1px solid #ccc", fontSize: 13.5, width: "100%", boxSizing: "border-box", background: "#fff" };
+const inp = { padding: "8px 10px", borderRadius: 9, border: "1px solid #ccc", fontSize: 13.5, width: "100%", height: 38, boxSizing: "border-box", background: "#fff" };
+// Desplegables con el mismo alto, borde y flecha que los campos (el select nativo de Mac
+// ignora el padding y quedaba más bajo y desalineado — FALLA de Diego, 27/10/2026).
+const FLECHA = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E\")";
+const sel = { ...inp, appearance: "none", WebkitAppearance: "none", MozAppearance: "none", backgroundImage: FLECHA, backgroundRepeat: "no-repeat", backgroundPosition: "right 9px center", paddingRight: 24, cursor: "pointer" };
+// Fila de abajo de cada registro (concepto de caja, PDV, imp. internos): todo a 32px.
+const chico = { height: 32, fontSize: 12.5, padding: "5px 8px" };
 const lab = { fontSize: 11.5, fontWeight: 700, color: C.gris, textTransform: "uppercase", letterSpacing: 0.4, display: "block", marginBottom: 4 };
 const soloNum = (v) => v.replace(/[^0-9.,]/g, "").replace(/,/g, ".");
 const fechaValida = (s) => {
@@ -205,7 +211,7 @@ function Chev({ abierto }) {
     borderTop: abierto ? "6px solid #888" : "5px solid transparent", borderBottom: abierto ? "none" : "5px solid transparent" }} />;
 }
 
-function Combo({ opciones, valor, onElegir, placeholder, onCrear, ancho, autoFocus }) {
+function Combo({ opciones, valor, onElegir, placeholder, onCrear, ancho, autoFocus, estilo }) {
   const [texto, setTexto] = useState(valor || "");
   const [abierto, setAbierto] = useState(false);
   useEffect(() => { setTexto(valor || ""); }, [valor]);
@@ -225,7 +231,7 @@ function Combo({ opciones, valor, onElegir, placeholder, onCrear, ancho, autoFoc
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2.6" strokeLinecap="round"
         style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
         <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
-      <input ref={inputRef} style={{ ...inp, paddingLeft: 27 }} value={texto} placeholder={placeholder} autoFocus={autoFocus}
+      <input ref={inputRef} style={{ ...inp, ...estilo, paddingLeft: 27 }} value={texto} placeholder={placeholder} autoFocus={autoFocus}
         onChange={(e) => { setTexto(e.target.value); setAbierto(true); }}
         onKeyDown={(e) => { if (e.key === "Enter" && abierto && filtradas[0]) { setTexto(filtradas[0]); setAbierto(false); onElegir(filtradas[0]); } }}
         onFocus={() => setAbierto(true)}
@@ -267,6 +273,7 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
   // Regla de apertura por concepto (la que el Panel ya usa) como reparto precargado con la marca REGLA.
   const reglaDeItem = (l, item) => reglaDe(codConcepto(l.tipo === "insumo" ? conceptoDeInsumo(item) || l.conc : item), PDVS);
   const [guardando, setGuardando] = useState(false);
+  const [futuraOk, setFuturaOk] = useState(""); // fecha futura ya confirmada con un segundo Guardar
   const agregarRef = useRef(null);
   const [errFecha, setErrFecha] = useState(false);
   const [errores, setErrores] = useState([]);
@@ -332,6 +339,15 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
   const totalFactura = netoTotal + ivaTotal + percTotal + impIntTotal;
   const total = modo === "factura" ? totalFactura : parseImp(importeV);
 
+  // Un registro se puede confirmar con producto, importe, reparto que sume 100% y —si es
+  // insumo— concepto de caja (antes dejaba seguir sin concepto: FALLA de Diego, 27/10/2026).
+  const faltaDe = (l) => {
+    if (!l.item) return "Elegí el concepto o insumo";
+    if (!(netoDe(l) > 0)) return "Poné el importe";
+    if (l.tipo === "insumo" && !codConcepto(l.conc)) return "Elegí el concepto de caja del insumo";
+    if (l.reparto && Math.abs(l.reparto.reduce((a, x) => a + (parseFloat(x.pct) || 0), 0) - 100) >= 0.01) return "El reparto por PDV tiene que sumar 100%";
+    return null;
+  };
   const setLinea = (i, campo, v) => setLineas((ls) => ls.map((l, ix) => ix === i ? { ...l, [campo]: v } : l));
   const ultConLineas = () => null; // "Precargar esa estructura": va con Repetir (próximo paso)
   const cuerpoVisible = existente || !!origenPre || !!(prov && tipoCpb && compNum && fecha);
@@ -386,6 +402,11 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
       if (total <= 0) faltan.push("Poné el importe del gasto.");
     }
     if (yaCargada) faltan.push("Esta factura ya está cargada: no se vuelve a cargar.");
+    // Fecha posterior a hoy: casi siempre es un error de tipeo (pasó con un ticket guardado en noviembre).
+    if (fechaValida(fAct) && fAct > HOY && futuraOk !== fAct) {
+      faltan.push(`La fecha de factura (${dmy4(fAct)}) es posterior a hoy. Revisala; si está bien, tocá Guardar de nuevo.`);
+      setFuturaOk(fAct);
+    }
     const sinConc = lineas.filter((l) => l.tipo === "insumo" && l.item && !codConcepto(l.conc || conceptoDeInsumo(l.item)));
     if (sinConc.length) faltan.push(`Elegí el concepto de caja de: ${sinConc.map((l) => l.item).join(", ")}.`);
     if (lineas.some((l) => l.editando && l.item && netoDe(l) > 0)) setLineas((ls) => ls.map((x) => ({ ...x, editando: false })));
@@ -454,7 +475,7 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
                 <Combo opciones={proveedores.map((p) => p.nombre)} valor={prov} placeholder="Buscar proveedor..." autoFocus
                   onElegir={setProv} /></div>
               <div><span style={lab}>Tipo</span>
-                <select ref={tipoRef} style={inp} value={tipoCpb} onChange={(e) => setTipoCpb(e.target.value)}>
+                <select ref={tipoRef} style={sel} value={tipoCpb} onChange={(e) => setTipoCpb(e.target.value)}>
                   <option value="">Elegir…</option>
                   {TIPOS_CPB.map((t) => <option key={t}>{t}</option>)}
                 </select></div>
@@ -617,14 +638,14 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
                               setLineas((ls) => ls.map((x, ix) => ix === i ? { ...x, ntot, unit: c > 0 && t > 0 ? fmtNum(t / c) : x.unit } : x));
                             }} />
                         : <input style={{ ...inp, padding: "8px 6px", textAlign: "center" }} placeholder="Neto $" value={l.neto} title={l.neto ? "$ " + l.neto : undefined} onChange={(e) => setLinea(i, "neto", fmtImp(e.target.value))} />}
-                      <select style={inp} value={l.alic} onChange={(e) => setLinea(i, "alic", parseFloat(e.target.value))}>
+                      <select style={{ ...sel, padding: "8px 20px 8px 8px", backgroundPosition: "right 7px center" }} value={l.alic} onChange={(e) => setLinea(i, "alic", parseFloat(e.target.value))}>
                         {ALICUOTAS.map((a) => <option key={a} value={a}>{a}%</option>)}
                       </select>
                       <span style={{ fontSize: 12.5, color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}>{neto > 0 ? (esIns ? <Imp v={ivaUnit} sufijo=" /u" max={17} /> : <Imp v={ivaLinea} max={17} />) : ""}</span>
                       <span style={{ fontSize: 12.5, textAlign: "center", minWidth: 0, overflow: "hidden" }}>{neto > 0 ? <Imp v={neto + ivaLinea + parseImp(l.impint)} strong max={17} /> : ""}</span>
                       <span style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-                        <button type="button" onClick={() => { if (l.item && neto > 0 && repartoOk) { setLinea(i, "editando", false); setTimeout(() => agregarRef.current && agregarRef.current.focus(), 40); } }} title={repartoOk ? "Confirmar (Enter)" : "El reparto por PDV tiene que sumar 100%"}
-                          style={{ cursor: "pointer", fontWeight: 700, color: l.item && neto > 0 && repartoOk ? C.verde : "#ccc", fontSize: 16, background: "none", border: "none", padding: 0 }}>✓</button>
+                        <button type="button" onClick={() => { if (!faltaDe(l)) { setLinea(i, "editando", false); setTimeout(() => agregarRef.current && agregarRef.current.focus(), 40); } }} title={faltaDe(l) || "Confirmar (Enter)"}
+                          style={{ cursor: "pointer", fontWeight: 700, color: !faltaDe(l) ? C.verde : "#ccc", fontSize: 16, background: "none", border: "none", padding: 0 }}>✓</button>
                         <button type="button" onClick={() => setLineas((ls) => ls.filter((_, ix) => ix !== i))} title="Eliminar" style={{ cursor: "pointer", color: C.gris, background: "none", border: "none", padding: 0, fontSize: 14 }}>×</button>
                       </span>
                     </div>
@@ -632,16 +653,17 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
                       {esIns && (
                         <>
                           <span style={{ color: C.gris, fontWeight: 700, fontSize: 10.5 }}>CONCEPTO DE CAJA</span>
-                          <select style={{ ...inp, width: 185, padding: "5px 8px", fontSize: 12.5 }} value={l.conc}
-                            onChange={(e) => setLinea(i, "conc", e.target.value)}>
-                            <option value="">—</option>
-                            {conceptosDe(null).map((c) => <option key={c}>{c}</option>)}
-                          </select>
+                          <Combo opciones={conceptosDe(null)} valor={l.conc} placeholder="Buscar concepto..." ancho={230} estilo={{ ...chico, border: l.conc ? inp.border : `1.6px solid ${C.nar}` }}
+                            onElegir={(v) => {
+                              // cambia el concepto: el reparto precargado pasa a ser el de la regla del concepto nuevo
+                              const regla = reglaDe(codConcepto(v), PDVS);
+                              setLineas((ls) => ls.map((x, ix) => ix !== i ? x : { ...x, conc: v, reparto: regla ? regla.map((r) => ({ ...r })) : (x.reparto && !reglaDeItem(x, x.item) ? x.reparto : undefined) }));
+                            }} />
                         </>
                       )}
                       <span style={{ color: C.gris, fontWeight: 700, fontSize: 10.5, marginLeft: esIns ? 8 : 0 }}>PDV DEL REGISTRO</span>
                       {!l.reparto ? (<>
-                        <select style={{ ...inp, width: 200, padding: "5px 8px", fontSize: 12.5 }} value={l.pdvDest || pdvActual || PDVS[0]}
+                        <select style={{ ...sel, ...chico, width: 200, paddingRight: 24 }} value={l.pdvDest || pdvActual || PDVS[0]}
                           onChange={(e) => setLinea(i, "pdvDest", e.target.value)}>
                           {PDVS.map((p) => <option key={p}>{p}</option>)}
                         </select>
@@ -656,11 +678,11 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", border: `1px solid ${ok ? "#bfe0f0" : "#f0c179"}`, background: ok ? "#f3fafd" : "#fdf8ef", borderRadius: 9, padding: "4px 8px" }}>
                             {l.reparto.map((r, k) => (
                               <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-                                <select style={{ ...inp, width: 160, padding: "3px 6px", fontSize: 12 }} value={r.pdv}
+                                <select style={{ ...sel, width: 160, height: 28, padding: "3px 22px 3px 6px", fontSize: 12 }} value={r.pdv}
                                   onChange={(e) => setLinea(i, "reparto", l.reparto.map((x, kx) => kx === k ? { ...x, pdv: e.target.value } : x))}>
                                   {PDVS.map((p) => <option key={p}>{p}</option>)}
                                 </select>
-                                <input style={{ ...inp, width: 54, padding: "3px 4px", fontSize: 12, textAlign: "center" }} value={r.pct}
+                                <input style={{ ...inp, width: 54, height: 28, padding: "3px 4px", fontSize: 12, textAlign: "center" }} value={r.pct}
                                   onChange={(e) => setLinea(i, "reparto", l.reparto.map((x, kx) => kx === k ? { ...x, pct: soloNum(e.target.value) } : x))} />
                                 <span style={{ fontSize: 11, color: "#777" }}>%</span>
                                 {l.reparto.length > 2 && <span onClick={() => setLinea(i, "reparto", l.reparto.filter((_, kx) => kx !== k))} style={{ cursor: "pointer", color: C.gris, fontSize: 13 }}>×</span>}
@@ -674,7 +696,7 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
                         );
                       })()}
                       <span style={{ color: C.gris, fontWeight: 700, fontSize: 10.5, marginLeft: 8 }}>IMP. INTERNOS $</span>
-                      <input style={{ ...inp, width: 110, padding: "5px 8px", fontSize: 12.5, textAlign: "center" }} placeholder="0"
+                      <input style={{ ...inp, ...chico, width: 110, textAlign: "center" }} placeholder="0"
                         value={l.impint || ""} onChange={(e) => setLinea(i, "impint", fmtImp(e.target.value))} title="Impuesto interno de este registro (opcional)" />
                     </div>
                   </div>
@@ -682,10 +704,11 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
               })}
               {(() => {
                 const enEd = lineas.find((l) => l.editando);
-                const confirmable = !enEd || !!(enEd.item && netoDe(enEd) > 0 && (!enEd.reparto || Math.abs(enEd.reparto.reduce((a, x) => a + (parseFloat(x.pct) || 0), 0) - 100) < 0.01));
+                const falta = enEd ? faltaDe(enEd) : null;
+                const confirmable = !falta;
                 return (
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <button ref={agregarRef} title={!confirmable ? "Completá el registro en edición para agregar otro" : enEd ? "Confirmar este registro y agregar otro" : "Agregar registro"}
+                <button ref={agregarRef} title={!confirmable ? `${falta} para agregar otro registro` : enEd ? "Confirmar este registro y agregar otro" : "Agregar registro"}
                   disabled={!confirmable}
                   onClick={() => { if (confirmable) setLineas((ls) => {
                     // el registro nuevo nace con el mismo tipo que el ultimo cargado (venis cargando insumos -> insumo)
@@ -693,7 +716,7 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
                     return [...ls.map((x) => ({ ...x, editando: false })), { tipo: ult ? ult.tipo : "concepto", item: "", neto: "", cant: "", unit: "", alic: ult ? ult.alic : 21, conc: "", pdvDest: (ult && ult.pdvDest) || pdvActual || PDVS[0], editando: true }];
                   }); }}
                   style={{ width: 30, height: 30, borderRadius: 15, border: `1.5px solid ${C.borde}`, background: "#fff", fontSize: 18, fontWeight: 700, color: "#444", cursor: !confirmable ? "not-allowed" : "pointer", opacity: !confirmable ? 0.35 : 1, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>+</button>
-                {!confirmable && <span style={{ fontSize: 11.5, color: "#999" }}>Completá el registro en edición para agregar otro</span>}
+                {!confirmable && <span style={{ fontSize: 11.5, color: "#999" }}>{falta} para agregar otro registro</span>}
               </div>
                 );
               })()}
@@ -702,7 +725,7 @@ function ModalNuevaCarga({ ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCe
               <span style={lab}>Percepciones</span>
               {percepciones.map((p, i) => (
                 <div key={i} style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 24px", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                  <select style={inp} value={p.tipo} onChange={(e) => setPercepciones((ps) => ps.map((x, ix) => ix === i ? { ...x, tipo: e.target.value } : x))}>
+                  <select style={sel} value={p.tipo} onChange={(e) => setPercepciones((ps) => ps.map((x, ix) => ix === i ? { ...x, tipo: e.target.value } : x))}>
                     {TIPOS_PERCEPCION.map((t) => <option key={t}>{t}</option>)}
                   </select>
                   <input style={inp} placeholder="Importe $" value={p.importe} onChange={(e) => setPercepciones((ps) => ps.map((x, ix) => ix === i ? { ...x, importe: fmtImp(e.target.value) } : x))} />

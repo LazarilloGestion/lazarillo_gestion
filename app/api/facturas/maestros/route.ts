@@ -2,17 +2,31 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
+import { renderConfigurado, leerInsumos, type InsumoMaestro } from "@/lib/render/db";
+import { unirInsumos } from "@/lib/facturas/insumos";
 
 export const dynamic = "force-dynamic";
 
 // Maestros del modal de carga de facturas (Etapa 4): proveedores y conceptos de
-// caja del Panel, e insumos tal como vienen en el informe 25 (su medida, el
-// concepto de caja de su última compra y, como sugerencia, el último precio).
+// caja del Panel, e insumos: el maestro de MaxiRest (m0, en Render) con el
+// concepto de caja de su RUBRO (Diego, 27/10/2026), más los que solo aparecen en
+// el informe 25; el último precio y alícuota salen de la última compra.
+async function insumosMaxirest(): Promise<InsumoMaestro[]> {
+  if (!renderConfigurado()) return [];
+  try {
+    const origen = await prisma.renderOrigen.findFirst({ where: { activo: true }, select: { esquema: true } });
+    return origen ? await leerInsumos(origen.esquema) : [];
+  } catch (err) {
+    console.error("[facturas/maestros] Render", err);
+    return [];
+  }
+}
+
 export async function GET() {
   const denied = await requireAuth();
   if (denied) return denied;
   try {
-    const [proveedores, conceptos, insumos] = await Promise.all([
+    const [proveedores, conceptos, comprados, deMaxirest] = await Promise.all([
       prisma.proveedor.findMany({
         select: { id: true, codigo: true, nombre: true, razon: true, cuit: true },
         orderBy: { nombre: "asc" },
@@ -29,11 +43,12 @@ export async function GET() {
         WHERE NULLIF(TRIM(medida), '') IS NOT NULL AND codigo IS NOT NULL AND nombre IS NOT NULL
         ORDER BY codigo, fecha DESC NULLS LAST
       `),
+      insumosMaxirest(),
     ]);
     return NextResponse.json({
       proveedores,
-      conceptos: conceptos.map((c) => ({ codigo: c.codigo, nombre: c.nombre, rubro: c.rubro?.nombre ?? "Sin Rubro" })),
-      insumos,
+      conceptos: conceptos.map((c) => ({ codigo: c.codigo.trim(), nombre: c.nombre.trim(), rubro: c.rubro?.nombre?.trim() ?? "Sin Rubro" })),
+      insumos: unirInsumos(deMaxirest, comprados),
     });
   } catch (err) {
     console.error("[facturas/maestros]", err);
