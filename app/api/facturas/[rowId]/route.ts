@@ -47,7 +47,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
   // Con pagos imputados no se cambia el número/proveedor ni se sacan filas pagadas.
   const cambiaClave = comprobante !== antes.comprobante || p.proveedorCodigo !== antes.codigo;
   const sacadas = filasAntes.map((x) => x.rowId).filter((id) => !rowIdsNuevos.has(id));
-  if ((cambiaClave && await pagosDe(prisma, antes.comprobante, antes.codigo, antes.locales, [])) ||
+  if ((cambiaClave && (await pagosDe(prisma, antes.comprobante, antes.codigo, antes.locales, [])).total) ||
       (sacadas.length && await prisma.aplicacionPagoInterno.count({ where: { compraRowId: { in: sacadas } } }))) {
     return NextResponse.json({ error: "La factura tiene pagos: no se puede cambiar el número, el proveedor ni el PDV / concepto de lo pagado" }, { status: 409 });
   }
@@ -88,7 +88,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
 // DELETE — eliminar una factura cargada en Lazarillo (las de MaxiRest se borran en MaxiRest).
 // Con pagos no se borra. Lo cargado queda en la actividad para poder restaurarla.
-export async function DELETE(_req: NextRequest, { params }: Params) {
+export async function DELETE(request: NextRequest, { params }: Params) {
   const { user, response } = await requireAuthUser();
   if (response) return response;
   const usuario = user.email ?? user.id;
@@ -100,8 +100,12 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     where: { origen: ORIGEN_LAZARILLO, comprobante: fa.c.comprobante, codigo: fa.c.codigo, localId: { in: fa.locales } },
     select: { rowId: true, importe: true, puntoDeVentaId: true },
   });
-  if (await pagosDe(prisma, fa.c.comprobante, fa.c.codigo, fa.locales, filas.map((x) => x.rowId))) {
-    return NextResponse.json({ error: "La factura tiene pagos: primero hay que sacar los pagos" }, { status: 409 });
+  // Con pagos: primero avisa; si se confirma (?conPagos=1) se borran también los pagos
+  // cargados en el Panel imputados a ella. Los del 80 vienen de MaxiRest: quedan ("solo 80").
+  const pagos = await pagosDe(prisma, fa.c.comprobante, fa.c.codigo, fa.locales, filas.map((x) => x.rowId));
+  const conPagos = new URL(request.url).searchParams.get("conPagos") === "1";
+  if (pagos.total && !conPagos) {
+    return NextResponse.json({ error: "La factura tiene pagos", tienePagos: pagos }, { status: 409 });
   }
   const total = filas.reduce((a, f) => a + Number(f.importe ?? 0), 0);
   const pdv = await nombrePdv(prisma, filas[0]?.puntoDeVentaId);
@@ -114,8 +118,9 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     ? descripcionFactura({ f, nombreProv: prov, total, pdv })
     : `${prov}\n${[fa.c.comprobante, pdv, `$ ${total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}`].filter(Boolean).join(" · ")}`;
   await prisma.$transaction(async (tx) => {
+    if (pagos.internos) await tx.aplicacionPagoInterno.deleteMany({ where: { compraRowId: { in: filas.map((x) => x.rowId) } } });
     await borrarFilas(tx, fa.c.comprobante, fa.c.codigo, fa.locales);
-    await registrarActividad(tx, { tipo: "factura", accion: "eliminada", descripcion: desc, refId: null, localId: fa.c.localId, usuario, datos: f ? { payload: f } : null });
+    await registrarActividad(tx, { tipo: "factura", accion: "eliminada", descripcion: desc, refId: null, localId: fa.c.localId, usuario, datos: f ? { payload: f, pagos } : null });
   });
   return NextResponse.json({ ok: true, filas: filas.length });
 }

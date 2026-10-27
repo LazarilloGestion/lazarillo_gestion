@@ -5,7 +5,8 @@ import { compraRowSchema } from "@/lib/etl/schemas/compras";
 describe("switch Económica / Financiera", () => {
   it("Económica: sueldos por PERIODO, la fecha editada en Lazarillo sigue mandando", () => {
     const sql = fuenteCompras("economica").sql;
-    expect(sql).toContain('COALESCE(co.periodo, v.fecha) AS fecha');
+    expect(sql).toContain('COALESCE(v.periodo, v.fecha) AS fecha');
+    expect(sql).not.toContain("JOIN compras");
     expect(sql).toContain('v."fechaManual"');
     expect(sql).not.toContain("pagos");
   });
@@ -13,7 +14,8 @@ describe("switch Económica / Financiera", () => {
     const q = fuenteCompras("financiera", "2025-09-01");
     expect(q.sql).toContain('COALESCE(b.fpago, b."fechaManual", b.fecha) AS fecha');
     expect(q.sql).toContain('pg."fechaPago" AS fecha');
-    expect(q.sql).toContain("FROM pagos");
+    expect(q.sql).toContain("JOIN pagos pg");
+    expect(q.sql).toContain("NOT MATERIALIZED");
     expect(q.values).toContain("2025-09-01");
   });
 });

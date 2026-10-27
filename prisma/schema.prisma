@@ -243,6 +243,8 @@ model Compra {
   @@index([localId, puntoDeVentaId])
   @@index([comprobante])
   @@index([origen, localId, comprobante, codigo])
+  @@index([puntoDeVentaId, comprobante, codigo])
+  @@index([proveedorId, localId])
   @@map("compras")
 }
 
@@ -344,6 +346,7 @@ model Pago {
   creadoEn DateTime @default(now())
 
   @@index([localId, puntoDeVentaId, comprobante, codPro])
+  @@index([puntoDeVentaId, comprobante, codPro])
   @@index([fechaPago])
   @@index([proveedorId])
   @@map("pagos")

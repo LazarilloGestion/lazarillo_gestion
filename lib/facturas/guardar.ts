@@ -96,13 +96,20 @@ export async function bloquearComprobante(tx: Tx, comprobante: string, codigo: s
 export class Duplicada extends Error {}
 
 // Pagos de una factura: del informe 80 (por comprobante y proveedor) e internos
-// (imputados a sus filas). Con pagos no se borra ni se cambia el número.
+// (imputados a sus filas). Con pagos no se cambia el número / proveedor; borrarla
+// pide confirmación (Diego, 27/10/2026).
 export async function pagosDe(tx: Tx | PrismaClient, comprobante: string, codigo: string, locales: number[], rowIds: string[]) {
   const [p80, internos] = await Promise.all([
-    tx.pago.count({ where: { comprobante, codPro: codigo, localId: { in: locales } } }),
-    rowIds.length ? tx.aplicacionPagoInterno.count({ where: { compraRowId: { in: rowIds } } }) : Promise.resolve(0),
+    tx.pago.aggregate({ where: { comprobante, codPro: codigo, localId: { in: locales } }, _count: true, _sum: { importe: true } }),
+    rowIds.length
+      ? tx.aplicacionPagoInterno.aggregate({ where: { compraRowId: { in: rowIds } }, _count: true, _sum: { importe: true } })
+      : Promise.resolve({ _count: 0, _sum: { importe: null } }),
   ]);
-  return p80 + internos;
+  return {
+    maxirest: p80._count, internos: internos._count,
+    importe: Number(p80._sum.importe ?? 0) + Number(internos._sum.importe ?? 0),
+    total: p80._count + internos._count,
+  };
 }
 
 // Correcciones hechas a mano en Detalle de compras sobre las filas de la factura:
