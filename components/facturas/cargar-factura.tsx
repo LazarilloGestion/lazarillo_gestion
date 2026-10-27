@@ -82,9 +82,11 @@ export function CargarFactura() {
             pdvActual={pdvActual}
             reglaDe={reglaDe}
             onCerrar={() => setAbierto(false)}
-            onGuardado={(d: { comprobante: string; total: number }) => {
+            onGuardado={(d: { comprobante: string; total: number; pago?: { id: number; aCuenta: number } | null }) => {
               setAbierto(false);
-              toast.success("Factura cargada", { description: `${d.comprobante} · $ ${d.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}` });
+              toast.success(d.pago ? "Factura cargada y pagada" : "Factura cargada", {
+                description: `${d.comprobante} · $ ${d.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}${d.pago ? ` · Pago Nº ${d.pago.id}` : ""}${d.pago && d.pago.aCuenta > 0.004 ? ` · $ ${d.pago.aCuenta.toLocaleString("es-AR", { minimumFractionDigits: 2 })} a cuenta` : ""}`,
+              });
               refrescarCompras(queryClient);
             }}
           />
