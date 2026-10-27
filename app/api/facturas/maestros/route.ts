@@ -11,11 +11,17 @@ export const dynamic = "force-dynamic";
 // caja del Panel, e insumos: el maestro de MaxiRest (m0, en Render) con el
 // concepto de caja de su RUBRO (Diego, 27/10/2026), más los que solo aparecen en
 // el informe 25; el último precio y alícuota salen de la última compra.
+// El maestro de Render (Oregon) cambia una vez por día: se guarda 10 minutos en la
+// instancia para no volver a cruzar al norte en cada apertura del modal.
+let cacheInsumos: { hasta: number; datos: InsumoMaestro[] } | null = null;
 async function insumosMaxirest(): Promise<InsumoMaestro[]> {
   if (!renderConfigurado()) return [];
+  if (cacheInsumos && cacheInsumos.hasta > Date.now()) return cacheInsumos.datos;
   try {
     const origen = await prisma.renderOrigen.findFirst({ where: { activo: true }, select: { esquema: true } });
-    return origen ? await leerInsumos(origen.esquema) : [];
+    const datos = origen ? await leerInsumos(origen.esquema) : [];
+    cacheInsumos = { hasta: Date.now() + 10 * 60_000, datos };
+    return datos;
   } catch (err) {
     console.error("[facturas/maestros] Render", err);
     return [];
