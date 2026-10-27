@@ -22,7 +22,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ co
   const d = parsed.data;
   const rubro = await prisma.rubroConceptoCaja.findUnique({ where: { codigo: d.codRubro }, select: { codigo: true } });
   if (!rubro) return NextResponse.json({ error: "El rubro no existe" }, { status: 422 });
-  const r = await prisma.conceptoCaja.updateMany({ where: { codigo }, data: { nombre: d.nombre, tipo: d.tipo, codRga: d.codRubro, codImp: d.imputacion } });
+  const r = await prisma.conceptoCaja.updateMany({ where: { codigo }, data: { nombre: d.nombre, tipo: d.tipo, codRga: d.codRubro, ...(d.imputacion !== undefined ? { codImp: d.imputacion || null } : {}) } });
   if (r.count === 0) return NextResponse.json({ error: "No existe" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

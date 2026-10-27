@@ -30,6 +30,10 @@ export const conceptoPropioSchema = z.object({
   nombre: z.string().trim().min(1, "Poné un nombre").max(60),
   tipo: z.enum(["-", "+", "E"]),
   codRubro: z.string().trim().min(1, "Elegí un rubro").max(10),
-  imputacion: z.string().trim().max(20).optional().transform((v) => (v ? v : null)),
+  // Ya no se pide en pantalla (Diego, 26/10/2026); si no viene, no se toca.
+  imputacion: z.string().trim().max(20).optional(),
+  // Alta con "padrino": el concepto existente del que se copian tipo, rubro y
+  // reglas de apertura (Diego, 26/10/2026).
+  padrino: z.string().trim().min(1).max(10).optional(),
 });
 export type ConceptoPropioInput = z.infer<typeof conceptoPropioSchema>;

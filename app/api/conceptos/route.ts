@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { conceptoPropioSchema, proximoCodigoLazarillo, CODIGO_MIN_LAZARILLO, esPropio } from "@/lib/conceptos/abm";
 import { requireAuthUser } from "@/lib/auth/require-auth";
 import { prisma } from "@/lib/prisma";
+import { reglasCopiadas } from "@/lib/conceptos/padrino";
 import { renderConfigurado, leerConceptos, type ConceptoMaestro } from "@/lib/render/db";
 
 export const runtime = "nodejs";
@@ -75,9 +76,20 @@ export async function POST(req: NextRequest) {
   const existentes = await prisma.conceptoCaja.findMany({ select: { codigo: true } });
   const codigo = d.codigo ?? proximoCodigoLazarillo(existentes.map((c) => c.codigo));
   if (existentes.some((c) => Number(c.codigo) === codigo)) return NextResponse.json({ error: `El código ${codigo} ya existe` }, { status: 409 });
-  const creado = await prisma.conceptoCaja.create({
-    data: { codigo: String(codigo), nombre: d.nombre, tipo: d.tipo, codRga: d.codRubro, codImp: d.imputacion },
-    select: { codigo: true },
+  // Padrino: concepto existente (de MaxiRest o de Lazarillo) del que se copian
+  // las reglas de apertura activas. Tipo y rubro ya vienen copiados desde la pantalla.
+  const padrino = d.padrino ? String(Number(d.padrino)) : null;
+  const reglasPadrino = padrino
+    ? await prisma.reglaApertura.findMany({ where: { nivel: "concepto", entidadId: padrino, estado: "activa" }, include: { destinos: true } })
+    : [];
+  const creadoPor = auth.user.email ?? auth.user.id;
+  const creado = await prisma.$transaction(async (tx) => {
+    const c = await tx.conceptoCaja.create({
+      data: { codigo: String(codigo), nombre: d.nombre, tipo: d.tipo, codRga: d.codRubro, codImp: d.imputacion || null },
+      select: { codigo: true },
+    });
+    for (const data of reglasCopiadas(reglasPadrino, c.codigo, creadoPor)) await tx.reglaApertura.create({ data });
+    return c;
   });
-  return NextResponse.json({ codigo: Number(creado.codigo) }, { status: 201 });
+  return NextResponse.json({ codigo: Number(creado.codigo), reglasCopiadas: reglasPadrino.length }, { status: 201 });
 }

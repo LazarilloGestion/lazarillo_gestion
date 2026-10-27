@@ -11,7 +11,7 @@ describe("conceptos propios", () => {
     expect(esPropio("1000")).toBe(true);
   });
   it("valida el alta", () => {
-    expect(conceptoPropioSchema.safeParse({ nombre: " Inflable Reloj ", tipo: "-", codRubro: "31" }).data).toEqual({ nombre: "Inflable Reloj", tipo: "-", codRubro: "31", imputacion: null });
+    expect(conceptoPropioSchema.safeParse({ nombre: " Inflable Reloj ", tipo: "-", codRubro: "31" }).data).toEqual({ nombre: "Inflable Reloj", tipo: "-", codRubro: "31" });
     expect(conceptoPropioSchema.safeParse({ codigo: 999, nombre: "x", tipo: "-", codRubro: "1" }).success).toBe(false);
     expect(conceptoPropioSchema.safeParse({ nombre: "", tipo: "-", codRubro: "1" }).success).toBe(false);
     expect(etiquetaTipo("E")).toBe("Empleados");
