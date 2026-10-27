@@ -65,6 +65,12 @@ describe("armarFactura", () => {
     expect(lineas[0]).toMatchObject({ cantidad: 25, totalIns: 0, neto: 0, compraId: null });
     expect(lineas[1].compraId).toBe(filas[0].rowId);
   });
+  it("rechaza reparto que no suma 100 y fechas inexistentes", () => {
+    const base = { proveedorId: 92, tipo: "FcA", prefijo: "1", numero: "1", registros: [{ tipo: "concepto", conceptoCodigo: "1", nombre: "A", neto: 10, alicuota: 21, puntoDeVentaId: 1, reparto: [{ puntoDeVentaId: 1, pct: 60 }, { puntoDeVentaId: 2, pct: 30 }] }] };
+    expect(facturaSchema.safeParse({ ...base, fecha: "2026-10-27" }).success).toBe(false);
+    expect(facturaSchema.safeParse({ ...base, fecha: "2026-02-31", registros: [{ ...base.registros[0], reparto: null }] }).success).toBe(false);
+    expect(facturaSchema.safeParse({ ...base, fecha: "2026-02-28", registros: [{ ...base.registros[0], reparto: null }] }).success).toBe(true);
+  });
   it("comprobante con ceros a la izquierda", () => {
     expect(comprobanteDe("Ticket", "12", "5").detalle).toBe("Tic 0012-00000005");
   });

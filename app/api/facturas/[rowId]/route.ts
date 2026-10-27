@@ -6,6 +6,7 @@ import { facturaSchema, ORIGEN_LAZARILLO, type FacturaInput } from "@/lib/factur
 import { factura, leerFactura } from "@/lib/facturas/leer-db";
 import {
   prepararFactura, insertarArmado, guardarCarga, localesDe, yaExiste, borrarFilas, registrarActividad, descripcionFactura, nombrePdv,
+  bloquearComprobante, Duplicada, pagosDe, leerCorrecciones, reponerCorrecciones,
 } from "@/lib/facturas/guardar";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 }
 
 // PUT — editar una factura cargada en Lazarillo: se rearman sus filas (nunca se duplica).
+// Las correcciones hechas a mano en Detalle se conservan en las filas que siguen.
 export async function PUT(request: NextRequest, { params }: Params) {
   const { user, response } = await requireAuthUser();
   if (response) return response;
@@ -37,14 +39,28 @@ export async function PUT(request: NextRequest, { params }: Params) {
   const nuevas = localesDe(p.armado);
   const comprobante = p.armado.filas[0].comprobante;
   const antes = { comprobante: fa.c.comprobante, codigo: fa.c.codigo, locales: fa.locales };
-  if (await yaExiste(prisma, nuevas, comprobante, p.proveedorCodigo, antes)) {
-    return NextResponse.json({ error: "Ya hay otra factura con ese proveedor y número" }, { status: 409 });
+  const filasAntes = await prisma.compra.findMany({
+    where: { origen: ORIGEN_LAZARILLO, comprobante: antes.comprobante, codigo: antes.codigo, localId: { in: antes.locales } },
+    select: { rowId: true },
+  });
+  const rowIdsNuevos = new Set(p.armado.filas.map((x) => x.rowId));
+  // Con pagos imputados no se cambia el número/proveedor ni se sacan filas pagadas.
+  const cambiaClave = comprobante !== antes.comprobante || p.proveedorCodigo !== antes.codigo;
+  const sacadas = filasAntes.map((x) => x.rowId).filter((id) => !rowIdsNuevos.has(id));
+  if ((cambiaClave && await pagosDe(prisma, antes.comprobante, antes.codigo, antes.locales, [])) ||
+      (sacadas.length && await prisma.aplicacionPagoInterno.count({ where: { compraRowId: { in: sacadas } } }))) {
+    return NextResponse.json({ error: "La factura tiene pagos: no se puede cambiar el número, el proveedor ni el PDV / concepto de lo pagado" }, { status: 409 });
   }
   const pdv = await nombrePdv(prisma, p.armado.filas[0].puntoDeVentaId);
+  let perdidas = 0;
   try {
     await prisma.$transaction(async (tx) => {
+      await bloquearComprobante(tx, comprobante, p.proveedorCodigo);
+      if (await yaExiste(tx, nuevas, comprobante, p.proveedorCodigo, p.f.fecha, antes)) throw new Duplicada();
+      const correcciones = await leerCorrecciones(tx, antes.comprobante, antes.codigo, antes.locales);
       await borrarFilas(tx, antes.comprobante, antes.codigo, antes.locales);
       await insertarArmado(tx, p);
+      perdidas = await reponerCorrecciones(tx, correcciones, [...rowIdsNuevos]);
       await guardarCarga(tx, p, fa.cargada?.creadoPor ?? usuario);
       if (fa.cargada) {
         await tx.facturaLazarillo.updateMany({
@@ -58,16 +74,20 @@ export async function PUT(request: NextRequest, { params }: Params) {
       });
     }, { timeout: 30_000 });
   } catch (err) {
+    if (err instanceof Duplicada || (err as { code?: string })?.code === "P2002") {
+      return NextResponse.json({ error: "Ya hay otra factura con ese proveedor y número" }, { status: 409 });
+    }
     console.error("[facturas] edición", err);
     return NextResponse.json({ error: "No se pudo guardar la factura" }, { status: 500 });
   }
   const libres = p.armado.filas.filter((x) => !x.esBloqueado).map((x) => x.rowId);
   const apertura = await reaplicarReglasActivas(prisma, { rowIds: libres }).catch((err: unknown) => ({ reglasReaplicadas: 0, errores: [String(err)] }));
   if (apertura.errores.length) console.error("[facturas] apertura", apertura.errores);
-  return NextResponse.json({ ok: true, comprobante, total: p.armado.total, rowId: p.armado.filas[0].rowId });
+  return NextResponse.json({ ok: true, comprobante, total: p.armado.total, rowId: p.armado.filas[0].rowId, correccionesPerdidas: perdidas });
 }
 
 // DELETE — eliminar una factura cargada en Lazarillo (las de MaxiRest se borran en MaxiRest).
+// Con pagos no se borra. Lo cargado queda en la actividad para poder restaurarla.
 export async function DELETE(_req: NextRequest, { params }: Params) {
   const { user, response } = await requireAuthUser();
   if (response) return response;
@@ -78,11 +98,16 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (!fa.esLz) return NextResponse.json({ error: "Es de MaxiRest: se borra en MaxiRest" }, { status: 403 });
   const filas = await prisma.compra.findMany({
     where: { origen: ORIGEN_LAZARILLO, comprobante: fa.c.comprobante, codigo: fa.c.codigo, localId: { in: fa.locales } },
-    select: { importe: true, puntoDeVentaId: true },
+    select: { rowId: true, importe: true, puntoDeVentaId: true },
   });
+  if (await pagosDe(prisma, fa.c.comprobante, fa.c.codigo, fa.locales, filas.map((x) => x.rowId))) {
+    return NextResponse.json({ error: "La factura tiene pagos: primero hay que sacar los pagos" }, { status: 409 });
+  }
   const total = filas.reduce((a, f) => a + Number(f.importe ?? 0), 0);
   const pdv = await nombrePdv(prisma, filas[0]?.puntoDeVentaId);
-  const payload = fa.cargada?.payload as unknown as FacturaInput | undefined;
+  // Lo cargado (o, para las cargadas antes del 27/10, la factura rearmada de sus filas).
+  const guardado = fa.cargada?.payload as unknown as FacturaInput | undefined;
+  const payload = guardado ?? (await leerFactura(prisma, rowId))?.factura;
   const f = payload && facturaSchema.safeParse(payload).success ? payload : null;
   const prov = fa.c.proveedor?.trim() || fa.c.codigo;
   const desc = f
@@ -90,7 +115,6 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     : `${prov}\n${[fa.c.comprobante, pdv, `$ ${total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}`].filter(Boolean).join(" · ")}`;
   await prisma.$transaction(async (tx) => {
     await borrarFilas(tx, fa.c.comprobante, fa.c.codigo, fa.locales);
-    // Lo cargado queda en la actividad: desde la campanita se puede restaurar.
     await registrarActividad(tx, { tipo: "factura", accion: "eliminada", descripcion: desc, refId: null, localId: fa.c.localId, usuario, datos: f ? { payload: f } : null });
   });
   return NextResponse.json({ ok: true, filas: filas.length });

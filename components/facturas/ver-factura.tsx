@@ -31,7 +31,9 @@ export function VerFactura({ rowId, detalle, onClose, vistaInicial = "ver" }: {
   const { data, isLoading } = useFetchQuery<Respuesta>(["factura", rowId], rowId ? `/api/facturas/${rowId}` : null);
   const fa = data && !data.noEsFactura ? data : null;
   const pdvGestion = fa?.factura.registros[0]?.puntoDeVentaId ?? null;
-  const { maestros, pdvsRef, reglaDe } = useCargaFactura(!!fa, pdvGestion, pdvGestion != null ? undefined : null);
+  const { data: locales } = useFetchQuery<{ id: number; puntosDeVenta: { id: number }[] }[]>(["locales"], "/api/locales");
+  const localGestion = locales?.find((l) => l.puntosDeVenta.some((p) => p.id === pdvGestion))?.id ?? null;
+  const { maestros, pdvsRef, reglaDe } = useCargaFactura(!!fa, pdvGestion, localGestion);
   const pdvActual = pdvsRef.find((p) => p.id === pdvGestion)?.nombre;
 
   if (!rowId) return null;
@@ -84,8 +86,9 @@ export function VerFactura({ rowId, detalle, onClose, vistaInicial = "ver" }: {
             onEditar={() => setVista("editar")}
             onRepetir={() => setVista("repetir")}
             onCerrar={vista === "editar" ? () => setVista("ver") : cerrar}
-            onGuardado={(d: { comprobante: string; total: number }) => {
+            onGuardado={(d: { comprobante: string; total: number; correccionesPerdidas?: number }) => {
               toast.success("Factura modificada", { description: `${d.comprobante} · $ ${d.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}` });
+              if (d.correccionesPerdidas) toast.warning(`${d.correccionesPerdidas} corrección${d.correccionesPerdidas === 1 ? "" : "es"} hecha${d.correccionesPerdidas === 1 ? "" : "s"} a mano quedaron en registros que cambiaron de PDV o concepto: revisalas en Detalle de compras.`);
               refrescarCompras(queryClient);
               cerrar();
             }}

@@ -32,8 +32,15 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (auth.response) return auth.response;
   const codigo = codigoPropio((await params).codigo);
   if (!codigo) return NextResponse.json({ error: "Solo se dan de baja los conceptos de Lazarillo (desde 1000)" }, { status: 403 });
-  const usos = await prisma.compra.count({ where: { OR: [{ codCga: codigo }, { conceptoCodigoManual: codigo }] } });
-  if (usos > 0) return NextResponse.json({ error: `Tiene ${usos} registro${usos === 1 ? "" : "s"}: no se puede dar de baja` }, { status: 409 });
-  await prisma.conceptoCaja.deleteMany({ where: { codigo } });
+  const [usos, lineas] = await Promise.all([
+    prisma.compra.count({ where: { OR: [{ codCga: codigo }, { conceptoCodigo: codigo }, { conceptoCodigoManual: codigo }] } }),
+    prisma.detalleCompra.count({ where: { codCga: codigo } }),
+  ]);
+  if (usos + lineas > 0) return NextResponse.json({ error: `Tiene ${usos + lineas} registro${usos + lineas === 1 ? "" : "s"}: no se puede dar de baja` }, { status: 409 });
+  // Sus reglas de apertura (p. ej. copiadas del padrino) no quedan vivas sin concepto.
+  await prisma.$transaction([
+    prisma.reglaApertura.updateMany({ where: { nivel: "concepto", entidadId: codigo, estado: "activa" }, data: { estado: "inactiva" } }),
+    prisma.conceptoCaja.deleteMany({ where: { codigo } }),
+  ]);
   return NextResponse.json({ ok: true });
 }

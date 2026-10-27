@@ -127,8 +127,15 @@ function FechaTriple({ iso, onISO, error, inputRef }) {
     setDmyv([pad2(dd), pad2(mm), String(yy)]);
     onISO(`${yy}-${pad2(mm)}-${pad2(dd)}`);
   };
-  const cambiar = (ix, v, max, sig) => {
-    v = v.replace(/\D/g, "").slice(0, max);
+  // FALLA de Diego (tickets guardados en noviembre): con el campo lleno y el cursor
+  // adentro (clic en el mes "10" y tipear "10"), el dígito se insertaba y se cortaba a 2
+  // → "110" → "11". Ahora: clic selecciona todo y, si el campo ya estaba lleno, lo
+  // tipeado reemplaza en vez de insertarse.
+  const cambiar = (ix, e, max, sig) => {
+    const crudo = e.target.value.replace(/\D/g, "");
+    const tipeado = String((e.nativeEvent && e.nativeEvent.data) || "").replace(/\D/g, "");
+    const previo = ultimo.current[ix] || "";
+    const v = crudo.length > max && previo.length >= max && tipeado ? tipeado.slice(0, max) : crudo.slice(0, max);
     const nv = ultimo.current.map((x, i) => (i === ix ? v : x));
     setDmyv(nv);
     if (v.length === max && sig && sig.current) setTimeout(() => sig.current && sig.current.focus(), 0);
@@ -142,11 +149,11 @@ function FechaTriple({ iso, onISO, error, inputRef }) {
   };
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-      <input ref={inputRef} style={st(44)} value={dmyv[0]} placeholder="dd" onChange={(e) => cambiar(0, e.target.value, 2, mRef)} onBlur={() => blur(0)} onFocus={(e) => e.target.select()} />
+      <input ref={inputRef} style={st(44)} value={dmyv[0]} placeholder="dd" onChange={(e) => cambiar(0, e, 2, mRef)} onClick={(e) => e.target.select()} onBlur={() => blur(0)} onFocus={(e) => e.target.select()} />
       <span style={{ color: "#bbb" }}>/</span>
-      <input ref={mRef} style={st(44)} value={dmyv[1]} placeholder="mm" onChange={(e) => cambiar(1, e.target.value, 2, yRef)} onBlur={() => blur(1)} onFocus={(e) => e.target.select()} />
+      <input ref={mRef} style={st(44)} value={dmyv[1]} placeholder="mm" onChange={(e) => cambiar(1, e, 2, yRef)} onClick={(e) => e.target.select()} onBlur={() => blur(1)} onFocus={(e) => e.target.select()} />
       <span style={{ color: "#bbb" }}>/</span>
-      <input ref={yRef} style={st(60)} value={dmyv[2]} placeholder="aaaa" onChange={(e) => cambiar(2, e.target.value, 4, null)} onBlur={() => blur(2)} onFocus={(e) => e.target.select()} />
+      <input ref={yRef} style={st(60)} value={dmyv[2]} placeholder="aaaa" onChange={(e) => cambiar(2, e, 4, null)} onClick={(e) => e.target.select()} onBlur={() => blur(2)} onFocus={(e) => e.target.select()} />
     </span>
   );
 }
@@ -312,7 +319,9 @@ function ModalNuevaCarga(props) {
   const medidaDe = (nombre) => (MAESTRO_INSUMOS.find((i) => i.nombre === nombre) || {}).medida || "";
   const proveedores = maestros.proveedores.map((p) => ({ ...p, nombre: p.nombre || p.razon || p.codigo }));
   // Regla de apertura por concepto (la que el Panel ya usa) como reparto precargado con la marca REGLA.
-  const reglaDeItem = (l, item) => reglaDe(codConcepto(l.tipo === "insumo" ? conceptoDeInsumo(item) || l.conc : item), PDVS);
+  // La regla tiene que estar vigente en la FECHA DE LA FACTURA (no hoy): si no, el modal
+  // marcaba REGLA y el motor después no la aplicaba (revisión 27/10/2026).
+  const reglaDeItem = (l, item) => reglaDe(codConcepto(l.tipo === "insumo" ? conceptoDeInsumo(item) || l.conc : item), PDVS, fecha);
   const [guardando, setGuardando] = useState(false);
   const [futuraOk, setFuturaOk] = useState(""); // fecha futura ya confirmada con un segundo Guardar
   const [borrando, setBorrando] = useState(false);
@@ -382,7 +391,9 @@ function ModalNuevaCarga(props) {
   const rubros = [...new Set(MAESTRO_CONCEPTOS.map((m) => m.rubro))];
 
   const netoTotal = lineas.reduce((a, l) => a + netoDe(l), 0);
-  const ivaTotal = lineas.reduce((a, l) => a + netoDe(l) * l.alic / 100, 0);
+  // IVA redondeado por línea, igual que lo guarda el servidor y lo trae MaxiRest.
+  const ivaDe = (l) => Math.round(netoDe(l) * l.alic) / 100;
+  const ivaTotal = lineas.reduce((a, l) => a + ivaDe(l), 0);
   const percTotal = percepciones.reduce((a, p) => a + parseImp(p.importe), 0);
   const impIntLineas = lineas.reduce((a, l) => a + parseImp(l.impint), 0);
   const impIntTotal = impIntLineas > 0 ? impIntLineas : parseImp(impIntG);
@@ -448,10 +459,10 @@ function ModalNuevaCarga(props) {
     const pdvSel = pdvsRef.find((x) => x.nombre === (pdvActual || PDVS[0]));
     if (!p || !compBuscado || !pdvSel) return;
     let vivo = true;
-    fetch(`/api/facturas/existe?proveedorId=${p.id}&localId=${pdvSel.localId}&tipo=${encodeURIComponent(tipoCpb)}&prefijo=${pad(compPref, 4)}&numero=${pad(compNum, 8)}`)
+    fetch(`/api/facturas/existe?proveedorId=${p.id}&localId=${pdvSel.localId}&tipo=${encodeURIComponent(tipoCpb)}&prefijo=${pad(compPref, 4)}&numero=${pad(compNum, 8)}&fecha=${fecha || ""}`)
       .then((r) => r.json()).then((d) => { if (vivo && d && d.existe) setYaCargada(d); }).catch(() => {});
     return () => { vivo = false; };
-  }, [prov, compBuscado]);
+  }, [prov, compBuscado, fecha]);
   const factExistente = null;
   const pagadoExistente = 0;
   const estadoExistente = "";
@@ -470,6 +481,8 @@ function ModalNuevaCarga(props) {
       if (!fechaValida(fAct)) faltan.push("Falta una fecha de factura válida.");
       if (lineas.filter((l) => netoDe(l) > 0).length === 0) faltan.push("Agregá al menos un registro con importe.");
       if (lineas.some((l) => l.precargada)) faltan.push("Hay registros precargados sin revisar: tocá el ⚠ de cada uno para abrirlo y verificar el importe.");
+      // Un registro abierto a medio completar (p. ej. reparto que no suma 100%) no se guarda igual.
+      lineas.filter((l) => l.editando && (l.item || netoDe(l) > 0)).forEach((l) => { const f = faltaDe(l); if (f) faltan.push(`${l.item || "Registro"}: ${f}.`); });
     } else {
       if (!fechaValida(fAct)) faltan.push("Falta una fecha del gasto válida.");
       if (total <= 0) faltan.push("Poné el importe del gasto.");
@@ -629,7 +642,7 @@ function ModalNuevaCarga(props) {
                 const esIns = l.tipo === "insumo";
                 const neto = netoDe(l);
                 const ivaUnit = esIns ? parseImp(l.unit) * l.alic / 100 : 0;
-                const ivaLinea = neto * l.alic / 100;
+                const ivaLinea = ivaDe(l);
                 const med = esIns ? medidaDe(l.item) || l.medida || "" : "";
                 const repartoOk = !l.reparto || Math.abs(l.reparto.reduce((a, x) => a + (parseFloat(x.pct) || 0), 0) - 100) < 0.01;
                 if (!l.editando) return (
@@ -731,7 +744,7 @@ function ModalNuevaCarga(props) {
                           <Combo opciones={conceptosDe(null)} valor={l.conc} placeholder="Buscar concepto..." ancho={230} estilo={{ ...chico, border: l.conc ? inp.border : `1.6px solid ${C.nar}` }}
                             onElegir={(v) => {
                               // cambia el concepto: el reparto precargado pasa a ser el de la regla del concepto nuevo
-                              const regla = reglaDe(codConcepto(v), PDVS);
+                              const regla = reglaDe(codConcepto(v), PDVS, fecha);
                               setLineas((ls) => ls.map((x, ix) => ix !== i ? x : { ...x, conc: v, reparto: regla ? regla.map((r) => ({ ...r })) : (x.reparto && !reglaDeItem(x, x.item) ? x.reparto : undefined) }));
                             }} />
                         </>

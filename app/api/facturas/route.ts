@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuthUser } from "@/lib/auth/require-auth";
 import { reaplicarReglasActivas } from "@/lib/apertura/motor";
-import { prepararFactura, insertarArmado, guardarCarga, localesDe, yaExiste, registrarActividad, descripcionFactura, nombrePdv } from "@/lib/facturas/guardar";
+import { prepararFactura, insertarArmado, guardarCarga, localesDe, yaExiste, registrarActividad, descripcionFactura, nombrePdv, bloquearComprobante, Duplicada } from "@/lib/facturas/guardar";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -19,15 +19,14 @@ export async function POST(request: NextRequest) {
   const { armado } = p;
 
   // Nunca duplicar: si el comprobante ya está (de MaxiRest o de Lazarillo) en
-  // alguno de los locales de la factura, no se vuelve a cargar.
+  // alguno de los locales de la factura, no se vuelve a cargar. El control va dentro
+  // de la transacción, con candado por comprobante (doble clic / dos personas).
   const comprobante = armado.filas[0].comprobante;
-  if (await yaExiste(prisma, localesDe(armado), comprobante, p.proveedorCodigo)) {
-    return NextResponse.json({ error: "Esta factura ya está cargada" }, { status: 409 });
-  }
-
   const pdv = await nombrePdv(prisma, armado.filas[0].puntoDeVentaId);
   try {
     await prisma.$transaction(async (tx) => {
+      await bloquearComprobante(tx, comprobante, p.proveedorCodigo);
+      if (await yaExiste(tx, localesDe(armado), comprobante, p.proveedorCodigo, p.f.fecha)) throw new Duplicada();
       await insertarArmado(tx, p);
       await guardarCarga(tx, p, usuario);
       await registrarActividad(tx, {
@@ -36,6 +35,9 @@ export async function POST(request: NextRequest) {
       });
     });
   } catch (err) {
+    if (err instanceof Duplicada || (err as { code?: string })?.code === "P2002") {
+      return NextResponse.json({ error: "Esta factura ya está cargada" }, { status: 409 });
+    }
     console.error("[facturas] alta", err);
     return NextResponse.json({ error: "No se pudo guardar la factura" }, { status: 500 });
   }

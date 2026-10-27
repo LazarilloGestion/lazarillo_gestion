@@ -25,6 +25,10 @@ export async function linkDetalleComprasByComprobante(prisma: DbClient, localId:
       AND dc."compraId" IS NULL
       AND dc."localId" = ${localId}
       AND c."localId" = ${localId}
+      -- Una línea de MaxiRest nunca a una factura del Panel ni al revés; las del Panel,
+      -- además, solo a su mismo proveedor (revisión 27/10/2026).
+      AND dc.origen IS NOT DISTINCT FROM c.origen
+      AND (dc.origen IS NULL OR dc."codPro" = c.codigo)
   `;
 }
 

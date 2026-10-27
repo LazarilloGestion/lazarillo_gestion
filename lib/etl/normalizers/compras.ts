@@ -18,7 +18,7 @@ import {
 } from "./compra-identity";
 import { camposErpCambiaron, type CompraErpFields } from "./compras-diff";
 import { canonicalDecimal } from "./compra-identity";
-import { comprobantesDeLazarillo } from "@/lib/facturas/saltear-lazarillo";
+import { comprobantesDeLazarillo, claveSalteo } from "@/lib/facturas/saltear-lazarillo";
 import { resolveProveedorId, type ProveedorCandidato } from "./proveedor-match";
 import { normalizarProveedorTexto } from "../../text-normalize";
 import { insertChunkWithRowFallback } from "../chunked-upsert";
@@ -202,7 +202,7 @@ export async function normalizeCompras(
   );
   const filtered = Array.from(rowIdMap.values()).filter((pr) => {
     const cpb = parseComprobanteFromDetalle(pr.row["DETALLE"]);
-    if (!cpb || !enLazarillo.has(`${cpb}|${pr.data.CODIGO ?? ""}`)) return true;
+    if (!cpb || !enLazarillo.has(claveSalteo(cpb, pr.data.CODIGO, excelDateToISO(pr.row["FECHA"])))) return true;
     skippedRows.push({
       fecha: formatFechaDisplay(pr.row["FECHA"]),
       concepto: trim(pr.row["CONCEPTO"]) ?? undefined,
@@ -315,6 +315,8 @@ export async function normalizeCompras(
             // Excluye TODOS los rowId que este archivo va a computar, no solo
             // los del chunk actual — ver comentario en rowIdsEnArchivo arriba.
             rowId: { notIn: [...rowIdsEnArchivo] },
+            // Nunca reconciliar contra facturas cargadas en el Panel (revisión 27/10/2026).
+            AND: [{ OR: [{ origen: null }, { NOT: { origen: "lazarillo" } }] }],
             OR: lote.map((a) => ({
               codCga: a.codCga,
               fecha: new Date(a.fechaISO as string),
@@ -397,6 +399,7 @@ export async function normalizeCompras(
           where: {
             rowId: { notIn: [...rowIdsEnArchivo] },
             puntoDeVentaId,
+            AND: [{ OR: [{ origen: null }, { NOT: { origen: "lazarillo" } }] }],
             OR: lote.map(({ anchor, identidad }) => ({
               codCga: anchor.codCga,
               fecha: new Date(anchor.fechaISO as string),

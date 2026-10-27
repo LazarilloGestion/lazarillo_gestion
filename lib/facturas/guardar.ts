@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { armarFactura, facturaSchema, CONCEPTO_PERCEPCION, ORIGEN_LAZARILLO, type FacturaInput } from "./armar";
+import { normalizarComprobante, esTicket } from "./saltear-lazarillo";
 
 // Alta / edición / baja de una factura cargada en Lazarillo (Etapa 4). Las filas
 // van a compras y detalle_compras igual que las de MaxiRest (origen 'lazarillo'),
@@ -64,21 +65,64 @@ export async function insertarArmado(tx: Tx, p: Preparada) {
 export const localesDe = (armado: Armada) => [...new Set(armado.filas.map((x) => x.localId))];
 
 // ¿Ya existe ese comprobante del proveedor en esos locales? (de MaxiRest o de
-// Lazarillo). `excepto` = la misma factura que se está editando.
+// Lazarillo). `excepto` = la misma factura que se está editando. Las NC se comparan
+// sin la letra (NC / NcA); los tickets, además, por fecha (su número no es único).
 export async function yaExiste(
   tx: Tx | PrismaClient,
   locales: number[],
   comprobante: string,
   codigo: string,
+  fecha: string,
   excepto?: { comprobante: string; codigo: string; locales: number[] },
 ): Promise<boolean> {
+  const cpb = normalizarComprobante(comprobante);
   const r = await tx.$queryRaw<{ n: number }[]>`
     SELECT COUNT(*)::int AS n FROM compras
-    WHERE "localId" = ANY(${locales}::int[]) AND comprobante = ${comprobante} AND codigo = ${codigo}
-      AND NOT (${!!excepto} AND origen = ${ORIGEN_LAZARILLO} AND comprobante = ${excepto?.comprobante ?? ""}
+    WHERE "localId" = ANY(${locales}::int[]) AND codigo = ${codigo}
+      AND regexp_replace(UPPER(comprobante), '^NC[ABC]?', 'NC') = ${cpb}
+      AND (${!esTicket(cpb)} OR fecha::date = ${fecha}::date)
+      AND NOT (${!!excepto} AND origen IS NOT DISTINCT FROM ${ORIGEN_LAZARILLO} AND comprobante = ${excepto?.comprobante ?? ""}
                AND codigo = ${excepto?.codigo ?? ""} AND "localId" = ANY(${excepto?.locales ?? []}::int[]))
   `;
   return (r[0]?.n ?? 0) > 0;
+}
+
+// Candado por comprobante + proveedor dentro de la transacción: dos guardados a la vez
+// (doble clic, dos personas) no pueden pasar los dos el control de duplicados.
+export async function bloquearComprobante(tx: Tx, comprobante: string, codigo: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${codigo}|${normalizarComprobante(comprobante)}`}))`;
+}
+
+export class Duplicada extends Error {}
+
+// Pagos de una factura: del informe 80 (por comprobante y proveedor) e internos
+// (imputados a sus filas). Con pagos no se borra ni se cambia el número.
+export async function pagosDe(tx: Tx | PrismaClient, comprobante: string, codigo: string, locales: number[], rowIds: string[]) {
+  const [p80, internos] = await Promise.all([
+    tx.pago.count({ where: { comprobante, codPro: codigo, localId: { in: locales } } }),
+    rowIds.length ? tx.aplicacionPagoInterno.count({ where: { compraRowId: { in: rowIds } } }) : Promise.resolve(0),
+  ]);
+  return p80 + internos;
+}
+
+// Correcciones hechas a mano en Detalle de compras sobre las filas de la factura:
+// al editarla se vuelven a poner en las filas que siguen existiendo (mismo rowId).
+export async function leerCorrecciones(tx: Tx, comprobante: string, codigo: string, locales: number[]) {
+  return tx.compra.findMany({
+    where: { origen: ORIGEN_LAZARILLO, comprobante, codigo, localId: { in: locales },
+      OR: [{ importeManual: { not: null } }, { fechaManual: { not: null } }, { observacManual: { not: null } }, { conceptoCodigoManual: { not: null } }] },
+    select: { rowId: true, importeManual: true, fechaManual: true, observacManual: true, conceptoCodigoManual: true },
+  });
+}
+
+export async function reponerCorrecciones(tx: Tx, correcciones: Awaited<ReturnType<typeof leerCorrecciones>>, rowIdsNuevos: string[]) {
+  const nuevos = new Set(rowIdsNuevos);
+  let perdidas = 0;
+  for (const { rowId, ...data } of correcciones) {
+    if (!nuevos.has(rowId)) { perdidas++; continue; }
+    await tx.compra.update({ where: { rowId }, data });
+  }
+  return perdidas;
 }
 
 // Borra una factura de Lazarillo (sus filas del 14 —con sus distribuciones de

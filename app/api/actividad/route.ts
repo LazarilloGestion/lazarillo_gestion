@@ -17,13 +17,16 @@ export async function GET(request: NextRequest) {
     orderBy: { creadoEn: "desc" },
     take: limite + 1,
   });
+  // Lo que ya no existe (factura borrada, o editada con otro PDV/concepto) no se ofrece abrir.
+  const refIds = [...new Set(filas.map((a) => a.refId).filter((x): x is string => !!x))];
+  const vivas = new Set(refIds.length ? (await prisma.compra.findMany({ where: { rowId: { in: refIds } }, select: { rowId: true } })).map((c) => c.rowId) : []);
   return NextResponse.json({
     yo,
     hayMas: filas.length > limite,
     data: filas.slice(0, limite).map((a) => {
       const d = (a.datos ?? null) as { payload?: unknown; restauradaEn?: string } | null;
       return {
-        id: a.id, tipo: a.tipo, accion: a.accion, descripcion: a.descripcion, refId: a.refId,
+        id: a.id, tipo: a.tipo, accion: a.accion, descripcion: a.descripcion, refId: a.refId && vivas.has(a.refId) ? a.refId : null,
         usuario: a.usuario, creadoEn: a.creadoEn.toISOString(),
         restaurable: a.tipo === "factura" && a.accion === "eliminada" && !!d?.payload && !d.restauradaEn,
       };
