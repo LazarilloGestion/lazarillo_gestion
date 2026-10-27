@@ -223,7 +223,14 @@ function Chev({ abierto }) {
 function Combo({ opciones, valor, onElegir, placeholder, onCrear, ancho, autoFocus, estilo }) {
   const [texto, setTexto] = useState(valor || "");
   const [abierto, setAbierto] = useState(false);
+  // Opción marcada con las flechas (Diego 27/10: tipear "carn" + ↓ tiene que navegar la lista).
+  const [activo, setActivo] = useState(0);
+  const listaRef = useRef(null);
   useEffect(() => { setTexto(valor || ""); }, [valor]);
+  // El blur resuelve 180 ms después: tiene que leer el valor de ESE momento (si en el medio
+  // se precargó otro registro en la misma fila, el viejo lo borraba).
+  const valorRef = useRef(valor);
+  useEffect(() => { valorRef.current = valor; }, [valor]);
   const inputRef = useRef(null);
   const avanzar = () => setTimeout(() => {
     const el = inputRef.current; if (!el) return;
@@ -235,31 +242,50 @@ function Combo({ opciones, valor, onElegir, placeholder, onCrear, ancho, autoFoc
   const buscando = texto.trim() !== "" && texto !== (valor || "");
   const filtradas = (buscando ? opciones.filter((o) => o.toLowerCase().includes(texto.toLowerCase())) : opciones).slice(0, 12);
   const hayExacta = opciones.some((o) => o.toLowerCase() === texto.toLowerCase());
+  const conCrear = !!(onCrear && texto.trim() && !hayExacta);
+  const total = filtradas.length + (conCrear ? 1 : 0);
+  const marcado = Math.min(activo, Math.max(0, total - 1));
+  const elegir = (idx) => {
+    if (idx < filtradas.length) { const o = filtradas[idx]; setTexto(o); setAbierto(false); onElegir(o); avanzar(); }
+    else if (conCrear) { setAbierto(false); onCrear(texto.trim()); }
+  };
+  useEffect(() => {
+    const el = listaRef.current && listaRef.current.children[marcado];
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+  }, [marcado, abierto]);
   return (
     <div style={{ position: "relative", width: ancho || "100%" }}>
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2.6" strokeLinecap="round"
         style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
         <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
       <input ref={inputRef} style={{ ...inp, ...estilo, paddingLeft: 27 }} value={texto} placeholder={placeholder} autoFocus={autoFocus}
-        onChange={(e) => { setTexto(e.target.value); setAbierto(true); }}
-        onKeyDown={(e) => { if (e.key === "Enter" && abierto && filtradas[0]) { setTexto(filtradas[0]); setAbierto(false); onElegir(filtradas[0]); } }}
-        onFocus={() => setAbierto(true)}
+        onChange={(e) => { setTexto(e.target.value); setAbierto(true); setActivo(0); }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") { e.preventDefault(); if (!abierto) { setAbierto(true); setActivo(0); } else setActivo(Math.min(marcado + 1, total - 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setActivo(Math.max(marcado - 1, 0)); }
+          else if (e.key === "Escape" && abierto) { e.preventDefault(); e.stopPropagation(); setAbierto(false); }
+          else if (e.key === "Enter" && abierto && total > 0) { e.preventDefault(); e.stopPropagation(); elegir(marcado); }
+        }}
+        // No se despliega solo al entrar (Diego 27/10): se abre al tipear, con ↓ o con un click.
+        onMouseDown={() => setAbierto(true)}
         onBlur={() => setTimeout(() => {
           setAbierto(false);
           if (onCrear) return; // con alta habilitada (proveedor) se maneja desde la lista
+          const actual = valorRef.current;
+          if (actual !== valor) return; // cambió el valor mientras tanto: manda el nuevo
           const exacta = opciones.find((o) => o.toLowerCase() === texto.trim().toLowerCase());
-          if (exacta && exacta !== valor) { setTexto(exacta); onElegir(exacta); }
-          else if (!exacta) setTexto(valor || ""); // solo se aceptan ítems de la lista
+          if (exacta && exacta !== actual) { setTexto(exacta); onElegir(exacta); }
+          else if (!exacta) setTexto(actual || ""); // solo se aceptan ítems de la lista
         }, 180)} />
-      {abierto && (filtradas.length > 0 || (onCrear && texto.trim())) && (
-        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, background: "#fff", border: `1px solid ${C.borde}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,.10)", zIndex: 80, maxHeight: 230, overflow: "auto" }}>
-          {filtradas.map((o) => (
-            <div key={o} onMouseDown={() => { setTexto(o); setAbierto(false); onElegir(o); avanzar(); }}
-              style={{ padding: "8px 12px", fontSize: 13.5, cursor: "pointer", borderBottom: "1px solid #f4f4f2" }}>{o}</div>
+      {abierto && total > 0 && (
+        <div ref={listaRef} style={{ position: "absolute", top: "105%", left: 0, right: 0, background: "#fff", border: `1px solid ${C.borde}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,.10)", zIndex: 80, maxHeight: 230, overflow: "auto" }}>
+          {filtradas.map((o, ix) => (
+            <div key={o} onMouseDown={(e) => { e.preventDefault(); elegir(ix); }} onMouseEnter={() => setActivo(ix)}
+              style={{ padding: "8px 12px", fontSize: 13.5, cursor: "pointer", borderBottom: "1px solid #f4f4f2", background: ix === marcado ? "#eef7fc" : "#fff" }}>{o}</div>
           ))}
-          {onCrear && texto.trim() && !hayExacta && (
-            <div onMouseDown={() => { setAbierto(false); onCrear(texto.trim()); }}
-              style={{ padding: "8px 12px", fontSize: 13.5, cursor: "pointer", color: C.cel, fontWeight: 600 }}>+ Crear «{texto.trim()}»</div>
+          {conCrear && (
+            <div onMouseDown={(e) => { e.preventDefault(); elegir(filtradas.length); }} onMouseEnter={() => setActivo(filtradas.length)}
+              style={{ padding: "8px 12px", fontSize: 13.5, cursor: "pointer", color: C.cel, fontWeight: 600, background: marcado === filtradas.length ? "#eef7fc" : "#fff" }}>+ Crear «{texto.trim()}»</div>
           )}
         </div>
       )}
@@ -366,7 +392,10 @@ function ModalNuevaCarga(props) {
   const [fecha, setFecha] = useState(ede ? ede.fecha : fechaDefault);
   const [pdv, setPdv] = useState(ede ? ede.pdv : pdvActual || PDVS[0]);
   const [obs, setObs] = useState(ede ? ede.obs || "" : "");
-  const [lineas, setLineas] = useState(ede ? lineasDe(ede) : rde ? rde.lineas.map((l) => ({ ...l, editando: false, foco: false, precargada: true })) : ctx.concepto ? [{ tipo: "concepto", item: ctx.concepto, neto: "", cant: "", unit: "", alic: 21, conc: "", pdvDest: pdvActual || PDVS[0], editando: true, foco: false }] : []);
+  // Precarga (Repetir / última factura): el primer registro queda abierto para corregir el
+  // neto; al confirmarlo se abre el siguiente (Diego 27/10). Los demás quedan con ⚠.
+  const abrirPrecarga = (ls) => ls.map((l, ix) => ({ ...l, editando: ix === 0, foco: false, precargada: ix !== 0 }));
+  const [lineas, setLineas] = useState(ede ? lineasDe(ede) : rde ? abrirPrecarga(rde.lineas) : ctx.concepto ? [{ tipo: "concepto", item: ctx.concepto, neto: "", cant: "", unit: "", alic: 21, conc: "", pdvDest: pdvActual || PDVS[0], editando: true, foco: false }] : []);
   // Insumo: el total neto de la línea (lo que dice la factura) manda si está; si no, cant × unitario.
   const netoDe = (l) => l.tipo === "insumo" ? (l.ntot !== undefined && l.ntot !== "" ? parseImp(l.ntot) : (parseFloat(l.cant) || 0) * parseImp(l.unit)) : parseImp(l.neto);
   const [percepciones, setPercepciones] = useState(((rde || ede) ? ((rde || ede).percepciones || []) : []).map((p) => ({ ...p })));
@@ -448,7 +477,7 @@ function ModalNuevaCarga(props) {
     setTimeout(() => tipoRef.current && tipoRef.current.focus(), 40);
     setFecha(fechaDefault);
     setOrigenPre(f.comp);
-    setLineas(f.lineas.map((l) => ({ ...l, editando: false, foco: false, precargada: true })));
+    setLineas(abrirPrecarga(f.lineas));
     setPercepciones((f.percepciones || []).map((p) => ({ ...p })));
     const tieneImpLinea = f.lineas.some((l) => parseImp(l.impint) > 0);
     setImpIntG(!tieneImpLinea && f.impInt > 0 ? fmtNum(f.impInt) : "");
@@ -689,7 +718,7 @@ function ModalNuevaCarga(props) {
                           ))}
                         </span>
                         <div style={{ flex: 1 }}>
-                          <Combo opciones={esIns ? MAESTRO_INSUMOS.map((x) => x.nombre) : conceptosDe(null)} valor={l.item} autoFocus={l.foco !== false}
+                          <Combo opciones={esIns ? MAESTRO_INSUMOS.map((x) => x.nombre) : conceptosDe(null)} valor={l.item} autoFocus={l.foco !== false && l.foco !== "neto"}
                             placeholder={esIns ? "Buscar insumo..." : "Buscar concepto..."}
                             onElegir={(v) => {
                               const mi = esIns ? MAESTRO_INSUMOS.find((x) => x.nombre === v) : null;
@@ -704,7 +733,7 @@ function ModalNuevaCarga(props) {
                       </div>
                       {esIns ? (
                         <div style={{ position: "relative" }}>
-                          <input style={{ ...inp, padding: "8px 26px 8px 6px", textAlign: "center" }} placeholder="0" value={l.cant}
+                          <input style={{ ...inp, padding: "8px 26px 8px 6px", textAlign: "center" }} placeholder="0" value={l.cant} autoFocus={l.foco === "neto"}
                             onChange={(e) => {
                               const cant = soloNum(e.target.value); const c = parseFloat(cant) || 0;
                               setLineas((ls) => ls.map((x, ix) => {
@@ -731,14 +760,20 @@ function ModalNuevaCarga(props) {
                               const ntot = fmtImp(e.target.value); const t = parseImp(ntot); const c = parseFloat(l.cant) || 0;
                               setLineas((ls) => ls.map((x, ix) => ix === i ? { ...x, ntot, unit: c > 0 && t > 0 ? fmtNum(t / c) : x.unit } : x));
                             }} />
-                        : <input style={{ ...inp, padding: "8px 6px", textAlign: "center" }} placeholder="Neto $" value={l.neto} title={l.neto ? "$ " + l.neto : undefined} onChange={(e) => setLinea(i, "neto", fmtImp(e.target.value))} />}
+                        : <input style={{ ...inp, padding: "8px 6px", textAlign: "center" }} placeholder="Neto $" value={l.neto} autoFocus={l.foco === "neto"} title={l.neto ? "$ " + l.neto : undefined} onChange={(e) => setLinea(i, "neto", fmtImp(e.target.value))} />}
                       <select style={{ ...sel, padding: "8px 20px 8px 8px", backgroundPosition: "right 7px center" }} value={l.alic} onChange={(e) => setLinea(i, "alic", parseFloat(e.target.value))}>
                         {ALICUOTAS.map((a) => <option key={a} value={a}>{a}%</option>)}
                       </select>
                       <span style={{ fontSize: 12.5, color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}>{neto > 0 ? (esIns ? <Imp v={ivaUnit} sufijo=" /u" max={17} /> : <Imp v={ivaLinea} max={17} />) : ""}</span>
                       <span style={{ fontSize: 12.5, textAlign: "center", minWidth: 0, overflow: "hidden" }}>{neto > 0 ? <Imp v={neto + ivaLinea + parseImp(l.impint)} strong max={17} /> : esIns && parseFloat(l.cant) > 0 && l.item ? <Bonif /> : ""}</span>
                       <span style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-                        <button type="button" onClick={() => { if (!faltaDe(l)) { setLinea(i, "editando", false); setTimeout(() => agregarRef.current && agregarRef.current.focus(), 40); } }} title={faltaDe(l) || "Confirmar (Enter)"}
+                        <button type="button" onClick={() => {
+                          if (faltaDe(l)) return;
+                          // Si quedan registros precargados sin revisar, se abre el siguiente con el foco en el importe.
+                          const j = lineas.findIndex((x, ix) => ix > i && x.precargada);
+                          setLineas((ls) => ls.map((x, ix) => ix === i ? { ...x, editando: false } : ix === j ? { ...x, editando: true, precargada: false, foco: "neto" } : x));
+                          if (j < 0) setTimeout(() => agregarRef.current && agregarRef.current.focus(), 40);
+                        }} title={faltaDe(l) || "Confirmar (Enter)"}
                           style={{ cursor: "pointer", fontWeight: 700, color: !faltaDe(l) ? C.verde : "#ccc", fontSize: 16, background: "none", border: "none", padding: 0 }}>✓</button>
                         <button type="button" onClick={() => setLineas((ls) => ls.filter((_, ix) => ix !== i))} title="Eliminar" style={{ cursor: "pointer", color: C.gris, background: "none", border: "none", padding: 0, fontSize: 14 }}>×</button>
                       </span>

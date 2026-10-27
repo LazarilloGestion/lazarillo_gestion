@@ -21,8 +21,8 @@ export type PdvRef = { id: number; nombre: string; localId: number };
 // regla de apertura activa de cada concepto para el PDV de gestión.
 export function useCargaFactura(activo: boolean, pdvGestion: number | null | undefined, localGestion: number | null | undefined) {
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
-  // Los maestros cambian poco: 5 minutos sin volver a pedirlos (abrir el modal es instantáneo).
-  const { data: maestros, isLoading } = useFetchQuery<Maestros>(["facturas-maestros"], activo ? "/api/facturas/maestros" : null, { staleTime: 5 * 60_000 });
+  // Los maestros cambian poco: 15 minutos sin volver a pedirlos (abrir el modal es instantáneo).
+  const { data: maestros, isLoading } = useFetchQuery<Maestros>(["facturas-maestros"], activo ? "/api/facturas/maestros" : null, { staleTime: 15 * 60_000 });
   const { reglas } = useReglasApertura();
   const pdvsRef = useMemo<PdvRef[]>(
     () => (locales ?? []).flatMap((l) => l.puntosDeVenta.map((p) => ({ id: p.id, nombre: `${l.nombre} · ${p.nombre}`, localId: l.id }))),
@@ -57,7 +57,9 @@ export function CargarFactura() {
   const { localId, pdvId } = useDashboard();
   const [abierto, setAbierto] = useState(false);
   const queryClient = useQueryClient();
-  const { maestros, pdvsRef, reglaDe } = useCargaFactura(abierto, pdvId, localId);
+  // Los maestros se piden al abrir el Panel, no al tocar el botón (Diego 27/10: se quedaba
+  // "Cargando maestros…"): cuando se abre el modal ya están.
+  const { maestros, pdvsRef, reglaDe } = useCargaFactura(true, pdvId, localId);
   const pdvActual = pdvsRef.find((p) => p.id === pdvId)?.nombre;
 
   const puede = localId != null && pdvId != null;
