@@ -704,3 +704,57 @@ model MedioPago {
 
   @@map("medios_pago")
 }
+
+// Pagos a proveedores cargados en Lazarillo (27/10/2026). El pago cuelga de la factura
+// entera (PDV + comprobante + código de proveedor, como el informe 80); lo no imputado
+// queda a cuenta. Anular no borra: queda en el historial (anuladoEn).
+model PagoProveedor {
+  id         Int       @id @default(autoincrement())
+  codPro     String
+  pdvPagaId  Int // PDV que paga
+  fecha      DateTime  @db.Date
+  importe    Decimal   @db.Decimal(14, 2)
+  medio      String // nombre de un medio del gestor (medios_pago)
+  referencia String?
+  creadoEn   DateTime  @default(now())
+  creadoPor  String?
+  anuladoEn  DateTime?
+  anuladoPor String?
+
+  aplicaciones AplicacionPagoProveedor[]
+  eventos      EventoPagoProveedor[]
+
+  @@index([codPro])
+  @@map("pagos_proveedor")
+}
+
+model AplicacionPagoProveedor {
+  id          Int     @id @default(autoincrement())
+  pagoId      Int
+  pdvId       Int
+  comprobante String
+  codPro      String
+  importe     Decimal @db.Decimal(14, 2)
+
+  pago PagoProveedor @relation(fields: [pagoId], references: [id], onDelete: Cascade)
+
+  @@index([pagoId])
+  @@index([pdvId, comprobante, codPro])
+  @@map("aplicaciones_pago_proveedor")
+}
+
+model EventoPagoProveedor {
+  id       Int      @id @default(autoincrement())
+  pagoId   Int
+  tipo     String // creado | imputado | desimputado | anulado
+  detalle  String?
+  importe  Decimal? @db.Decimal(14, 2)
+  usuario  String?
+  creadoEn DateTime @default(now())
+
+  pago PagoProveedor @relation(fields: [pagoId], references: [id], onDelete: Cascade)
+
+  @@index([pagoId])
+  @@map("eventos_pago_proveedor")
+}
+

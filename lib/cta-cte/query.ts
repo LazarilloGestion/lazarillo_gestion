@@ -17,6 +17,8 @@ export interface FacturaCtaCteRow {
   row_id: string | null;   // una fila del 14 de esa factura (para ver sus líneas)
   solo80: boolean;         // el 80 trae el pago pero el 14 no tiene la factura
   pagos: { fecha: string; importe: number; medio: string | null; orden: string | null }[] | null;
+  // Pagos cargados en Lazarillo imputados a esta factura (Etapa 4).
+  pagos_lz: { pagoId: number; fecha: string; importe: number; totalPago: number; medio: string; referencia: string | null; pdvPaga: string }[] | null;
 }
 
 // Todas las facturas del proveedor en TODOS los PDV (pagas incluidas), una por
@@ -52,6 +54,19 @@ export function facturasCtaCteSql(codPro: string): Prisma.Sql {
       FROM pagos
       WHERE "codPro" = ${codPro} AND comprobante IS NOT NULL AND "puntoDeVentaId" IS NOT NULL
       GROUP BY "puntoDeVentaId", comprobante
+    ),
+    lz AS (
+      SELECT a."pdvId" AS pdv_id, a.comprobante,
+        JSON_AGG(JSON_BUILD_OBJECT(
+          'pagoId', pp.id, 'fecha', TO_CHAR(pp.fecha, 'YYYY-MM-DD'), 'importe', a.importe::float8, 'totalPago', pp.importe::float8,
+          'medio', pp.medio, 'referencia', pp.referencia, 'pdvPaga', CONCAT(lp.nombre, ' · ', vp.nombre)
+        ) ORDER BY pp.fecha, pp.id) AS pagos_lz
+      FROM aplicaciones_pago_proveedor a
+      JOIN pagos_proveedor pp ON pp.id = a."pagoId" AND pp."anuladoEn" IS NULL
+      JOIN puntos_de_venta vp ON vp.id = pp."pdvPagaId"
+      JOIN locales lp ON lp.id = vp."localId"
+      WHERE a."codPro" = ${codPro}
+      GROUP BY a."pdvId", a.comprobante
     )
     SELECT
       COALESCE(f.pdv_id, pg.pdv_id)                        AS pdv_id,
@@ -63,9 +78,11 @@ export function facturasCtaCteSql(codPro: string): Prisma.Sql {
       f.conceptos,
       f.row_id,
       (f.comprobante IS NULL)                              AS "solo80",
-      pg.pagos
+      pg.pagos,
+      lz.pagos_lz
     FROM f
     FULL OUTER JOIN pg ON pg.comprobante = f.comprobante AND pg.pdv_id = f.pdv_id
+    LEFT JOIN lz ON lz.pdv_id = COALESCE(f.pdv_id, pg.pdv_id) AND lz.comprobante = COALESCE(f.comprobante, pg.comprobante)
     JOIN puntos_de_venta pdv ON pdv.id = COALESCE(f.pdv_id, pg.pdv_id)
     JOIN locales l           ON l.id = pdv."localId"
     ORDER BY 4 DESC NULLS LAST, 3 DESC

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { impagasDesde } from "@/lib/impagas/query";
 import { estadoPago } from "@/lib/cta-cte/estado";
+import { combinarPagos } from "@/lib/pagos-proveedor/imputar";
+import { pagosACuenta } from "@/lib/pagos-proveedor/server";
 import {
   encabezadoMovsSql, facturasCtaCteSql, movimientosCtaCteSql, proveedorCtaCteSql,
   type EncabezadoMovsRow, type FacturaCtaCteRow, type MovimientoCtaCteRow, type ProveedorCtaCteRow,
@@ -45,9 +47,10 @@ export async function GET(request: NextRequest) {
     }
   }
   try {
-    const [facturas, prov] = await Promise.all([
+    const [facturas, prov, aCuenta] = await Promise.all([
       prisma.$queryRaw<FacturaCtaCteRow[]>(facturasCtaCteSql(codPro)),
       prisma.$queryRaw<ProveedorCtaCteRow[]>(proveedorCtaCteSql(codPro)),
+      pagosACuenta(prisma, codPro),
     ]);
     const p = prov[0];
     const desde = impagasDesde(null, process.env.IMPAGAS_DESDE);
@@ -59,8 +62,14 @@ export async function GET(request: NextRequest) {
       cuit: p?.cuit ?? null,
       pagoAutomatico: !!p?.pago_automatico,
       desdeCobertura: desde,
+      aCuenta,
       facturas: facturas.map((f) => {
-        const total = Number(f.total), pagado = Number(f.pagado);
+        const total = Number(f.total);
+        const p80 = (f.pagos ?? []).map((x) => ({ fecha: x.fecha, importe: Number(x.importe) }));
+        const plz = f.pagos_lz ?? [];
+        // 80 + Lazarillo (el mismo pago cargado en los dos lados cuenta una vez).
+        const comb = combinarPagos(p80, plz.map((x) => ({ fecha: x.fecha, importe: Number(x.importe) })), total);
+        const pagado = comb.pagado;
         return {
           pdvId: Number(f.pdv_id),
           pdv: f.pdv,
@@ -72,6 +81,8 @@ export async function GET(request: NextRequest) {
           solo80: f.solo80,
           estado: estadoPago({ comprobante: f.comprobante, fecha: f.fecha, total, pagado, pagoAutomatico: !!p?.pago_automatico }, desde),
           pagos: (f.pagos ?? []).map((x) => ({ fecha: x.fecha, importe: Number(x.importe), medio: x.medio, orden: x.orden })),
+          pagosLz: plz.map((x, i) => ({ ...x, importe: Number(x.importe), totalPago: Number(x.totalPago), conciliado: comb.conciliados.includes(i) })),
+          deMas: comb.deMas,
         };
       }),
     });
