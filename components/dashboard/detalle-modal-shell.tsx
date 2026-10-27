@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -54,6 +54,12 @@ interface DetalleModalShellProps<T> {
   anchoAcciones?: string;
 }
 
+// Render por tandas (velocidad, Diego 27/10): con 500 filas el modal tardaba ~1 s en
+// aparecer y con 5.000, ~8 s, y cada ✎ redibujaba todas. Se dibujan las primeras
+// TANDA filas y se suman más al acercarse al final del scroll. Orden, buscador,
+// filtros, totales y "tildar todo" siguen trabajando sobre la lista completa.
+export const TANDA = 100;
+
 export function DetalleModalShell<T>({
   open,
   onClose,
@@ -106,6 +112,29 @@ export function DetalleModalShell<T>({
 
   const claveReset = resetKey ?? queryKey;
   useEffect(() => { clearFilters(); }, [claveReset, clearFilters]);
+
+  // Cuántas filas se dibujan. Vuelve a la primera tanda al cambiar de consulta, orden o
+  // filtros (no al refrescar tras guardar: así no salta el scroll).
+  const [visibles, setVisibles] = useState(TANDA);
+  const claveTanda = JSON.stringify([claveReset, sort, query, columnFilters]);
+  const [claveTandaPrevia, setClaveTandaPrevia] = useState(claveTanda);
+  if (claveTandaPrevia !== claveTanda) {
+    setClaveTandaPrevia(claveTanda);
+    setVisibles(TANDA);
+  }
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const finRef = useRef<HTMLTableRowElement | null>(null);
+  const quedan = filtered.length > visibles;
+  useEffect(() => {
+    const fin = finRef.current;
+    if (!quedan || !fin) return;
+    const obs = new IntersectionObserver(
+      (entradas) => { if (entradas.some((e) => e.isIntersecting)) setVisibles((v) => v + TANDA); },
+      { root: scrollRef.current, rootMargin: "800px 0px" },
+    );
+    obs.observe(fin);
+    return () => obs.disconnect();
+  }, [quedan, visibles]);
   useEffect(() => {
     if (!onServerQuery) return;
     const t = setTimeout(() => onServerQuery(query.trim()), 350);
@@ -162,7 +191,7 @@ export function DetalleModalShell<T>({
         {!isLoading && !error && count > 0 && (
           // rounded-t-xl: en edición el modal pasa a overflow-visible y deja de
           // recortar sus esquinas; el fondo del thead sticky asomaría cuadrado.
-          <div className={cn("overflow-y-auto overflow-x-hidden min-h-0", extra ? "flex-none max-h-[40%]" : "flex-1", filtered.length > 1 && "pb-2")}>
+          <div ref={scrollRef} className={cn("overflow-y-auto overflow-x-hidden min-h-0", extra ? "flex-none max-h-[40%]" : "flex-1", filtered.length > 1 && "pb-2")}>
             <table className="text-xs w-full table-fixed">
               <thead className="sticky top-0 z-10 bg-popover">
                 <tr className="border-b border-border/60">
@@ -195,7 +224,14 @@ export function DetalleModalShell<T>({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((item) => renderRow(item, contentEl))}
+                {(quedan ? filtered.slice(0, visibles) : filtered).map((item) => renderRow(item, contentEl))}
+                {quedan && (
+                  <tr ref={finRef} aria-hidden>
+                    <td colSpan={cols.length + (seleccion ? 2 : 1)} className="py-3 text-center text-[11px] text-muted-foreground/60">
+                      Cargando más registros…
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
