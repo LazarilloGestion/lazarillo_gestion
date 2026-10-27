@@ -43,8 +43,7 @@ export interface DeudaConPdv {
 // Número visible de la orden de pago: "OP 0012".
 export const numeroOP = (id: number) => `OP ${String(id).padStart(4, "0")}`;
 
-export const MEDIOS_PAGO_INTERNO = ["Transferencia", "Caja Mayor", "Bancos"] as const;
-export type MedioPagoInterno = (typeof MEDIOS_PAGO_INTERNO)[number];
+// Medios de pago: ya no es una lista fija, ver lib/medios-pago (gestor, 27/10/2026).
 
 export const saldoMov = (m: Pick<MovimientoApertura, "importe" | "aplicado">) =>
   Math.max(0, m.importe - m.aplicado);

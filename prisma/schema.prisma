@@ -486,7 +486,7 @@ model FlujoCajaManual {
   @@map("flujo_caja_manual")
 }
 
-// ─── APERTURA DE GASTOS ────────────────────────────────────────────────────
+// ─── APERTURA DE GASTOS ─────────────────────────────────────────────────────
 
 model ReglaApertura {
   id        Int    @id @default(autoincrement())
@@ -689,4 +689,18 @@ model Actividad {
 
   @@index([creadoEn])
   @@map("actividad")
+}
+
+// Gestor de medios de pago (27/10/2026): lista única para todo el Panel. Los pagos
+// guardan el nombre (pagos_internos.medio); renombrar actualiza esos pagos.
+model MedioPago {
+  id       Int      @id @default(autoincrement())
+  nombre   String   @unique
+  tipo     String   @default("otro") // caja | banco | tarjeta | otro
+  pideId   Boolean  @default(false) // muestra el campo ID (nº de operación)
+  activo   Boolean  @default(true)
+  orden    Int      @default(0)
+  creadoEn DateTime @default(now())
+
+  @@map("medios_pago")
 }
