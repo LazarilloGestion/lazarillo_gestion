@@ -29,9 +29,10 @@ export function useCargaFactura(activo: boolean, pdvGestion: number | null | und
   );
   // Regla de apertura activa y vigente hoy, a nivel concepto, con origen en este
   // PDV y destinos por PDV → reparto precargado (marca REGLA del prototipo).
-  const reglaDe = (codigo: string | undefined) => {
+  // Vigente en la fecha de la factura (si no viene, hoy).
+  const reglaDe = (codigo: string | undefined, _pdvs?: unknown, fechaISO?: string) => {
     if (!codigo || pdvGestion == null) return null;
-    const hoy = hoyUTC();
+    const hoy = fechaISO && /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? new Date(`${fechaISO}T00:00:00Z`) : hoyUTC();
     const r = reglas.find((x) => x.estado === "activa" && x.nivel === "concepto" && x.entidadId === codigo
       && (x.origenPuntoDeVentaId === pdvGestion || (x.origenPuntoDeVentaId == null && x.origenLocalId === localGestion))
       && cubreFecha(hoy, x, x.fechaDesde ? new Date(x.fechaDesde) : null, x.fechaHasta ? new Date(x.fechaHasta) : null) !== false);

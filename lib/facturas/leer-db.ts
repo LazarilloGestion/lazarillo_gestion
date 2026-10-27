@@ -11,20 +11,34 @@ import { facturaDesdeFilas } from "./leer";
 export async function factura(prisma: PrismaClient, rowId: string) {
   const c = await prisma.compra.findUnique({
     where: { rowId },
-    select: { comprobante: true, codigo: true, localId: true, proveedorId: true, origen: true, proveedor: true },
+    select: { comprobante: true, codigo: true, localId: true, puntoDeVentaId: true, proveedorId: true, origen: true, proveedor: true },
   });
   if (!c || !c.comprobante || !c.codigo || c.localId == null) return null;
   const esLz = c.origen === ORIGEN_LAZARILLO;
-  const cargada = esLz
-    ? await prisma.facturaLazarillo.findFirst({ where: { comprobante: c.comprobante, codigo: c.codigo } })
-    : null;
   const pdvs = await prisma.puntoDeVenta.findMany({ select: { id: true, localId: true } });
   const localDe = new Map(pdvs.map((p) => [p.id, p.localId]));
+  let cargada = null;
   let locales = [c.localId];
-  if (cargada) {
-    const f = cargada.payload as unknown as FacturaInput;
-    const ids = f.registros.flatMap((r) => [r.puntoDeVentaId, ...(r.reparto ?? []).map((x) => x.puntoDeVentaId)]);
-    locales = [...new Set([c.localId, ...ids.map((id) => localDe.get(id)).filter((x): x is number => x != null)])];
+  if (esLz) {
+    // Locales donde está esta factura del Panel (puede estar repartida entre locales).
+    const conFilas = await prisma.compra.findMany({
+      where: { origen: ORIGEN_LAZARILLO, comprobante: c.comprobante, codigo: c.codigo },
+      select: { localId: true }, distinct: ["localId"],
+    });
+    const locLz = conFilas.map((x) => x.localId).filter((x): x is number => x != null);
+    // Lo cargado: el registro de ESTA factura (no el de otra con el mismo número en otro
+    // local — revisión 27/10/2026): el que incluye el PDV de la fila.
+    const candidatas = await prisma.facturaLazarillo.findMany({ where: { comprobante: c.comprobante, codigo: c.codigo, localId: { in: locLz } } });
+    const pdvsDe = (f: FacturaInput) => f.registros.flatMap((r) => [r.puntoDeVentaId, ...(r.reparto ?? []).map((x) => x.puntoDeVentaId)]);
+    cargada = candidatas.find((fl) => pdvsDe(fl.payload as unknown as FacturaInput).includes(c.puntoDeVentaId ?? -1))
+      ?? (candidatas.length === 1 ? candidatas[0] : null);
+    if (cargada) {
+      const ids = pdvsDe(cargada.payload as unknown as FacturaInput);
+      locales = [...new Set([c.localId, ...ids.map((id) => localDe.get(id)).filter((x): x is number => x != null)])];
+    } else {
+      // Cargada antes de guardar lo cargado (26/10): todas sus filas del Panel.
+      locales = locLz.length ? locLz : [c.localId];
+    }
   }
   return { c: { ...c, comprobante: c.comprobante, codigo: c.codigo, localId: c.localId }, esLz, cargada, locales };
 }

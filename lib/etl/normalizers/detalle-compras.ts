@@ -7,7 +7,7 @@ import type { ETLRow, ETLRowError, ETLSkippedRow } from "../types";
 import { detalleCompraRowSchema, type DetalleCompraRow } from "../schemas/detalle-compras";
 import { formatZodError } from "../schemas/common";
 import { insertChunkWithRowFallback } from "../chunked-upsert";
-import { comprobantesDeLazarillo } from "@/lib/facturas/saltear-lazarillo";
+import { comprobantesDeLazarillo, claveSalteo } from "@/lib/facturas/saltear-lazarillo";
 
 const CHUNK_SIZE = 500;
 
@@ -91,7 +91,8 @@ export async function normalizeDetalleCompras(
     prisma, "detalle", ctx?.localId, [...rowIdMap.values()].map((pr) => makeComprobante(pr.row) ?? ""),
   );
   const filtered = Array.from(rowIdMap.values()).filter((pr) => {
-    if (!enLazarillo.has(`${makeComprobante(pr.row) ?? ""}|${pr.data.COD_PRO ?? ""}`)) return true;
+    const cpb = makeComprobante(pr.row);
+    if (!cpb || !enLazarillo.has(claveSalteo(cpb, pr.data.COD_PRO, excelDateToISO(pr.row["FECHA"])))) return true;
     skippedRows.push({
       fecha: formatFecha(pr.row["FECHA"]),
       concepto: trim(pr.row["CODIGO"]) ?? trim(pr.row["NOMBRE"]) ?? undefined,

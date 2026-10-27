@@ -35,7 +35,10 @@ export type TipoPercepcion = keyof typeof CONCEPTO_PERCEPCION;
 const COLUMNA_PERCEPCION: Record<string, "per1" | "per2" | "per3"> = { "133": "per1", "899": "per2", "137": "per3" };
 
 const dinero = z.number().finite();
-const repartoSchema = z.array(z.object({ puntoDeVentaId: z.number().int(), pct: z.number().min(0).max(100) }));
+// Un reparto entre PDV tiene que sumar 100 (antes se reescalaba en silencio: revisión 27/10/2026).
+const repartoSchema = z.array(z.object({ puntoDeVentaId: z.number().int(), pct: z.number().min(0).max(100) }))
+  .refine((r) => r.filter((x) => x.pct > 0).length < 2 || Math.abs(r.reduce((a, x) => a + x.pct, 0) - 100) < 0.01, "El reparto por PDV tiene que sumar 100%");
+const fechaReal = (s: string) => { const d = new Date(`${s}T00:00:00Z`); return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s; };
 
 export const registroSchema = z.object({
   tipo: z.enum(["concepto", "insumo"]),
@@ -58,7 +61,7 @@ export const facturaSchema = z.object({
   tipo: z.enum(Object.keys(TIPOS_COMPROBANTE) as [TipoComprobante, ...TipoComprobante[]]),
   prefijo: z.string().regex(/^\d{1,4}$/),
   numero: z.string().regex(/^\d{1,8}$/),
-  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(fechaReal, "Fecha inexistente"),
   observacion: z.string().max(200).nullish(),
   registros: z.array(registroSchema).min(1),
   percepciones: z.array(z.object({
