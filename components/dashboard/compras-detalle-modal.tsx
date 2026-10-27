@@ -697,15 +697,16 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     // El PATCH ya guardó en este punto — un fallo del refetch posterior no es
     // "no se guardó" (los datos ya están persistidos del lado del servidor),
     // así que no lo tratamos como error de guardado.
+    // Velocidad (Diego 27/10): solo se espera la lista del modal. El pivot (~4 MB por
+    // vista) se refresca de fondo y solo el que está en pantalla; los demás que
+    // quedaron en caché (otro modo, PDV o agrupación) se marcan viejos y se piden
+    // recién cuando se vuelven a mirar. Antes se esperaba a TODOS.
+    // La reevaluación de apertura puede haber creado/revertido distribuciones —
+    // el badge de "regla activa" y la línea de tiempo leen de ["apertura-reglas"].
+    void queryClient.invalidateQueries({ queryKey: ["pivot"] });
+    void queryClient.invalidateQueries({ queryKey: ["apertura-reglas"] });
     try {
-      await Promise.all([
-        queryClient.refetchQueries({ queryKey }),
-        queryClient.refetchQueries({ queryKey: ["pivot"] }),
-        // La reevaluación de apertura puede haber creado/revertido
-        // distribuciones — el badge de "regla activa" y la línea de tiempo
-        // leen de ["apertura-reglas"].
-        queryClient.invalidateQueries({ queryKey: ["apertura-reglas"] }),
-      ]);
+      await queryClient.refetchQueries({ queryKey });
     } catch (err) {
       console.error("[compras-detalle-modal] guardado OK pero falló el refetch posterior", err);
     }
