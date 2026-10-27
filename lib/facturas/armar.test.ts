@@ -54,6 +54,17 @@ describe("armarFactura", () => {
     expect(filas[0].importe).toBe(-121);
     expect(filas[0].comprobante.startsWith("NC")).toBe(true);
   });
+  it("insumo bonificado (importe 0): va al detalle con su cantidad y sin fila propia en el 14", () => {
+    const f = facturaSchema.parse({ ...factura, percepciones: [], registros: [
+      { tipo: "insumo", insumoCodigo: "72", nombre: "Harina 000", medida: "K", cantidad: 25, neto: 0, alicuota: 10.5, conceptoCodigo: "10", puntoDeVentaId: 1 },
+      { tipo: "insumo", insumoCodigo: "906", nombre: "Leche Condensada", medida: "L", cantidad: 2, neto: 1000, alicuota: 21, conceptoCodigo: "3", puntoDeVentaId: 1 },
+    ] });
+    const { filas, lineas, total } = armarFactura(f, ctx);
+    expect(filas.map((x) => x.codCga)).toEqual(["3"]);
+    expect(total).toBe(1210);
+    expect(lineas[0]).toMatchObject({ cantidad: 25, totalIns: 0, neto: 0, compraId: null });
+    expect(lineas[1].compraId).toBe(filas[0].rowId);
+  });
   it("comprobante con ceros a la izquierda", () => {
     expect(comprobanteDe("Ticket", "12", "5").detalle).toBe("Tic 0012-00000005");
   });

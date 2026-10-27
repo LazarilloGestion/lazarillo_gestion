@@ -114,7 +114,7 @@ export interface LineaDetalle {
   tasa: number;
   codCga: string;
   nomCga: string;
-  compraId: string;
+  compraId: string | null;
   proveedorId: number;
   localId: number;
 }
@@ -227,6 +227,10 @@ export function armarFactura(
   }
 
   const lista = [...filas.values()].filter((x) => x.importe !== 0);
+  // Insumos bonificados (importe 0, Diego 27/10/2026): la línea va al detalle con su
+  // cantidad; si su fila del 14 quedó en cero no se graba y la línea no la referencia.
+  const grabadas = new Set(lista.map((x) => x.rowId));
+  const lineasOk = lineas.map((l) => (l.compraId && grabadas.has(l.compraId) ? l : { ...l, compraId: null }));
   const total = r2(lista.reduce((a, x) => a + x.importe, 0));
-  return { filas: lista, lineas, total };
+  return { filas: lista, lineas: lineasOk, total };
 }
