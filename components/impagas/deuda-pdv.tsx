@@ -489,14 +489,14 @@ function Chip({ cls, children }: { cls: string; children: React.ReactNode }) {
   return <span className={cn("rounded px-1.5 py-0.5 text-[10px] dark:bg-zinc-800 dark:text-zinc-300", cls)}>{children}</span>;
 }
 
-function hoyISO() {
+export function hoyISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // Input de importe en formato moneda que no corre el cursor al final al
 // reformatear (se puede cambiar un número del medio).
-function ImporteInput({ value, onChange, readOnly, className }: {
+export function ImporteInput({ value, onChange, readOnly, className }: {
   value: string; onChange: (v: string) => void; readOnly?: boolean; className?: string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
@@ -542,7 +542,7 @@ export function dmyAIso(t: string): string | null {
   if (f.getUTCFullYear() !== a || f.getUTCMonth() !== mes - 1 || f.getUTCDate() !== d) return null;
   return `${a}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
-function FechaInput({ value, onChange, className }: { value: string; onChange: (iso: string) => void; className?: string }) {
+export function FechaInput({ value, onChange, className }: { value: string; onChange: (iso: string) => void; className?: string }) {
   const [txt, setTxt] = useState(isoADmy(value));
   return (
     <input
