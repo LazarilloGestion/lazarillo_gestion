@@ -106,14 +106,24 @@ export async function guardarCarga(tx: Tx, p: Preparada, usuario: string | null)
   });
 }
 
-export function descripcionFactura(p: Pick<Preparada, "f" | "nombreProv"> & { total: number }) {
+// Texto de la actividad: primera línea el proveedor, segunda comprobante · PDV · total
+// (la campanita muestra "Factura cargada · <proveedor>" y abajo el resto).
+export function descripcionFactura(p: Pick<Preparada, "f" | "nombreProv"> & { total: number; pdv?: string | null }) {
   const tipo = p.f.tipo === "Ticket" ? "Tic" : p.f.tipo;
-  return `${tipo} ${p.f.prefijo.padStart(4, "0")}-${p.f.numero.padStart(8, "0")} · ${p.nombreProv} · $ ${p.total.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const comp = `${tipo} ${p.f.prefijo.padStart(4, "0")}-${p.f.numero.padStart(8, "0")}`;
+  const total = `$ ${p.total.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${p.nombreProv}\n${[comp, p.pdv, total].filter(Boolean).join(" · ")}`;
+}
+
+export async function nombrePdv(tx: Tx | PrismaClient, id: number | null | undefined): Promise<string | null> {
+  if (id == null) return null;
+  const p = await tx.puntoDeVenta.findUnique({ where: { id }, select: { nombre: true, local: { select: { nombre: true } } } });
+  return p ? `${p.local?.nombre ? `${p.local.nombre} · ` : ""}${p.nombre}` : null;
 }
 
 export async function registrarActividad(
   tx: Tx | PrismaClient,
-  a: { tipo: string; accion: "creada" | "editada" | "eliminada"; descripcion: string; refId?: string | null; localId?: number | null; usuario: string | null; datos?: unknown },
+  a: { tipo: string; accion: "creada" | "editada" | "eliminada" | "restaurada"; descripcion: string; refId?: string | null; localId?: number | null; usuario: string | null; datos?: unknown },
 ) {
   await tx.actividad.create({
     data: { tipo: a.tipo, accion: a.accion, descripcion: a.descripcion, refId: a.refId ?? null, localId: a.localId ?? null, usuario: a.usuario, datos: (a.datos ?? undefined) as Prisma.InputJsonValue | undefined },
