@@ -495,7 +495,7 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
                   <div className="flex items-center justify-between gap-3 text-[13.5px]">
                     <b className="tabular-nums">{dmy(p.fecha)} · {fmtPesos(p.importe)}</b>
                     <span className="flex items-center gap-3 text-[11.5px] text-zinc-500">
-                      <button type="button" onClick={() => setForm({ tipo: "editar", pagoId: p.pagoId })} className="hover:text-zinc-800" title="Corregir fecha, medio, ID o PDV">✎</button>
+                      <button type="button" onClick={() => setForm({ tipo: "editar", pagoId: p.pagoId })} className="hover:text-zinc-800" title="Corregir fecha, medio, ID, PDV o importe">✎</button>
                       <button type="button" onClick={() => void quitar(p.pagoId, f)} className="underline-offset-2 hover:underline" title="Sacar este pago de la factura: el importe queda a cuenta">quitar</button>
                       {anulando === p.pagoId
                         ? <span className="text-red-600">¿Anular {numeroPago(p.pagoId)}? <button type="button" onClick={() => void anular(p.pagoId)} className="font-semibold underline">Sí</button> · <button type="button" onClick={() => setAnulando(null)} className="underline">No</button></span>
@@ -564,6 +564,7 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
                         </div>
                       </div>
                       <span className="ml-auto flex items-center gap-3 text-[11.5px] text-zinc-500">
+                        <button type="button" onClick={() => setForm({ tipo: "editar", pagoId: p.id })} className="hover:text-zinc-800" title="Corregir fecha, medio, ID, PDV o importe">✎</button>
                         {elegidas.length > 0
                           ? <button type="button" disabled={guardando} onClick={() => void aplicarACuenta(p)}
                               className="rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-100">
@@ -586,10 +587,13 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
       {/* ===== barra de pago (etapa 4) ===== */}
       {form && data?.modo === "facturas" && (() => {
         const pe = form.tipo === "editar" ? pagosLzPorId.get(form.pagoId) : null;
+        const pc = form.tipo === "editar" ? aCuenta.find((x) => x.id === form.pagoId) : null;
         const modo: ModoPagoProv | null = form.tipo === "facturas" ? (elegidas.length ? { tipo: "facturas", n: elegidas.length, saldo: saldoElegidas } : null)
           : form.tipo === "cuenta" ? { tipo: "cuenta" }
           : pe ? { tipo: "editar", pago: { id: pe.pagoId, fecha: pe.fecha, medio: pe.medio, referencia: pe.referencia, importe: pe.totalPago,
-              pdvPagaId: pdvs.find((x) => x.label === pe.pdvPaga)?.id ?? pdvs[0]?.id ?? 0 } } : null;
+              pdvPagaId: pdvs.find((x) => x.label === pe.pdvPaga)?.id ?? pdvs[0]?.id ?? 0 } }
+          : pc ? { tipo: "editar", pago: { id: pc.id, fecha: pc.fecha, medio: pc.medio, referencia: pc.referencia, importe: pc.importe, pdvPagaId: pc.pdvPagaId } }
+          : null;
         if (!modo) return null;
         return (
           <FormPagoProveedor key={form.tipo === "editar" ? `e${form.pagoId}` : form.tipo}
