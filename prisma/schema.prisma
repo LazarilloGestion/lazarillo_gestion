@@ -649,3 +649,41 @@ model RenderCorrida {
   @@index([inicio])
   @@map("render_corridas")
 }
+
+// Facturas cargadas desde el Panel (Etapa 4): lo que se cargó tal cual (payload
+// del modal, con reparto por PDV y conceptos), para verla y editarla con el mismo
+// formato de la carga. Las filas en compras / detalle_compras se rearman de acá.
+model FacturaLazarillo {
+  id            Int      @id @default(autoincrement())
+  localId       Int
+  comprobante   String
+  codigo        String // código del proveedor (como compras.codigo)
+  proveedorId   Int
+  fecha         DateTime @db.Date
+  total         Decimal  @db.Decimal(16, 2)
+  payload       Json
+  creadoPor     String?
+  creadoEn      DateTime @default(now())
+  actualizadoPor String?
+  actualizadoEn DateTime @default(now()) @updatedAt
+
+  @@unique([localId, comprobante, codigo])
+  @@map("facturas_lazarillo")
+}
+
+// Actividad de cada usuario en el Panel (campanita): factura cargada / editada /
+// eliminada, pago, regla… para volver rápido a lo último que se hizo.
+model Actividad {
+  id          Int      @id @default(autoincrement())
+  tipo        String // 'factura' | 'pago' | 'regla' | …
+  accion      String // 'creada' | 'editada' | 'eliminada'
+  descripcion String
+  refId       String? // para abrirlo: rowId de compras, id de pago, …
+  localId     Int?
+  usuario     String?
+  datos       Json?
+  creadoEn    DateTime @default(now())
+
+  @@index([creadoEn])
+  @@map("actividad")
+}

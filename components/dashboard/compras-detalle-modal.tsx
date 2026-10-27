@@ -29,7 +29,7 @@ import type { SortState } from "@/hooks/use-sort-state";
 import {
   EditActionButtons, EditTriggerButton, EditedDot, toEditString,
 } from "./edit-row-controls";
-import { CompraLineasModal } from "./compra-lineas-modal";
+import { VerFactura } from "@/components/facturas/ver-factura";
 import { DetalleModalShell } from "./detalle-modal-shell";
 import { DetallePeriodoControls } from "./detalle-periodo-controls";
 import { periodoInicial, aplicarPeriodo, labelPeriodo, type Periodo } from "@/lib/dashboard/detalle-periodo";
@@ -932,11 +932,14 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
       {ctaCte && (
         <CtaCteModal origen={ctaCte.origen} resaltado={ctaCte.resaltado} onCerrar={() => setCtaCte(null)} />
       )}
-      <CompraLineasModal
-        compraId={selectedLineas?.rowId ?? null}
-        comprobante={selectedLineas?.detalle ?? null}
-        onClose={() => setSelectedLineas(null)}
-      />
+      {/* Clic en el comprobante: la factura con el formato de la carga (ver / editar / eliminar). */}
+      {selectedLineas && (
+        <VerFactura
+          rowId={selectedLineas.rowId}
+          detalle={selectedLineas.detalle}
+          onClose={() => setSelectedLineas(null)}
+        />
+      )}
       <AperturaGastosModal
         nivel={apertura?.nivel ?? "registro"}
         entidadId={apertura?.entidadId ?? null}
