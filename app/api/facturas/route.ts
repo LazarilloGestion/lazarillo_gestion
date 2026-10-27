@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuthUser } from "@/lib/auth/require-auth";
 import { reaplicarReglasActivas } from "@/lib/apertura/motor";
-import { prepararFactura, insertarArmado, guardarCarga, localesDe, yaExiste, registrarActividad, descripcionFactura } from "@/lib/facturas/guardar";
+import { prepararFactura, insertarArmado, guardarCarga, localesDe, yaExiste, registrarActividad, descripcionFactura, nombrePdv } from "@/lib/facturas/guardar";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -25,12 +25,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Esta factura ya está cargada" }, { status: 409 });
   }
 
+  const pdv = await nombrePdv(prisma, armado.filas[0].puntoDeVentaId);
   try {
     await prisma.$transaction(async (tx) => {
       await insertarArmado(tx, p);
       await guardarCarga(tx, p, usuario);
       await registrarActividad(tx, {
-        tipo: "factura", accion: "creada", descripcion: descripcionFactura({ ...p, total: armado.total }),
+        tipo: "factura", accion: "creada", descripcion: descripcionFactura({ ...p, total: armado.total, pdv }),
         refId: armado.filas[0].rowId, localId: armado.filas[0].localId, usuario,
       });
     });

@@ -5,7 +5,7 @@ import { reaplicarReglasActivas } from "@/lib/apertura/motor";
 import { facturaSchema, ORIGEN_LAZARILLO, type FacturaInput } from "@/lib/facturas/armar";
 import { facturaDesdeFilas } from "@/lib/facturas/leer";
 import {
-  prepararFactura, insertarArmado, guardarCarga, localesDe, yaExiste, borrarFilas, registrarActividad, descripcionFactura,
+  prepararFactura, insertarArmado, guardarCarga, localesDe, yaExiste, borrarFilas, registrarActividad, descripcionFactura, nombrePdv,
 } from "@/lib/facturas/guardar";
 
 export const dynamic = "force-dynamic";
@@ -95,6 +95,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
   if (await yaExiste(prisma, nuevas, comprobante, p.proveedorCodigo, antes)) {
     return NextResponse.json({ error: "Ya hay otra factura con ese proveedor y número" }, { status: 409 });
   }
+  const pdv = await nombrePdv(prisma, p.armado.filas[0].puntoDeVentaId);
   try {
     await prisma.$transaction(async (tx) => {
       await borrarFilas(tx, antes.comprobante, antes.codigo, antes.locales);
@@ -107,7 +108,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         });
       }
       await registrarActividad(tx, {
-        tipo: "factura", accion: "editada", descripcion: descripcionFactura({ ...p, total: p.armado.total }),
+        tipo: "factura", accion: "editada", descripcion: descripcionFactura({ ...p, total: p.armado.total, pdv }),
         refId: p.armado.filas[0].rowId, localId: p.armado.filas[0].localId, usuario,
       });
     }, { timeout: 30_000 });
@@ -132,17 +133,20 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   if (!fa.esLz) return NextResponse.json({ error: "Es de MaxiRest: se borra en MaxiRest" }, { status: 403 });
   const filas = await prisma.compra.findMany({
     where: { origen: ORIGEN_LAZARILLO, comprobante: fa.c.comprobante, codigo: fa.c.codigo, localId: { in: fa.locales } },
-    select: { importe: true, fecha: true },
+    select: { importe: true, puntoDeVentaId: true },
   });
   const total = filas.reduce((a, f) => a + Number(f.importe ?? 0), 0);
+  const pdv = await nombrePdv(prisma, filas[0]?.puntoDeVentaId);
   const payload = fa.cargada?.payload as unknown as FacturaInput | undefined;
   const f = payload && facturaSchema.safeParse(payload).success ? payload : null;
+  const prov = fa.c.proveedor?.trim() || fa.c.codigo;
   const desc = f
-    ? descripcionFactura({ f, nombreProv: fa.c.proveedor ?? fa.c.codigo, total })
-    : `${fa.c.comprobante} · ${fa.c.proveedor ?? fa.c.codigo} · $ ${total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}`;
+    ? descripcionFactura({ f, nombreProv: prov, total, pdv })
+    : `${prov}\n${[fa.c.comprobante, pdv, `$ ${total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}`].filter(Boolean).join(" · ")}`;
   await prisma.$transaction(async (tx) => {
     await borrarFilas(tx, fa.c.comprobante, fa.c.codigo, fa.locales);
-    await registrarActividad(tx, { tipo: "factura", accion: "eliminada", descripcion: desc, refId: null, localId: fa.c.localId, usuario, datos: payload ?? null });
+    // Lo cargado queda en la actividad: desde la campanita se puede restaurar.
+    await registrarActividad(tx, { tipo: "factura", accion: "eliminada", descripcion: desc, refId: null, localId: fa.c.localId, usuario, datos: f ? { payload: f } : null });
   });
   return NextResponse.json({ ok: true, filas: filas.length });
 }

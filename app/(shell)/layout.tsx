@@ -2,6 +2,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppSidebarProvider } from "@/components/app-sidebar-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ActividadCampana } from "@/components/actividad-campana";
 import { DashboardFiltersToggle } from "@/components/dashboard/dashboard-filters-toggle";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { buildBootstrapScript } from "@/lib/ui-persistence/bootstrap-script";
@@ -40,6 +41,8 @@ export default async function ShellLayout({ children }: { children: React.ReactN
           <div className="ml-auto flex items-center gap-1">
             <DashboardFiltersToggle />
             <ThemeToggle />
+            {/* Campanita de Actividad, a la derecha de la luna (Diego, 27/10/2026). */}
+            <ActividadCampana />
           </div>
         </header>
 
