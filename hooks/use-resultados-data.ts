@@ -27,7 +27,7 @@ export function useResultadosData() {
   });
 
   const {
-    expanded, toggleRow, collapseAll, collapseConceptos,
+    expanded, toggleRow, collapseAll, collapseConceptos, verMas,
     sortedRows, flatRows, isEmpty: resultadosEmpty,
     detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   } = usePivotScreenData({
@@ -39,7 +39,7 @@ export function useResultadosData() {
     year, localId, pdvId, months, sortCol, sortDir, handleSortClick,
     operacion, data, isLoading, error, ventasData,
     sortedRows, flatRows, resultadosEmpty,
-    expanded, toggleRow, collapseAll, collapseConceptos,
+    expanded, toggleRow, collapseAll, collapseConceptos, verMas,
     detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   };
 }

@@ -13,10 +13,17 @@ export function hasValue(v: number | undefined): boolean {
   return (v ?? 0) > EPSILON;
 }
 
+// Velocidad (Diego 27/10): abrir un concepto con ~1.500 registros tardaba ~1 s en
+// dibujarse. Se muestran de a TANDA_PIVOT y una fila "mas" ofrece ver el resto.
+// Totales, celdas y búsqueda siguen sobre todos los registros (vienen del servidor).
+export const TANDA_PIVOT = 100;
+export type FilaMas = { id: string; conceptoId: string; mostrados: number; total: number };
+
 export type FlatRow =
   | { type: "rubro"; data: PivotRubroRow }
   | { type: "concepto"; data: PivotConceptoRow }
-  | { type: "proveedor"; data: PivotProveedorRow };
+  | { type: "proveedor"; data: PivotProveedorRow }
+  | { type: "mas"; data: FilaMas };
 
 export type SortCol = number | "total";
 export type SortDir = "asc" | "desc";
@@ -68,7 +75,9 @@ export function sortPivotRows(
 export function flattenRows(
   pivotData: PivotData,
   expanded: Set<string>,
-  maxDepth: 2 | 3
+  maxDepth: 2 | 3,
+  // Cuántos registros mostrar por concepto (id → cantidad). Sin mapa: todos.
+  mostrar?: Map<string, number>
 ): FlatRow[] {
   const result: FlatRow[] = [];
   for (const rubro of pivotData.rows) {
@@ -77,8 +86,16 @@ export function flattenRows(
     for (const concepto of rubro.children) {
       result.push({ type: "concepto", data: concepto });
       if (maxDepth < 3 || !expanded.has(concepto.id)) continue;
-      for (const prov of concepto.children) {
+      const tope = mostrar ? (mostrar.get(concepto.id) ?? TANDA_PIVOT) : Infinity;
+      const hijos = concepto.children.length > tope ? concepto.children.slice(0, tope) : concepto.children;
+      for (const prov of hijos) {
         result.push({ type: "proveedor", data: prov });
+      }
+      if (hijos.length < concepto.children.length) {
+        result.push({
+          type: "mas",
+          data: { id: `${concepto.id}|mas`, conceptoId: concepto.id, mostrados: hijos.length, total: concepto.children.length },
+        });
       }
     }
   }

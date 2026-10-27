@@ -1,4 +1,5 @@
 "use client";
+import { FilaMasRegistros } from "@/components/dashboard/fila-mas-registros";
 import { useEffect, useRef } from "react";
 import { useOperacionKpis } from "@/hooks/use-operacion-kpis";
 import { usePivotScreenData } from "@/hooks/use-pivot-screen-data";
@@ -42,7 +43,7 @@ export function PivotTableByConcepto({ agrupacion }: { agrupacion?: "insumo" } =
   });
 
   const {
-    expanded, toggleRow, collapseAll, collapseConceptos,
+    expanded, toggleRow, collapseAll, collapseConceptos, verMas,
     flatRows, detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   } = usePivotScreenData({
     data, year, localId, pdvId, sortCol, sortDir, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
@@ -195,6 +196,18 @@ export function PivotTableByConcepto({ agrupacion }: { agrupacion?: "insumo" } =
                     <td className="text-right px-3 py-2 tabular-nums text-xs text-muted-foreground/50 whitespace-nowrap">
                       {fmtPct(concepto.rowTotal)}
                     </td>
+                  </tr>
+                );
+              }
+
+              if (item.type === "mas") {
+                const m = item.data;
+                return (
+                  <tr key={m.id} className="border-b">
+                    <td className="sticky left-0 z-10 bg-background px-4 py-1.5 pl-14 text-xs text-muted-foreground shadow-[1px_0_0_0_hsl(var(--border))]">
+                      <FilaMasRegistros fila={m} onVerMas={verMas} />
+                    </td>
+                    <td colSpan={months.length + 2} />
                   </tr>
                 );
               }

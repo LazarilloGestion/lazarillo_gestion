@@ -1,4 +1,5 @@
 "use client";
+import { FilaMasRegistros } from "@/components/dashboard/fila-mas-registros";
 import { useState } from "react";
 import { useResultadosData } from "@/hooks/use-resultados-data";
 import { ExpandableButton } from "@/components/ui/expandable-button";
@@ -30,7 +31,7 @@ export function ResultadosPivotTable() {
     year, localId, pdvId, months, sortCol, sortDir, handleSortClick,
     operacion, data, isLoading, error, ventasData,
     flatRows, resultadosEmpty,
-    expanded, toggleRow, collapseAll, collapseConceptos,
+    expanded, toggleRow, collapseAll, collapseConceptos, verMas,
     detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   } = useResultadosData();
 
@@ -273,6 +274,18 @@ export function ResultadosPivotTable() {
                         <td className={cn("text-right px-3 py-2 tabular-nums text-xs text-muted-foreground/50 whitespace-nowrap", cardCellClasses(rowPosition, "right"))}>
                           {pctSobreIngresos(concepto.rowTotal, ventasData?.grandTotal ?? 0)}
                         </td>
+                      </tr>
+                    );
+                  }
+
+                  if (item.type === "mas") {
+                    const m = item.data;
+                    return (
+                      <tr key={m.id} className="border-b">
+                        <StickyCardCell position={rowPosition} className="px-4 py-1.5 pl-14 text-xs text-muted-foreground">
+                          <FilaMasRegistros fila={m} onVerMas={verMas} />
+                        </StickyCardCell>
+                        <td colSpan={months.length + 2} className={cardCellClasses(rowPosition, "right")} />
                       </tr>
                     );
                   }
