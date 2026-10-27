@@ -139,6 +139,7 @@ export function AperturaGastosModal({
   lote = null,
   onLoteGuardado,
   onClose,
+  origenEditable = false,
 }: {
   nivel: NivelRegla;
   entidadId: string | null;
@@ -151,6 +152,9 @@ export function AperturaGastosModal({
   lote?: RegistroLote[] | null;
   onLoteGuardado?: () => void;
   onClose: () => void;
+  // Fuera del dashboard (pantalla Conceptos) no hay filtro del que tomar el
+  // origen: la regla nueva también lo elige con el selector.
+  origenEditable?: boolean;
 }) {
   const queryClient = useQueryClient();
   const esLote = nivel === "registro" && lote != null && lote.length > 1;
@@ -629,7 +633,7 @@ export function AperturaGastosModal({
 
           {view === "formulario" && (
             <div className="flex flex-col gap-4">
-              {editando && nivel !== "registro" ? (
+              {(editando || origenEditable) && nivel !== "registro" ? (
                 <AperturaOrigenSelector value={origen} locales={locales} onChange={setOrigen} />
               ) : (
                 <div className="flex flex-col gap-1.5">
