@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { fmtComprobante, fmtPesos } from "@/lib/impagas/clasificar";
 import { ETIQUETA_ESTADO, totalesCtaCte, type EstadoPago } from "@/lib/cta-cte/estado";
 import { OpMaxirestModal } from "@/components/impagas/op-maxirest-modal";
+import { VerFactura } from "@/components/facturas/ver-factura";
 
 // Cuenta corriente — SOLO LECTURA (punto 4, Etapa 3), diseño de ModalCtaCte_etapa3.
 // Dos modos:
@@ -134,6 +135,7 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
   const esMovs = !!(origen.nombre && origen.pdvId);
   const { data, isLoading, isError } = useFetchQuery<CtaCteResp>(["cta-cte", origen.codPro, origen.pdvId ?? null, origen.nombre ?? null], urlDe(origen));
   const [sel, setSel] = useState<string | null>(resaltado ? claveF(resaltado) : null);
+  const [verFact, setVerFact] = useState<{ rowId: string; detalle: string } | null>(null);
   const [per, setPer] = useState<Periodo>("hist");
   const hoy = new Date();
   const [mes, setMes] = useState(hoy.getMonth());
@@ -231,6 +233,8 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
     const on = fact != null && claveF(f) === claveF(fact);
     return (
       <div key={claveF(f)} ref={on ? filaSel : undefined} onClick={() => setSel(on ? null : claveF(f))}
+        onDoubleClick={() => { if (f.rowId) setVerFact({ rowId: f.rowId, detalle: fmtComprobante(f.comprobante) }); }}
+        title={f.rowId ? "Doble clic: ver la factura" : undefined}
         className={cn("flex items-center gap-2.5 px-3 py-1.5 rounded-md cursor-pointer border-b border-zinc-100 dark:border-zinc-800",
           on ? "bg-[#eef6fb] dark:bg-sky-950/40" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/40")}>
         {f.estado && f.estado !== "paga" ? <Gris><input type="checkbox" disabled className="h-[13px] w-[13px]" /></Gris> : <span className="w-[13px]" />}
@@ -378,7 +382,9 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
                 {fact ? `Pagos de ${fmtComprobante(fact.comprobante)}` : "Todos los pagos del proveedor"}
               </span>
               <span className="ml-auto flex gap-2.5">
-                {fact && <Gris><button type="button" disabled className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold">✎ Editar {fmtComprobante(fact.comprobante)}</button></Gris>}
+                {/* Ver la factura con el formato de la carga (y editarla / eliminarla si es de Lazarillo). */}
+                {fact?.rowId && <button type="button" onClick={() => setVerFact({ rowId: fact.rowId!, detalle: fmtComprobante(fact.comprobante) })}
+                  className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800">Ver / editar {fmtComprobante(fact.comprobante)}</button>}
                 <Gris><button type="button" disabled className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold">⟳ Repetir</button></Gris>
                 <Gris><button type="button" disabled className="rounded-lg bg-zinc-900 px-4 py-1.5 text-[13px] font-semibold text-white">+ Cargar pago</button></Gris>
               </span>
@@ -446,6 +452,7 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
         </div>
       )}
 
+      {verFact && <VerFactura rowId={verFact.rowId} detalle={verFact.detalle} onClose={() => setVerFact(null)} />}
       {opMx && (
         <OpMaxirestModal pdvId={opMx.pdvId} orden={opMx.orden} fecha={opMx.fecha}
           onCambiar={(fecha) => setOpMx({ ...opMx, fecha })} onCerrar={() => setOpMx(null)} />
