@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { impagasDesde } from "@/lib/impagas/query";
 import { claveComprobante, estadoPago, type EstadoPago } from "./estado";
+import { combinarPagos } from "@/lib/pagos-proveedor/imputar";
 
 // SERVIDOR: cuenta corriente del proveedor y estado de pago de comprobantes
 // (14 cruzado con el informe 80). No importar desde componentes cliente.
@@ -162,7 +163,10 @@ export interface ClaveEstado { pdvId: number | null; comprobante: string | null;
 // ultimoPago/pagos: fecha del último pago del 80 y cuántos hubo (columna "Fecha pago" del Detalle de compras).
 export interface EstadoFila { estado: EstadoPago; total: number; pagado: number; ultimoPago?: string | null; pagos?: number }
 
-interface EstadoSqlRow { pdv: number; cpb: string; cod: string; total14: number | null; total80: number | null; pagado: number | null; auto: boolean | null; ultimo: string | null; n: number | null }
+interface EstadoSqlRow {
+  pdv: number; cpb: string; cod: string; total14: number | null; total80: number | null; auto: boolean | null;
+  p80: { fecha: string; importe: number }[] | null; plz: { fecha: string; importe: number }[] | null;
+}
 
 export async function estadosDePago(claves: ClaveEstado[]): Promise<Map<string, EstadoFila>> {
   const unicas = new Map<string, ClaveEstado>();
@@ -182,22 +186,27 @@ export async function estadosDePago(claves: ClaveEstado[]): Promise<Map<string, 
         WHERE c."puntoDeVentaId" = k.pdv AND c.comprobante = k.cpb AND c.codigo = k.cod) AS total14,
       (SELECT MAX(p.total)::float8 FROM pagos p
         WHERE p."puntoDeVentaId" = k.pdv AND p.comprobante = k.cpb AND p."codPro" = k.cod) AS total80,
-      (SELECT SUM(p.importe)::float8 FROM pagos p
-        WHERE p."puntoDeVentaId" = k.pdv AND p.comprobante = k.cpb AND p."codPro" = k.cod) AS pagado,
-      (SELECT BOOL_OR(pr."pagoAutomatico") FROM proveedores pr WHERE pr.codigo = k.cod) AS auto,
-      (SELECT TO_CHAR(MAX(p."fechaPago"), 'YYYY-MM-DD') FROM pagos p
-        WHERE p."puntoDeVentaId" = k.pdv AND p.comprobante = k.cpb AND p."codPro" = k.cod) AS ultimo,
-      (SELECT COUNT(*)::int FROM pagos p
-        WHERE p."puntoDeVentaId" = k.pdv AND p.comprobante = k.cpb AND p."codPro" = k.cod) AS n
+      (SELECT JSON_AGG(JSON_BUILD_OBJECT('fecha', TO_CHAR(p."fechaPago", 'YYYY-MM-DD'), 'importe', p.importe::float8)) FROM pagos p
+        WHERE p."puntoDeVentaId" = k.pdv AND p.comprobante = k.cpb AND p."codPro" = k.cod AND p.importe IS NOT NULL) AS p80,
+      -- Pagos cargados en Lazarillo (Etapa 4).
+      (SELECT JSON_AGG(JSON_BUILD_OBJECT('fecha', TO_CHAR(pp.fecha, 'YYYY-MM-DD'), 'importe', a.importe::float8))
+        FROM aplicaciones_pago_proveedor a JOIN pagos_proveedor pp ON pp.id = a."pagoId" AND pp."anuladoEn" IS NULL
+        WHERE a."pdvId" = k.pdv AND a.comprobante = k.cpb AND a."codPro" = k.cod) AS plz,
+      (SELECT BOOL_OR(pr."pagoAutomatico") FROM proveedores pr WHERE pr.codigo = k.cod) AS auto
     FROM k
   `);
   const desde = impagasDesde(null, process.env.IMPAGAS_DESDE);
   for (const r of rows) {
     const k = `${r.pdv}|${r.cpb}|${r.cod}`;
     const total = Number(r.total80 ?? r.total14 ?? 0);
-    const pagado = Number(r.pagado ?? 0);
+    // 80 + Lazarillo (el mismo pago en los dos lados cuenta una vez).
+    const p80 = r.p80 ?? [], plz = r.plz ?? [];
+    const comb = combinarPagos(p80, plz, total);
+    const pagado = comb.pagado;
+    const vigentes = [...p80, ...plz.filter((_, i) => !comb.conciliados.includes(i))];
+    const ultimo = vigentes.reduce<string | null>((m, x) => (x.fecha && (!m || x.fecha > m) ? x.fecha : m), null);
     const e = estadoPago({ comprobante: r.cpb, fecha: unicas.get(k)?.fecha ?? null, total, pagado, pagoAutomatico: !!r.auto }, desde);
-    if (e) res.set(k, { estado: e, total, pagado, ultimoPago: r.ultimo, pagos: Number(r.n ?? 0) });
+    if (e) res.set(k, { estado: e, total, pagado, ultimoPago: ultimo, pagos: vigentes.length });
   }
   return res;
 }
