@@ -325,11 +325,17 @@ function ModalNuevaCarga(props) {
   const [guardando, setGuardando] = useState(false);
   const [futuraOk, setFuturaOk] = useState(""); // fecha futura ya confirmada con un segundo Guardar
   const [borrando, setBorrando] = useState(false);
-  const eliminar = () => {
+  const [pagosAlBorrar, setPagosAlBorrar] = useState(null); // la factura está paga: confirmar
+  const eliminar = (conPagos) => {
     setBorrando(true);
-    fetch(`/api/facturas/${editRowId}`, { method: "DELETE" })
+    fetch(`/api/facturas/${editRowId}${conPagos ? "?conPagos=1" : ""}`, { method: "DELETE" })
       .then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => null) }))
-      .then(({ ok, d }) => { setBorrando(false); if (!ok) { setErrores([(d && d.error) || "No se pudo eliminar."]); return; } if (onEliminado) onEliminado(d); })
+      .then(({ ok, d }) => {
+        setBorrando(false);
+        if (!ok && d && d.tienePagos) { setPagosAlBorrar(d.tienePagos); return; }
+        if (!ok) { setErrores([(d && d.error) || "No se pudo eliminar."]); return; }
+        if (onEliminado) onEliminado(d);
+      })
       .catch(() => { setBorrando(false); setErrores(["Error de red: no se eliminó."]); });
   };
   const agregarRef = useRef(null);
@@ -878,7 +884,16 @@ function ModalNuevaCarga(props) {
             {onRepetir && <button style={btn(false)} onClick={onRepetir} title="Cargar una factura nueva con esta misma estructura">⟳ Repetir</button>}
             <button style={btn(false)} onClick={onCerrar}>Cerrar</button>
             {editable && <span style={{ marginLeft: "auto" }}>{borrando ? <span style={{ fontSize: 12, color: C.gris }}>Eliminando…</span>
-              : <BtnEliminar onConfirmar={eliminar} style={{ fontSize: 13, color: C.rojo }} />}</span>}
+              : pagosAlBorrar ? (
+                <span style={{ fontSize: 12.5, color: C.rojo, display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end", maxWidth: 560 }}>
+                  <span>⚠ Está paga: <b>{$fmt(pagosAlBorrar.importe)}</b> en {pagosAlBorrar.total} pago{pagosAlBorrar.total === 1 ? "" : "s"}.
+                    {pagosAlBorrar.internos > 0 && <> Se eliminan también {pagosAlBorrar.internos === 1 ? "el pago cargado" : `los ${pagosAlBorrar.internos} pagos cargados`} en el Panel.</>}
+                    {pagosAlBorrar.maxirest > 0 && <> {pagosAlBorrar.maxirest === 1 ? "El pago" : "Los pagos"} de MaxiRest {pagosAlBorrar.maxirest === 1 ? "queda" : "quedan"} como “solo 80”.</>}
+                    {" "}¿Eliminar igual?</span>
+                  <span onClick={() => { setPagosAlBorrar(null); eliminar(true); }} style={{ fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>Sí, eliminar</span>
+                  <span onClick={() => setPagosAlBorrar(null)} style={{ color: C.gris, cursor: "pointer" }}>No</span>
+                </span>
+              ) : <BtnEliminar onConfirmar={() => eliminar(false)} style={{ fontSize: 13, color: C.rojo }} />}</span>}
           </div>
         ) : (
         <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
