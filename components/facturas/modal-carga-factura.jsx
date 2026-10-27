@@ -265,6 +265,8 @@ function Combo({ opciones, valor, onElegir, placeholder, onCrear, ancho, autoFoc
           else if (e.key === "ArrowUp") { e.preventDefault(); setActivo(Math.max(marcado - 1, 0)); }
           else if (e.key === "Escape" && abierto) { e.preventDefault(); e.stopPropagation(); setAbierto(false); }
           else if (e.key === "Enter" && abierto && total > 0) { e.preventDefault(); e.stopPropagation(); elegir(marcado); }
+          // Tab con la lista abierta elige la opción marcada y deja que el Tab siga al próximo campo (Diego 27/10).
+          else if (e.key === "Tab" && abierto && marcado < filtradas.length) { const o = filtradas[marcado]; setTexto(o); setAbierto(false); if (o !== valor) onElegir(o); }
         }}
         // No se despliega solo al entrar (Diego 27/10): se abre al tipear, con ↓ o con un click.
         onMouseDown={() => setAbierto(true)}
