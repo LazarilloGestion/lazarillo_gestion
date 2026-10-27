@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useExpandableSet } from "@/hooks/use-expandable-set";
-import { flattenRows, sortPivotRows, type SortCol, type SortDir } from "@/lib/dashboard/pivot-utils";
+import { flattenRows, sortPivotRows, TANDA_PIVOT, type SortCol, type SortDir } from "@/lib/dashboard/pivot-utils";
 import type { PivotData, DetalleFilter, VentasDetalleFilter } from "@/lib/dashboard/types";
 import { buildDetalleFilter, type DetalleFilterExtra } from "@/lib/dashboard/detalle-filter";
 
@@ -66,9 +66,19 @@ export function usePivotScreenData({
     [data, sortCol, sortDir]
   );
 
+  // Registros visibles por concepto (ver TANDA_PIVOT). "Ver todos" = Infinity.
+  const [mostrar, setMostrar] = useState<Map<string, number>>(() => new Map());
+  const verMas = useCallback((conceptoId: string, todos: boolean) => {
+    setMostrar((prev) => {
+      const n = new Map(prev);
+      n.set(conceptoId, todos ? Infinity : (prev.get(conceptoId) ?? TANDA_PIVOT) + TANDA_PIVOT);
+      return n;
+    });
+  }, []);
+
   const flatRows = useMemo(
-    () => flattenRows({ rows: sortedRows, columnTotals: data?.columnTotals ?? {}, grandTotal: data?.grandTotal ?? 0 }, expanded, 3),
-    [sortedRows, expanded, data]
+    () => flattenRows({ rows: sortedRows, columnTotals: data?.columnTotals ?? {}, grandTotal: data?.grandTotal ?? 0 }, expanded, 3, mostrar),
+    [sortedRows, expanded, data, mostrar]
   );
 
   const rubroIds = useMemo(() => new Set(sortedRows.map(r => r.id)), [sortedRows]);
@@ -80,7 +90,7 @@ export function usePivotScreenData({
   }, [rubroIds, setExpanded]);
 
   return {
-    expanded, toggleRow, collapseAll, collapseConceptos,
+    expanded, toggleRow, collapseAll, collapseConceptos, verMas,
     sortedRows, flatRows, isEmpty: flatRows.length === 0,
     detalleFilter, setDetalleFilter, ventasDetalleFilter, setVentasDetalleFilter, openDetalle,
   };
