@@ -12,6 +12,10 @@ import { isAllowedEmail } from "./allowed-emails";
 export async function requireAuthUser(): Promise<
   { user: User; response: null } | { user: null; response: NextResponse }
 > {
+  // TEMPORAL rama de medición (nunca se mergea): solo en preview y solo dentro de /api/cron/cronometro.
+  if (process.env.VERCEL_ENV === "preview" && (globalThis as { __cronometro?: boolean }).__cronometro) {
+    return { user: { id: "cronometro", email: "cronometro" } as User, response: null };
+  }
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
 
