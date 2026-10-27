@@ -5,13 +5,15 @@ import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  MEDIOS_PAGO_INTERNO, aCuenta, contarAntesDelCursor, cursorTrasSignificativos, disponibleOP,
+  aCuenta, contarAntesDelCursor, cursorTrasSignificativos, disponibleOP,
   formatearImporteAR, importeAInput, normalizarReferencia, parsearImporteAR,
   ETIQUETA_MODO, MODOS_RUBRO, numeroOP, porMes, porRubro, rangoPorcentaje, saldoMov, textoParte, type ModoRubro,
-  type DeudaConPdv, type MedioPagoInterno, type MovimientoApertura, type PagoInterno,
+  type DeudaConPdv, type MovimientoApertura, type PagoInterno,
 } from "@/lib/impagas/aperturas";
 import { dias, fmtComprobante, fmtFecha, fmtPesos, normalizarBusqueda } from "@/lib/impagas/clasificar";
 import { Antiguedad, Boton } from "./ui";
+import { useMediosPago } from "@/hooks/use-medios-pago";
+import { mediosParaElegir } from "@/lib/medios-pago/abm";
 import { HistorialPagosModal, OrdenPagoModal } from "./orden-pago-modal";
 
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -31,7 +33,7 @@ const sinEspacios = normalizarBusqueda;
 export interface BodyPagoInterno {
   pdvOrigenId: number;
   fecha: string;
-  medio?: MedioPagoInterno;
+  medio?: string; // nombre de un medio del gestor de medios de pago
   referencia: string | null;
   importe?: number;
   keys?: string[];
@@ -43,7 +45,7 @@ type ModoForm =
   | { tipo: "elegidos"; keys: string[]; importe: number; desc: string } // selección (o atajo Saldar), importe editable
   | { tipo: "editar"; pago: PagoInterno };
 
-export type BodyEditarPago = Omit<BodyPagoInterno, "pdvOrigenId" | "keys" | "usarOp" | "medio"> & { importe: number; medio: MedioPagoInterno };
+export type BodyEditarPago = Omit<BodyPagoInterno, "pdvOrigenId" | "keys" | "usarOp" | "medio"> & { importe: number; medio: string };
 
 interface Props {
   deuda: DeudaConPdv;
@@ -263,7 +265,7 @@ export function FilasDeudaPdv(p: Props) {
           onCancel={() => setForm(null)}
           onConfirm={async (b) => {
             const err = form.tipo === "editar"
-              ? await p.onEditar(form.pago.id, { ...b, medio: b.medio ?? "Transferencia", importe: b.importe ?? form.pago.importe })
+              ? await p.onEditar(form.pago.id, { ...b, medio: b.medio ?? form.pago.medio, importe: b.importe ?? form.pago.importe })
               : await p.onRegistrar({ ...b, pdvOrigenId: deuda.pdvOrigenId });
             if (!err) setForm(null);
             return err;
@@ -574,13 +576,15 @@ function FormPago({ modo, ops, origenLabel, guardando, barra, onCancel, onConfir
   const importeBase = modo.tipo === "elegidos" ? modo.importe : modo.tipo === "editar" ? modo.pago.importe : 0;
   const [importe, setImporte] = useState(importeBase > 0 ? importeAInput(importeBase) : "");
   const [fecha, setFecha] = useState(editando ? modo.pago.fecha : hoyISO());
-  // Medio: uno de los medios o "op:ID" = usar el disponible de una OP existente.
-  const [medio, setMedio] = useState<string>(
-    editando && (MEDIOS_PAGO_INTERNO as readonly string[]).includes(modo.pago.medio) ? modo.pago.medio : "Transferencia"
-  );
+  // Medio: uno del gestor de medios de pago o "op:ID" = usar el disponible de una OP existente.
+  // Sin elegir todavía, el primero de la lista.
+  const { data: medios } = useMediosPago();
+  const lista = mediosParaElegir(medios, editando ? modo.pago.medio : null);
+  const [medioSel, setMedio] = useState<string>(editando ? modo.pago.medio : "");
+  const medio = medioSel || lista[0]?.nombre || "";
   const [referencia, setReferencia] = useState(editando ? modo.pago.referencia ?? "" : "");
   const [error, setError] = useState<string | null>(null);
-  const conId = medio === "Transferencia" || medio === "Bancos";
+  const conId = lista.find((m) => m.nombre === medio)?.pideId ?? false;
   const opElegida = medio.startsWith("op:") ? ops.find((o) => o.id === Number(medio.slice(3))) ?? null : null;
   const disp = opElegida ? disponibleOP(opElegida) : 0;
   // Al tildar o destildar, el importe se rearma con la nueva suma (con una OP
@@ -610,8 +614,9 @@ function FormPago({ modo, ops, origenLabel, guardando, barra, onCancel, onConfir
       if (err) setError(err);
       return;
     }
-    const m = medio as MedioPagoInterno;
-    // ID opcional (Transferencia o Bancos); si se carga, letras y números.
+    const m = medio;
+    if (!m) { setError("Elegí un medio de pago (se dan de alta en Medios de pago, en el menú)."); return; }
+    // ID opcional (medios que piden ID); si se carga, letras y números.
     let ref: string | null = null;
     if (conId && referencia.trim()) {
       ref = normalizarReferencia(referencia);
@@ -641,7 +646,7 @@ function FormPago({ modo, ops, origenLabel, guardando, barra, onCancel, onConfir
           </label>
           <label className="flex items-center gap-1.5"><span className={etiqueta}>Medio</span>
             <select value={medio} onChange={(e) => cambiarMedio(e.target.value)} className={cn(input, "w-56")}>
-              {MEDIOS_PAGO_INTERNO.map((m) => <option key={m} value={m}>{m}</option>)}
+              {lista.map((m) => <option key={m.id} value={m.nombre}>{m.nombre}{m.activo ? "" : " (desactivado)"}</option>)}
               {modo.tipo === "elegidos" && ops.length > 0 && (
                 <optgroup label="Usar una orden sin imputar">
                   {ops.map((o) => (
