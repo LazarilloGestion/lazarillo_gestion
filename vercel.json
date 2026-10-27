@@ -1,3 +1,4 @@
 {
+  "regions": ["gru1"],
   "crons": [{ "path": "/api/cron/render", "schedule": "40 12 * * *" }]
 }
