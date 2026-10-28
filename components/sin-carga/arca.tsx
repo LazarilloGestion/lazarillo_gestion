@@ -32,6 +32,7 @@ export interface CruceArca {
   ok: number; faltan: CompArca[]; corregir: ACorregir[];
   descartes: { id: number; clave: string; nombre: string | null; creadoEn: string }[];
   anuladas: { rowId: string; comprobante: string | null; proveedor: string | null; fecha: string | null; importe: number | null; actualizadaEn: string }[];
+  agregadas: { rowId: string; comprobante: string | null; proveedor: string | null; concepto: string | null; importe: number }[];
 }
 
 export const ARCA_KEY = ["arca-cruce"];
@@ -178,7 +179,7 @@ function refrescarTodo(queryClient: ReturnType<typeof useQueryClient>) {
 
 const MOTIVOS: { m: ACorregir["motivo"]; t: string; d: string }[] = [
   { m: "duplicado", t: "Cargadas dos veces", d: "En ARCA hay una sola, en el Panel dos (casi siempre una versión vieja que MaxiRest ya no tiene). Anulá la que sobra: queda en $0, no se borra." },
-  { m: "importe", t: "Importe distinto", d: "Qué parte no cierra: neto + IVA (Caja y renglones) o percepciones." },
+  { m: "importe", t: "Importe distinto", d: "Qué parte no cierra y su arreglo. Ojo: \"Ver factura\" muestra la factura armada con sus renglones; lo que suma en Resultados es lo imputado en Caja." },
   { m: "numero", t: "Número distinto", d: "Se vinculan solas con ARCA." },
   { m: "fecha", t: "Fecha distinta", d: "Toman solas la fecha de ARCA." },
 ];
@@ -221,7 +222,8 @@ export function ListaCorregir({ data, onVer }: { data: CruceArca; onVer: (rowId:
                   {c.motivo === "duplicado" ? <Duplicado c={c} ocupado={ocupado === c.key} onVer={onVer}
                       onAnular={(g) => void hacer(c.key, { accion: "anular", rowIds: g.filas.map((f) => f.rowId), nota: `Duplicado de ${nroArca(c.arca)} (ARCA)` }, `Anulada ${g.comprobante}`)} />
                     : c.diag && <Importe c={c} ocupado={ocupado === c.key} onVer={onVer}
-                      onIgualar={() => c.diag?.igualar && void hacer(c.key, { accion: "igualar", rowId: c.diag.igualar.rowId, importe: c.diag.igualar.importe, key: c.key }, "Igualado a ARCA")} />}
+                      onIgualar={() => c.diag?.igualar && void hacer(c.key, { accion: "igualar", rowId: c.diag.igualar.rowId, importe: c.diag.igualar.importe, key: c.key }, "Caja corregida")}
+                      onPercepcion={(cod) => c.diag?.percepcion && void hacer(c.key, { accion: "percepcion", baseRowId: c.diag.percepcion.base.rowId, cod, importe: c.diag.percepcion.importe }, "Percepción cargada")} />}
                   <div className="mt-2 flex justify-end">
                     <button type="button" onClick={() => void estaBien(c)} className="text-xs font-semibold text-zinc-500 underline">{c.motivo === "duplicado" ? "No es duplicado" : "Está bien así"}</button>
                   </div>
@@ -267,12 +269,19 @@ function Duplicado({ c, ocupado, onVer, onAnular }: { c: ACorregir; ocupado: boo
   );
 }
 
-function Importe({ c, ocupado, onVer, onIgualar }: { c: ACorregir; ocupado: boolean; onVer: (rowId: string, d: string) => void; onIgualar: () => void }) {
+const IMPUESTOS: { cod: "133" | "899" | "137"; t: string }[] = [{ cod: "133", t: "IVA" }, { cod: "899", t: "IIBB" }, { cod: "137", t: "Ganancias" }];
+
+function Importe({ c, ocupado, onVer, onIgualar, onPercepcion }: {
+  c: ACorregir; ocupado: boolean; onVer: (rowId: string, d: string) => void; onIgualar: () => void; onPercepcion: (cod: "133" | "899" | "137") => void;
+}) {
   const d = c.diag!;
+  const [imp, setImp] = useState<"" | "133" | "899" | "137">("");
   return (
     <>
       <table className="mt-2 w-full text-xs">
-        <thead><tr className="text-left text-[10.5px] uppercase text-zinc-400 [&>th]:px-2"><th className="py-1">Parte</th><th className="text-right">ARCA</th><th className="text-right">Renglones</th><th className="text-right">Caja (14)</th></tr></thead>
+        <thead><tr className="text-left text-[10.5px] uppercase text-zinc-400 [&>th]:px-2"><th className="py-1">Parte</th><th className="text-right">ARCA</th>
+          <th className="text-right" title="La factura armada con sus renglones (es lo que muestra Ver)">Factura (renglones)</th>
+          <th className="text-right" title="Lo imputado en Caja: es lo que suma en Resultados">Caja (suma en Resultados)</th></tr></thead>
         <tbody>
           {d.partes.map((p) => (
             <tr key={p.parte} className="border-t border-zinc-100 dark:border-zinc-800 [&>td]:px-2">
@@ -284,11 +293,25 @@ function Importe({ c, ocupado, onVer, onIgualar }: { c: ACorregir; ocupado: bool
           ))}
         </tbody>
       </table>
-      <p className="mt-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 px-2.5 py-2 text-xs">{d.texto}</p>
-      <div className="mt-2 flex gap-1.5">
-        {d.igualar && !c.arca.nc && <button type="button" disabled={ocupado} onClick={onIgualar} title={`La fila principal pasa a ${$f(d.igualar.importe)}`}
-          className="h-7 rounded-md bg-zinc-900 px-2.5 text-xs font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-zinc-900">Igualar neto + IVA a ARCA</button>}
-        <button type="button" onClick={() => onVer(c.panel.rowId, c.panel.comprobante)} className="h-7 rounded-md border border-zinc-300 dark:border-zinc-600 px-2.5 text-xs font-semibold">Ver / editar</button>
+      <ul className="mt-2 space-y-1 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 px-2.5 py-2 text-xs">
+        {d.textos.map((t, i) => <li key={i}>{t}</li>)}
+      </ul>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {d.igualar && !c.arca.nc && <button type="button" disabled={ocupado} onClick={onIgualar} title={`La fila de Caja pasa a ${$f(d.igualar.importe)}`}
+          className="h-7 rounded-md bg-zinc-900 px-2.5 text-xs font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-zinc-900">
+          Corregir Caja ({d.igualar.dif > 0 ? "+" : "−"}{$f(Math.abs(d.igualar.dif))})</button>}
+        {d.percepcion && !c.arca.nc && (
+          <span className="flex items-center gap-1.5 rounded-md border border-zinc-300 dark:border-zinc-600 py-0.5 pl-2 pr-0.5 text-xs">
+            Percepción {$f(d.percepcion.importe)} de
+            <select value={imp} onChange={(e) => setImp(e.target.value as typeof imp)} className="h-6 rounded border border-zinc-300 dark:border-zinc-600 bg-transparent px-1 text-xs">
+              <option value="">¿qué impuesto?</option>
+              {IMPUESTOS.map((x) => <option key={x.cod} value={x.cod}>{x.t}</option>)}
+            </select>
+            <button type="button" disabled={ocupado || !imp} onClick={() => imp && onPercepcion(imp)}
+              className="h-6 rounded bg-zinc-900 px-2 font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-zinc-900">Cargarla</button>
+          </span>
+        )}
+        <button type="button" onClick={() => onVer(c.panel.rowId, c.panel.comprobante)} className="h-7 rounded-md border border-zinc-300 dark:border-zinc-600 px-2.5 text-xs font-semibold">Ver factura</button>
       </div>
     </>
   );

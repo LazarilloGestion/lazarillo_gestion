@@ -94,6 +94,12 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
     void queryClient.invalidateQueries({ queryKey: ARCA_KEY });
     refrescarCompras(queryClient);
   }
+  async function quitar(rowId: string) {
+    const r = await fetch("/api/arca/corregir", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accion: "quitar", rowId }) });
+    if (!r.ok) { toast.error("No se pudo quitar"); return; }
+    void queryClient.invalidateQueries({ queryKey: ARCA_KEY });
+    refrescarCompras(queryClient);
+  }
   const noVan = [
     ...(data?.descartes ?? []).map((d) => ({ ...d, origen: mesDeDescarte(d.clave) ? `solo ${nombrePeriodo(mesDeDescarte(d.clave)!)}` : null })),
     ...(arca?.descartes ?? []).map((d) => ({ ...d, origen: d.clave.startsWith("k:") ? "ARCA · revisada, está bien" : "ARCA · no se carga" })),
@@ -165,7 +171,7 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
         </div>
         <div className="flex items-center gap-3 px-6 pb-3">
           <div className="inline-flex rounded-lg bg-zinc-100 dark:bg-zinc-800 p-1 text-xs font-semibold">
-            {([["sin", `Por proyección (${kpi?.n ?? "…"})`], ["arca", `ARCA (${arca ? arca.faltan.length : "…"})`], ["corregir", `Corregir (${nCorregir ?? "…"})`], ["no", `Ya no van (${noVan.length + (arca?.anuladas.length ?? 0)})`]] as const).map(([k, t]) => (
+            {([["sin", `Por proyección (${kpi?.n ?? "…"})`], ["arca", `ARCA (${arca ? arca.faltan.length : "…"})`], ["corregir", `Corregir (${nCorregir ?? "…"})`], ["no", `Ya no van (${noVan.length + (arca?.anuladas.length ?? 0) + (arca?.agregadas.length ?? 0)})`]] as const).map(([k, t]) => (
               <button key={k} type="button" onClick={() => setTab(k)} className={cn("rounded-md px-3 py-1.5", tab === k ? "bg-white dark:bg-zinc-950 shadow-sm" : "text-zinc-500")}>{t}</button>
             ))}
           </div>
@@ -235,7 +241,13 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
           })}
           {tab === "no" && (
             <div className="p-6">
-              {!noVan.length && !arca?.anuladas.length && <p className="text-sm text-muted-foreground">No marcaste ningún gasto como “Ya no va”.</p>}
+              {!noVan.length && !arca?.anuladas.length && !arca?.agregadas.length && <p className="text-sm text-muted-foreground">No marcaste ningún gasto como “Ya no va”.</p>}
+              {arca?.agregadas.map((h) => (
+                <div key={h.rowId} className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800 py-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate">{h.proveedor ?? "—"} · {h.comprobante ?? ""} · {h.concepto} {fmtPesos(h.importe)}<span className="text-xs text-muted-foreground"> · ARCA · percepción agregada</span></span>
+                  <button type="button" onClick={() => void quitar(h.rowId)} className="h-7 rounded-md border border-zinc-300 dark:border-zinc-600 px-2.5 text-xs font-semibold">Quitar</button>
+                </div>
+              ))}
               {arca?.anuladas.map((h) => (
                 <div key={h.rowId} className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800 py-2 text-sm">
                   <span className="min-w-0 flex-1 truncate">{h.proveedor ?? "—"} · {h.comprobante ?? ""} · {h.importe != null ? fmtPesos(h.importe) : ""}<span className="text-xs text-muted-foreground"> · ARCA · anulada por duplicada</span></span>

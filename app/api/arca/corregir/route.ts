@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAuthUser } from "@/lib/auth/require-auth";
 import { PDV_ARCA } from "@/lib/arca/clasificar";
+import { PERCEPCIONES } from "@/lib/arca/corregir";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,8 @@ export const dynamic = "force-dynamic";
 // - anular:   cargada dos veces → las filas del comprobante elegido quedan en $0 (no se borran).
 // - restaurar: deshace un anular.
 // - igualar:  importe distinto → la fila principal toma el neto + IVA de ARCA.
+// - percepcion: falta una percepción → fila nueva del comprobante (origen "arca"), con el impuesto
+//             que se elige (ARCA no lo informa). quitar: la borra (solo filas creadas acá).
 const fila = z.string().min(6).max(40);
 const schema = z.discriminatedUnion("accion", [
   z.object({ accion: z.literal("fecha"), items: z.array(z.object({ rowIds: z.array(fila).min(1).max(30), fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), key: z.string().max(60), nombre: z.string().max(200) })).min(1).max(300) }),
@@ -21,6 +24,8 @@ const schema = z.discriminatedUnion("accion", [
   z.object({ accion: z.literal("anular"), rowIds: z.array(fila).min(1).max(30), nota: z.string().max(120) }),
   z.object({ accion: z.literal("restaurar"), rowId: fila }),
   z.object({ accion: z.literal("igualar"), rowId: fila, importe: z.number().finite(), key: z.string().max(60) }),
+  z.object({ accion: z.literal("percepcion"), baseRowId: fila, cod: z.enum(["133", "899", "137"]), importe: z.number().positive().max(1e10) }),
+  z.object({ accion: z.literal("quitar"), rowId: z.string().regex(/^arca-[0-9a-f-]{36}$/) }),
 ]);
 
 export async function POST(request: NextRequest) {
@@ -79,6 +84,26 @@ export async function POST(request: NextRequest) {
         prisma.$executeRaw`UPDATE compras SET "importeManual" = ${h[0].importeManualAntes}, "observacManual" = ${h[0].observacManualAntes} WHERE "rowId" = ${d.rowId}`,
         prisma.$executeRaw`UPDATE compras_huerfanas SET estado = 'restaurada', "actualizadaEn" = now() WHERE "rowId" = ${d.rowId}`,
       ]);
+      return NextResponse.json({ ok: true });
+    }
+    if (d.accion === "percepcion") {
+      const per = PERCEPCIONES.find((p) => p.cod === d.cod)!;
+      const rowId = `arca-${crypto.randomUUID()}`;
+      const col = d.cod === "133" ? "per1" : d.cod === "899" ? "per2" : "per3";
+      const n = await prisma.$executeRaw`
+        INSERT INTO compras ("rowId", comprobante, "codCga", concepto, fecha, codigo, proveedor, detalle, observac, importe,
+                             per1, per2, per3, "localId", "puntoDeVentaId", "conceptoCodigo", "proveedorId", origen)
+        SELECT ${rowId}, b.comprobante, ${d.cod}, ${per.nombre}, COALESCE(b."fechaManual", b.fecha), b.codigo, b.proveedor, b.detalle,
+               ${"Percepción agregada desde ARCA por " + por}, ${d.importe},
+               ${col === "per1" ? d.importe : 0}, ${col === "per2" ? d.importe : 0}, ${col === "per3" ? d.importe : 0},
+               b."localId", b."puntoDeVentaId", (SELECT codigo FROM conceptos_caja WHERE codigo = ${d.cod}), b."proveedorId", 'arca'
+        FROM compras b WHERE b."rowId" = ${d.baseRowId}`;
+      if (!n) return NextResponse.json({ error: "No se encontró la factura" }, { status: 404 });
+      return NextResponse.json({ ok: true, rowId });
+    }
+    if (d.accion === "quitar") {
+      const n = await prisma.$executeRaw`DELETE FROM compras WHERE "rowId" = ${d.rowId} AND origen = 'arca'`;
+      if (!n) return NextResponse.json({ error: "No se encontró" }, { status: 404 });
       return NextResponse.json({ ok: true });
     }
     // igualar

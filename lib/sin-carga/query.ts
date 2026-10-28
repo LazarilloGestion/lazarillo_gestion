@@ -114,7 +114,8 @@ export function queCompraSql(proveedorIds: number[], desde: string): Prisma.Sql 
   return Prisma.sql`
     -- Insumos con su concepto de caja (en "obs").
     -- (el renglón casi nunca trae proveedorId: se toma de su compra)
-    SELECT c."proveedorId" AS pid, 'i' AS tipo, TRIM(d.nombre) AS txt, TRIM(COALESCE(cc.nombre, d."nomCga", c.concepto)) AS obs, SUM(ABS(d.neto))::float8 AS imp
+    SELECT c."proveedorId" AS pid, 'i' AS tipo, TRIM(d.nombre) AS txt, TRIM(COALESCE(cc.nombre, d."nomCga", c.concepto)) AS obs,
+           SUM(ABS(COALESCE(d."totalIns", d.neto * d.cantidad, 0)))::float8 AS imp -- "neto" del 25 es el unitario
     FROM detalle_compras d
     JOIN compras c ON c."rowId" = d."compraId"
     LEFT JOIN conceptos_caja cc ON cc.codigo = d."codCga"
