@@ -2,7 +2,8 @@ import { cn, fmtARS } from "@/lib/utils";
 import { heatmapFill, RESULT_COLORS } from "@/lib/dashboard/resultados-calc";
 import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
 import { StickyCardCell } from "./sticky-card-cell";
-import { ProyeccionIngresos } from "./proyeccion-tooltip";
+import { FaltaCargarTip, ProyeccionEgresos, ProyeccionIngresos } from "./proyeccion-tooltip";
+import { useEgresosProyeccion } from "@/hooks/use-egresos-proyeccion";
 import { useProyeccionIngresos } from "@/hooks/use-proyeccion-ingresos";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 
@@ -44,6 +45,13 @@ export function KpiBlock({
   const ingresosVisibles = months.map(valorHeatmap).filter((v): v is number => v != null && v > 0);
   const minIngresos = ingresosVisibles.length ? Math.min(...ingresosVisibles) : 0;
   const maxIngresos = ingresosVisibles.length ? Math.max(...ingresosVisibles) : 1;
+  // Egresos del mes en curso proyectados al cierre y, en los cerrados, lo que falta cargar
+  // (Diego 28/10/2026). El mes proyectado también proyecta Resultado OP y Gastos / Ventas.
+  const { proyectado: egrProy, ventasProy, faltan } = useEgresosProyeccion(egresosPorMes);
+  const esProy = (m: number) => !!egrProy && egrProy.mes === m && ventasProy != null;
+  const ingDe = (m: number) => (esProy(m) ? ventasProy! : ingresosPorMes[m]);
+  const egrDe = (m: number) => (esProy(m) ? egrProy!.total : egresosPorMes[m]);
+  const proyCls = "border-b-[1.5px] border-dashed border-[#5BC2EA]";
 
   return (
     <>
@@ -92,7 +100,9 @@ export function KpiBlock({
         </StickyCardCell>
         {months.map((mes) => (
           <td key={mes} className={cn("text-right px-3 py-1.5 tabular-nums text-muted-foreground whitespace-nowrap", cardCellClasses("middle", "mid", { border: bordered }))}>
-            {fmtARS(egresosPorMes[mes])}
+            {esProy(mes) ? <ProyeccionEgresos e={egrProy!} anio={year} corte={null}>{fmtARS(egrProy!.total)}</ProyeccionEgresos>
+              : faltan[mes] && egresosPorMes[mes] != null ? <FaltaCargarTip f={faltan[mes]} anio={year} mes={mes}>{fmtARS(egresosPorMes[mes])}</FaltaCargarTip>
+              : fmtARS(egresosPorMes[mes])}
           </td>
         ))}
         <td className={cn("text-right px-4 py-1.5 font-medium tabular-nums text-muted-foreground whitespace-nowrap", cardCellClasses("middle", "mid", { border: bordered }))}>
@@ -106,8 +116,8 @@ export function KpiBlock({
           Resultado OP
         </StickyCardCell>
         {months.map((mes) => {
-          const ingVal = ingresosPorMes[mes];
-          const egrVal = egresosPorMes[mes];
+          const ingVal = ingDe(mes);
+          const egrVal = egrDe(mes);
           const noData = ingVal == null && egrVal == null;
           const res = (ingVal ?? 0) - (egrVal ?? 0);
           return (
@@ -120,7 +130,7 @@ export function KpiBlock({
               )}
               style={noData ? undefined : { color: res < 0 ? RESULT_COLORS.negative : RESULT_COLORS.positive }}
             >
-              {noData ? "—" : fmtARS(res)}
+              {noData ? "—" : esProy(mes) ? <span className={proyCls} title="Proyectado: ventas proyectadas − egresos proyectados">{fmtARS(res)}</span> : fmtARS(res)}
             </td>
           );
         })}
@@ -143,8 +153,8 @@ export function KpiBlock({
           Gastos / Ventas
         </StickyCardCell>
         {months.map((mes) => {
-          const ing = ingresosPorMes[mes] ?? 0;
-          const egr = egresosPorMes[mes] ?? 0;
+          const ing = ingDe(mes) ?? 0;
+          const egr = egrDe(mes) ?? 0;
           const ratio = ing > 0 ? (egr / ing) * 100 : null;
           return (
             <td
@@ -156,7 +166,7 @@ export function KpiBlock({
               )}
               style={ratio === null ? undefined : { color: ratio > 90 ? RESULT_COLORS.negative : ratio > 60 ? RESULT_COLORS.neutral : RESULT_COLORS.positive }}
             >
-              {ratio !== null ? `${ratio.toFixed(1)}%` : "—"}
+              {ratio === null ? "—" : esProy(mes) ? <span className={proyCls} title="Proyectado">{ratio.toFixed(1)}%</span> : `${ratio.toFixed(1)}%`}
             </td>
           );
         })}
