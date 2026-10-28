@@ -14,7 +14,11 @@ export interface FilaSinCarga {
   concepto: string | null; concepto_codigo: string | null; rubro: string | null;
   ultimo: number; dia: number; vencido: boolean;
   pdv_origen: number | null; ultimo_total: number;
+  meses_con_gasto: number; meses_con_datos: number; // en los 12 meses anteriores (mantenimiento en meses cerrados)
 }
+
+/** Los 12 meses anteriores al mes objetivo: para saber si un gasto es "de todos los meses del año". */
+const ANUAL = 12;
 
 export function sinCargaSql(pdvId: number, meses: string[]): Prisma.Sql {
   const desde = meses[meses.length - 1];
@@ -41,7 +45,7 @@ export function sinCargaSql(pdvId: number, meses: string[]): Prisma.Sql {
       LEFT JOIN conceptos_caja cc       ON cc.codigo = COALESCE(c."conceptoCodigoManual", c."conceptoCodigo")
       LEFT JOIN rubros_concepto_caja rc ON rc.codigo = cc."codRga"
       WHERE c."puntoDeVentaId" = ${pdvId}
-        AND ${fechaEco} >= (${desde}::date - make_interval(months => ${RECURRENTE_VENTANA}))
+        AND ${fechaEco} >= (${desde}::date - make_interval(months => ${ANUAL}))
         AND ${fechaEco} <  (${hasta}::date + interval '1 month')
         AND (rc."visibleEnDashboard" = true OR (rc.codigo IS NULL AND ${sinRubroVisibleSql("visibleEnDashboard")}))
         AND (c."proveedorId" IS NOT NULL OR COALESCE(c."conceptoCodigoManual", c."conceptoCodigo") IS NOT NULL)
@@ -76,17 +80,52 @@ export function sinCargaSql(pdvId: number, meses: string[]): Prisma.Sql {
       JOIN pm x ON x.mes < o.m AND x.mes >= o.m - make_interval(months => ${RECURRENTE_VENTANA})
       GROUP BY o.m, x.clave
       HAVING COUNT(*) >= ${RECURRENTE_MIN}
+    ),
+    n12 AS (
+      SELECT o.m, x.clave, COUNT(*) AS n FROM obj o
+      JOIN pm x ON x.mes < o.m AND x.mes >= o.m - make_interval(months => ${ANUAL})
+      GROUP BY o.m, x.clave
+    ),
+    h12 AS (
+      SELECT o.m, COUNT(DISTINCT b.mes) AS h FROM obj o
+      JOIN b ON b.mes < o.m AND b.mes >= o.m - make_interval(months => ${ANUAL})
+      GROUP BY o.m
     )
     SELECT to_char(r.m, 'YYYY-MM') AS mes, r.clave, r.proveedor, r.proveedor_id::int AS proveedor_id,
            r.concepto, r.concepto_codigo, r.rubro, ROUND(r.ultimo, 2)::float8 AS ultimo,
            ROUND(r.dia)::int AS dia, r.vencido,
-           r.pdv_origen::int AS pdv_origen, ROUND(r.ultimo_total, 2)::float8 AS ultimo_total
+           r.pdv_origen::int AS pdv_origen, ROUND(r.ultimo_total, 2)::float8 AS ultimo_total,
+           COALESCE(n12.n, 0)::int AS meses_con_gasto, COALESCE(h12.h, 0)::int AS meses_con_datos
     FROM r
+    LEFT JOIN n12 ON n12.m = r.m AND n12.clave = r.clave
+    LEFT JOIN h12 ON h12.m = r.m
     WHERE r.ultimo > 0
       AND NOT EXISTS (SELECT 1 FROM pm WHERE pm.clave = r.clave AND pm.mes = r.m)
       -- "Ya no va": la clave sola; "Este mes no": la clave con "@YYYY-MM".
       AND NOT EXISTS (SELECT 1 FROM sin_carga_descartes d WHERE d."pdvId" = ${pdvId}
                         AND d.clave IN (r.clave, r.clave || '@' || to_char(r.m, 'YYYY-MM')))
     ORDER BY r.m DESC, r.ultimo DESC
+  `;
+}
+
+/** Qué se le compra a cada proveedor en los últimos meses: insumos (renglones con unidad) y
+ * conceptos de caja con su observación, para decidir si "este mes va" (Diego 28/10). */
+export function queCompraSql(proveedorIds: number[], desde: string): Prisma.Sql {
+  return Prisma.sql`
+    SELECT d."proveedorId" AS pid, 'i' AS tipo, TRIM(d.nombre) AS txt, NULL::text AS obs, SUM(ABS(d.neto))::float8 AS imp
+    FROM detalle_compras d
+    WHERE d."proveedorId" = ANY(${proveedorIds}::int[]) AND d.fecha >= ${desde}::date
+      AND COALESCE(TRIM(d.medida), '') <> '' AND COALESCE(TRIM(d.nombre), '') <> ''
+    GROUP BY 1, 3
+    UNION ALL
+    SELECT c."proveedorId", 'c', TRIM(COALESCE(cc.nombre, c.concepto)),
+           (array_agg(NULLIF(TRIM(COALESCE(c."observacManual", c.observac)), '') ORDER BY c.fecha DESC)
+              FILTER (WHERE NULLIF(TRIM(COALESCE(c."observacManual", c.observac)), '') IS NOT NULL))[1],
+           SUM(ABS(COALESCE(c."importeManual", c.importe)))::float8
+    FROM compras c
+    LEFT JOIN conceptos_caja cc ON cc.codigo = COALESCE(c."conceptoCodigoManual", c."conceptoCodigo")
+    WHERE c."proveedorId" = ANY(${proveedorIds}::int[]) AND c.fecha >= ${desde}::date
+      AND COALESCE(c."conceptoCodigoManual", c."conceptoCodigo", '') NOT IN ('133', '899', '137') -- percepciones
+    GROUP BY 1, 3
   `;
 }
