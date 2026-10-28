@@ -18,7 +18,7 @@ export async function GET() {
   const denied = await requireAuth();
   if (denied) return denied;
   try {
-    const [filas, sinPar, resumen, descartes, locales, anuladas] = await Promise.all([
+    const [filas, sinPar, resumen, descartes, locales, anuladas, agregadas] = await Promise.all([
       prisma.$queryRaw<FilaArca[]>(arcaSql),
       prisma.$queryRaw<FilaSinPar[]>(sinParSql),
       prisma.$queryRaw<{ n: number; desde: string | null; hasta: string | null; ultima: Date | null }[]>`
@@ -29,6 +29,9 @@ export async function GET() {
       prisma.$queryRaw<{ rowId: string; comprobante: string | null; proveedor: string | null; fecha: string | null; importe: number | null; actualizadaEn: Date }[]>`
         SELECT "rowId", comprobante, proveedor, to_char(fecha, 'YYYY-MM-DD') AS fecha, importe::float8 AS importe, "actualizadaEn"
         FROM compras_huerfanas WHERE motivo = 'duplicado_arca' AND estado = 'aplicada' ORDER BY "actualizadaEn" DESC`,
+      // Percepciones agregadas desde ARCA (se pueden quitar desde "Ya no van").
+      prisma.$queryRaw<{ rowId: string; comprobante: string | null; proveedor: string | null; concepto: string | null; importe: number }[]>`
+        SELECT "rowId", comprobante, proveedor, concepto, importe::float8 AS importe FROM compras WHERE origen = 'arca' ORDER BY fecha DESC`,
     ]);
     const partesDe = new Map(filas.map((f) => [`${f.cuit}-${f.tipo}-${f.pv}-${f.nro}`, {
       neto: Number(f.neto), iva: Number(f.iva), noGravado: Number(f.no_gravado), exento: Number(f.exento), otros: Number(f.otros), total: Number(f.total),
@@ -73,7 +76,7 @@ export async function GET() {
     const s = resumen[0];
     return NextResponse.json({
       importado: s && s.n ? { n: s.n, desde: s.desde, hasta: s.hasta, ultima: s.ultima } : null,
-      ok: r.ok, faltan, corregir, descartes, anuladas,
+      ok: r.ok, faltan, corregir, descartes, anuladas, agregadas,
     });
   } catch (err) {
     console.error("[GET /api/arca/cruce]", err);
