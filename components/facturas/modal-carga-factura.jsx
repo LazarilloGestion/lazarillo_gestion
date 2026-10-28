@@ -378,7 +378,6 @@ function ModalNuevaCarga(props) {
   // Factura o Gastos Varios (solo al cargar uno nuevo; ver / editar es siempre factura).
   const [modo, setModo] = useState(vista === "nueva" && ctx.modo === "vario" ? "vario" : "factura");
   const fechaDefault = HOY;
-
   // factura
   const rde = ctx.repetirDe || null;
   const ede = ctx.editarDe || null; // editar una factura existente desde la cta cte
@@ -392,11 +391,12 @@ function ModalNuevaCarga(props) {
   const [origenPre, setOrigenPre] = useState(rde ? rde.comp : null);
   const [prov, setProv] = useState(ctx.prov || (ctx.proveedorId && (proveedores.find((p) => p.id === ctx.proveedorId) || {}).nombre) || (rde && rde.prov) || (ede && ede.prov) || "");
   const [altaProv, setAltaProv] = useState(null); // {nombre, razon, cuit, tel, dir}
-  const [tipoCpb, setTipoCpb] = useState((rde && (rde.tipoCpb || (rde.comp || "").split(" ")[0])) || (ede && (ede.tipoCpb || partesComp(ede.comp)[0])) || "");
-  const [compPref, setCompPref] = useState(ede ? partesComp(ede.comp)[1] : "");
-  const [compNum, setCompNum] = useState(ede ? partesComp(ede.comp)[2] : "");
+  // ctx.tipoCpb / prefijo / numero / fecha: precarga desde "Sin carga ARCA" (Diego 28/10/2026).
+  const [tipoCpb, setTipoCpb] = useState((rde && (rde.tipoCpb || (rde.comp || "").split(" ")[0])) || (ede && (ede.tipoCpb || partesComp(ede.comp)[0])) || ctx.tipoCpb || "");
+  const [compPref, setCompPref] = useState(ede ? partesComp(ede.comp)[1] : ctx.prefijo || "");
+  const [compNum, setCompNum] = useState(ede ? partesComp(ede.comp)[2] : ctx.numero || "");
   const pad = (v, n) => (v.trim() === "" ? "" : v.replace(/\D/g, "").slice(-n).padStart(n, "0"));
-  const [fecha, setFecha] = useState(ede ? ede.fecha : fechaDefault);
+  const [fecha, setFecha] = useState(ede ? ede.fecha : ctx.fecha || fechaDefault);
   const [pdv, setPdv] = useState(ede ? ede.pdv : pdvActual || PDVS[0]);
   const [obs, setObs] = useState(ede ? ede.obs || "" : "");
   // Precarga (Repetir / última factura): el primer registro queda abierto para corregir el
