@@ -36,10 +36,14 @@ export async function GET() {
     const partesDe = new Map(filas.map((f) => [`${f.cuit}-${f.tipo}-${f.pv}-${f.nro}`, {
       neto: Number(f.neto), iva: Number(f.iva), noGravado: Number(f.no_gravado), exento: Number(f.exento), otros: Number(f.otros), total: Number(f.total),
     }]));
+    // Un ticket (Z) con el mismo número que una factura del mismo local es otro gasto (ej. la
+    // mensajería de Rodofeli cargada como Tic 0011-3097 al lado de la FcA 0011-3097): no cuenta.
+    const sinTicketsPegados = (cs: NonNullable<FilaArca["cargados"]>) =>
+      cs.filter((x) => !(/^Z/i.test(x.comprobante) && cs.some((y) => y.localId === x.localId && !/^Z/i.test(y.comprobante))));
     const arca: ArcaConCarga[] = filas.map((f) => ({
       key: "", cuit: f.cuit, emisor: f.emisor, tipo: f.tipo, puntoVenta: f.pv, numero: Number(f.nro), fecha: f.fecha,
       total: Number(f.total), otros: Number(f.otros), nc: esNotaCredito(f.tipo),
-      proveedorId: f.proveedor_id ?? null, proveedor: f.proveedor ?? null, cargados: f.cargados ?? [],
+      proveedorId: f.proveedor_id ?? null, proveedor: f.proveedor ?? null, cargados: sinTicketsPegados(f.cargados ?? []),
     }));
     for (const a of arca) a.key = claveDe(a);
     const r = clasificar(arca, sinPar.map((s) => ({ cuit: s.cuit, comprobante: s.comprobante, localId: s.local_id, total: Number(s.total), fecha: s.fecha, rowId: s.row_id })));

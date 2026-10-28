@@ -111,11 +111,12 @@ export function ProyeccionEgresos({ e, anio, corte, ventasProy, children }: { e:
     <TooltipProvider delayDuration={150}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="cursor-help border-b-[1.5px] border-dashed border-[#5BC2EA] font-medium" style={{ color: "#2a9fd0" }}>{children}</span>
+          <span className="cursor-help border-b-[1.5px] border-dashed border-[#5BC2EA]">{children}</span>
         </TooltipTrigger>
         <TooltipContent side="bottom" align="end" className="block max-w-none w-[360px] p-3.5 text-[12.5px] leading-[1.45] font-normal text-left">
           <div className="opacity-60">Egresos · proyección de cierre {nombreMes(anio, e.mes)} {anio}</div>
           <div className="text-[22px] font-bold my-0.5">{fmtMillones(e.total)}</div>
+          <div className="opacity-60">hoy cargado {fmtMillones(e.cargado)}</div>
           <div className="flex h-2 rounded bg-white/15 dark:bg-black/15 my-2 overflow-hidden">
             <div className="bg-[#5BC2EA]" style={{ width: pc(e.cargado) }} />
             <div className="bg-[#f5c26b]" style={{ width: pc(e.sinCargar) }} />
@@ -142,7 +143,7 @@ export function ProyeccionEgresos({ e, anio, corte, ventasProy, children }: { e:
 }
 
 // Mes cerrado con gastos de todos los meses que todavía no están cargados.
-export function FaltaCargarTip({ f, anio, mes, children }: { f: FaltaCargar; anio: number; mes: number; children: React.ReactNode }) {
+export function FaltaCargarTip({ f, anio, mes, real, children }: { f: FaltaCargar; anio: number; mes: number; real?: number; children: React.ReactNode }) {
   const lista = f.items.slice(0, 6);
   return (
     <TooltipProvider delayDuration={150}>
@@ -156,6 +157,7 @@ export function FaltaCargarTip({ f, anio, mes, children }: { f: FaltaCargar; ani
         <TooltipContent side="bottom" align="end" className="block max-w-none w-[340px] p-3.5 text-[12.5px] leading-[1.45] font-normal text-left">
           <div className="opacity-60">Egresos · {nombreMes(anio, mes)} {anio}</div>
           <div className="flex justify-between gap-3 mt-1"><span><Punto />Falta cargar · {f.n}</span><b className="tabular-nums">{fmtMillones(f.total)}</b></div>
+          {real != null && <div className="flex justify-between gap-3"><span className="opacity-70">Con eso, el mes cerraría en</span><b className="tabular-nums">{fmtMillones(real + f.total)}</b></div>}
           <div className="opacity-70 mt-1">
             {lista.map((x) => <Fila key={x.clave} izq={x.nombre} der={fmtMillones(x.ultimo)} />)}
             {f.items.length > lista.length && <div>y {f.items.length - lista.length} más</div>}
@@ -175,6 +177,24 @@ function RevisarArca() {
     <div className="mt-2 rounded-md bg-white/10 dark:bg-black/10 px-2 py-1.5">
       <b>Revisar ARCA</b> <span className="opacity-70">· las facturas que ARCA tiene y no están cargadas no se cuentan acá (Sin carga → ARCA).</span>
     </div>
+  );
+}
+
+// Tooltip chico para Resultado OP y Gastos / Ventas: la celda muestra lo real y acá va lo proyectado.
+export function TipProyectado({ titulo, grande, negativo, filas, children }: { titulo: string; grande: string; negativo?: boolean; filas: [string, string][]; children: React.ReactNode }) {
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help border-b-[1.5px] border-dashed border-[#5BC2EA]">{children}</span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end" className="block max-w-none w-[300px] p-3.5 text-[12.5px] leading-[1.45] font-normal text-left">
+          <div className="opacity-60">{titulo}</div>
+          <div className={`text-[20px] font-bold my-0.5${negativo ? " text-red-400" : ""}`}>{grande}</div>
+          {filas.map(([a, b]) => <Fila key={a} izq={a} der={b} />)}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
