@@ -6,7 +6,7 @@ import { Bell, Camera, ChevronLeft, ChevronRight, CircleDot, Home, PenLine, Plus
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { cn } from "@/lib/utils";
 import type { Local } from "@/lib/types/domain";
-import { agrupar, separar, saldo, type ImpagasResponse } from "@/lib/impagas/clasificar";
+import { agrupar, separar, saldo, type ComprobanteImpago, type ImpagasResponse } from "@/lib/impagas/clasificar";
 import { agruparPorDia, horaDe, partesDescripcion, TITULO_ACCION } from "@/lib/actividad/formato";
 import { leerQrArca, type DatosQr } from "@/lib/movil/qr-arca";
 import { leerQrDeArchivo } from "./leer-qr";
@@ -16,6 +16,7 @@ import { totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/es
 import { nombrePeriodo } from "@/lib/gastos-varios/periodo";
 import { FacturaMovil } from "./factura-movil";
 import { GastoMovil } from "./gasto-movil";
+import { FacturaVerMovil } from "./factura-ver-movil";
 
 // Lazarillo en el celular (Diego 27/10/2026): ver el mes, cargar facturas (con el QR
 // de ARCA de la foto) y ver lo que se debe. Mismo login y mismos datos que el Panel.
@@ -153,6 +154,30 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
     const total = data.gastos + sinCargar + mercFalta;
     return { total, cargado: data.gastos, sinCargar, mercFalta, resultado: proy.proyeccion - total };
   })();
+  // Rubros (Diego 28/10): en Proyección cada rubro suma lo que le falta cargar (y Mercaderías la
+  // mercadería que falta), con % sobre ingresos; y los KPI de food cost y costo mix.
+  const norm = (t: string) => t.trim().toLowerCase();
+  const enProy = proyectar && !!gastosProy && !!proy;
+  const ingresos = enProy ? proy!.proyeccion : data?.ventas ?? 0;
+  const rubrosVista = (() => {
+    const base = (data?.rubros ?? []).map((r) => ({ rubro: r.rubro, total: r.total }));
+    if (!enProy || !scMes) return base;
+    const m = new Map(base.map((r) => [norm(r.rubro), { ...r }]));
+    for (const x of scMes.items) {
+      const k = norm(x.rubro);
+      const r = m.get(k) ?? { rubro: x.rubro, total: 0 };
+      r.total += x.ultimo;
+      m.set(k, r);
+    }
+    const merc = [...m.values()].find((r) => /mercader/i.test(r.rubro));
+    if (merc) merc.total += gastosProy!.mercFalta;
+    return [...m.values()].sort((a, b) => b.total - a.total);
+  })();
+  const deRubro = (re: RegExp) => rubrosVista.filter((r) => re.test(r.rubro)).reduce((s, r) => s + r.total, 0);
+  const pctIng = (n: number) => (ingresos > 0 ? `${((n / ingresos) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%` : "—");
+  const kpiListo = !!data && (!proyectar || enProy);
+  const foodCost = deRubro(/mercader/i);
+  const costoMix = foodCost + deRubro(/personal/i);
   const deuda = useMemo(() => {
     if (!imp) return null;
     const { impagas } = separar(imp.data);
@@ -208,6 +233,11 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
         <Kpi t="Gastos / ventas" v={isLoading || !data?.ventas ? "—" : `${((data.gastos / data.ventas) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`} />
       </div>
       )}
+      <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+        <Kpi t={`Food cost${enProy ? " al cierre" : ""}`} v={kpiListo ? pctIng(foodCost) : "—"} cls={kpiListo ? undefined : "text-zinc-300"} />
+        <Kpi t={`Costo mix${enProy ? " al cierre" : ""}`} v={kpiListo ? pctIng(costoMix) : "—"} cls={kpiListo ? undefined : "text-zinc-300"} />
+      </div>
+      <p className="mt-1 text-[11.5px] text-zinc-500">Food cost = mercadería / ventas · Costo mix = (personal + mercadería) / ventas.</p>
       <button type="button" onClick={irImpagas} className="mt-3 block w-full rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4 text-left">
         <div className="flex justify-between"><b>Deuda con proveedores</b><span className="text-sky-700">ver ›</span></div>
         <div className="my-1 text-[24px] font-bold">{deuda ? $(deuda.saldo) : "…"}</div>
@@ -221,9 +251,13 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
         </button>
       )}
       <div className="mt-3 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4">
-        <b>Gastos del mes por rubro</b>
-        {(data?.rubros ?? []).map((r) => (
-          <div key={r.rubro} className="flex justify-between border-b border-zinc-100 dark:border-zinc-800 py-2 last:border-0 text-[14px]"><span>{r.rubro}</span><b className="tabular-nums">{$(r.total)}</b></div>
+        <div className="flex items-baseline justify-between"><b>Gastos del mes por rubro{enProy ? " · proyectado" : ""}</b><span className="text-[11.5px] text-zinc-500">% ing</span></div>
+        {rubrosVista.map((r) => (
+          <div key={r.rubro} className="flex items-baseline gap-2 border-b border-zinc-100 dark:border-zinc-800 py-2 last:border-0 text-[14px]">
+            <span className="min-w-0 flex-1 truncate">{r.rubro}</span>
+            <b className={cn("tabular-nums", enProy && "text-sky-700 dark:text-sky-300")}>{$(r.total)}</b>
+            <span className="w-12 shrink-0 text-right text-[12.5px] tabular-nums text-zinc-500">{pctIng(r.total)}</span>
+          </div>
         ))}
         {data && !data.rubros.length && <p className="pt-2 text-[13px] text-zinc-500">Sin gastos en el mes.</p>}
       </div>
@@ -263,8 +297,11 @@ function Impagas({ pdvId }: { pdvId: number }) {
   const { data, isLoading } = useFetchQuery<ImpagasResponse>(["impagas", pdvId, null], `/api/impagas?pdvId=${pdvId}`);
   const grupos = useMemo(() => (data ? agrupar(separar(data.data).impagas, "saldo") : []), [data]);
   const [abierto, setAbierto] = useState<string | null>(null);
+  // Tocar una factura la abre (Diego 28/10): renglones, total y pagos, solo lectura.
+  const [ver, setVer] = useState<ComprobanteImpago | null>(null);
   const total = grupos.reduce((s, g) => s + g.saldo, 0);
   if (isLoading) return <p className="py-10 text-center text-zinc-500">Cargando…</p>;
+  if (ver) return <FacturaVerMovil imp={ver} onVolver={() => setVer(null)} />;
   return (
     <div>
       <div className="mb-3 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4"><div className="text-[12.5px] text-zinc-500">Total que se debe</div><div className="text-[24px] font-bold">{$(total)}</div></div>
@@ -277,9 +314,10 @@ function Impagas({ pdvId }: { pdvId: number }) {
             <b className="tabular-nums">{$(g.saldo)}</b>
           </button>
           {abierto === g.clave && g.items.map((f) => (
-            <div key={f.id} className="flex justify-between pb-2 pl-4 text-[13px] text-zinc-600 dark:text-zinc-300">
-              <span>{f.fecha.split("-").reverse().join("/")} · {f.comprobante}</span><span className="tabular-nums">{$(saldo(f))}</span>
-            </div>
+            <button key={f.id} type="button" onClick={() => setVer(f)} className="flex w-full items-center justify-between gap-2 pb-2.5 pl-4 text-left text-[13px] text-zinc-600 dark:text-zinc-300">
+              <span>{f.fecha.split("-").reverse().join("/")} · {f.comprobante}</span>
+              <span className="flex items-center gap-1 tabular-nums">{$(saldo(f))}<ChevronRight className="size-4 text-zinc-400" /></span>
+            </button>
           ))}
         </div>
       ))}
