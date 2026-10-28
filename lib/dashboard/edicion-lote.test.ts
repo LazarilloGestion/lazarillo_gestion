@@ -22,4 +22,10 @@ describe("describirCambios", () => {
     expect(describirCambios({ fechaManual: null, conceptoCodigoManual: "1", observacManual: "x" })).toBe("fecha, concepto y observación");
     expect(describirCambios({})).toBe("");
   });
+  it("importe en $0: es lo único del importe que va a todas las tildadas", () => {
+    const ini = { fecha: "2026-10-01", concepto: "1", observac: "" };
+    expect(cambiosLote(ini, ini, true)).toEqual({ importeManual: 0 });
+    expect(cambiosLote(ini, ini, false)).toEqual({});
+    expect(describirCambios({ importeManual: 0, observacManual: "x" })).toBe("observación y importe en $0");
+  });
 });
