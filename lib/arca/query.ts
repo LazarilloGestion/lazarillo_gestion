@@ -21,7 +21,8 @@ const comprasSql = Prisma.sql`
 
 export interface FilaArca {
   cuit: string; emisor: string | null; tipo: number; pv: number; nro: string; fecha: string;
-  total: number; otros: number; proveedor_id: number | null; proveedor: string | null;
+  total: number; otros: number; neto: number; iva: number; no_gravado: number; exento: number;
+  proveedor_id: number | null; proveedor: string | null;
   cargados: { comprobante: string; localId: number; total: number; fecha: string; rowId: string }[] | null;
 }
 export interface FilaSinPar { cuit: string; comprobante: string; local_id: number; total: number; fecha: string; row_id: string }
@@ -35,6 +36,7 @@ export const arcaSql = Prisma.sql`
     FROM proveedores WHERE COALESCE(cuit, '') <> '' GROUP BY 1)
   SELECT a."cuitEmisor" AS cuit, a.emisor, a.tipo, a."puntoVenta" AS pv, a.numero::text AS nro,
          to_char(a.fecha, 'YYYY-MM-DD') AS fecha, a.total::float8 AS total, a."otrosTributos"::float8 AS otros,
+         a.neto::float8 AS neto, a.iva::float8 AS iva, a."noGravado"::float8 AS no_gravado, a.exento::float8 AS exento,
          p.id AS proveedor_id, p.nombre AS proveedor,
          json_agg(json_build_object('comprobante', g.comprobante, 'localId', g.local_id, 'total', g.total,
                                     'fecha', g.fecha, 'rowId', g.row_id)) FILTER (WHERE g.row_id IS NOT NULL) AS cargados

@@ -14,7 +14,7 @@ import type { Local } from "@/lib/types/domain";
 import { refrescarCompras, useCargaFactura } from "@/components/facturas/cargar-factura";
 import ModalNuevaCarga from "@/components/facturas/modal-carga-factura";
 import { VerFactura } from "@/components/facturas/ver-factura";
-import { ARCA_KEY, ctxArca, ListaArca, ListaCorregir, SubirArca, useCruceArca, type CompArca } from "./arca";
+import { ARCA_KEY, ctxArca, ListaArca, ListaCorregir, SubirArca, useAjusteAutomatico, useCruceArca, type CompArca } from "./arca";
 
 // Botón "● Sin carga · $X M" al lado de Impagas (Diego, 28/10/2026) y su listado: por mes,
 // los gastos que se cargan todos los meses y todavía no están en el PDV. "Cargar" abre la
@@ -86,6 +86,14 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
     const pv = totales(meses[0]?.items ?? [], chicos).visibles.filter((x) => !x.atrasado);
     return { mes: totales(meses[0]?.items ?? [], chicos), atrasados: { n: at.length, total: at.reduce((s, x) => s + x.ultimo, 0) }, porVenir: { n: pv.length, total: pv.reduce((s, x) => s + x.ultimo, 0) }, n: todos.length };
   }, [data, meses, chicos]);
+  useAjusteAutomatico(arca);
+  const nCorregir = arca ? arca.corregir.filter((c) => c.motivo === "duplicado" || c.motivo === "importe").length : null;
+  async function restaurar(rowId: string) {
+    const r = await fetch("/api/arca/corregir", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accion: "restaurar", rowId }) });
+    if (!r.ok) { toast.error("No se pudo restaurar"); return; }
+    void queryClient.invalidateQueries({ queryKey: ARCA_KEY });
+    refrescarCompras(queryClient);
+  }
   const noVan = [
     ...(data?.descartes ?? []).map((d) => ({ ...d, origen: mesDeDescarte(d.clave) ? `solo ${nombrePeriodo(mesDeDescarte(d.clave)!)}` : null })),
     ...(arca?.descartes ?? []).map((d) => ({ ...d, origen: d.clave.startsWith("k:") ? "ARCA · revisada, está bien" : "ARCA · no se carga" })),
@@ -142,7 +150,7 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
   }
 
   const descripcion = tab === "arca" ? "Comprobantes que ARCA dice que te facturaron y no están cargados en ningún local. Es de la empresa (CUIT), no de este PDV: se carga en el PDV que corresponda."
-    : tab === "corregir" ? "Comprobantes cargados que no coinciden con ARCA. Abrilos con Ver para corregirlos, o marcalos como revisados."
+    : tab === "corregir" ? "Lo cargado que no coincide con ARCA. Fecha y número distintos se ajustan solos; acá quedan para decidir: cargadas dos veces e importe distinto."
     : "Gastos que aparecieron en 3 de los últimos 4 meses y en el mes todavía no están. Solo rubros visibles en Compras.";
 
   return (
@@ -157,7 +165,7 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
         </div>
         <div className="flex items-center gap-3 px-6 pb-3">
           <div className="inline-flex rounded-lg bg-zinc-100 dark:bg-zinc-800 p-1 text-xs font-semibold">
-            {([["sin", `Por proyección (${kpi?.n ?? "…"})`], ["arca", `ARCA (${arca ? arca.faltan.length : "…"})`], ["corregir", `Corregir (${arca ? arca.corregir.length : "…"})`], ["no", `Ya no van (${noVan.length})`]] as const).map(([k, t]) => (
+            {([["sin", `Por proyección (${kpi?.n ?? "…"})`], ["arca", `ARCA (${arca ? arca.faltan.length : "…"})`], ["corregir", `Corregir (${nCorregir ?? "…"})`], ["no", `Ya no van (${noVan.length + (arca?.anuladas.length ?? 0)})`]] as const).map(([k, t]) => (
               <button key={k} type="button" onClick={() => setTab(k)} className={cn("rounded-md px-3 py-1.5", tab === k ? "bg-white dark:bg-zinc-950 shadow-sm" : "text-zinc-500")}>{t}</button>
             ))}
           </div>
@@ -227,7 +235,14 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
           })}
           {tab === "no" && (
             <div className="p-6">
-              {!noVan.length && <p className="text-sm text-muted-foreground">No marcaste ningún gasto como “Ya no va”.</p>}
+              {!noVan.length && !arca?.anuladas.length && <p className="text-sm text-muted-foreground">No marcaste ningún gasto como “Ya no va”.</p>}
+              {arca?.anuladas.map((h) => (
+                <div key={h.rowId} className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800 py-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate">{h.proveedor ?? "—"} · {h.comprobante ?? ""} · {h.importe != null ? fmtPesos(h.importe) : ""}<span className="text-xs text-muted-foreground"> · ARCA · anulada por duplicada</span></span>
+                  <span className="text-xs text-muted-foreground">desde {ddmm(h.actualizadaEn.slice(0, 10))}</span>
+                  <button type="button" onClick={() => void restaurar(h.rowId)} className="h-7 rounded-md border border-zinc-300 dark:border-zinc-600 px-2.5 text-xs font-semibold">Restaurar</button>
+                </div>
+              ))}
               {noVan.map((d) => (
                 <div key={d.id} className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800 py-2 text-sm">
                   <span className="min-w-0 flex-1 truncate">{d.nombre ?? d.clave}{d.origen ? <span className="text-xs text-muted-foreground"> · {d.origen}</span> : null}</span>

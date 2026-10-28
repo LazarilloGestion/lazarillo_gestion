@@ -72,9 +72,11 @@ export async function revisarHuerfanas(o: { esquema: string; pdv: string; puntoD
   if (ids.size === 0) return { marcadas: 0, restauradas: 0, mesesSalteados: [] };
 
   // 1) Restaurar las que volvieron a aparecer en MaxiRest.
-  const previas = await prisma.$queryRaw<{ rowId: string; estado: string; importeManualAntes: Prisma.Decimal | null; observacManualAntes: string | null }[]>`
-    SELECT "rowId", estado, "importeManualAntes", "observacManualAntes" FROM compras_huerfanas
+  const todas = await prisma.$queryRaw<{ rowId: string; estado: string; motivo: string; importeManualAntes: Prisma.Decimal | null; observacManualAntes: string | null }[]>`
+    SELECT "rowId", estado, motivo, "importeManualAntes", "observacManualAntes" FROM compras_huerfanas
     WHERE "puntoDeVentaId" = ${o.puntoDeVentaId} AND estado IN ('propuesta', 'aplicada')`;
+  // Solo se restauran solas las de este motivo (un duplicado anulado desde ARCA sigue en MaxiRest a propósito).
+  const previas = todas.filter((x) => x.motivo === "maxirest_ya_no");
   let restauradas = 0;
   for (const p of previas.filter((x) => ids.has(x.rowId))) {
     await prisma.$transaction(async (tx) => {
@@ -92,7 +94,7 @@ export async function revisarHuerfanas(o: { esquema: string; pdv: string; puntoD
     FROM compras
     WHERE "puntoDeVentaId" = ${o.puntoDeVentaId} AND origen IS NULL AND fecha >= ${HUERFANAS_DESDE}::date`;
   // Ya hechas: las aplicadas (y, mientras solo se detecta, las propuestas).
-  const yaMarcadas = new Set(previas.filter((x) => !ids.has(x.rowId) && (x.estado === "aplicada" || !APLICAR_HUERFANAS)).map((x) => x.rowId));
+  const yaMarcadas = new Set(todas.filter((x) => x.estado === "aplicada" || (!APLICAR_HUERFANAS && !ids.has(x.rowId))).map((x) => x.rowId));
   const { elegidas, salteados } = elegirHuerfanas(panel, ids, HUERFANAS_DESDE.slice(0, 7));
   const nuevas = elegidas.filter((id) => !yaMarcadas.has(id));
   const estado = APLICAR_HUERFANAS ? "aplicada" : "propuesta";
