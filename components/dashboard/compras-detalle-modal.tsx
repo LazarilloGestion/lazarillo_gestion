@@ -627,11 +627,14 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
   // Las otras tildadas (sin la que se edita) y lo que se les aplica.
   const loteDeEdicion = useCallback((state: EditState): { otras: CompraDetalle[]; cuerpo: CuerpoLote } | null => {
     if (!tildadas.has(state.rowId) || tildadas.size < 2) return null;
+    // El importe no se replica, salvo que se ponga en $0 (eso va a todas las tildadas).
+    const imp = resolverImporteParaPatch({ esDistribuida: state.esDistribuida, importeInput: state.importeManual, importeInicial: state.importeInicial });
+    const enCero = imp.ok && imp.incluir && imp.value === 0;
     const cuerpo = cambiosLote(state.inicial, {
       fecha: state.fechaManual,
       concepto: state.conceptoCodigoManual,
       observac: state.observacManual,
-    });
+    }, enCero);
     if (Object.keys(cuerpo).length === 0) return null;
     return { otras: [...tildadas.values()].filter((f) => f.rowId !== state.rowId), cuerpo };
   }, [tildadas]);
@@ -859,7 +862,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         // Va en el pie y no bajo el input para no agrandar la fila.
         footerNote={
           editing && tildadas.has(editing.rowId) && tildadas.size > 1
-            ? `Fecha, concepto y observación se aplican a los ${tildadas.size} tildados; el importe, solo a este`
+            ? `Fecha, concepto y observación se aplican a los ${tildadas.size} tildados; el importe, solo a este (salvo $0: va a todos)`
             : editing?.esDistribuida ? "El importe es el total de la compra, se reparte según la regla" : null
         }
         // Un registro puntual (click en un gasto de la vista económica): la
@@ -963,7 +966,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
         description={(() => {
           const lote = pendienteConfirmacion ? loteDeEdicion(pendienteConfirmacion) : null;
           return lote
-            ? `Se cambia ${describirCambios(lote.cuerpo)} en los ${lote.otras.length + 1} registros tildados (el importe solo en este). Si alguno tiene apertura, se recalcula. ¿Confirmás?`
+            ? `Se cambia ${describirCambios(lote.cuerpo)} en los ${lote.otras.length + 1} registros tildados${"importeManual" in lote.cuerpo ? "" : " (el importe solo en este)"}. Si alguno tiene apertura, se recalcula. ¿Confirmás?`
             : "Esto va a recalcular la apertura de este registro según las reglas de apertura vigentes. ¿Confirmás?";
         })()}
         confirmLabel="Confirmar y guardar"
