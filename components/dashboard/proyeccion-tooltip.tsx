@@ -131,6 +131,7 @@ export function ProyeccionEgresos({ e, anio, corte, children }: { e: EgresosProy
             Mercaderías: food cost de los meses cerrados{e.foodCost != null ? ` (${Math.round(e.foodCost * 100)}%)` : ""} × ventas proyectadas.
             El resto de los rubros, su promedio. Nunca menos que lo cargado + lo que falta cargar.
           </div>
+          <RevisarArca />
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -158,9 +159,19 @@ export function FaltaCargarTip({ f, anio, mes, children }: { f: FaltaCargar; ani
           </div>
           <Sep />
           <div className="opacity-60">Gastos de todos los meses que este mes todavía no están (monto del último mes). Se ven y se descartan en Sin carga.</div>
+          <RevisarArca />
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  );
+}
+
+// Lo de ARCA queda afuera del cálculo (Diego 28/10/2026: "dejalo afuera y en todo caso poné revisar ARCA").
+function RevisarArca() {
+  return (
+    <div className="mt-2 rounded-md bg-white/10 dark:bg-black/10 px-2 py-1.5">
+      <b>Revisar ARCA</b> <span className="opacity-70">· las facturas que ARCA tiene y no están cargadas no se cuentan acá (Sin carga → ARCA).</span>
+    </div>
   );
 }
 
