@@ -822,3 +822,26 @@ model CompraHuerfana {
   @@index([puntoDeVentaId, estado])
   @@map("compras_huerfanas")
 }
+
+// Carga de empleados desde el Panel (28/10/2026): cabecera de un sueldo o adelanto cargado a
+// mano; sus filas están en compras (rowId "emp-<id>-…", origen 'lazarillo'). Anular las borra.
+model LiquidacionEmpleado {
+  id             Int       @id @default(autoincrement())
+  tipo           String // sueldo | adelanto
+  puntoDeVentaId Int
+  localId        Int
+  empleadoCodigo String
+  empleadoNombre String
+  periodo        DateTime  @db.Date
+  fechaPago      DateTime  @db.Date
+  total          Decimal   @db.Decimal(14, 2)
+  adelantos      Decimal   @default(0) @db.Decimal(14, 2)
+  payload        Json
+  creadoPor      String?
+  creadoEn       DateTime  @default(now())
+  anuladoEn      DateTime?
+  anuladoPor     String?
+
+  @@index([puntoDeVentaId, empleadoCodigo, periodo], map: "liquidaciones_empleado_pdv_empleado_periodo_idx")
+  @@map("liquidaciones_empleado")
+}

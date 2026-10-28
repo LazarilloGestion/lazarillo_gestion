@@ -18,6 +18,10 @@ import { useMediosPago } from "@/hooks/use-medios-pago";
 import { mediosParaElegir } from "@/lib/medios-pago/abm";
 import { fechaDelPeriodo, moverPeriodo, nombrePeriodo, periodoDe } from "@/lib/gastos-varios/periodo";
 import { factorEnvase } from "@/lib/facturas/insumos";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useFetchQuery } from "@/hooks/use-fetch-query";
+import { MEDIO_ADELANTOS, validarSueldo } from "@/lib/empleados/carga";
 
 const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const TIPOS_CPB = ["FcA", "FcB", "FcC", "Ticket", "NC-A"];
@@ -338,7 +342,8 @@ export function edeDesdeFactura(rowId, f, { maestros, pdvsRef }) {
 /** @param {any} props */
 function ModalNuevaCarga(props) {
   const { ctx = {}, maestros, pdvsRef, pdvActual, reglaDe, onCerrar, onGuardado,
-    vista = "nueva", editRowId = null, editable = false, aviso = null, onEditar, onEliminado, onRepetir, embebido = false } = props;
+    vista = "nueva", editRowId = null, editable = false, aviso = null, onEditar, onEliminado, onRepetir, embebido = false,
+    reglaEmpleadoDe = () => null } = props;
   const soloVer = vista === "ver";
   // ── Adaptación a datos reales (lo único que cambia respecto del prototipo v136) ──
   const HOY = hoyISO();
@@ -385,7 +390,7 @@ function ModalNuevaCarga(props) {
   const [editPago, setEditPago] = useState(false);
   const [ep, setEp] = useState(null);
   // Factura o Gastos Varios (solo al cargar uno nuevo; ver / editar es siempre factura).
-  const [modo, setModo] = useState(vista === "nueva" && ctx.modo === "vario" ? "vario" : "factura");
+  const [modo, setModo] = useState(vista === "nueva" && (ctx.modo === "vario" || ctx.modo === "empleado") ? ctx.modo : "factura");
   const fechaDefault = HOY;
 
   // factura
@@ -671,13 +676,13 @@ function ModalNuevaCarga(props) {
     <div style={embebido ? { display: "contents" } : { position: "fixed", inset: 0, background: "rgba(40,40,40,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 55 }} onClick={embebido ? undefined : onCerrar}>
       <div style={embebido ? { padding: "22px 26px" } : { ...card, width: "min(1120px, 96vw)", maxHeight: "92vh", overflow: "auto", padding: "22px 26px" }} onClick={(e) => e.stopPropagation()} onKeyDown={enterAvanza} data-card="1">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <h2 style={{ fontSize: 17, margin: 0 }}>{vista === "ver" ? `Factura ${ede ? ede.comp : ""}` : vista === "editar" ? `Editar factura ${ede ? ede.comp : ""}` : modo === "vario" ? "Carga de gasto vario" : "Carga de factura"}</h2>
+          <h2 style={{ fontSize: 17, margin: 0 }}>{vista === "ver" ? `Factura ${ede ? ede.comp : ""}` : vista === "editar" ? `Editar factura ${ede ? ede.comp : ""}` : modo === "vario" ? "Carga de gasto vario" : modo === "empleado" ? "Carga de empleados" : "Carga de factura"}</h2>
           <button onClick={onCerrar} style={{ border: "none", background: "none", fontSize: 20, color: "#999", cursor: "pointer" }}>×</button>
         </div>
 
         {vista === "nueva" && !rde ? (
           <div style={{ display: "inline-flex", gap: 4, background: C.fondo, borderRadius: 11, padding: 4, margin: "12px 0 14px" }}>
-            {[["factura", "Factura"], ["vario", "Gastos Varios"]].map(([k, t]) => (
+            {[["factura", "Factura"], ["vario", "Gastos Varios"], ["empleado", "Empleados"]].map(([k, t]) => (
               <button key={k} type="button" tabIndex={-1} onClick={() => { setModo(k); setErrores([]); setErrFecha(false); setParecidoV(null); }}
                 style={{ border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer",
                   background: modo === k ? "#fff" : "transparent", color: modo === k ? C.neg : C.gris, boxShadow: modo === k ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>{t}</button>
@@ -685,6 +690,10 @@ function ModalNuevaCarga(props) {
           </div>
         ) : <div style={{ margin: "12px 0 14px" }} />}
         {aviso && <div style={{ border: "1.5px solid #bfe0f0", background: "#f3fafd", borderRadius: 11, padding: "10px 14px", fontSize: 12.5, color: "#2a6b86", marginBottom: 12 }}>{aviso}</div>}
+        {modo === "empleado" ? (
+          <CargaEmpleado pdvId={idPdv(pdvActual || PDVS[0])} pdvsRef={pdvsRef} conceptos={maestros.conceptos} mediosPago={mediosPago}
+            reglaEmpleadoDe={reglaEmpleadoDe} onGuardado={onGuardado} onCerrar={onCerrar} />
+        ) : (<>
         <fieldset disabled={soloVer} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
 
         {modo === "factura" ? (
@@ -1122,6 +1131,244 @@ function ModalNuevaCarga(props) {
           <button style={btn(false)} onClick={onCerrar}>Cancelar</button>
         </div>
         )}
+        </>)}
+      </div>
+    </div>
+  );
+}
+
+// ============ EMPLEADOS (Diego 28/10/2026) ============
+// Sueldo: empleado → período + fecha de pago (hoy) → TOTAL → apertura por concepto de personal,
+// cada concepto con sus formas de pago (los adelantos del período se descuentan como forma
+// "Adelantos"). Adelanto: concepto fijo. PDV: la regla del empleado; si se cambia, aplica al total.
+const ADEL = MEDIO_ADELANTOS;
+const periodoHoy = (n = 0) => moverPeriodo(hoyISO().slice(0, 7), n);
+function CargaEmpleado({ pdvId, pdvsRef, conceptos, mediosPago, reglaEmpleadoDe, onGuardado, onCerrar }) {
+  const queryClient = useQueryClient();
+  const [sub, setSub] = useState("sueldo");
+  const [codigo, setCodigo] = useState("");
+  const [periodo, setPeriodo] = useState(periodoHoy(-1));
+  const [fechaPago, setFechaPago] = useState(hoyISO());
+  const [total, setTotal] = useState("");
+  const [lineas, setLineas] = useState(null); // null = se arma sola con el total
+  const [importeA, setImporteA] = useState("");
+  const [medioA, setMedioA] = useState("");
+  const [reparto, setReparto] = useState(null); // null = la regla del empleado
+  const [editRep, setEditRep] = useState(false);
+  const [errores, setErrores] = useState([]);
+  const [parecido, setParecido] = useState(null);
+  const [guardando, setGuardando] = useState(false);
+  const { data: nomina } = useFetchQuery(["empleados", pdvId], pdvId ? `/api/empleados?pdvId=${pdvId}` : null, { staleTime: 10 * 60_000 });
+  const empleados = (nomina && nomina.empleados) || [];
+  const etiqueta = (e) => [e.nombre, e.apellido].filter(Boolean).join(" ") + ` (${e.codigo})`;
+  const emp = empleados.find((e) => e.codigo === codigo);
+  const { data: cuenta } = useFetchQuery(["empleado-cuenta", pdvId, codigo], pdvId && codigo ? `/api/empleados/cuenta?pdvId=${pdvId}&codigo=${encodeURIComponent(codigo)}` : null, { staleTime: 30_000 });
+  const delPeriodo = cuenta && cuenta.periodos.find((p) => p.periodo === periodo);
+  const adelantos = delPeriodo ? Math.round(delPeriodo.adelantos * 100) / 100 : 0;
+  const yaSueldo = delPeriodo && delPeriodo.sueldo > 0.005 ? delPeriodo.sueldo : 0;
+  const medios = mediosPago.map((m) => m.nombre);
+  const medioDef = medios[0] || "Efectivo";
+  // Conceptos de personal (rubros de personal), sin el de adelantos que es fijo.
+  const codAdel = nomina && nomina.conceptoAdelanto ? nomina.conceptoAdelanto.codigo : null;
+  const opcCon = conceptos.filter((c) => /personal/i.test(c.rubro) && c.codigo !== codAdel);
+  const codDe = (nombre) => (opcCon.find((c) => c.nombre === nombre) || {}).codigo;
+  const conceptoDef = (opcCon.find((c) => /^liquidaci[oó]n sueldo$/i.test(c.nombre)) || opcCon[0] || {}).nombre || "";
+  const totalN = parseImp(total);
+  // Mientras no se toque la apertura, sale sola del total: un concepto, adelantos + el resto en el medio por defecto.
+  const auto = () => [{ concepto: conceptoDef, importe: total, pagos: [
+    ...(adelantos > 0 ? [{ medio: ADEL, importe: fmtNum(adelantos) }] : []),
+    ...(totalN - adelantos > 0.004 ? [{ medio: medioDef, importe: fmtNum(Math.round((totalN - adelantos) * 100) / 100) }] : []),
+  ] }];
+  const ls = lineas || auto();
+  const tocar = (f) => setLineas(f(ls.map((l) => ({ ...l, pagos: l.pagos.map((p) => ({ ...p })) }))));
+  const regla = emp ? reglaEmpleadoDe(emp.nombre, emp.codigo, fechaPago) : null;
+  const pdvNombre = (id) => (pdvsRef.find((p) => p.id === id) || {}).nombre || "?";
+  const repVista = reparto || regla;
+  const corto = (n) => n.replace("Ramos Mejía", "RM").replace("San Justo", "SJ");
+
+  const payload = (forzar) => {
+    const rep = reparto && reparto.filter((x) => parseFloat(x.pct) > 0).length >= 2
+      ? reparto.filter((x) => parseFloat(x.pct) > 0).map((x) => ({ puntoDeVentaId: (pdvsRef.find((p) => p.nombre === x.pdv) || {}).id, pct: parseFloat(x.pct) }))
+      : null;
+    return sub === "sueldo"
+      ? { tipo: "sueldo", pdvId, codigo, periodo, fechaPago, total: totalN, reparto: rep, forzar: !!forzar,
+          conceptos: ls.map((l) => ({ conceptoCodigo: codDe(l.concepto), importe: parseImp(l.importe), pagos: l.pagos.filter((p) => parseImp(p.importe) > 0).map((p) => ({ medio: p.medio, importe: parseImp(p.importe) })) })) }
+      : { tipo: "adelanto", pdvId, codigo, periodo, fechaPago, importe: parseImp(importeA), medio: medioA || medioDef, reparto: rep, forzar: !!forzar };
+  };
+  const faltan = () => {
+    const out = [];
+    if (!emp) out.push("Elegí el empleado.");
+    if (!fechaValida(fechaPago)) out.push("Falta una fecha de pago válida.");
+    if (sub === "adelanto") { if (!(parseImp(importeA) > 0)) out.push("Falta el importe del adelanto."); return out; }
+    if (!(totalN > 0)) { out.push("Falta el total del sueldo."); return out; }
+    if (ls.some((l) => !codDe(l.concepto))) out.push("Elegí el concepto de cada renglón.");
+    const p = payload(false);
+    if (!out.length) out.push(...validarSueldo(p, adelantos));
+    return out;
+  };
+  const limpiar = () => { setCodigo(""); setTotal(""); setLineas(null); setImporteA(""); setReparto(null); setEditRep(false); setParecido(null); setErrores([]); };
+  const guardar = async (otro, forzar) => {
+    const f = faltan();
+    if (f.length) { setErrores(f); return; }
+    setErrores([]); setGuardando(true);
+    try {
+      const r = await fetch("/api/empleados", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload(forzar)) });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 409 && d.parecido) { setParecido({ ...d.parecido, error: d.error, otro }); return; }
+      if (!r.ok) { setErrores([d.error || "No se pudo guardar.", ...(d.detalle || [])]); return; }
+      setParecido(null);
+      for (const k of ["pivot", "detalle", "impagas", "actividad", "sin-carga", "empleado-cuenta", "m-anual", "m-resumen"]) void queryClient.invalidateQueries({ queryKey: [k] });
+      const nombre = emp ? etiqueta(emp) : "";
+      if (otro) { limpiar(); toast.success(sub === "sueldo" ? "Sueldo cargado" : "Adelanto cargado", { description: `${nombre} · $ ${d.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}` }); }
+      else onGuardado({ empleado: true, tipo: sub, nombre, total: d.total });
+    } catch { setErrores(["Error de red: no se guardó."]); }
+    finally { setGuardando(false); }
+  };
+  const anular = async (id) => {
+    const r = await fetch(`/api/empleados/${id}`, { method: "DELETE" });
+    if (!r.ok) { toast.error("No se pudo anular"); return; }
+    toast.success("Carga anulada");
+    for (const k of ["pivot", "detalle", "impagas", "actividad", "sin-carga", "empleado-cuenta"]) void queryClient.invalidateQueries({ queryKey: [k] });
+  };
+
+  const sumaCon = Math.round(ls.reduce((s, l) => s + parseImp(l.importe), 0) * 100) / 100;
+  const sumaPag = Math.round(ls.reduce((s, l) => s + l.pagos.reduce((a, p) => a + parseImp(p.importe), 0), 0) * 100) / 100;
+  const ok = (a, b) => Math.abs(a - b) < 0.005;
+  const tabsSub = (
+    <div style={{ display: "inline-flex", gap: 4, background: C.fondo, borderRadius: 10, padding: 3, marginBottom: 12 }}>
+      {[["sueldo", "Sueldo"], ["adelanto", "Adelanto"]].map(([k, t]) => (
+        <button key={k} type="button" tabIndex={-1} onClick={() => { setSub(k); setErrores([]); setParecido(null); setPeriodo(periodoHoy(k === "sueldo" ? -1 : 0)); }}
+          style={{ border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: sub === k ? "#fff" : "transparent", color: sub === k ? C.neg : C.gris, boxShadow: sub === k ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>{t}</button>
+      ))}
+    </div>
+  );
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 300px", gap: 16, alignItems: "start" }}>
+      <div>
+        {tabsSub}
+        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 10 }}>
+          <div><span style={lab}>Empleado</span>
+            <Combo opciones={empleados.map(etiqueta)} valor={emp ? etiqueta(emp) : ""} placeholder={nomina ? "Buscar empleado..." : "Cargando nómina…"} autoFocus
+              onElegir={(t) => { const e = empleados.find((x) => etiqueta(x) === t); setCodigo(e ? e.codigo : ""); setLineas(null); setReparto(null); setEditRep(false); setParecido(null); }} /></div>
+          <div><span style={lab}>Período</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button type="button" tabIndex={-1} onClick={() => { setPeriodo(moverPeriodo(periodo, -1)); setLineas(null); }} style={{ ...btn(false), padding: "0 12px", height: 38 }}>‹</button>
+              <div style={{ ...inp, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{nombrePeriodo(periodo)}</div>
+              <button type="button" tabIndex={-1} onClick={() => { setPeriodo(moverPeriodo(periodo, 1)); setLineas(null); }} style={{ ...btn(false), padding: "0 12px", height: 38 }}>›</button>
+            </div></div>
+          <div><span style={lab}>Fecha de pago</span><FechaInput style={inp} iso={fechaPago} onISO={setFechaPago} /></div>
+        </div>
+
+        {/* PDV: la regla del empleado (aplica sobre el total); se puede cambiar para esta carga. */}
+        {emp && (
+          <div style={{ marginTop: 10, fontSize: 12.5, color: "#2a6b86", background: "#f3fafd", border: "1px solid #bfe0f0", borderRadius: 9, padding: "7px 12px" }}>
+            {!editRep ? (
+              <span>PDV: {repVista ? <b>⇄ {repVista.map((x) => `${corto(x.pdv)} ${fmtNum(parseFloat(x.pct))}%`).join(" · ")}</b> : <b>{pdvNombre(pdvId)}</b>}
+                {" "}<span style={{ color: "#888" }}>{reparto ? "· cambiado para esta carga" : regla ? "· regla del empleado" : "· sin regla"}</span>
+                {" "}<span onClick={() => { setReparto((reparto || regla || [{ pdv: pdvNombre(pdvId), pct: 100 }]).map((x) => ({ ...x }))); setEditRep(true); }} style={{ fontWeight: 700, cursor: "pointer", textDecoration: "underline", marginLeft: 6 }}>Cambiar</span>
+                {reparto && <span onClick={() => setReparto(null)} style={{ cursor: "pointer", color: "#888", marginLeft: 8 }}>volver a la regla</span>}</span>
+            ) : (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                {pdvsRef.map((p) => { const x = (reparto || []).find((r) => r.pdv === p.nombre); return (
+                  <label key={p.id} style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>{corto(p.nombre)}
+                    <input style={{ ...inp, width: 64, height: 30, textAlign: "right" }} value={x ? x.pct : ""} placeholder="0"
+                      onChange={(e) => { const v = e.target.value.replace(/[^0-9.]/g, ""); setReparto((rs) => [...(rs || []).filter((r) => r.pdv !== p.nombre), ...(v ? [{ pdv: p.nombre, pct: v }] : [])]); }} />%</label>); })}
+                <span style={{ fontWeight: 700, color: Math.abs((reparto || []).reduce((s, x) => s + (parseFloat(x.pct) || 0), 0) - 100) < 0.01 ? C.verde : C.rojo }}>
+                  {fmtNum((reparto || []).reduce((s, x) => s + (parseFloat(x.pct) || 0), 0))}%</span>
+                <button type="button" style={{ ...btn(false), padding: "4px 10px" }} onClick={() => { setEditRep(false); const r = (reparto || []).filter((x) => parseFloat(x.pct) > 0);
+                  if (r.length < 2 && (!r.length || r[0].pdv === pdvNombre(pdvId)) && !regla) setReparto(null); else setReparto(r); }}>Listo</button>
+                <span style={{ color: "#888" }}>Aplica sobre el total (todos los conceptos), solo en esta carga.</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {sub === "adelanto" ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+            <div><span style={lab}>Importe</span><input style={{ ...inp, textAlign: "right", fontWeight: 700 }} value={importeA} placeholder="0,00" onChange={(e) => setImporteA(fmtImp(e.target.value))} /></div>
+            <div><span style={lab}>Forma de pago</span>
+              <select style={sel} value={medioA || medioDef} onChange={(e) => setMedioA(e.target.value)}>{medios.map((m) => <option key={m}>{m}</option>)}</select></div>
+            <div style={{ gridColumn: "1 / -1", fontSize: 12, color: "#888" }}>Concepto fijo: <b>{nomina && nomina.conceptoAdelanto ? nomina.conceptoAdelanto.nombre : "Adelanto Sueldo"}</b> · va a la cuenta del empleado en {nombrePeriodo(periodo)} y se descuenta del sueldo.</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginTop: 12 }}>
+              <div><span style={lab}>Total del sueldo</span><input style={{ ...inp, textAlign: "right", fontWeight: 700, fontSize: 15 }} value={total} placeholder="0,00"
+                onChange={(e) => { setTotal(fmtImp(e.target.value)); }} /></div>
+              <div><span style={lab}>Adelantos del período</span><div style={{ ...inp, display: "flex", alignItems: "center", color: adelantos ? C.rojo : C.gris, fontWeight: 700 }}>{adelantos ? `− ${$fmt(adelantos)}` : "—"}</div></div>
+              <div><span style={lab}>A pagar</span><div style={{ ...inp, display: "flex", alignItems: "center", fontWeight: 700, fontSize: 15 }}>{totalN ? $fmt(Math.max(0, totalN - adelantos)) : "—"}</div></div>
+            </div>
+            {yaSueldo > 0 && <div style={{ marginTop: 8, fontSize: 12.5, color: "#8a5a00" }}>⚠ {nombrePeriodo(periodo)} ya tiene sueldo cargado ({$fmt(yaSueldo)}). Mirá la cuenta a la derecha antes de cargar.</div>}
+            <span style={{ ...lab, marginTop: 14 }}>Apertura por concepto y forma de pago</span>
+            <div style={{ border: `1px solid ${C.borde}`, borderRadius: 11, padding: "6px 10px" }}>
+              {ls.map((l, i) => (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) 130px minmax(0, 2fr) 24px", gap: 8, alignItems: "start", padding: "6px 0", borderBottom: i < ls.length - 1 ? "1px solid #f2f2f0" : "none" }}>
+                  <Combo opciones={opcCon.map((c) => c.nombre)} valor={l.concepto} placeholder="Concepto..." onElegir={(v) => tocar((x) => { x[i].concepto = v; return x; })} />
+                  <input style={{ ...inp, textAlign: "right" }} value={l.importe} placeholder="0,00" onChange={(e) => { const v = fmtImp(e.target.value); tocar((x) => { x[i].importe = v; if (x[i].pagos.length === 1 && x[i].pagos[0].medio !== ADEL) x[i].pagos[0].importe = v; return x; }); }} />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {l.pagos.map((p, k) => (
+                      <div key={k} style={{ display: "flex", gap: 6 }}>
+                        <select style={{ ...sel, ...chico, flex: 1 }} value={p.medio} onChange={(e) => tocar((x) => { x[i].pagos[k].medio = e.target.value; return x; })}>
+                          {[...(adelantos > 0 ? [ADEL] : []), ...medios].map((m) => <option key={m}>{m}</option>)}</select>
+                        <input style={{ ...inp, ...chico, width: 120, textAlign: "right" }} value={p.importe} placeholder="0,00" onChange={(e) => { const v = fmtImp(e.target.value); tocar((x) => { x[i].pagos[k].importe = v; return x; }); }} />
+                        <span onClick={() => tocar((x) => { x[i].pagos.splice(k, 1); return x; })} style={{ cursor: "pointer", color: C.gris, alignSelf: "center" }}>×</span>
+                      </div>))}
+                    <span onClick={() => tocar((x) => { const rest = parseImp(x[i].importe) - x[i].pagos.reduce((a, p) => a + parseImp(p.importe), 0); x[i].pagos.push({ medio: medioDef, importe: rest > 0 ? fmtNum(Math.round(rest * 100) / 100) : "" }); return x; })}
+                      style={{ fontSize: 12, fontWeight: 600, color: "#2a88ad", cursor: "pointer" }}>+ forma de pago</span>
+                  </div>
+                  <span onClick={() => tocar((x) => (x.length > 1 ? x.filter((_, j) => j !== i) : x))} title="Quitar concepto" style={{ cursor: "pointer", color: C.gris, paddingTop: 9 }}>×</span>
+                </div>))}
+              <span onClick={() => tocar((x) => [...x, { concepto: "", importe: "", pagos: [{ medio: medioDef, importe: "" }] }])} style={{ fontSize: 12.5, fontWeight: 600, color: "#2a88ad", cursor: "pointer", display: "inline-block", padding: "6px 0" }}>+ Agregar concepto</span>
+            </div>
+            {totalN > 0 && (
+              <div style={{ display: "flex", gap: 16, fontSize: 12.5, marginTop: 8 }}>
+                <span>Conceptos: <b style={{ color: ok(sumaCon, totalN) ? C.verde : C.rojo }}>{$fmt(sumaCon)} de {$fmt(totalN)} {ok(sumaCon, totalN) ? "✓" : "✗"}</b></span>
+                <span>Formas de pago: <b style={{ color: ok(sumaPag, totalN) ? C.verde : C.rojo }}>{$fmt(sumaPag)} {ok(sumaPag, totalN) ? "✓" : "✗"}</b></span>
+              </div>
+            )}
+          </>
+        )}
+
+        {parecido && (
+          <div style={{ border: "1.5px solid #f0c179", background: "#fdf8ef", borderRadius: 11, padding: "10px 14px", fontSize: 13, color: "#8a5a00", marginTop: 12 }}>
+            ⚠ {parecido.error}: {$fmt(parecido.importe)}{parecido.fecha ? ` · ${dmy(parecido.fecha)}` : ""} ({parecido.origen === "lazarillo" ? "cargado en Lazarillo" : "de MaxiRest"}). Nunca se duplica: ¿es otro?{" "}
+            <span onClick={() => guardar(parecido.otro, true)} style={{ fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>Sí, cargarlo igual</span>
+            {" · "}<span onClick={() => setParecido(null)} style={{ cursor: "pointer", color: C.gris }}>No</span>
+          </div>
+        )}
+        {errores.length > 0 && (
+          <div style={{ border: `1.5px solid ${C.rojo}`, background: "#fdf3f3", borderRadius: 11, padding: "10px 14px", marginTop: 12 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: C.rojo, marginBottom: 4 }}>No se puede guardar todavía:</div>
+            {errores.map((e, i) => <div key={i} style={{ fontSize: 12.5, color: C.rojo }}>• {e}</div>)}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          <button style={{ ...btn(true), opacity: guardando ? 0.5 : 1 }} disabled={guardando} onClick={() => guardar(false)}>{guardando ? "Guardando…" : "Guardar"}</button>
+          <button style={btn(false)} disabled={guardando} onClick={() => guardar(true)}>Guardar y cargar otro empleado</button>
+          <button style={btn(false)} onClick={onCerrar}>Cancelar</button>
+        </div>
+      </div>
+
+      {/* Cuenta del empleado por período */}
+      <div style={{ ...card, padding: "12px 14px", fontSize: 12.5 }}>
+        <div style={{ fontWeight: 700, fontSize: 13.5 }}>Cuenta {emp ? `· ${[emp.nombre, emp.apellido].filter(Boolean).join(" ")}` : "del empleado"}</div>
+        <div style={{ color: C.gris, marginBottom: 6 }}>por período · últimos 12 meses</div>
+        {!emp ? <div style={{ color: C.gris }}>Elegí un empleado.</div> : !cuenta ? <div style={{ color: C.gris }}>Cargando…</div>
+          : !cuenta.periodos.length ? <div style={{ color: C.gris }}>Sin sueldos ni adelantos cargados.</div>
+          : cuenta.periodos.slice(0, 6).map((p) => (
+            <div key={p.periodo} style={{ marginTop: 8, background: p.periodo === periodo ? "#f3fafd" : "transparent", borderRadius: 8, padding: "4px 6px" }}>
+              <div style={{ fontWeight: 700 }}>{nombrePeriodo(p.periodo)}</div>
+              {p.movimientos.map((m, k) => (
+                <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 8, borderBottom: "1px dashed #eee", padding: "2px 0" }}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dmy(m.fecha)} · {m.concepto}{m.origen === "lazarillo" ? " ·L" : ""}</span>
+                  <b style={{ color: m.cod === cuenta.codigoAdelanto ? C.rojo : C.neg, whiteSpace: "nowrap" }}>{$fmt(m.importe)}</b></div>))}
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}><span>{p.sueldo > 0.005 ? "Total del período" : "A descontar del sueldo"}</span>
+                <b>{$fmt(p.sueldo > 0.005 ? p.sueldo + p.adelantos : p.adelantos)}</b></div>
+              {cuenta.cargas.filter((c) => c.periodo === p.periodo).map((c) => (
+                <div key={c.id} style={{ fontSize: 11.5, color: C.gris, display: "flex", justifyContent: "space-between" }}>
+                  <span>Cargado en Lazarillo: {c.tipo} {$fmt(c.total)}</span>
+                  <BtnEliminar onConfirmar={() => anular(c.id)} style={{ fontSize: 11.5, color: C.rojo }} /></div>))}
+            </div>))}
       </div>
     </div>
   );
