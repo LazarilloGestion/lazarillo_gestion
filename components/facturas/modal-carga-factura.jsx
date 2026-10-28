@@ -390,7 +390,7 @@ function ModalNuevaCarga(props) {
   const fechaRef = useRef(null);
   useEffect(() => { if (rde && tipoRef.current) tipoRef.current.focus(); }, []);
   const [origenPre, setOrigenPre] = useState(rde ? rde.comp : null);
-  const [prov, setProv] = useState(ctx.prov || (rde && rde.prov) || (ede && ede.prov) || "");
+  const [prov, setProv] = useState(ctx.prov || (ctx.proveedorId && (proveedores.find((p) => p.id === ctx.proveedorId) || {}).nombre) || (rde && rde.prov) || (ede && ede.prov) || "");
   const [altaProv, setAltaProv] = useState(null); // {nombre, razon, cuit, tel, dir}
   const [tipoCpb, setTipoCpb] = useState((rde && (rde.tipoCpb || (rde.comp || "").split(" ")[0])) || (ede && (ede.tipoCpb || partesComp(ede.comp)[0])) || "");
   const [compPref, setCompPref] = useState(ede ? partesComp(ede.comp)[1] : "");
@@ -413,17 +413,19 @@ function ModalNuevaCarga(props) {
 
   // gasto vario: primero el PERÍODO (mes); la fecha va al 15 y el tabulador la saltea (Diego, 27/10/2026).
   const [detalle, setDetalle] = useState("");
-  const [periodoV, setPeriodoV] = useState(periodoDe(HOY));
-  const [fechaV, setFechaV] = useState(fechaDelPeriodo(periodoDe(HOY)));
+  // Desde "Sin carga" llega el período, el concepto y el importe del último mes.
+  const [periodoV, setPeriodoV] = useState(ctx.periodo || periodoDe(HOY));
+  const [fechaV, setFechaV] = useState(fechaDelPeriodo(ctx.periodo || periodoDe(HOY)));
   const elegirPeriodo = (p) => { setPeriodoV(p); setFechaV(fechaDelPeriodo(p)); setErrFecha(false); };
   const periodosV = Array.from({ length: 15 }, (_, i) => moverPeriodo(periodoDe(HOY), 2 - i)); // 2 meses adelante, 12 atrás
   const [pdvV, setPdvV] = useState(pdvActual || PDVS[0]);
   // Un gasto vario casi siempre se carga ya pagado: arranca tildado (sin pago queda IMPAGO).
   const [pagarV, setPagarV] = useState(true);
   const [parecidoV, setParecidoV] = useState(null); // ya hay uno parecido: confirmar
-  const [rubroV, setRubroV] = useState(ctx.rubro || "");
-  const [conceptoV, setConceptoV] = useState(ctx.concepto || "");
-  const [importeV, setImporteV] = useState("");
+  const concCtx = MAESTRO_CONCEPTOS.find((c) => c.concepto === ctx.concepto || (ctx.conceptoCodigo && c.codigo === ctx.conceptoCodigo));
+  const [rubroV, setRubroV] = useState(ctx.rubro || (concCtx && concCtx.rubro) || "");
+  const [conceptoV, setConceptoV] = useState(ctx.concepto || (concCtx && concCtx.concepto) || "");
+  const [importeV, setImporteV] = useState(ctx.importe > 0 ? fmtNum(ctx.importe) : "");
 
   // pago
   // "Registrar el pago ahora" (Etapa 4, paso 4): arranca destildado; sin pago la factura queda IMPAGA.
