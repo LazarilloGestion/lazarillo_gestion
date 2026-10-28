@@ -772,3 +772,32 @@ model SinCargaDescarte {
   @@unique([pdvId, clave])
   @@map("sin_carga_descartes")
 }
+
+// Comprobantes recibidos de ARCA ("Mis Comprobantes", CSV que sube el usuario) — 28/10/2026.
+// Se cruzan con compras por CUIT del emisor + punto de venta + número: lo que falta cargar
+// (Sin carga · ARCA) y lo que difiere (Corregir). Subir el mismo CSV de nuevo no duplica.
+model ArcaComprobante {
+  id            Int      @id @default(autoincrement())
+  cuitReceptor  String
+  cuitEmisor    String
+  emisor        String?
+  tipo          Int
+  puntoVenta    Int
+  numero        BigInt
+  fecha         DateTime @db.Date
+  cae           String?
+  moneda        String?
+  tipoCambio    Decimal? @db.Decimal(18, 6)
+  neto          Decimal  @default(0) @db.Decimal(18, 2)
+  noGravado     Decimal  @default(0) @db.Decimal(18, 2)
+  exento        Decimal  @default(0) @db.Decimal(18, 2)
+  otrosTributos Decimal  @default(0) @db.Decimal(18, 2)
+  iva           Decimal  @default(0) @db.Decimal(18, 2)
+  total         Decimal  @db.Decimal(18, 2)
+  importadoEn   DateTime @default(now())
+  importadoPor  String?
+
+  @@unique([cuitEmisor, tipo, puntoVenta, numero])
+  @@index([fecha])
+  @@map("arca_comprobantes")
+}
