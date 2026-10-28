@@ -7,11 +7,20 @@ export const dynamic = "force-dynamic";
 
 // "Ya no va" de Sin carga: POST lo marca en el PDV (deja de aparecer), DELETE ?id lo vuelve a mostrar.
 // "Este mes no": la misma marca con la clave + "@YYYY-MM" (solo ese mes).
-const schema = z.object({
-  pdvId: z.number().int().positive(),
-  clave: z.string().regex(/^[pc]:[^\s@]{1,40}(@\d{4}-\d{2})?$/),
-  nombre: z.string().max(200).optional().nullable(),
-});
+// ARCA (Diego 28/10/2026): "a:<cuit-tipo-pv-nro>" = no se carga, "k:<…>" = revisado, está bien.
+// Son de la empresa, no de un PDV: van con pdvId 0.
+const schema = z.union([
+  z.object({
+    pdvId: z.number().int().positive(),
+    clave: z.string().regex(/^[pc]:[^\s@]{1,40}(@\d{4}-\d{2})?$/),
+    nombre: z.string().max(200).optional().nullable(),
+  }),
+  z.object({
+    pdvId: z.literal(0),
+    clave: z.string().regex(/^[ak]:\d{11}-\d{1,3}-\d{1,5}-\d{1,8}$/),
+    nombre: z.string().max(200).optional().nullable(),
+  }),
+]);
 
 export async function POST(request: NextRequest) {
   const { user, response } = await requireAuthUser();
