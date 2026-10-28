@@ -17,6 +17,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useMediosPago } from "@/hooks/use-medios-pago";
 import { mediosParaElegir } from "@/lib/medios-pago/abm";
 import { fechaDelPeriodo, moverPeriodo, nombrePeriodo, periodoDe } from "@/lib/gastos-varios/periodo";
+import { factorEnvase } from "@/lib/facturas/insumos";
 
 const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const TIPOS_CPB = ["FcA", "FcB", "FcC", "Ticket", "NC-A"];
@@ -346,9 +347,17 @@ function ModalNuevaCarga(props) {
   const MAESTRO_CONCEPTOS = maestros.conceptos.map((c) => ({ rubro: c.rubro, concepto: c.nombre, codigo: c.codigo }));
   const codConcepto = (nombre) => (MAESTRO_CONCEPTOS.find((c) => c.concepto === nombre) || {}).codigo;
   const nomConcepto = (cod) => (MAESTRO_CONCEPTOS.find((c) => c.codigo === cod) || {}).concepto || "";
-  const MAESTRO_INSUMOS = maestros.insumos.map((i) => ({ codigo: i.codigo, nombre: i.nombre, medida: i.medida, concepto: nomConcepto(i.codCga), unit: i.unit, alic: i.alic }));
+  const MAESTRO_INSUMOS = maestros.insumos.map((i) => ({ codigo: i.codigo, nombre: i.nombre, medida: i.medida, concepto: nomConcepto(i.codCga), unit: i.unit, alic: i.alic, envases: i.envases || [] }));
   const conceptoDeInsumo = (nombre) => (MAESTRO_INSUMOS.find((i) => i.nombre === nombre) || {}).concepto || "";
   const medidaDe = (nombre) => (MAESTRO_INSUMOS.find((i) => i.nombre === nombre) || {}).medida || "";
+  // Medida de la línea: la de la factura (X8, Pack… si en MaxiRest se cargó en envases; ahí el
+  // precio es por envase) y, si es un envase, cuántas unidades del insumo trae (Diego 28/10/2026).
+  const medidaLinea = (l) => {
+    const ins = MAESTRO_INSUMOS.find((i) => i.nombre === l.item);
+    const med = l.medida || (ins && ins.medida) || "";
+    const f = ins ? factorEnvase({ medida: ins.medida || "", envases: ins.envases }, med) : null;
+    return { med, base: (ins && ins.medida) || "", factor: f && f > 1 ? f : null };
+  };
   const proveedores = maestros.proveedores.map((p) => ({ ...p, nombre: p.nombre || p.razon || p.codigo }));
   // Regla de apertura por concepto (la que el Panel ya usa) como reparto precargado con la marca REGLA.
   // La regla tiene que estar vigente en la FECHA DE LA FACTURA (no hoy): si no, el modal
@@ -625,7 +634,8 @@ function ModalNuevaCarga(props) {
         conceptoCodigo: esIns ? codConcepto(l.conc || conceptoDeInsumo(l.item)) : codConcepto(l.item),
         insumoCodigo: esIns ? ins.codigo || l.codIns || null : null,
         nombre: l.item,
-        medida: esIns ? ins.medida || l.medida || null : null,
+        // La de la línea primero: si se cargó en envases (X8) el precio es por envase y no hay que perderla.
+        medida: esIns ? l.medida || ins.medida || null : null,
         cantidad: esIns ? parseFloat(l.cant) || null : null,
         neto: Math.round(netoDe(l) * 100) / 100,
         alicuota: l.alic,
@@ -769,7 +779,8 @@ function ModalNuevaCarga(props) {
                 const neto = netoDe(l);
                 const ivaUnit = esIns ? parseImp(l.unit) * l.alic / 100 : 0;
                 const ivaLinea = ivaDe(l);
-                const med = esIns ? medidaDe(l.item) || l.medida || "" : "";
+                const { med, base: medBase, factor: fEnv } = esIns ? medidaLinea(l) : { med: "", base: "", factor: null };
+                const cantN = parseFloat(l.cant) || 0;
                 const repartoOk = !l.reparto || Math.abs(l.reparto.reduce((a, x) => a + (parseFloat(x.pct) || 0), 0) - 100) < 0.01;
                 if (!l.editando) return (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: GRID_LIN, gap: 8, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f2f2f0", fontSize: 13 }}>
@@ -780,11 +791,15 @@ function ModalNuevaCarga(props) {
                         <span title={l.reparto ? txtReparto(l) : undefined} style={{ color: l.reparto ? "#2a88ad" : "#aaa", fontWeight: 400, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.reparto ? "⇄ " + txtReparto(l) : (l.pdvDest || pdvActual || PDVS[0])}</span>
                       </span>
                     </span>
-                    <span style={{ color: "#555", textAlign: "center" }}>{esIns ? `${l.cant} ${med}` : <span style={{ color: "#ddd" }}>—</span>}</span>
-                    <span style={{ color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}>{esIns ? <Imp v={parseImp(l.unit)} sufijo=" /u" max={17} /> : <span style={{ color: "#ddd" }}>—</span>}</span>
+                    <span style={{ color: "#555", textAlign: "center" }}>{!esIns ? <span style={{ color: "#ddd" }}>—</span>
+                      : fEnv ? <span title={`${l.cant} envases ${med} de ${fEnv} ${medBase}`}>{l.cant} × {med}<span style={{ display: "block", fontSize: 10.5, color: "#999" }}>= {fmtNum(Math.round(cantN * fEnv * 100) / 100)} {medBase}</span></span>
+                      : `${l.cant} ${med}`}</span>
+                    <span style={{ color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}>{!esIns ? <span style={{ color: "#ddd" }}>—</span>
+                      : fEnv ? <span><Imp v={parseImp(l.unit)} sufijo={" /" + med} max={17} /><span style={{ display: "block", fontSize: 10.5, color: "#2a88ad", fontWeight: 600 }}><Imp v={parseImp(l.unit) / fEnv} sufijo={" /" + (medBase || "u")} max={17} /></span></span>
+                      : <Imp v={parseImp(l.unit)} sufijo=" /u" max={17} />}</span>
                     <span style={{ color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}><Imp v={neto} max={17} /></span>
                     <span style={{ color: "#555", textAlign: "center" }}>{l.alic}%</span>
-                    <span style={{ color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}>{esIns ? <Imp v={ivaUnit} sufijo=" /u" max={17} /> : <Imp v={ivaLinea} max={17} />}</span>
+                    <span style={{ color: "#555", textAlign: "center", minWidth: 0, overflow: "hidden" }}>{esIns ? <Imp v={ivaUnit} sufijo={fEnv ? " /" + med : " /u"} max={17} /> : <Imp v={ivaLinea} max={17} />}</span>
                     <span style={{ textAlign: "center", minWidth: 0, overflow: "hidden" }}>{esIns && neto === 0 ? <Bonif /> : <Imp v={neto + ivaLinea + parseImp(l.impint)} strong max={17} />}{parseImp(l.impint) > 0 && <span style={{ display: "block", fontWeight: 400, fontSize: 10.5, color: "#999" }}>incl. {$fmt(parseImp(l.impint))} imp.int.</span>}</span>
                     <span style={{ display: soloVer ? "none" : "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
                       {/* registro precargado (repetir factura): el ⚠ reemplaza al lápiz, hacen lo mismo (abrir para revisar) */}
@@ -817,7 +832,7 @@ function ModalNuevaCarga(props) {
                               const regla = reglaDeItem(l, v);
                               const rep = regla ? regla.map((r) => ({ ...r })) : undefined;
                               setLineas((ls) => ls.map((x, ix) => ix !== i ? x : (esIns
-                                ? { ...x, item: v, reparto: rep, conc: conceptoDeInsumo(v) || (ult && ult.conc) || "", unit: ult ? ult.unit : "", ntot: "", alic: ult ? ult.alic : x.alic, impint: ult && ult.impint ? ult.impint : "" }
+                                ? { ...x, item: v, medida: undefined, reparto: rep, conc: conceptoDeInsumo(v) || (ult && ult.conc) || "", unit: ult ? ult.unit : "", ntot: "", alic: ult ? ult.alic : x.alic, impint: ult && ult.impint ? ult.impint : "" }
                                 : { ...x, item: v, reparto: rep, neto: ult ? ult.neto : "", alic: ult ? ult.alic : x.alic, impint: ult && ult.impint ? ult.impint : "" })));
                             }} />
                         </div>
