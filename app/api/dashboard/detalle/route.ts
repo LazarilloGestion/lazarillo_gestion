@@ -56,6 +56,15 @@ const detalleSelectJoin = (fuente: Prisma.Sql) => Prisma.sql`
     c.detalle,
     c.observac,
     c."observacManual",
+    -- Sin observación: los 3 insumos de más importe del renglón (Diego 28/10/2026). Se arma al
+    -- vuelo y no se graba; los conceptos sueltos no tienen insumos y quedan vacíos.
+    CASE WHEN NULLIF(TRIM(COALESCE(c."observacManual", c.observac)), '') IS NULL THEN (
+      SELECT string_agg(t.n, ' · ' ORDER BY t.imp DESC) FROM (
+        SELECT TRIM(d.nombre) AS n, SUM(ABS(COALESCE(d."totalIns", d.neto * d.cantidad, 0))) AS imp
+        FROM detalle_compras d
+        WHERE d."compraId" = cb."rowId" AND COALESCE(TRIM(d.medida), '') <> '' AND COALESCE(TRIM(d.nombre), '') <> ''
+        GROUP BY 1 ORDER BY 2 DESC LIMIT 3) t)
+    END AS "obsInsumos",
     c.proveedor AS "proveedorTexto",
     p.id                AS "proveedorId",
     p.nombre            AS "proveedorNombre",

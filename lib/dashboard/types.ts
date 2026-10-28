@@ -273,6 +273,8 @@ export type CompraDetalle = {
   concepto: string | null;
   detalle: string | null;
   observac: string | null;
+  // Sin observación: los 3 insumos más relevantes del renglón, armado al vuelo (se muestra en gris).
+  obsInsumos?: string | null;
   proveedor: string | null;
   proveedorRef: { id: number; nombre: string | null; razon: string | null } | null;
   local: { nombre: string } | null;
