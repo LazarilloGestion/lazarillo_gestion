@@ -8,6 +8,7 @@ import { accumulateAperturaInputs } from "@/hooks/accumulate-apertura-inputs";
 import type { DbClient, ETLReport } from "@/lib/etl/types";
 import { filaDeRender, informeDeTabla } from "./filas";
 import { huellaTabla, leerCargas, leerTabla, PDV_MAESTROS } from "./db";
+import { revisarHuerfanas } from "./huerfanas";
 
 // Un ítem = una tabla de Render para un PDV (ej. i14 2026 del BAR → Ramos · Bar).
 export type ItemRender = {
@@ -202,6 +203,18 @@ export async function sincronizarTodo(opts: {
   }
   for (const [localId, reports] of reportsPorLocal) {
     try { await finalizarLocal(localId, reports); } catch (e) { console.error("[render] finalizar", localId, e); }
+  }
+  // Compras que MaxiRest ya no tiene (versiones viejas de gastos editados), por cada PDV cuyo
+  // 14 se leyó en esta corrida — con la foto completa de Render (ver lib/render/huerfanas.ts).
+  const leidos = new Set(resultados.filter((r) => "report" in r).map((r) => r.id));
+  const porPdv = new Map<string, ItemRender[]>();
+  for (const it of items) if (it.fileType === "compras" && it.puntoDeVentaId) porPdv.set(`${it.esquema}|${it.pdv}`, [...(porPdv.get(`${it.esquema}|${it.pdv}`) ?? []), it]);
+  for (const its of porPdv.values()) {
+    if (!its.some((it) => leidos.has(it.id)) || Date.now() - inicio > opts.presupuestoMs) continue;
+    try {
+      const r = await revisarHuerfanas({ esquema: its[0].esquema, pdv: its[0].pdv, puntoDeVentaId: its[0].puntoDeVentaId, tablas: its.map((it) => it.tabla) });
+      if (r.marcadas || r.restauradas) console.log("[render] huérfanas", its[0].pdv, r);
+    } catch (e) { console.error("[render] huérfanas", its[0].pdv, e); }
   }
   return { resultados, pendientes };
 }
