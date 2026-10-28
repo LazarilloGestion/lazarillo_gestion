@@ -8,7 +8,8 @@ import { estaAtrasado, mesesObjetivo, venceEl, type ItemSinCarga, type MesSinCar
 export const dynamic = "force-dynamic";
 
 // GET ?pdvId — "Sin carga" (Diego, 28/10/2026): por mes (el actual y los dos anteriores),
-// los gastos de todos los meses que todavía no se cargaron en el PDV, y los "Ya no va".
+// los gastos de todos los meses que todavía no impactan en el PDV (aperturas incluidas), y
+// los descartados ("Ya no va" y "Este mes no").
 export async function GET(request: NextRequest) {
   const denied = await requireAuth();
   if (denied) return denied;
@@ -30,7 +31,8 @@ export async function GET(request: NextRequest) {
         nombre: f.proveedor ?? f.concepto ?? f.clave,
         detalle: f.proveedor ? (f.concepto ?? "") : f.vencido ? "sueldos del período" : "gasto vario",
         rubro: f.rubro ?? "Sin Rubro",
-        ultimo: Number(f.ultimo), dia: f.dia, vencido: f.vencido,
+        ultimo: Number(f.ultimo), ultimoTotal: Number(f.ultimo_total ?? f.ultimo), pdvOrigenId: f.pdv_origen ?? null,
+        dia: f.dia, vencido: f.vencido,
         proveedorId: f.proveedor_id ?? null, conceptoCodigo: f.concepto_codigo ?? null,
         vence, atrasado: estaAtrasado(vence, hoy),
       };

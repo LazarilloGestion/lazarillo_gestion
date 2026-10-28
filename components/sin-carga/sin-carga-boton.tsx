@@ -9,7 +9,8 @@ import { useDashboard } from "@/hooks/use-dashboard-store";
 import { cn } from "@/lib/utils";
 import { fmtMillones, fmtPesos } from "@/lib/impagas/clasificar";
 import { nombrePeriodo } from "@/lib/gastos-varios/periodo";
-import { CHICO, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
+import { CHICO, claveDescarte, mesDeDescarte, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
+import type { Local } from "@/lib/types/domain";
 import { refrescarCompras, useCargaFactura } from "@/components/facturas/cargar-factura";
 import ModalNuevaCarga from "@/components/facturas/modal-carga-factura";
 
@@ -50,12 +51,17 @@ export function SinCargaBoton() {
 function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: number | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useSinCarga(pdvId);
-  const { maestros, pdvsRef, reglaDe } = useCargaFactura(true, pdvId, localId);
+  const [cargando, setCargando] = useState<{ item: ItemSinCarga; mes: string } | null>(null);
+  // Un gasto que llega por apertura se carga en su PDV de origen (con su regla), por el importe entero.
+  const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
+  const pdvCarga = cargando?.item.pdvOrigenId ?? pdvId;
+  const localCarga = locales?.find((l) => l.puntosDeVenta.some((p) => p.id === pdvCarga))?.id ?? localId;
+  const { maestros, pdvsRef, reglaDe } = useCargaFactura(true, pdvCarga, localCarga);
   const pdv = pdvsRef.find((p) => p.id === pdvId);
+  const nombrePdv = (id: number | null) => pdvsRef.find((p) => p.id === id)?.nombre ?? "otro PDV";
   const [tab, setTab] = useState<"sin" | "no">("sin");
   const [chicos, setChicos] = useState(false);
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
-  const [cargando, setCargando] = useState<{ item: ItemSinCarga; mes: string } | null>(null);
   const actual = data?.meses[0]?.mes;
   const estaAbierto = (mes: string) => (mes === actual) !== abiertos.has(mes);
 
@@ -67,10 +73,11 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
     return { mes: totales(data.meses[0]?.items ?? [], chicos), atrasados: { n: at.length, total: at.reduce((s, x) => s + x.ultimo, 0) }, porVenir: { n: pv.length, total: pv.reduce((s, x) => s + x.ultimo, 0) }, n: todos.length };
   }, [data, chicos]);
 
-  async function yaNoVa(item: ItemSinCarga) {
-    const r = await fetch("/api/sin-carga/descartes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdvId, clave: item.clave, nombre: item.nombre }) });
+  // "Ya no va" (para siempre) o "Este mes no" (solo ese mes); se deshace desde "Ya no van".
+  async function descartar(item: ItemSinCarga, mes: string | null) {
+    const r = await fetch("/api/sin-carga/descartes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdvId, clave: claveDescarte(item.clave, mes), nombre: item.nombre }) });
     if (!r.ok) { toast.error("No se pudo marcar"); return; }
-    toast.success(`${item.nombre}: ya no va`, { description: "Lo volvés a mostrar desde la pestaña \"Ya no van\"." });
+    toast.success(mes ? `${item.nombre}: no va en ${nombrePeriodo(mes)}` : `${item.nombre}: ya no va`, { description: "Lo volvés a mostrar desde la pestaña \"Ya no van\"." });
     void queryClient.invalidateQueries({ queryKey: ["sin-carga"] });
   }
   async function volver(id: number) {
@@ -83,9 +90,9 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
     const { item, mes } = cargando;
     const ctx = item.proveedorId
       ? { proveedorId: item.proveedorId }
-      : { modo: "vario", conceptoCodigo: item.conceptoCodigo, periodo: mes, importe: item.ultimo };
+      : { modo: "vario", conceptoCodigo: item.conceptoCodigo, periodo: mes, importe: item.ultimoTotal };
     return (
-      <ModalNuevaCarga maestros={maestros} pdvsRef={pdvsRef} pdvActual={pdv?.nombre} reglaDe={reglaDe} ctx={ctx}
+      <ModalNuevaCarga maestros={maestros} pdvsRef={pdvsRef} pdvActual={nombrePdv(pdvCarga)} reglaDe={reglaDe} ctx={ctx}
         onCerrar={() => setCargando(null)}
         onGuardado={(d: { total: number; pago?: { id: number } | null }) => {
           setCargando(null);
@@ -148,9 +155,9 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
                       {rubro}<span className="ml-auto">{items.length} · {fmtPesos(items.reduce((s, x) => s + x.ultimo, 0))}</span>
                     </div>
                     {items.map((x) => (
-                      <div key={x.clave} className="grid grid-cols-[12px_1fr_170px_120px_auto] items-center gap-3 border-b border-zinc-50 dark:border-zinc-800 px-6 pl-10 py-1.5 text-sm">
+                      <div key={x.clave} className="grid grid-cols-[12px_1fr_160px_110px_auto] items-center gap-3 border-b border-zinc-50 dark:border-zinc-800 px-6 pl-10 py-1.5 text-sm">
                         <span className={cn("h-2 w-2 rounded-full", x.atrasado ? "bg-red-600" : "bg-zinc-300")} />
-                        <span className="min-w-0"><span className="block truncate font-medium">{x.nombre}</span><span className="block truncate text-[11px] text-zinc-400">{x.detalle}</span></span>
+                        <span className="min-w-0"><span className="block truncate font-medium">{x.nombre}</span><span className="block truncate text-[11px] text-zinc-400">{x.detalle}{x.pdvOrigenId && x.pdvOrigenId !== pdvId ? ` · se carga en ${nombrePdv(x.pdvOrigenId)} (${fmtPesos(x.ultimoTotal)})` : ""}</span></span>
                         <span className={cn("text-xs", x.atrasado ? "text-red-600" : "text-zinc-500")}>
                           {x.atrasado ? "atrasado" : "por venir"} · {x.vencido ? `mes vencido (${ddmm(x.vence)})` : `suele el ${x.dia}`}
                         </span>
@@ -158,7 +165,8 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
                         <span className="flex gap-1.5">
                           <button type="button" disabled={!maestros} onClick={() => setCargando({ item: x, mes: m.mes })}
                             className="h-7 rounded-md bg-zinc-900 px-2.5 text-xs font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-zinc-900">Cargar</button>
-                          <button type="button" onClick={() => void yaNoVa(x)} className="h-7 rounded-md border border-zinc-300 dark:border-zinc-600 px-2.5 text-xs font-semibold">Ya no va</button>
+                          <button type="button" onClick={() => void descartar(x, m.mes)} title="No vino este mes (sigue apareciendo los próximos)" className="h-7 rounded-md border border-zinc-300 dark:border-zinc-600 px-2.5 text-xs font-semibold">Este mes no</button>
+                          <button type="button" onClick={() => void descartar(x, null)} title="No es de todos los meses o ya no se contrata" className="h-7 rounded-md border border-zinc-300 dark:border-zinc-600 px-2.5 text-xs font-semibold">Ya no va</button>
                         </span>
                       </div>
                     ))}
@@ -172,7 +180,7 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
               {!data?.descartes.length && <p className="text-sm text-muted-foreground">No marcaste ningún gasto como “Ya no va”.</p>}
               {data?.descartes.map((d) => (
                 <div key={d.id} className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800 py-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate">{d.nombre ?? d.clave}</span>
+                  <span className="min-w-0 flex-1 truncate">{d.nombre ?? d.clave}{mesDeDescarte(d.clave) ? <span className="text-xs text-muted-foreground"> · solo {nombrePeriodo(mesDeDescarte(d.clave)!)}</span> : null}</span>
                   <span className="text-xs text-muted-foreground">desde {ddmm(d.creadoEn.slice(0, 10))}</span>
                   <button type="button" onClick={() => void volver(d.id)} className="h-7 rounded-md border border-zinc-300 dark:border-zinc-600 px-2.5 text-xs font-semibold">Volver a mostrar</button>
                 </div>

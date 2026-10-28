@@ -6,9 +6,10 @@ import { requireAuthUser } from "@/lib/auth/require-auth";
 export const dynamic = "force-dynamic";
 
 // "Ya no va" de Sin carga: POST lo marca en el PDV (deja de aparecer), DELETE ?id lo vuelve a mostrar.
+// "Este mes no": la misma marca con la clave + "@YYYY-MM" (solo ese mes).
 const schema = z.object({
   pdvId: z.number().int().positive(),
-  clave: z.string().regex(/^[pc]:[^\s]{1,40}$/),
+  clave: z.string().regex(/^[pc]:[^\s@]{1,40}(@\d{4}-\d{2})?$/),
   nombre: z.string().max(200).optional().nullable(),
 });
 
