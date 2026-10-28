@@ -64,7 +64,7 @@ export function PivotTableHead({
         onIngresoTotalClick={onIngresoTotalClick}
       />
       <tr className="bg-muted border-b">
-        <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+        <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[150px] md:min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
           <div className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 p-0.5 w-fit align-middle">
             <button
               onClick={() => onAgrupacionChange("concepto")}

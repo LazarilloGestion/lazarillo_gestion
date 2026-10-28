@@ -25,7 +25,10 @@ export function DashboardContent() {
   }, []);
 
   return (
-    <div className="flex flex-col h-full p-4 md:p-6">
+    // En el celular (Diego 28/10: "se hace imposible verlo, ni me scrollea"): la página scrollea
+    // normal y la tabla ocupa una pantalla entera debajo de los filtros (antes quedaba en lo que
+    // sobraba de la altura, casi nada con el celu acostado). En compu (ancha Y alta), igual que siempre.
+    <div className="flex flex-col p-3 md:p-6 [@media(min-width:768px)_and_(min-height:560px)]:h-full">
       <motion.div
         data-slot="dashboard-filters-panel"
         suppressHydrationWarning
@@ -56,7 +59,7 @@ export function DashboardContent() {
         </div>
       </motion.div>
 
-      <div className="flex-1 min-h-0 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden flex flex-col">
+      <div className="h-[calc(100svh-4rem)] [@media(min-width:768px)_and_(min-height:560px)]:h-auto [@media(min-width:768px)_and_(min-height:560px)]:flex-1 min-h-0 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden flex flex-col">
         <DashboardTabContent isFullscreen={isFullscreen} onToggleFullscreen={() => setIsFullscreen(v => !v)} />
       </div>
     </div>

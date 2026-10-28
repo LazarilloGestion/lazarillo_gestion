@@ -64,7 +64,7 @@ export function ResultadosPivotTable() {
           <table className="w-full text-sm border-separate border-spacing-0">
             <thead>
               <tr className="bg-muted border-b">
-                <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
+                <th className="sticky left-0 top-0 z-30 bg-muted text-left px-4 py-3 font-medium text-muted-foreground min-w-[150px] md:min-w-[240px] whitespace-nowrap shadow-[1px_0_0_0_hsl(var(--border))]">
                   Operación
                 </th>
                 {months.map((idx) => (
