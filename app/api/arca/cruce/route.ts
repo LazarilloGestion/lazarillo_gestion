@@ -77,6 +77,7 @@ export async function GET() {
     return NextResponse.json({
       importado: s && s.n ? { n: s.n, desde: s.desde, hasta: s.hasta, ultima: s.ultima } : null,
       ok: r.ok, faltan, corregir, descartes, anuladas, agregadas,
+      anuladasEntreSi: r.anuladasEntreSi.length, // pares factura + NC por el mismo importe (no se muestran)
     });
   } catch (err) {
     console.error("[GET /api/arca/cruce]", err);

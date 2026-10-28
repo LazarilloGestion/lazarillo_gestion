@@ -33,6 +33,7 @@ export interface CruceArca {
   descartes: { id: number; clave: string; nombre: string | null; creadoEn: string }[];
   anuladas: { rowId: string; comprobante: string | null; proveedor: string | null; fecha: string | null; importe: number | null; actualizadaEn: string }[];
   agregadas: { rowId: string; comprobante: string | null; proveedor: string | null; concepto: string | null; importe: number }[];
+  anuladasEntreSi?: number;
 }
 
 export const ARCA_KEY = ["arca-cruce"];
@@ -103,9 +104,13 @@ export function ListaArca({ data, onCargar }: { data: CruceArca; onCargar: (c: C
     toast.success(`${nombreArca(c)}: no se carga`, { description: "Lo volvés a mostrar desde \"Ya no van\"." });
     void queryClient.invalidateQueries({ queryKey: ARCA_KEY });
   }
-  if (!orden.length) return <p className="p-6 text-sm text-muted-foreground">Todo lo que está en ARCA está cargado.</p>;
+  const nota = data.anuladasEntreSi ? (
+    <p className="px-6 py-2 text-[11px] text-muted-foreground">{data.anuladasEntreSi} factura{data.anuladasEntreSi === 1 ? "" : "s"} con su nota de crédito por el mismo importe se anulan entre sí: no se muestran para cargar.</p>
+  ) : null;
+  if (!orden.length) return <>{nota}<p className="p-6 text-sm text-muted-foreground">Todo lo que está en ARCA está cargado.</p></>;
   return (
     <>
+      {nota}
       {orden.map((mes) => {
         const items = meses.get(mes)!;
         const abierto = abiertos.has(mes);

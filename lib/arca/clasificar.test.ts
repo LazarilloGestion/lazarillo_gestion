@@ -27,3 +27,13 @@ describe("cruce ARCA", () => {
     expect(r.ok).toBe(1);
   });
 });
+
+describe("factura + NC que se anulan", () => {
+  it("mismo CUIT y mismo importe, ninguna cargada: no se muestran", async () => {
+    const { sacarAnuladas } = await import("./clasificar");
+    const a = (key: string, nc: boolean, total: number, fecha: string, cuit = "20"): ArcaConCarga => ({ key, cuit, emisor: null, tipo: nc ? 3 : 1, puntoVenta: 6, numero: 1, fecha, total, otros: 0, nc, proveedorId: null, proveedor: null, cargados: [] });
+    const r = sacarAnuladas([a("f1", false, 202976, "2026-09-08"), a("n1", true, 202976, "2026-09-08"), a("f2", false, 5000, "2026-09-01"), a("n2", true, 7000, "2026-09-02")]);
+    expect(r.anuladas).toHaveLength(1);
+    expect(r.faltan.map((x) => x.key)).toEqual(["f2", "n2"]);
+  });
+});
