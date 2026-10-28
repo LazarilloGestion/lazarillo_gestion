@@ -56,7 +56,9 @@ async function marcar(clave: string, nombre: string) {
   return r.ok;
 }
 
-export function SubirArca({ data }: { data: CruceArca | undefined }) {
+// `fallo`: no se pudo leer el cruce (p. ej. la base lenta). Antes se mostraba "Todavía no subiste
+// comprobantes", como si se hubieran borrado (Diego 28/10/2026): los datos siguen ahí.
+export function SubirArca({ data, fallo = false, reintentar }: { data: CruceArca | undefined; fallo?: boolean; reintentar?: () => void }) {
   const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
   const [subiendo, setSubiendo] = useState(false);
@@ -82,6 +84,9 @@ export function SubirArca({ data }: { data: CruceArca | undefined }) {
     <div className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800 bg-sky-50/60 dark:bg-sky-950/20 px-6 py-2.5 text-xs">
       <span className="min-w-0 flex-1 text-zinc-600 dark:text-zinc-300">
         {i ? <>ARCA: <b>{i.n.toLocaleString("es-AR")}</b> comprobantes del {dmy(i.desde)} al {dmy(i.hasta)} · último CSV subido el {dmy(i.ultima)}</>
+          : fallo ? <span className="text-amber-700 dark:text-amber-400">No se pudo leer lo de ARCA ahora (la base tardó demasiado). Lo que subiste sigue guardado.{" "}
+              {reintentar && <button type="button" onClick={reintentar} className="font-semibold underline">Reintentar</button>}</span>
+          : !data ? <>Leyendo lo de ARCA…</>
           : <>Todavía no subiste comprobantes de ARCA. Bajalos de <b>Mis Comprobantes → Recibidos</b> (exportar CSV) y subilos acá.</>}
       </span>
       <input ref={input} type="file" accept=".csv,text/csv" multiple className="hidden" onChange={(e) => void subir(e.target.files)} />
