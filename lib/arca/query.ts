@@ -14,9 +14,8 @@ const comprasSql = Prisma.sql`
          SUM(COALESCE(c."importeManual", c.importe))::float8 AS total,
          MIN(c."rowId") AS row_id
   FROM compras c
-  JOIN proveedores pr ON pr.id = c."proveedorId"
+  LEFT JOIN proveedores pr ON pr.id = c."proveedorId"
   WHERE c.comprobante ~ '[0-9]{12}$' AND UPPER(LEFT(c.comprobante, 1)) NOT IN ('E', 'G')
-    AND COALESCE(pr.cuit, '') <> ''
   GROUP BY 1, 2, 3, 4, 5`;
 
 export interface FilaArca {
@@ -42,7 +41,11 @@ export const arcaSql = Prisma.sql`
                                     'fecha', g.fecha, 'rowId', g.row_id)) FILTER (WHERE g.row_id IS NOT NULL) AS cargados
   FROM arca_comprobantes a
   LEFT JOIN prov p ON p.cuit = a."cuitEmisor"
-  LEFT JOIN g ON g.cuit = a."cuitEmisor" AND g.pv = a."puntoVenta" AND g.nro = a.numero
+  -- Mismo CUIT + punto de venta + número. Si el CUIT no coincide (el proveedor del Panel tiene
+  -- otro CUIT o ninguno: Telefónica factura con el de Móviles, Diego 28/10/2026), vale el mismo
+  -- punto de venta + número con fecha a menos de 7 días.
+  LEFT JOIN g ON g.pv = a."puntoVenta" AND g.nro = a.numero
+             AND (g.cuit = a."cuitEmisor" OR ABS(g.fecha::date - a.fecha::date) <= 7)
   GROUP BY a.id, p.id, p.nombre
   ORDER BY a.fecha DESC, a.id`;
 
