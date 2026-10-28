@@ -11,7 +11,7 @@ type Tx = Prisma.TransactionClient;
 export type Armada = ReturnType<typeof armarFactura>;
 export type Preparada = { f: FacturaInput; armado: Armada; proveedorCodigo: string; nombreProv: string };
 
-export async function prepararFactura(prisma: PrismaClient, body: unknown): Promise<Preparada | { error: string; detalle?: string[]; status: number }> {
+export async function prepararFactura(prisma: PrismaClient | Tx, body: unknown): Promise<Preparada | { error: string; detalle?: string[]; status: number }> {
   const parsed = facturaSchema.safeParse(body);
   if (!parsed.success) return { error: "Datos inválidos", detalle: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`), status: 400 };
   const f = parsed.data;
