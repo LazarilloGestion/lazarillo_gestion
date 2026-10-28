@@ -259,7 +259,7 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
         ))}
         {data && !data.rubros.length && <p className="pt-2 text-[13px] text-zinc-500">Sin gastos en el mes.</p>}
       </div>
-      <Link href="/dashboard" className="mt-4 block text-center text-[13px] text-sky-700 underline">Abrir el Panel completo</Link>
+      <Link href="/dashboard?completa=1" className="mt-4 block text-center text-[13px] text-sky-700 underline">Abrir el Panel completo</Link>
     </div>
   );
 }
