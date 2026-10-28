@@ -22,7 +22,9 @@ export async function GET(request: NextRequest) {
     WHERE "proveedorId" = ${proveedorId} AND "localId" = ${localId}
       AND comprobante IS NOT NULL AND UPPER(LEFT(comprobante, 1)) NOT IN ('N', 'E', 'G')
     GROUP BY comprobante
-    ORDER BY MAX(fecha) DESC NULLS LAST
+    -- Primero la última FACTURA de los últimos 6 meses; un ticket suelto (envío, mensajería)
+    -- no es la estructura habitual (Diego 28/10: Rodofeli precargaba "Mensajería" y le compra papelera).
+    ORDER BY (UPPER(LEFT(comprobante, 1)) = 'Z' OR MAX(fecha) < CURRENT_DATE - 180), MAX(fecha) DESC NULLS LAST
     LIMIT 3
   `;
   for (const o of orden) {

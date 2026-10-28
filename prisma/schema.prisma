@@ -801,3 +801,24 @@ model ArcaComprobante {
   @@index([fecha])
   @@map("arca_comprobantes")
 }
+
+// Compras que MaxiRest ya no tiene (versión vieja de un gasto editado) — 28/10/2026.
+model CompraHuerfana {
+  rowId               String   @id
+  puntoDeVentaId      Int
+  fecha               DateTime? @db.Date
+  comprobante         String?
+  codigo              String?
+  proveedor           String?
+  concepto            String?
+  importe             Decimal? @db.Decimal(18, 2)
+  importeManualAntes  Decimal? @db.Decimal(18, 2)
+  observacManualAntes String?
+  motivo              String
+  estado              String
+  detectadaEn         DateTime @default(now())
+  actualizadaEn       DateTime @default(now())
+
+  @@index([puntoDeVentaId, estado])
+  @@map("compras_huerfanas")
+}
