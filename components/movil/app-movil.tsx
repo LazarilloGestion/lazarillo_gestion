@@ -11,6 +11,7 @@ import { agruparPorDia, horaDe, partesDescripcion, TITULO_ACCION } from "@/lib/a
 import { leerQrArca, type DatosQr } from "@/lib/movil/qr-arca";
 import { leerQrDeArchivo } from "./leer-qr";
 import { FacturaMovil } from "./factura-movil";
+import { GastoMovil } from "./gasto-movil";
 
 // Lazarillo en el celular (Diego 27/10/2026): ver el mes, cargar facturas (con el QR
 // de ARCA de la foto) y ver lo que se debe. Mismo login y mismos datos que el Panel.
@@ -39,7 +40,7 @@ export function AppMovil() {
   };
 
   // Carga
-  const [carga, setCarga] = useState<{ qr: DatosQr | null } | null>(null);
+  const [carga, setCarga] = useState<{ qr: DatosQr | null } | { gasto: true } | null>(null);
   const [leyendo, setLeyendo] = useState(false);
   const [errorQr, setErrorQr] = useState<string | null>(null);
   const fotoRef = useRef<HTMLInputElement | null>(null);
@@ -60,7 +61,7 @@ export function AppMovil() {
     }
   }
 
-  const titulos: Record<Tab, string> = { inicio: "Inicio", cargar: carga ? "Factura" : "Cargar", impagas: "Impagas", actividad: "Actividad" };
+  const titulos: Record<Tab, string> = { inicio: "Inicio", cargar: carga ? ("gasto" in carga ? "Gasto vario" : "Factura") : "Cargar", impagas: "Impagas", actividad: "Actividad" };
 
   return (
     <div className="flex min-h-svh flex-col bg-white dark:bg-zinc-950">
@@ -79,6 +80,7 @@ export function AppMovil() {
           : tab === "inicio" ? <Inicio localId={actual.localId} pdvId={actual.pdvId} irImpagas={() => setTab("impagas")} />
           : tab === "impagas" ? <Impagas pdvId={actual.pdvId} />
           : tab === "actividad" ? <Actividad />
+          : carga && "gasto" in carga ? <GastoMovil key={actual.pdvId} pdvId={actual.pdvId} onCerrar={() => setCarga(null)} />
           : carga ? <FacturaMovil key={JSON.stringify(carga.qr)} qr={carga.qr} localId={actual.localId} pdvId={actual.pdvId} onCerrar={() => setCarga(null)} />
           : (
             <div className="flex flex-col gap-3">
@@ -89,8 +91,8 @@ export function AppMovil() {
               {errorQr && <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 px-3 py-2 text-[13px] text-amber-800">{errorQr}</div>}
               <BotonGrande cls="bg-zinc-100 dark:bg-zinc-800" icono={<PenLine className="size-6" />}
                 titulo="Factura a mano" sub="Sin foto: proveedor, número, fecha e importes." onClick={() => setCarga({ qr: null })} />
-              <BotonGrande cls="bg-[#5BC2EA]/25 text-zinc-500" icono={<Receipt className="size-6" />} deshabilitado
-                titulo="Ticket / gasto" sub="Próximamente: va con Gastos Varios (período + fecha de pago)." />
+              <BotonGrande cls="bg-[#5BC2EA]/25" icono={<Receipt className="size-6" />}
+                titulo="Ticket / gasto" sub="Gasto vario: período, concepto e importe. Pagado o impago." onClick={() => setCarga({ gasto: true })} />
               <p className="mt-2 text-[12px] text-zinc-500">La foto se lee en el celular y no se guarda: solo se usa para leer el QR.</p>
             </div>
           )}

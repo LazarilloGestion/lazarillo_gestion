@@ -82,11 +82,18 @@ export function CargarFactura() {
             pdvActual={pdvActual}
             reglaDe={reglaDe}
             onCerrar={() => setAbierto(false)}
-            onGuardado={(d: { comprobante: string; total: number; pago?: { id: number; aCuenta: number } | null }) => {
+            onGuardado={(d: { comprobante: string; total: number; pago?: { id: number; aCuenta: number } | null; gastoVario?: boolean; concepto?: string }) => {
               setAbierto(false);
-              toast.success(d.pago ? "Factura cargada y pagada" : "Factura cargada", {
-                description: `${d.comprobante} · $ ${d.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}${d.pago ? ` · Pago Nº ${d.pago.id}` : ""}${d.pago && d.pago.aCuenta > 0.004 ? ` · $ ${d.pago.aCuenta.toLocaleString("es-AR", { minimumFractionDigits: 2 })} a cuenta` : ""}`,
-              });
+              const importe = `$ ${d.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}`;
+              if (d.gastoVario) {
+                toast.success(d.pago ? "Gasto cargado y pagado" : "Gasto cargado (impago)", {
+                  description: `${d.concepto ?? "Gastos Varios"} · ${importe}${d.pago ? ` · Pago Nº ${d.pago.id}` : ""}`,
+                });
+              } else {
+                toast.success(d.pago ? "Factura cargada y pagada" : "Factura cargada", {
+                  description: `${d.comprobante} · ${importe}${d.pago ? ` · Pago Nº ${d.pago.id}` : ""}${d.pago && d.pago.aCuenta > 0.004 ? ` · $ ${d.pago.aCuenta.toLocaleString("es-AR", { minimumFractionDigits: 2 })} a cuenta` : ""}`,
+                });
+              }
               refrescarCompras(queryClient);
             }}
           />
