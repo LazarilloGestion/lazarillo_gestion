@@ -57,7 +57,7 @@ export function SinCargaBoton() {
 function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: number | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useSinCarga(pdvId);
-  const { data: arca, isLoading: cargandoArca } = useCruceArca(true);
+  const { data: arca, isLoading: cargandoArca, isError: falloArca, refetch: releerArca } = useCruceArca(true);
   const [cargando, setCargando] = useState<{ item: ItemSinCarga; mes: string } | null>(null);
   const [cargandoArcaC, setCargandoArcaC] = useState<CompArca | null>(null);
   const [viendo, setViendo] = useState<{ rowId: string; detalle: string } | null>(null);
@@ -190,7 +190,7 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
           </div>
         )}
 
-        {(tab === "arca" || tab === "corregir") && <SubirArca data={arca} />}
+        {(tab === "arca" || tab === "corregir") && <SubirArca data={arca} fallo={falloArca && !arca} reintentar={() => void releerArca()} />}
         {tab === "sin" && fusionados > 0 && (
           <p className="px-6 pb-2 text-[11px] text-sky-700 dark:text-sky-400">{fusionados} gasto{fusionados === 1 ? "" : "s"} de la proyección ya figura{fusionados === 1 ? "" : "n"} en ARCA con el comprobante real: están en la pestaña ARCA.</p>
         )}
