@@ -13,10 +13,16 @@ import { CHICO, claveDescarte, mesDeDescarte, totales, type ItemSinCarga, type M
 import type { Local } from "@/lib/types/domain";
 import { refrescarCompras, useCargaFactura } from "@/components/facturas/cargar-factura";
 import ModalNuevaCarga from "@/components/facturas/modal-carga-factura";
+import { VerFactura } from "@/components/facturas/ver-factura";
+import { ARCA_KEY, ctxArca, ListaArca, ListaCorregir, SubirArca, useCruceArca, type CompArca } from "./arca";
 
 // Botón "● Sin carga · $X M" al lado de Impagas (Diego, 28/10/2026) y su listado: por mes,
 // los gastos que se cargan todos los meses y todavía no están en el PDV. "Cargar" abre la
 // carga precargada (proveedor, o gasto vario con concepto, período e importe del último mes).
+// Desde el 28/10 tiene tres fuentes: "Por proyección" (lo de arriba), "ARCA" (comprobantes que
+// ARCA dice que te facturaron y no están cargados) y "Corregir" (cargados distinto que en ARCA).
+// Fusión: si un proveedor tiene un comprobante de ARCA sin cargar en el mes, la proyección de ese
+// proveedor en ese mes no se muestra (ya está en ARCA, con el importe real).
 
 export type SinCargaResponse = { hoy: string; meses: MesSinCarga[]; descartes: { id: number; clave: string; nombre: string | null; creadoEn: string }[] };
 export const sinCargaKey = (pdvId: number | null | undefined) => ["sin-carga", pdvId ?? null];
@@ -51,7 +57,10 @@ export function SinCargaBoton() {
 function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: number | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useSinCarga(pdvId);
+  const { data: arca, isLoading: cargandoArca } = useCruceArca(true);
   const [cargando, setCargando] = useState<{ item: ItemSinCarga; mes: string } | null>(null);
+  const [cargandoArcaC, setCargandoArcaC] = useState<CompArca | null>(null);
+  const [viendo, setViendo] = useState<{ rowId: string; detalle: string } | null>(null);
   // Un gasto que llega por apertura se carga en su PDV de origen (con su regla), por el importe entero.
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
   const pdvCarga = cargando?.item.pdvOrigenId ?? pdvId;
@@ -59,19 +68,28 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
   const { maestros, pdvsRef, reglaDe } = useCargaFactura(true, pdvCarga, localCarga);
   const pdv = pdvsRef.find((p) => p.id === pdvId);
   const nombrePdv = (id: number | null) => pdvsRef.find((p) => p.id === id)?.nombre ?? "otro PDV";
-  const [tab, setTab] = useState<"sin" | "no">("sin");
+  const [tab, setTab] = useState<"sin" | "arca" | "corregir" | "no">("sin");
   const [chicos, setChicos] = useState(false);
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const actual = data?.meses[0]?.mes;
   const estaAbierto = (mes: string) => (mes === actual) !== abiertos.has(mes);
 
+  // Fusión con ARCA: proveedor + mes con comprobante de ARCA sin cargar → sale de la proyección.
+  const enArca = useMemo(() => new Set((arca?.faltan ?? []).filter((c) => c.proveedorId).map((c) => `${c.proveedorId}@${c.mes}`)), [arca]);
+  const meses = useMemo(() => (data?.meses ?? []).map((m) => ({ ...m, items: m.items.filter((x) => !(x.proveedorId && enArca.has(`${x.proveedorId}@${m.mes}`))) })), [data, enArca]);
+  const fusionados = (data?.meses ?? []).reduce((s, m) => s + m.items.length, 0) - meses.reduce((s, m) => s + m.items.length, 0);
+
   const kpi = useMemo(() => {
     if (!data) return null;
-    const todos = data.meses.flatMap((m) => totales(m.items, chicos).visibles);
+    const todos = meses.flatMap((m) => totales(m.items, chicos).visibles);
     const at = todos.filter((x) => x.atrasado);
-    const pv = totales(data.meses[0]?.items ?? [], chicos).visibles.filter((x) => !x.atrasado);
-    return { mes: totales(data.meses[0]?.items ?? [], chicos), atrasados: { n: at.length, total: at.reduce((s, x) => s + x.ultimo, 0) }, porVenir: { n: pv.length, total: pv.reduce((s, x) => s + x.ultimo, 0) }, n: todos.length };
-  }, [data, chicos]);
+    const pv = totales(meses[0]?.items ?? [], chicos).visibles.filter((x) => !x.atrasado);
+    return { mes: totales(meses[0]?.items ?? [], chicos), atrasados: { n: at.length, total: at.reduce((s, x) => s + x.ultimo, 0) }, porVenir: { n: pv.length, total: pv.reduce((s, x) => s + x.ultimo, 0) }, n: todos.length };
+  }, [data, meses, chicos]);
+  const noVan = [
+    ...(data?.descartes ?? []).map((d) => ({ ...d, origen: mesDeDescarte(d.clave) ? `solo ${nombrePeriodo(mesDeDescarte(d.clave)!)}` : null })),
+    ...(arca?.descartes ?? []).map((d) => ({ ...d, origen: d.clave.startsWith("k:") ? "ARCA · revisada, está bien" : "ARCA · no se carga" })),
+  ];
 
   // "Ya no va" (para siempre) o "Este mes no" (solo ese mes); se deshace desde "Ya no van".
   async function descartar(item: ItemSinCarga, mes: string | null) {
@@ -84,6 +102,26 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
     const r = await fetch(`/api/sin-carga/descartes?id=${id}`, { method: "DELETE" });
     if (!r.ok) { toast.error("No se pudo deshacer"); return; }
     void queryClient.invalidateQueries({ queryKey: ["sin-carga"] });
+    void queryClient.invalidateQueries({ queryKey: ARCA_KEY });
+  }
+
+  if (viendo) {
+    return <VerFactura rowId={viendo.rowId} detalle={viendo.detalle} onClose={() => { setViendo(null); void queryClient.invalidateQueries({ queryKey: ARCA_KEY }); }} />;
+  }
+
+  if (cargandoArcaC && maestros) {
+    const c = cargandoArcaC;
+    const { ctx, aviso } = ctxArca(c);
+    return (
+      <ModalNuevaCarga maestros={maestros} pdvsRef={pdvsRef} pdvActual={nombrePdv(pdvId)} reglaDe={reglaDe} ctx={ctx} aviso={aviso}
+        onCerrar={() => setCargandoArcaC(null)}
+        onGuardado={(d: { total: number; pago?: { id: number } | null }) => {
+          setCargandoArcaC(null);
+          toast.success(d.pago ? "Cargado y pagado" : "Cargado", { description: `${c.proveedor ?? c.emisor ?? c.cuit} · ${fmtPesos(d.total)}` });
+          refrescarCompras(queryClient);
+          void queryClient.invalidateQueries({ queryKey: ARCA_KEY });
+        }} />
+    );
   }
 
   if (cargando && maestros) {
@@ -98,23 +136,28 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
           setCargando(null);
           toast.success(d.pago ? "Cargado y pagado" : "Cargado", { description: `${item.nombre} · ${fmtPesos(d.total)}` });
           refrescarCompras(queryClient);
+          void queryClient.invalidateQueries({ queryKey: ARCA_KEY });
         }} />
     );
   }
 
+  const descripcion = tab === "arca" ? "Comprobantes que ARCA dice que te facturaron y no están cargados en ningún local. Es de la empresa (CUIT), no de este PDV: se carga en el PDV que corresponda."
+    : tab === "corregir" ? "Comprobantes cargados que no coinciden con ARCA. Abrilos con Ver para corregirlos, o marcalos como revisados."
+    : "Gastos que aparecieron en 3 de los últimos 4 meses y en el mes todavía no están. Solo rubros visibles en Compras.";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="flex h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3 px-6 pt-5 pb-3">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold">Sin carga{pdv ? ` · ${pdv.nombre}` : ""}</h2>
-            <p className="text-xs text-muted-foreground">Gastos que aparecieron en 3 de los últimos 4 meses y en el mes todavía no están. Solo rubros visibles en Compras.</p>
+            <p className="text-xs text-muted-foreground">{descripcion}</p>
           </div>
           <button type="button" onClick={onClose} className="ml-auto rounded p-1 text-zinc-400 hover:text-zinc-700"><X className="h-5 w-5" /></button>
         </div>
         <div className="flex items-center gap-3 px-6 pb-3">
           <div className="inline-flex rounded-lg bg-zinc-100 dark:bg-zinc-800 p-1 text-xs font-semibold">
-            {([["sin", `Sin carga (${kpi?.n ?? "…"})`], ["no", `Ya no van (${data?.descartes.length ?? 0})`]] as const).map(([k, t]) => (
+            {([["sin", `Por proyección (${kpi?.n ?? "…"})`], ["arca", `ARCA (${arca ? arca.faltan.length : "…"})`], ["corregir", `Corregir (${arca ? arca.corregir.length : "…"})`], ["no", `Ya no van (${noVan.length})`]] as const).map(([k, t]) => (
               <button key={k} type="button" onClick={() => setTab(k)} className={cn("rounded-md px-3 py-1.5", tab === k ? "bg-white dark:bg-zinc-950 shadow-sm" : "text-zinc-500")}>{t}</button>
             ))}
           </div>
@@ -133,9 +176,16 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
           </div>
         )}
 
+        {(tab === "arca" || tab === "corregir") && <SubirArca data={arca} />}
+        {tab === "sin" && fusionados > 0 && (
+          <p className="px-6 pb-2 text-[11px] text-sky-700 dark:text-sky-400">{fusionados} gasto{fusionados === 1 ? "" : "s"} de la proyección ya figura{fusionados === 1 ? "" : "n"} en ARCA con el comprobante real: están en la pestaña ARCA.</p>
+        )}
+
         <div className="flex-1 overflow-y-auto border-t border-zinc-100 dark:border-zinc-800">
-          {isLoading && <p className="p-6 text-sm text-muted-foreground">Buscando…</p>}
-          {tab === "sin" && data?.meses.map((m) => {
+          {(tab === "sin" || tab === "no" ? isLoading : cargandoArca) && <p className="p-6 text-sm text-muted-foreground">Buscando…</p>}
+          {tab === "arca" && arca && <ListaArca data={arca} onCargar={setCargandoArcaC} />}
+          {tab === "corregir" && arca && <ListaCorregir data={arca} onVer={(rowId, detalle) => setViendo({ rowId, detalle })} />}
+          {tab === "sin" && meses.map((m) => {
             const t = totales(m.items, chicos);
             const abierto = estaAbierto(m.mes);
             const porRubro = new Map<string, ItemSinCarga[]>();
@@ -177,10 +227,10 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
           })}
           {tab === "no" && (
             <div className="p-6">
-              {!data?.descartes.length && <p className="text-sm text-muted-foreground">No marcaste ningún gasto como “Ya no va”.</p>}
-              {data?.descartes.map((d) => (
+              {!noVan.length && <p className="text-sm text-muted-foreground">No marcaste ningún gasto como “Ya no va”.</p>}
+              {noVan.map((d) => (
                 <div key={d.id} className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800 py-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate">{d.nombre ?? d.clave}{mesDeDescarte(d.clave) ? <span className="text-xs text-muted-foreground"> · solo {nombrePeriodo(mesDeDescarte(d.clave)!)}</span> : null}</span>
+                  <span className="min-w-0 flex-1 truncate">{d.nombre ?? d.clave}{d.origen ? <span className="text-xs text-muted-foreground"> · {d.origen}</span> : null}</span>
                   <span className="text-xs text-muted-foreground">desde {ddmm(d.creadoEn.slice(0, 10))}</span>
                   <button type="button" onClick={() => void volver(d.id)} className="h-7 rounded-md border border-zinc-300 dark:border-zinc-600 px-2.5 text-xs font-semibold">Volver a mostrar</button>
                 </div>
