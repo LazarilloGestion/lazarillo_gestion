@@ -207,7 +207,7 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
                     {items.map((x) => (
                       <div key={x.clave} className="grid grid-cols-[12px_1fr_160px_110px_auto] items-center gap-3 border-b border-zinc-50 dark:border-zinc-800 px-6 pl-10 py-1.5 text-sm">
                         <span className={cn("h-2 w-2 rounded-full", x.atrasado ? "bg-red-600" : "bg-zinc-300")} />
-                        <span className="min-w-0"><span className="block truncate font-medium">{x.nombre}</span><span className="block truncate text-[11px] text-zinc-400">{x.detalle}{x.pdvOrigenId && x.pdvOrigenId !== pdvId ? ` · se carga en ${nombrePdv(x.pdvOrigenId)} (${fmtPesos(x.ultimoTotal)})` : ""}</span></span>
+                        <span className="min-w-0"><span className="block truncate font-medium">{x.nombre}</span><span className="block truncate text-[11px] text-zinc-400" title={x.queCompra ?? undefined}>{x.queCompra ? <span className="text-zinc-600 dark:text-zinc-300">{x.queCompra}</span> : x.detalle}{x.pdvOrigenId && x.pdvOrigenId !== pdvId ? ` · se carga en ${nombrePdv(x.pdvOrigenId)} (${fmtPesos(x.ultimoTotal)})` : ""}</span></span>
                         <span className={cn("text-xs", x.atrasado ? "text-red-600" : "text-zinc-500")}>
                           {x.atrasado ? "atrasado" : "por venir"} · {x.vencido ? `mes vencido (${ddmm(x.vence)})` : `suele el ${x.dia}`}
                         </span>

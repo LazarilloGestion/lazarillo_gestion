@@ -23,6 +23,7 @@ export interface ItemSinCarga {
   conceptoCodigo: string | null;
   vence: string;          // YYYY-MM-DD en que suele estar cargado
   atrasado: boolean;
+  queCompra: string | null; // qué se le compra (insumos, o concepto + observación) para decidir si va
 }
 
 export interface MesSinCarga { mes: string; items: ItemSinCarga[] }
@@ -53,6 +54,25 @@ export function mesesObjetivo(hoy: string, n = MESES_A_MIRAR): string[] {
     const t = y * 12 + (m - 1) - i;
     return `${Math.floor(t / 12)}-${p2((t % 12) + 1)}-01`;
   });
+}
+
+// Mantenimiento en meses que ya pasaron (Diego 28/10): no se espera, salvo que sea de TODOS los
+// meses del año (estuvo en cada uno de los últimos 12 meses con datos del PDV).
+export const RUBROS_SOLO_FIJOS = ["mantenimiento"];
+export function esperadoEnMesCerrado(rubro: string, mes: string, mesActual: string, mesesConGasto: number, mesesConDatos: number): boolean {
+  if (mes >= mesActual) return true;
+  if (!RUBROS_SOLO_FIJOS.includes(rubro.trim().toLowerCase())) return true;
+  return mesesConDatos > 0 && mesesConGasto >= mesesConDatos;
+}
+
+/** "Qué le compro" en una línea: los insumos que más pesan; si no hay, conceptos con su observación. */
+export function resumenCompra(insumos: { txt: string; imp: number }[], conceptos: { txt: string; obs: string | null; imp: number }[]): string | null {
+  const corto = (t: string, n: number) => (t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t);
+  const ins = [...insumos].sort((a, b) => b.imp - a.imp).map((x) => x.txt).filter(Boolean);
+  if (ins.length) return ins.slice(0, 4).join(", ") + (ins.length > 4 ? ` y ${ins.length - 4} más` : "");
+  const con = [...conceptos].sort((a, b) => b.imp - a.imp).filter((x) => x.txt);
+  if (!con.length) return null;
+  return con.slice(0, 3).map((x) => (x.obs ? `${x.txt} (${corto(x.obs, 28)})` : x.txt)).join(", ");
 }
 
 export function totales(items: ItemSinCarga[], conChicos: boolean) {

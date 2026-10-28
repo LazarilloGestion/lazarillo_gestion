@@ -49,6 +49,8 @@ export function AppMovil() {
   };
 
   // Carga
+  // Mes con el que se abre "Sin carga": el que se está mirando en Inicio (Diego 28/10).
+  const [mesSc, setMesSc] = useState<string | null>(null);
   const [carga, setCarga] = useState<{ qr: DatosQr | null } | { gasto: true } | { sc: ItemSinCarga; mes: string } | null>(null);
   const [leyendo, setLeyendo] = useState(false);
   const [errorQr, setErrorQr] = useState<string | null>(null);
@@ -86,8 +88,8 @@ export function AppMovil() {
 
       <main className="flex-1 px-4 pt-3 pb-24">
         {!actual ? <p className="py-10 text-center text-zinc-500">Cargando…</p>
-          : tab === "inicio" ? <Inicio localId={actual.localId} pdvId={actual.pdvId} irImpagas={() => setTab("impagas")} irSinCarga={() => setTab("sincarga")} />
-          : tab === "sincarga" ? <SinCarga pdvId={actual.pdvId} nombrePdv={(id) => pdvs.find((p) => p.pdvId === id)?.label ?? "otro PDV"} onCargar={(sc, mes) => { setCarga({ sc, mes }); setTab("cargar"); }} />
+          : tab === "inicio" ? <Inicio localId={actual.localId} pdvId={actual.pdvId} irImpagas={() => setTab("impagas")} irSinCarga={(mes) => { setMesSc(mes); setTab("sincarga"); }} />
+          : tab === "sincarga" ? <SinCarga pdvId={actual.pdvId} mesInicial={mesSc} nombrePdv={(id) => pdvs.find((p) => p.pdvId === id)?.label ?? "otro PDV"} onCargar={(sc, mes) => { setCarga({ sc, mes }); setTab("cargar"); }} />
           : tab === "impagas" ? <Impagas pdvId={actual.pdvId} />
           : tab === "actividad" ? <Actividad />
           : carga && "sc" in carga ? (() => {
@@ -144,7 +146,7 @@ const pc = (x: number | null) => (x == null ? "—" : `${(x * 100).toLocaleStrin
 // un mes pasado es real, y si le quedó algo sin cargar se suma (cartel ámbar). Resultado con
 // rentabilidad, chips Food cost · Personal · Mix vs el mes anterior, promedio mensual del año,
 // deuda y sin carga en una línea, y deslizar en cualquier parte cambia de mes.
-function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pdvId: number; irImpagas: () => void; irSinCarga: () => void }) {
+function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pdvId: number; irImpagas: () => void; irSinCarga: (mes: string | null) => void }) {
   const ahora = new Date();
   const [ym, setYm] = useState({ anio: ahora.getFullYear(), mes: ahora.getMonth() + 1 });
   const mover = (d: number) => setYm((x) => { let m = x.mes + d, a = x.anio; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } return { anio: a, mes: m }; });
@@ -156,7 +158,7 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
     ["proyeccion-ingresos", ym.anio, localId, pdvId], `/api/dashboard/proyeccion?year=${ym.anio}&localId=${localId}&pdvId=${pdvId}`, { staleTime: 5 * 60_000 });
   const proy = pr?.proyeccion && pr.proyeccion.anio === ym.anio && pr.proyeccion.mes === ym.mes ? pr.proyeccion : null;
   const { data: sc } = useFetchQuery<{ meses: MesSinCarga[] }>(["sin-carga", pdvId], `/api/sin-carga?pdvId=${pdvId}`, { staleTime: 60_000 });
-  const scActual = sc?.meses[0];
+  const scActual = sc?.meses.find((m) => m.mes === clave) ?? sc?.meses[0]; // el mes que se mira (Diego 28/10)
   const scActualTot = scActual ? totales(scActual.items, false) : null;
   const scMes = sc?.meses.find((m) => m.mes === clave);
   // Los 3 meses anteriores: el anterior para los chips; los tres para el promedio por rubro de la proyección.
@@ -218,7 +220,7 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
         <div className="mb-2.5 text-center"><span className="rounded-full bg-sky-50 dark:bg-sky-950/50 px-3 py-1 text-[11.5px] font-bold text-sky-700 dark:text-sky-300">PROYECCIÓN al cierre · faltan {proy.diasRestantes} día{proy.diasRestantes === 1 ? "" : "s"}</span></div>
       )}
       {vista?.modo === "falta" && (
-        <div className="mb-2.5 text-center"><button type="button" onClick={irSinCarga} className="rounded-full bg-amber-50 dark:bg-amber-950/40 px-3 py-1 text-[11.5px] font-bold text-amber-700">REAL + {vista.faltan} sin cargar ({$m(vista.faltaTotal ?? 0)}) ›</button></div>
+        <div className="mb-2.5 text-center"><button type="button" onClick={() => irSinCarga(clave)} className="rounded-full bg-amber-50 dark:bg-amber-950/40 px-3 py-1 text-[11.5px] font-bold text-amber-700">REAL + {vista.faltan} sin cargar ({$m(vista.faltaTotal ?? 0)}) ›</button></div>
       )}
       <div className="grid grid-cols-2 gap-2.5">
         <Kpi t="Ventas" v={isLoading || !vista ? "…" : $(vista.ventas)} proy={vista?.modo === "proy"}
@@ -256,7 +258,7 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
           <b className="block text-[17px] tabular-nums">{deuda ? $m(deuda.saldo) : "…"}</b>
           {deuda && <div className="text-[11px] text-zinc-500">{deuda.n} impaga{deuda.n === 1 ? "" : "s"}</div>}
         </button>
-        <button type="button" onClick={irSinCarga} className="rounded-2xl border border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/30 px-3 py-2.5 text-left">
+        <button type="button" onClick={() => irSinCarga(scActual?.mes ?? null)} className="rounded-2xl border border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/30 px-3 py-2.5 text-left">
           <div className="flex justify-between text-[11.5px] text-zinc-500"><span>Sin carga{scActual ? ` · ${MESES[Number(scActual.mes.slice(5)) - 1].slice(0, 3).toLowerCase()}` : ""}</span><span className="text-sky-700">›</span></div>
           <b className="block text-[17px] tabular-nums">{scActualTot ? $m(scActualTot.total) : "…"}</b>
           {scActualTot && <div className="text-[11px] text-zinc-500">{scActualTot.n ? `${scActualTot.n} gasto${scActualTot.n === 1 ? "" : "s"}` : "todo cargado"}</div>}
@@ -358,7 +360,7 @@ function Impagas({ pdvId }: { pdvId: number }) {
 
 // "Sin carga" en el celu (Diego 28/10): por mes, lo que se carga todos los meses y falta.
 // Tocar un gasto lo carga: factura del proveedor, o gasto vario con concepto, período e importe.
-function SinCarga({ pdvId, onCargar, nombrePdv }: { pdvId: number; onCargar: (x: ItemSinCarga, mes: string) => void; nombrePdv: (id: number | null) => string }) {
+function SinCarga({ pdvId, mesInicial, onCargar, nombrePdv }: { pdvId: number; mesInicial: string | null; onCargar: (x: ItemSinCarga, mes: string) => void; nombrePdv: (id: number | null) => string }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useFetchQuery<{ meses: MesSinCarga[] }>(["sin-carga", pdvId], `/api/sin-carga?pdvId=${pdvId}`, { staleTime: 60_000 });
   const [abierto, setAbierto] = useState<string | null>(null);
@@ -374,7 +376,7 @@ function SinCarga({ pdvId, onCargar, nombrePdv }: { pdvId: number; onCargar: (x:
     });
   }
   if (isLoading || !data) return <p className="py-10 text-center text-zinc-500">Cargando…</p>;
-  const mes0 = data.meses[0];
+  const mes0 = data.meses.find((m) => m.mes === mesInicial) ?? data.meses[0];
   return (
     <div>
       <div className="mb-3 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4">
@@ -393,6 +395,7 @@ function SinCarga({ pdvId, onCargar, nombrePdv }: { pdvId: number; onCargar: (x:
               <Deslizable key={x.clave} onTap={() => onCargar(x, m.mes)} onIzquierda={() => void descartar(x, m.mes)} onDerecha={() => void descartar(x, null)}>
                 <span className={cn("size-2 shrink-0 rounded-full", x.atrasado ? "bg-red-600" : "bg-zinc-300")} />
                 <span className="min-w-0 flex-1"><span className="block truncate text-[15px]">{x.nombre}</span>
+                  {x.queCompra && <span className="block truncate text-[12px] text-zinc-600 dark:text-zinc-300">{x.queCompra}</span>}
                   <span className={cn("block truncate text-[12px]", x.atrasado ? "text-red-600" : "text-zinc-500")}>{x.atrasado ? "atrasado" : "por venir"} · {x.vencido ? "mes vencido" : `suele el ${x.dia}`} · {x.rubro}</span>
                   {x.pdvOrigenId && x.pdvOrigenId !== pdvId && <span className="block truncate text-[11.5px] text-zinc-400">se carga en {nombrePdv(x.pdvOrigenId)} · {$(x.ultimoTotal)}</span>}</span>
                 <b className="tabular-nums">{$(x.ultimo)}</b>
