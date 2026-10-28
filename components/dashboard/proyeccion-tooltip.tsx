@@ -1,6 +1,8 @@
 "use client";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { fmtMillones, DIA_SEMANA_CORTO, type ProyeccionMes } from "@/lib/dashboard/proyeccion";
+import type { EgresosProyectados } from "@/lib/dashboard/egresos-proy";
+import type { FaltaCargar } from "@/hooks/use-egresos-proyeccion";
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const pct1 = (x: number) => `${(x * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
@@ -90,6 +92,80 @@ export function ProyeccionIngresos({ p, children }: { p: ProyeccionMes; children
       </Tooltip>
     </TooltipProvider>
   );
+}
+
+const nombreMes = (anio: number, mes: number) => {
+  const m = new Date(Date.UTC(anio, mes - 1, 1)).toLocaleDateString("es-AR", { month: "long", timeZone: "UTC" });
+  return m.charAt(0).toUpperCase() + m.slice(1);
+};
+const capital = (t: string) => t.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
+
+// Egresos del mes en curso (Diego 28/10/2026): proyección de cierre con el cálculo del celu.
+export function ProyeccionEgresos({ e, anio, corte, children }: { e: EgresosProyectados; anio: number; corte: string | null; children: React.ReactNode }) {
+  const pc = (n: number) => `${Math.max(0, Math.min(100, (n / e.total) * 100))}%`;
+  const top = e.rubros.slice(0, 4);
+  const otros = e.rubros.slice(4).reduce((s, r) => s + r.total, 0);
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help border-b-[1.5px] border-dashed border-[#5BC2EA] font-medium" style={{ color: "#2a9fd0" }}>{children}</span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end" className="block max-w-none w-[360px] p-3.5 text-[12.5px] leading-[1.45] font-normal text-left">
+          <div className="opacity-60">Egresos · proyección de cierre {nombreMes(anio, e.mes)} {anio}</div>
+          <div className="text-[22px] font-bold my-0.5">{fmtMillones(e.total)}</div>
+          <div className="flex h-2 rounded bg-white/15 dark:bg-black/15 my-2 overflow-hidden">
+            <div className="bg-[#5BC2EA]" style={{ width: pc(e.cargado) }} />
+            <div className="bg-[#f5c26b]" style={{ width: pc(e.sinCargar) }} />
+            <div className="flex-1" style={{ background: "repeating-linear-gradient(45deg,#5BC2EA66 0 4px,transparent 4px 8px)" }} />
+          </div>
+          <Fila izq={`Cargado${corte ? ` al ${corte.slice(8, 10)}/${corte.slice(5, 7)}` : ""}`} der={fmtMillones(e.cargado)} />
+          <Fila izq="Falta cargar (Sin carga)" der={fmtMillones(e.sinCargar)} />
+          <Fila izq="Variable estimado" der={fmtMillones(e.variable)} />
+          <Sep />
+          <div className="opacity-60 mb-1">Por rubro</div>
+          {top.map((r) => <Fila key={r.rubro} izq={capital(r.rubro)} der={fmtMillones(r.total)} />)}
+          {otros > 0.5 && <Fila izq="Otros" der={fmtMillones(otros)} />}
+          <Sep />
+          <div className="opacity-60">
+            Mercaderías: food cost de los meses cerrados{e.foodCost != null ? ` (${Math.round(e.foodCost * 100)}%)` : ""} × ventas proyectadas.
+            El resto de los rubros, su promedio. Nunca menos que lo cargado + lo que falta cargar.
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// Mes cerrado con gastos de todos los meses que todavía no están cargados.
+export function FaltaCargarTip({ f, anio, mes, children }: { f: FaltaCargar; anio: number; mes: number; children: React.ReactNode }) {
+  const lista = f.items.slice(0, 6);
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help">
+            <Punto />
+            {children}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end" className="block max-w-none w-[340px] p-3.5 text-[12.5px] leading-[1.45] font-normal text-left">
+          <div className="opacity-60">Egresos · {nombreMes(anio, mes)} {anio}</div>
+          <div className="flex justify-between gap-3 mt-1"><span><Punto />Falta cargar · {f.n}</span><b className="tabular-nums">{fmtMillones(f.total)}</b></div>
+          <div className="opacity-70 mt-1">
+            {lista.map((x) => <Fila key={x.clave} izq={x.nombre} der={fmtMillones(x.ultimo)} />)}
+            {f.items.length > lista.length && <div>y {f.items.length - lista.length} más</div>}
+          </div>
+          <Sep />
+          <div className="opacity-60">Gastos de todos los meses que este mes todavía no están (monto del último mes). Se ven y se descartan en Sin carga.</div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function Punto() {
+  return <span aria-label="falta cargar" style={{ display: "inline-block", width: 7, height: 7, borderRadius: 999, background: "#e0a21b", marginRight: 6, verticalAlign: 1 }} />;
 }
 
 function Fila({ izq, der }: { izq: string; der: string }) {
