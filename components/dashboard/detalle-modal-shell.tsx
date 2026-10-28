@@ -11,6 +11,7 @@ import { useTableSearch } from "@/hooks/use-table-search";
 import type { ColDef } from "./compras-detalle-modal";
 import { cn } from "@/lib/utils";
 import type { DetalleResponse } from "@/lib/dashboard/types";
+import { REINTENTOS } from "@/lib/query-retry";
 
 interface DetalleModalShellProps<T> {
   open: boolean;
@@ -95,8 +96,7 @@ export function DetalleModalShell<T>({
     staleTime: 60_000,
     // Al buscar en el servidor no se vacía la tabla mientras llega la respuesta.
     placeholderData: onServerQuery ? keepPreviousData : undefined,
-    retry: 2,
-    retryDelay: (i) => Math.min(1000 * 2 ** i, 30_000),
+    ...REINTENTOS,
   });
 
   const rawData = response?.data;
