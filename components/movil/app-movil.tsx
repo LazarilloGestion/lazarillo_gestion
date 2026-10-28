@@ -12,7 +12,9 @@ import { leerQrArca, type DatosQr } from "@/lib/movil/qr-arca";
 import { leerQrDeArchivo } from "./leer-qr";
 import type { ProyeccionMes } from "@/lib/dashboard/proyeccion";
 import { frescura, hoyArgentina, type Frescura } from "@/lib/dashboard/frescura";
-import { totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
+import { claveDescarte, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { nombrePeriodo } from "@/lib/gastos-varios/periodo";
 import { FacturaMovil } from "./factura-movil";
 import { GastoMovil } from "./gasto-movil";
@@ -83,12 +85,16 @@ export function AppMovil() {
       <main className="flex-1 px-4 pt-3 pb-24">
         {!actual ? <p className="py-10 text-center text-zinc-500">Cargando…</p>
           : tab === "inicio" ? <Inicio localId={actual.localId} pdvId={actual.pdvId} irImpagas={() => setTab("impagas")} irSinCarga={() => setTab("sincarga")} />
-          : tab === "sincarga" ? <SinCarga pdvId={actual.pdvId} onCargar={(sc, mes) => { setCarga({ sc, mes }); setTab("cargar"); }} />
+          : tab === "sincarga" ? <SinCarga pdvId={actual.pdvId} nombrePdv={(id) => pdvs.find((p) => p.pdvId === id)?.label ?? "otro PDV"} onCargar={(sc, mes) => { setCarga({ sc, mes }); setTab("cargar"); }} />
           : tab === "impagas" ? <Impagas pdvId={actual.pdvId} />
           : tab === "actividad" ? <Actividad />
-          : carga && "sc" in carga ? (carga.sc.proveedorId
-            ? <FacturaMovil key={carga.sc.clave} qr={null} proveedorId={carga.sc.proveedorId} localId={actual.localId} pdvId={actual.pdvId} onCerrar={() => { setCarga(null); setTab("sincarga"); }} />
-            : <GastoMovil key={carga.sc.clave} pdvId={actual.pdvId} inicial={{ conceptoCodigo: carga.sc.conceptoCodigo, periodo: carga.mes, importe: carga.sc.ultimo }} onCerrar={() => { setCarga(null); setTab("sincarga"); }} />)
+          : carga && "sc" in carga ? (() => {
+            // Lo que llega por apertura se carga en su PDV de origen, por el importe entero.
+            const o = pdvs.find((p) => p.pdvId === carga.sc.pdvOrigenId) ?? actual;
+            return carga.sc.proveedorId
+              ? <FacturaMovil key={carga.sc.clave} qr={null} proveedorId={carga.sc.proveedorId} localId={o.localId} pdvId={o.pdvId} onCerrar={() => { setCarga(null); setTab("sincarga"); }} />
+              : <GastoMovil key={carga.sc.clave} pdvId={o.pdvId} inicial={{ conceptoCodigo: carga.sc.conceptoCodigo, periodo: carga.mes, importe: carga.sc.ultimoTotal }} onCerrar={() => { setCarga(null); setTab("sincarga"); }} />;
+          })()
           : carga && "gasto" in carga ? <GastoMovil key={actual.pdvId} pdvId={actual.pdvId} onCerrar={() => setCarga(null)} />
           : carga ? <FacturaMovil key={JSON.stringify(carga.qr)} qr={carga.qr} localId={actual.localId} pdvId={actual.pdvId} onCerrar={() => setCarga(null)} />
           : (
@@ -329,9 +335,21 @@ function Impagas({ pdvId }: { pdvId: number }) {
 
 // "Sin carga" en el celu (Diego 28/10): por mes, lo que se carga todos los meses y falta.
 // Tocar un gasto lo carga: factura del proveedor, o gasto vario con concepto, período e importe.
-function SinCarga({ pdvId, onCargar }: { pdvId: number; onCargar: (x: ItemSinCarga, mes: string) => void }) {
+function SinCarga({ pdvId, onCargar, nombrePdv }: { pdvId: number; onCargar: (x: ItemSinCarga, mes: string) => void; nombrePdv: (id: number | null) => string }) {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useFetchQuery<{ meses: MesSinCarga[] }>(["sin-carga", pdvId], `/api/sin-carga?pdvId=${pdvId}`, { staleTime: 60_000 });
   const [abierto, setAbierto] = useState<string | null>(null);
+  // Deslizar (Diego 28/10): a la izquierda "Este mes no" (sigue los próximos meses), a la derecha
+  // "Ya no va" (no es de todos los meses o ya no se contrata). Con "Deshacer" en el aviso.
+  async function descartar(x: ItemSinCarga, mes: string | null) {
+    const r = await fetch("/api/sin-carga/descartes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdvId, clave: claveDescarte(x.clave, mes), nombre: x.nombre }) });
+    const d = await r.json().catch(() => null);
+    if (!r.ok) { toast.error("No se pudo marcar"); return; }
+    void queryClient.invalidateQueries({ queryKey: ["sin-carga"] });
+    toast(mes ? `${x.nombre}: este mes no` : `${x.nombre}: ya no va`, {
+      action: { label: "Deshacer", onClick: () => { void fetch(`/api/sin-carga/descartes?id=${d?.id}`, { method: "DELETE" }).then(() => queryClient.invalidateQueries({ queryKey: ["sin-carga"] })); } },
+    });
+  }
   if (isLoading || !data) return <p className="py-10 text-center text-zinc-500">Cargando…</p>;
   const mes0 = data.meses[0];
   return (
@@ -349,17 +367,53 @@ function SinCarga({ pdvId, onCargar }: { pdvId: number; onCargar: (x: ItemSinCar
               {nombrePeriodo(m.mes)}<span className="ml-auto text-[13px] font-normal text-zinc-500">{t.n ? `${t.n} · ${$(t.total)}` : "todo cargado"}</span>
             </button>
             {ver && t.visibles.map((x) => (
-              <button key={x.clave} type="button" onClick={() => onCargar(x, m.mes)} className="flex w-full items-center gap-2.5 border-t border-zinc-50 dark:border-zinc-900 py-2.5 text-left">
+              <Deslizable key={x.clave} onTap={() => onCargar(x, m.mes)} onIzquierda={() => void descartar(x, m.mes)} onDerecha={() => void descartar(x, null)}>
                 <span className={cn("size-2 shrink-0 rounded-full", x.atrasado ? "bg-red-600" : "bg-zinc-300")} />
                 <span className="min-w-0 flex-1"><span className="block truncate text-[15px]">{x.nombre}</span>
-                  <span className={cn("block truncate text-[12px]", x.atrasado ? "text-red-600" : "text-zinc-500")}>{x.atrasado ? "atrasado" : "por venir"} · {x.vencido ? "mes vencido" : `suele el ${x.dia}`} · {x.rubro}</span></span>
+                  <span className={cn("block truncate text-[12px]", x.atrasado ? "text-red-600" : "text-zinc-500")}>{x.atrasado ? "atrasado" : "por venir"} · {x.vencido ? "mes vencido" : `suele el ${x.dia}`} · {x.rubro}</span>
+                  {x.pdvOrigenId && x.pdvOrigenId !== pdvId && <span className="block truncate text-[11.5px] text-zinc-400">se carga en {nombrePdv(x.pdvOrigenId)} · {$(x.ultimoTotal)}</span>}</span>
                 <b className="tabular-nums">{$(x.ultimo)}</b>
-              </button>
+              </Deslizable>
             ))}
           </div>
         );
       })}
-      <p className="mt-3 text-[12px] text-zinc-500">Tocá un gasto para cargarlo. “Ya no va” se marca desde el Panel.</p>
+      <p className="mt-3 text-[12px] text-zinc-500">Tocá un gasto para cargarlo. Deslizalo ← “Este mes no” · → “Ya no va”.</p>
+    </div>
+  );
+}
+
+// Fila que se desliza: ← (izquierda) y → (derecha) disparan una acción pasado el umbral; tocar, otra.
+const UMBRAL = 90;
+function Deslizable({ children, onTap, onIzquierda, onDerecha }: { children: React.ReactNode; onTap: () => void; onIzquierda: () => void; onDerecha: () => void }) {
+  const [dx, setDx] = useState(0);
+  const [arrastra, setArrastra] = useState(false);
+  const ini = useRef<{ x: number; y: number; id: number; horizontal: boolean | null } | null>(null);
+  const fin = () => {
+    const d = dx; ini.current = null; setDx(0); setArrastra(false);
+    if (d <= -UMBRAL) onIzquierda(); else if (d >= UMBRAL) onDerecha();
+  };
+  return (
+    <div className="relative overflow-hidden border-t border-zinc-50 dark:border-zinc-900">
+      <div className={cn("absolute inset-0 flex items-center px-4 text-[13px] font-bold text-white", dx > 0 ? "justify-start bg-red-600" : "justify-end bg-amber-500")}>
+        {dx > 0 ? "Ya no va →" : "← Este mes no"}
+      </div>
+      <div className="relative flex w-full items-center gap-2.5 bg-white dark:bg-zinc-950 py-2.5 text-left touch-pan-y select-none"
+        style={{ transform: `translateX(${dx}px)`, transition: arrastra ? "none" : "transform .2s" }}
+        onPointerDown={(e) => { ini.current = { x: e.clientX, y: e.clientY, id: e.pointerId, horizontal: null }; }}
+        onPointerMove={(e) => {
+          const s = ini.current; if (!s || s.id !== e.pointerId) return;
+          const mx = e.clientX - s.x, my = e.clientY - s.y;
+          if (s.horizontal === null && (Math.abs(mx) > 8 || Math.abs(my) > 8)) {
+            s.horizontal = Math.abs(mx) > Math.abs(my);
+            if (s.horizontal) { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); setArrastra(true); }
+          }
+          if (s.horizontal) setDx(Math.max(-140, Math.min(140, mx)));
+        }}
+        onPointerUp={() => { const s = ini.current; if (s && s.horizontal === null) { ini.current = null; onTap(); return; } fin(); }}
+        onPointerCancel={() => { ini.current = null; setDx(0); setArrastra(false); }}>
+        {children}
+      </div>
     </div>
   );
 }
