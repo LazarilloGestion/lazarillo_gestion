@@ -1,7 +1,18 @@
-import type { InsumoMaestro } from "@/lib/render/db";
+import type { Envase, InsumoMaestro } from "@/lib/render/db";
 
 export type InsumoComprado = { codigo: string; nombre: string; medida: string; codCga: string | null; unit: number | null; alic: number | null };
-export type InsumoCarga = { codigo: string; nombre: string; medida: string; codCga: string | null; rubro: string | null; unit: number | null; alic: number | null };
+export type InsumoCarga = { codigo: string; nombre: string; medida: string; codCga: string | null; rubro: string | null; unit: number | null; alic: number | null; envases: Envase[] };
+
+const norm = (s: string | null | undefined) => (s ?? "").trim().toUpperCase();
+
+/** Unidades base que trae una medida de compra: 1 si es la unidad del insumo, el factor si es
+ *  uno de sus envases (X8 → 8), null si no se sabe. */
+export function factorEnvase(ins: { medida: string; envases: Envase[] } | null | undefined, medida: string | null | undefined): number | null {
+  if (!ins || !norm(medida)) return null;
+  if (norm(medida) === norm(ins.medida)) return 1;
+  const e = ins.envases.find((x) => norm(x.envase) === norm(medida));
+  return e ? e.factor : null;
+}
 
 // Insumos del modal de carga. El concepto de caja sale del RUBRO del insumo en
 // MaxiRest (cada rubro de insumo tiene uno, Diego 27/10/2026); si el rubro no
@@ -14,21 +25,25 @@ export function unirInsumos(maestro: InsumoMaestro[], comprados: InsumoComprado[
   for (const m of maestro) {
     if (m.discontinuado) { vistos.add(m.codigo); continue; }
     const c = compra.get(m.codigo);
+    // El último precio puede ser por envase (15.614 el X8): se pasa a la unidad del insumo.
+    const f = c ? factorEnvase({ medida: m.medida ?? "", envases: m.envases }, c.medida) : null;
+    const unitC = c?.unit != null ? (f && f > 1 ? Math.round((c.unit / f) * 100) / 100 : c.unit) : null;
     out.push({
       codigo: m.codigo,
       nombre: m.nombre,
       medida: m.medida ?? c?.medida?.trim() ?? "",
       codCga: m.codCga ?? c?.codCga?.trim() ?? null,
       rubro: m.rubro,
-      unit: c?.unit ?? m.precio,
+      unit: unitC ?? m.precio,
       alic: c?.alic ?? null,
+      envases: m.envases,
     });
     vistos.add(m.codigo);
   }
   for (const c of comprados) {
     const cod = String(c.codigo).trim();
     if (vistos.has(cod)) continue;
-    out.push({ codigo: cod, nombre: c.nombre.trim(), medida: c.medida.trim(), codCga: c.codCga?.trim() || null, rubro: null, unit: c.unit, alic: c.alic });
+    out.push({ codigo: cod, nombre: c.nombre.trim(), medida: c.medida.trim(), codCga: c.codCga?.trim() || null, rubro: null, unit: c.unit, alic: c.alic, envases: [] });
   }
   // Nombres repetidos (el modal elige por nombre): se agrega el código al segundo.
   const cuenta = new Map<string, number>();
