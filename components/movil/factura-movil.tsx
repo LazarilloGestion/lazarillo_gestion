@@ -43,14 +43,14 @@ function ImporteCampo({ valor, onCambio, className }: { valor: number; onCambio:
   );
 }
 
-export function FacturaMovil({ qr, localId, pdvId, onCerrar }: {
-  qr: DatosQr | null; localId: number; pdvId: number; onCerrar: () => void;
+export function FacturaMovil({ qr, localId, pdvId, onCerrar, proveedorId }: {
+  qr: DatosQr | null; localId: number; pdvId: number; onCerrar: () => void; proveedorId?: number | null; // desde "Sin carga"
 }) {
   const queryClient = useQueryClient();
   const { data: maestros } = useFetchQuery<Maestros>(["facturas-maestros"], "/api/facturas/maestros", { staleTime: 15 * 60_000 });
   const proveedores = useMemo(() => maestros?.proveedores ?? [], [maestros]);
   const porCuit = qr ? proveedores.find((p) => soloDigitos(p.cuit) === qr.cuit) : undefined;
-  const [provSel, setProvSel] = useState<number | null>(null);
+  const [provSel, setProvSel] = useState<number | null>(proveedorId ?? null);
   const provId = provSel ?? porCuit?.id ?? null;
   const prov = proveedores.find((p) => p.id === provId) ?? null;
   const [busca, setBusca] = useState("");
@@ -112,7 +112,7 @@ export function FacturaMovil({ qr, localId, pdvId, onCerrar }: {
       const d = await res.json().catch(() => null);
       if (!res.ok) { setError([d?.error ?? "No se pudo guardar.", ...((d?.detalle as string[] | undefined) ?? [])].join(" ")); return; }
       toast.success(pagar ? "Factura cargada y pagada" : "Factura cargada", { description: `${prov.nombre ?? ""} · ${$(d.total)}` });
-      for (const k of ["pivot", "detalle", "impagas", "cta-cte", "actividad", "m-resumen"]) void queryClient.invalidateQueries({ queryKey: [k] });
+      for (const k of ["pivot", "detalle", "impagas", "cta-cte", "actividad", "m-resumen", "sin-carga"]) void queryClient.invalidateQueries({ queryKey: [k] });
       onCerrar();
     } catch {
       setError("Error de red: no se guardó.");

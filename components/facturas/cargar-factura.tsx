@@ -46,7 +46,7 @@ export function useCargaFactura(activo: boolean, pdvGestion: number | null | und
 
 // Lo que cambia al cargar / editar / eliminar una factura.
 export function refrescarCompras(queryClient: QueryClient) {
-  for (const k of ["pivot", "detalle", "actualizado-al", "impagas", "cta-cte", "compra-lineas", "factura", "actividad"]) {
+  for (const k of ["pivot", "detalle", "actualizado-al", "impagas", "cta-cte", "compra-lineas", "factura", "actividad", "sin-carga"]) {
     void queryClient.invalidateQueries({ queryKey: [k] });
   }
 }
