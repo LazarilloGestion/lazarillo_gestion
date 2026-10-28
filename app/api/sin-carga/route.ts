@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { hoyArgentina } from "@/lib/dashboard/frescura";
-import { sinCargaSql, type FilaSinCarga } from "@/lib/sin-carga/query";
-import { estaAtrasado, mesesObjetivo, venceEl, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
+import { queCompraSql, sinCargaSql, type FilaSinCarga } from "@/lib/sin-carga/query";
+import { esperadoEnMesCerrado, estaAtrasado, mesesObjetivo, resumenCompra, venceEl, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +23,22 @@ export async function GET(request: NextRequest) {
       prisma.$queryRaw<FilaSinCarga[]>(sinCargaSql(pdvId, objetivo)),
       prisma.sinCargaDescarte.findMany({ where: { pdvId }, orderBy: { creadoEn: "desc" }, select: { id: true, clave: true, nombre: true, creadoEn: true } }),
     ]);
+    const mesActual = objetivo[0].slice(0, 7);
+    const vivas = filas.filter((f) => esperadoEnMesCerrado(f.rubro ?? "", f.mes, mesActual, f.meses_con_gasto, f.meses_con_datos));
+    // Qué se le compra a cada proveedor (últimos 6 meses), para decidir si este mes va.
+    const ids = [...new Set(vivas.map((f) => f.proveedor_id).filter((x): x is number => x != null))];
+    const [ya, mo] = objetivo[objetivo.length - 1].split("-").map(Number);
+    const t = ya * 12 + (mo - 1) - 6;
+    const desde = `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}-01`;
+    const compras = ids.length ? await prisma.$queryRaw<{ pid: number; tipo: "i" | "c"; txt: string; obs: string | null; imp: number }[]>(queCompraSql(ids, desde)) : [];
+    const queCompra = new Map<number, string | null>();
+    for (const id of ids) {
+      const de = compras.filter((c) => c.pid === id);
+      queCompra.set(id, resumenCompra(de.filter((c) => c.tipo === "i").map((c) => ({ txt: c.txt, imp: Number(c.imp) })),
+        de.filter((c) => c.tipo === "c").map((c) => ({ txt: c.txt, obs: c.obs, imp: Number(c.imp) }))));
+    }
     const meses: MesSinCarga[] = objetivo.map((m) => ({ mes: m.slice(0, 7), items: [] }));
-    for (const f of filas) {
+    for (const f of vivas) {
       const vence = venceEl(f.mes, f.dia, f.vencido);
       const item: ItemSinCarga = {
         clave: f.clave,
@@ -35,6 +49,7 @@ export async function GET(request: NextRequest) {
         dia: f.dia, vencido: f.vencido,
         proveedorId: f.proveedor_id ?? null, conceptoCodigo: f.concepto_codigo ?? null,
         vence, atrasado: estaAtrasado(vence, hoy),
+        queCompra: f.proveedor_id != null ? queCompra.get(f.proveedor_id) ?? null : null,
       };
       meses.find((x) => x.mes === f.mes)?.items.push(item);
     }
