@@ -22,8 +22,9 @@ import { leerTabla } from "./db";
 export const HUERFANAS_DESDE = "2026-01-01";
 const TOPE_MES = 0.05;
 const TOPE_MINIMO = 3;
-// Primera versión: solo detecta (estado "propuesta") para revisar antes de tocar importes.
-export const APLICAR_HUERFANAS = false;
+// Diego (28/10/2026, caso Get Clean: fila editada en MaxiRest contada dos veces): "en esos casos
+// quiero que la reemplaces automáticamente y listo" → se aplica sola (la vieja a $0, restaurable).
+export const APLICAR_HUERFANAS = true;
 
 export const NOTA_HUERFANA = "MaxiRest ya no la tiene";
 

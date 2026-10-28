@@ -94,11 +94,16 @@ export function diagnosticoImporte(a: PartesArca, filas: FilaComprobante[]): Dia
     if (ren != null && cerca(ren, arcaBase)) {
       const falta = dif > 0 ? renglonesQueFaltan(vivas.flatMap((f) => f.renglones ?? []), dif) : null;
       por = falta ? `falta ${falta.join(" y ")} (${$(dif)})` : por;
-      textos.push(`La factura está bien cargada en sus renglones (${$(ren)}, igual que ARCA), pero en Caja —que es lo que suma en Resultados— hay ${$(caja)}: ${por}.`);
+      textos.push(`La factura está bien cargada en sus renglones (${$(ren)}, igual que ARCA), pero lo cargado en gastos —lo que suma en Resultados— es ${$(caja)}: ${por}.`);
     } else {
-      textos.push(`Neto + IVA: ARCA dice ${$(arcaBase)} y en Caja hay ${$(caja)} (${por}).`);
+      textos.push(`Neto + IVA: ARCA dice ${$(arcaBase)} y lo cargado es ${$(caja)} (${por}).`);
     }
-    if (principal) igualar = { rowId: principal.rowId, importe: Math.round((Math.abs(principal.importe) + dif) * 100) / 100, dif, por };
+    // Sobra justo una fila y sin ella cierra: es la versión vieja de un gasto editado en MaxiRest
+    // (Get Clean 28/10). Se anula sola en la próxima actualización desde Render: no se ofrece corregir.
+    const vieja = dif < 0 && resto.length > 1 ? resto.find((f) => cerca(Math.abs(f.importe), -dif) && cerca(caja - Math.abs(f.importe), arcaBase)) : undefined;
+    if (vieja) {
+      textos.splice(textos.length - 1, 1, `Está cargada dos veces: la fila de ${$(Math.abs(vieja.importe))} parece la versión vieja de un gasto que se editó en MaxiRest. Se reemplaza sola en la próxima actualización.`);
+    } else if (principal) igualar = { rowId: principal.rowId, importe: Math.round((Math.abs(principal.importe) + dif) * 100) / 100, dif, por };
   }
   let percepcion: Diagnostico["percepcion"] = null;
   if (!okPer) {

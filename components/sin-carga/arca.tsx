@@ -189,7 +189,7 @@ function refrescarTodo(queryClient: ReturnType<typeof useQueryClient>) {
 
 const MOTIVOS: { m: ACorregir["motivo"]; t: string; d: string }[] = [
   { m: "duplicado", t: "Cargadas dos veces", d: "En ARCA hay una sola, en el Panel dos (casi siempre una versión vieja que MaxiRest ya no tiene). Anulá la que sobra: queda en $0, no se borra." },
-  { m: "importe", t: "Importe distinto", d: "Qué parte no cierra y su arreglo. Ojo: \"Ver factura\" muestra la factura armada con sus renglones; lo que suma en Resultados es lo imputado en Caja." },
+  { m: "importe", t: "Importe distinto", d: "Qué parte no cierra y su arreglo. Ojo: \"Ver factura\" muestra la factura armada con sus renglones; lo que suma en Resultados es lo cargado en gastos." },
   { m: "numero", t: "Número distinto", d: "Se vinculan solas con ARCA." },
   { m: "fecha", t: "Fecha distinta", d: "Toman solas la fecha de ARCA." },
 ];
@@ -232,7 +232,7 @@ export function ListaCorregir({ data, onVer }: { data: CruceArca; onVer: (rowId:
                   {c.motivo === "duplicado" ? <Duplicado c={c} ocupado={ocupado === c.key} onVer={onVer}
                       onAnular={(g) => void hacer(c.key, { accion: "anular", rowIds: g.filas.map((f) => f.rowId), nota: `Duplicado de ${nroArca(c.arca)} (ARCA)` }, `Anulada ${g.comprobante}`)} />
                     : c.diag && <Importe c={c} ocupado={ocupado === c.key} onVer={onVer}
-                      onIgualar={() => c.diag?.igualar && void hacer(c.key, { accion: "igualar", rowId: c.diag.igualar.rowId, importe: c.diag.igualar.importe, key: c.key }, "Caja corregida")}
+                      onIgualar={() => c.diag?.igualar && void hacer(c.key, { accion: "igualar", rowId: c.diag.igualar.rowId, importe: c.diag.igualar.importe, key: c.key }, "Importe corregido")}
                       onPercepcion={(cod) => c.diag?.percepcion && void hacer(c.key, { accion: "percepcion", baseRowId: c.diag.percepcion.base.rowId, cod, importe: c.diag.percepcion.importe }, "Percepción cargada")} />}
                   <div className="mt-2 flex justify-end">
                     <button type="button" onClick={() => void estaBien(c)} className="text-xs font-semibold text-zinc-500 underline">{c.motivo === "duplicado" ? "No es duplicado" : "Está bien así"}</button>
@@ -291,7 +291,7 @@ function Importe({ c, ocupado, onVer, onIgualar, onPercepcion }: {
       <table className="mt-2 w-full text-xs">
         <thead><tr className="text-left text-[10.5px] uppercase text-zinc-400 [&>th]:px-2"><th className="py-1">Parte</th><th className="text-right">ARCA</th>
           <th className="text-right" title="La factura armada con sus renglones (es lo que muestra Ver)">Factura (renglones)</th>
-          <th className="text-right" title="Lo imputado en Caja: es lo que suma en Resultados">Caja (suma en Resultados)</th></tr></thead>
+          <th className="text-right" title="Lo cargado en gastos: es lo que suma en Resultados">Cargado (suma en Resultados)</th></tr></thead>
         <tbody>
           {d.partes.map((p) => (
             <tr key={p.parte} className="border-t border-zinc-100 dark:border-zinc-800 [&>td]:px-2">
@@ -307,9 +307,9 @@ function Importe({ c, ocupado, onVer, onIgualar, onPercepcion }: {
         {d.textos.map((t, i) => <li key={i}>{t}</li>)}
       </ul>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {d.igualar && !c.arca.nc && <button type="button" disabled={ocupado} onClick={onIgualar} title={`La fila de Caja pasa a ${$f(d.igualar.importe)}`}
+        {d.igualar && !c.arca.nc && <button type="button" disabled={ocupado} onClick={onIgualar} title={`El gasto pasa a ${$f(d.igualar.importe)}`}
           className="h-7 rounded-md bg-zinc-900 px-2.5 text-xs font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-zinc-900">
-          Corregir Caja ({d.igualar.dif > 0 ? "+" : "−"}{$f(Math.abs(d.igualar.dif))})</button>}
+          Corregir importe ({d.igualar.dif > 0 ? "+" : "−"}{$f(Math.abs(d.igualar.dif))})</button>}
         {d.percepcion && !c.arca.nc && (
           <span className="flex items-center gap-1.5 rounded-md border border-zinc-300 dark:border-zinc-600 py-0.5 pl-2 pr-0.5 text-xs">
             Percepción {$f(d.percepcion.importe)} de

@@ -33,4 +33,11 @@ describe("corregir con ARCA", () => {
     const g = [{ comprobante: "A", filas: [f({})] }, { comprobante: "B", filas: [f({})] }];
     expect(sugerirAnular(g, "2025-09-09")).toBeNull();
   });
+  it("Get Clean: versión vieja de una fila editada en MaxiRest → no ofrece corregir", () => {
+    const fila = (rowId: string, importe: number, cod = "20") => ({ rowId, comprobante: "A000600004136", localId: 1, fecha: "2026-10-14", concepto: "x", cod, importe, origen: null, renNeto: 0, renIva: 0, renN: 0, pagos: 0, anulada: false, renglones: null });
+    const d = diagnosticoImporte({ neto: 407734.49, iva: 85624.24, noGravado: 0, exento: 0, otros: 0, total: 493358.73 },
+      [fila("vieja", 493358.73), fila("nueva", 484447.72), fila("iva", 8911, "820")]);
+    expect(d.igualar).toBeNull();
+    expect(d.textos[0]).toContain("versión vieja");
+  });
 });
