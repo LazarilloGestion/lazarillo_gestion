@@ -1,13 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, Camera, ChevronLeft, ChevronRight, CircleDot, Home, PenLine, Plus, Receipt } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, CircleDot, ClipboardList, Home, PenLine, Plus, Receipt } from "lucide-react";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { cn } from "@/lib/utils";
 import type { Local } from "@/lib/types/domain";
 import { agrupar, separar, saldo, type ComprobanteImpago, type ImpagasResponse } from "@/lib/impagas/clasificar";
-import { agruparPorDia, horaDe, partesDescripcion, TITULO_ACCION } from "@/lib/actividad/formato";
 import { leerQrArca, type DatosQr } from "@/lib/movil/qr-arca";
 import { leerQrDeArchivo } from "./leer-qr";
 import type { ProyeccionMes } from "@/lib/dashboard/proyeccion";
@@ -25,7 +24,8 @@ import { FacturaVerMovil } from "./factura-ver-movil";
 // Lazarillo en el celular (Diego 27/10/2026): ver el mes, cargar facturas (con el QR
 // de ARCA de la foto) y ver lo que se debe. Mismo login y mismos datos que el Panel.
 
-type Tab = "inicio" | "cargar" | "impagas" | "actividad" | "sincarga";
+// Abajo: Inicio · Cargar · Impagas · Sin carga (Diego 28/10: "Actividad en el celu no tiene sentido").
+type Tab = "inicio" | "cargar" | "impagas" | "sincarga";
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const $ = (n: number) => "$ " + Math.round(n).toLocaleString("es-AR");
 const LS_PDV = "movil:pdv";
@@ -34,8 +34,10 @@ function leerPdv(): { localId: number; pdvId: number } | null {
   try { const v = JSON.parse(localStorage.getItem(LS_PDV) ?? "null"); return v?.pdvId ? v : null; } catch { return null; }
 }
 
+type Carga = { qr: DatosQr | null } | { gasto: true } | { sc: ItemSinCarga; mes: string } | null;
+
 export function AppMovil() {
-  const [tab, setTab] = useState<Tab>("inicio");
+  const [tab, setTabCrudo] = useState<Tab>("inicio");
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
   const pdvs = useMemo(() => (locales ?? []).flatMap((l) => l.puntosDeVenta.map((p) => ({ localId: l.id, pdvId: p.id, label: `${l.nombre} · ${p.nombre}` }))), [locales]);
   // El PDV elegido se recuerda en el celular (la lista llega del servidor después: no hay desfasaje al hidratar).
@@ -51,7 +53,27 @@ export function AppMovil() {
   // Carga
   // Mes con el que se abre "Sin carga": el que se está mirando en Inicio (Diego 28/10).
   const [mesSc, setMesSc] = useState<string | null>(null);
-  const [carga, setCarga] = useState<{ qr: DatosQr | null } | { gasto: true } | { sc: ItemSinCarga; mes: string } | null>(null);
+  const [carga, setCargaCruda] = useState<Carga>(null);
+  // Volver (Diego 28/10): deslizar → (salvo en Inicio, donde cambia el mes) o el botón Volver
+  // regresan a la pantalla anterior. Cada navegación guarda dónde estaba.
+  const historial = useRef<{ tab: Tab; carga: Carga }[]>([]);
+  const [hayAtras, setHayAtras] = useState(false);
+  const volverLocalRef = useRef<(() => boolean) | null>(null); // una pantalla con detalle propio (factura en Impagas)
+  const ir = (t: Tab, c: Carga = null) => {
+    historial.current.push({ tab, carga });
+    setHayAtras(true);
+    setTabCrudo(t); setCargaCruda(c);
+  };
+  const setTab = (t: Tab) => ir(t, t === "cargar" ? carga : null);
+  const setCarga = (c: Carga) => ir(c ? "cargar" : tab, c);
+  function atras() {
+    if (volverLocalRef.current?.()) return;
+    const prev = historial.current.pop();
+    setHayAtras(historial.current.length > 0);
+    if (prev) { setTabCrudo(prev.tab); setCargaCruda(prev.carga); return; }
+    if (tab !== "inicio" || carga) { setTabCrudo("inicio"); setCargaCruda(null); }
+  }
+  const toque = useRef<{ x: number; y: number } | null>(null);
   const [leyendo, setLeyendo] = useState(false);
   const [errorQr, setErrorQr] = useState<string | null>(null);
   const fotoRef = useRef<HTMLInputElement | null>(null);
@@ -72,11 +94,15 @@ export function AppMovil() {
     }
   }
 
-  const titulos: Record<Tab, string> = { inicio: "Inicio", cargar: carga ? ("gasto" in carga || ("sc" in carga && !carga.sc.proveedorId) ? "Gasto vario" : "Factura") : "Cargar", impagas: "Impagas", actividad: "Actividad", sincarga: "Sin carga" };
+  const titulos: Record<Tab, string> = { inicio: "Inicio", cargar: carga ? ("gasto" in carga || ("sc" in carga && !carga.sc.proveedorId) ? "Gasto vario" : "Factura") : "Cargar", impagas: "Impagas", sincarga: "Sin carga" };
+  const enInicio = tab === "inicio" && !carga;
 
   return (
     <div className="flex min-h-svh flex-col bg-white dark:bg-zinc-950">
       <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-zinc-100 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 px-4 py-3 backdrop-blur">
+        {!enInicio && (hayAtras || tab !== "inicio") && (
+          <button type="button" onClick={atras} aria-label="Volver" className="-ml-2 flex items-center text-sky-700"><ChevronLeft className="size-6" /></button>
+        )}
         <b className="text-[19px]">{titulos[tab]}</b>
         {pdvs.length > 0 && (
           <select value={actual?.pdvId ?? ""} onChange={(e) => elegir(Number(e.target.value))}
@@ -86,21 +112,30 @@ export function AppMovil() {
         )}
       </header>
 
-      <main className="flex-1 px-4 pt-3 pb-24">
+      <main className="flex-1 px-4 pt-3 pb-24 touch-pan-y"
+        onTouchStart={(e) => {
+          // Las filas que se deslizan (Sin carga) tienen su propia acción: no es "volver".
+          const t = e.touches[0];
+          toque.current = enInicio || (e.target as HTMLElement).closest("[data-deslizable]") ? null : { x: t.clientX, y: t.clientY };
+        }}
+        onTouchEnd={(e) => {
+          const s = toque.current; toque.current = null; if (!s) return;
+          const t = e.changedTouches[0]; const dx = t.clientX - s.x, dy = t.clientY - s.y;
+          if (dx > 80 && Math.abs(dx) > Math.abs(dy) * 1.5) atras();
+        }}>
         {!actual ? <p className="py-10 text-center text-zinc-500">Cargando…</p>
           : tab === "inicio" ? <Inicio localId={actual.localId} pdvId={actual.pdvId} irImpagas={() => setTab("impagas")} irSinCarga={(mes) => { setMesSc(mes); setTab("sincarga"); }} />
-          : tab === "sincarga" ? <SinCarga pdvId={actual.pdvId} mesInicial={mesSc} nombrePdv={(id) => pdvs.find((p) => p.pdvId === id)?.label ?? "otro PDV"} onCargar={(sc, mes) => { setCarga({ sc, mes }); setTab("cargar"); }} />
-          : tab === "impagas" ? <Impagas pdvId={actual.pdvId} />
-          : tab === "actividad" ? <Actividad />
+          : tab === "sincarga" ? <SinCarga pdvId={actual.pdvId} mesInicial={mesSc} nombrePdv={(id) => pdvs.find((p) => p.pdvId === id)?.label ?? "otro PDV"} onCargar={(sc, mes) => ir("cargar", { sc, mes })} />
+          : tab === "impagas" ? <Impagas pdvId={actual.pdvId} volverLocalRef={volverLocalRef} />
           : carga && "sc" in carga ? (() => {
             // Lo que llega por apertura se carga en su PDV de origen, por el importe entero.
             const o = pdvs.find((p) => p.pdvId === carga.sc.pdvOrigenId) ?? actual;
             return carga.sc.proveedorId
-              ? <FacturaMovil key={carga.sc.clave} qr={null} proveedorId={carga.sc.proveedorId} localId={o.localId} pdvId={o.pdvId} onCerrar={() => { setCarga(null); setTab("sincarga"); }} />
-              : <GastoMovil key={carga.sc.clave} pdvId={o.pdvId} inicial={{ conceptoCodigo: carga.sc.conceptoCodigo, periodo: carga.mes, importe: carga.sc.ultimoTotal }} onCerrar={() => { setCarga(null); setTab("sincarga"); }} />;
+              ? <FacturaMovil key={carga.sc.clave} qr={null} proveedorId={carga.sc.proveedorId} localId={o.localId} pdvId={o.pdvId} onCerrar={atras} />
+              : <GastoMovil key={carga.sc.clave} pdvId={o.pdvId} inicial={{ conceptoCodigo: carga.sc.conceptoCodigo, periodo: carga.mes, importe: carga.sc.ultimoTotal }} onCerrar={atras} />;
           })()
-          : carga && "gasto" in carga ? <GastoMovil key={actual.pdvId} pdvId={actual.pdvId} onCerrar={() => setCarga(null)} />
-          : carga ? <FacturaMovil key={JSON.stringify(carga.qr)} qr={carga.qr} localId={actual.localId} pdvId={actual.pdvId} onCerrar={() => setCarga(null)} />
+          : carga && "gasto" in carga ? <GastoMovil key={actual.pdvId} pdvId={actual.pdvId} onCerrar={atras} />
+          : carga ? <FacturaMovil key={JSON.stringify(carga.qr)} qr={carga.qr} localId={actual.localId} pdvId={actual.pdvId} onCerrar={atras} />
           : (
             <div className="flex flex-col gap-3">
               <input ref={fotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => void conFoto(e.target.files?.[0])} />
@@ -118,8 +153,8 @@ export function AppMovil() {
       </main>
 
       <nav className="fixed inset-x-0 bottom-0 z-20 flex border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 pb-[env(safe-area-inset-bottom)]">
-        {([["inicio", Home, "Inicio"], ["cargar", Plus, "Cargar"], ["impagas", CircleDot, "Impagas"], ["actividad", Bell, "Actividad"]] as const).map(([k, Icono, t]) => (
-          <button key={k} type="button" onClick={() => { setTab(k); if (k !== "cargar") setCarga(null); }}
+        {([["inicio", Home, "Inicio"], ["cargar", Plus, "Cargar"], ["impagas", CircleDot, "Impagas"], ["sincarga", ClipboardList, "Sin carga"]] as const).map(([k, Icono, t]) => (
+          <button key={k} type="button" onClick={() => { if (k === "sincarga") setMesSc(null); ir(k, null); }}
             className={cn("flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px]", tab === k ? "font-bold text-zinc-900 dark:text-white" : "text-zinc-500")}>
             <Icono className="size-5" />{t}
           </button>
@@ -324,12 +359,17 @@ function Kpi({ t, v, cls, sub, proy }: { t: string; v: string; cls?: string; sub
   );
 }
 
-function Impagas({ pdvId }: { pdvId: number }) {
+function Impagas({ pdvId, volverLocalRef }: { pdvId: number; volverLocalRef: React.MutableRefObject<(() => boolean) | null> }) {
   const { data, isLoading } = useFetchQuery<ImpagasResponse>(["impagas", pdvId, null], `/api/impagas?pdvId=${pdvId}`);
   const grupos = useMemo(() => (data ? agrupar(separar(data.data).impagas, "saldo") : []), [data]);
   const [abierto, setAbierto] = useState<string | null>(null);
   // Tocar una factura la abre (Diego 28/10): renglones, total y pagos, solo lectura.
   const [ver, setVer] = useState<ComprobanteImpago | null>(null);
+  // Volver (deslizar o el botón de arriba) cierra primero la factura abierta.
+  useEffect(() => {
+    volverLocalRef.current = ver ? () => { setVer(null); return true; } : null;
+    return () => { volverLocalRef.current = null; };
+  }, [ver, volverLocalRef]);
   const total = grupos.reduce((s, g) => s + g.saldo, 0);
   if (isLoading) return <p className="py-10 text-center text-zinc-500">Cargando…</p>;
   if (ver) return <FacturaVerMovil imp={ver} onVolver={() => setVer(null)} />;
@@ -391,15 +431,20 @@ function SinCarga({ pdvId, mesInicial, onCargar, nombrePdv }: { pdvId: number; m
             <button type="button" onClick={() => setAbierto(ver ? "" : m.mes)} className="flex w-full items-center gap-2 py-3 text-left font-bold">
               {nombrePeriodo(m.mes)}<span className="ml-auto text-[13px] font-normal text-zinc-500">{t.n ? `${t.n} · ${$(t.total)}` : "todo cargado"}</span>
             </button>
-            {ver && t.visibles.map((x) => (
+            {ver && porRubro(t.visibles).map(([rubro, items]) => (
+              <div key={rubro}>
+                <div className="flex pt-2 pb-1 text-[11px] font-bold uppercase tracking-wide text-zinc-400">{rubro}<span className="ml-auto">{items.length} · {$(items.reduce((s2, x) => s2 + x.ultimo, 0))}</span></div>
+                {items.map((x) => (
               <Deslizable key={x.clave} onTap={() => onCargar(x, m.mes)} onIzquierda={() => void descartar(x, m.mes)} onDerecha={() => void descartar(x, null)}>
                 <span className={cn("size-2 shrink-0 rounded-full", x.atrasado ? "bg-red-600" : "bg-zinc-300")} />
                 <span className="min-w-0 flex-1"><span className="block truncate text-[15px]">{x.nombre}</span>
                   {x.queCompra && <span className="block truncate text-[12px] text-zinc-600 dark:text-zinc-300">{x.queCompra}</span>}
-                  <span className={cn("block truncate text-[12px]", x.atrasado ? "text-red-600" : "text-zinc-500")}>{x.atrasado ? "atrasado" : "por venir"} · {x.vencido ? "mes vencido" : `suele el ${x.dia}`} · {x.rubro}</span>
+                  <span className={cn("block truncate text-[12px]", x.atrasado ? "text-red-600" : "text-zinc-500")}>{x.atrasado ? "atrasado" : "por venir"} · {x.vencido ? "mes vencido" : `suele el ${x.dia}`}</span>
                   {x.pdvOrigenId && x.pdvOrigenId !== pdvId && <span className="block truncate text-[11.5px] text-zinc-400">se carga en {nombrePdv(x.pdvOrigenId)} · {$(x.ultimoTotal)}</span>}</span>
                 <b className="tabular-nums">{$(x.ultimo)}</b>
               </Deslizable>
+                ))}
+              </div>
             ))}
           </div>
         );
@@ -407,6 +452,14 @@ function SinCarga({ pdvId, mesInicial, onCargar, nombrePdv }: { pdvId: number; m
       <p className="mt-3 text-[12px] text-zinc-500">Tocá un gasto para cargarlo. Deslizalo ← “Este mes no” · → “Ya no va”.</p>
     </div>
   );
+}
+
+// Por rubro, de mayor a menor (igual que el Panel).
+function porRubro(items: ItemSinCarga[]): [string, ItemSinCarga[]][] {
+  const m = new Map<string, ItemSinCarga[]>();
+  for (const x of items) m.set(x.rubro, [...(m.get(x.rubro) ?? []), x]);
+  const tot = (xs: ItemSinCarga[]) => xs.reduce((s, x) => s + x.ultimo, 0);
+  return [...m.entries()].sort((a, b) => tot(b[1]) - tot(a[1]));
 }
 
 // Fila que se desliza: ← (izquierda) y → (derecha) disparan una acción pasado el umbral; tocar, otra.
@@ -420,7 +473,7 @@ function Deslizable({ children, onTap, onIzquierda, onDerecha }: { children: Rea
     if (d <= -UMBRAL) onIzquierda(); else if (d >= UMBRAL) onDerecha();
   };
   return (
-    <div className="relative overflow-hidden border-t border-zinc-50 dark:border-zinc-900">
+    <div data-deslizable className="relative overflow-hidden border-t border-zinc-50 dark:border-zinc-900">
       <div className={cn("absolute inset-0 flex items-center px-4 text-[13px] font-bold text-white", dx > 0 ? "justify-start bg-red-600" : "justify-end bg-amber-500")}>
         {dx > 0 ? "Ya no va →" : "← Este mes no"}
       </div>
@@ -440,30 +493,6 @@ function Deslizable({ children, onTap, onIzquierda, onDerecha }: { children: Rea
         onPointerCancel={() => { ini.current = null; setDx(0); setArrastra(false); }}>
         {children}
       </div>
-    </div>
-  );
-}
-
-function Actividad() {
-  const { data } = useFetchQuery<{ data: { id: number; tipo: string; descripcion: string; accion: string; usuario: string | null; creadoEn: string }[] }>(["actividad", "todos"], "/api/actividad?todos=1&limite=40");
-  const dias = useMemo(() => agruparPorDia(data?.data ?? []), [data]);
-  return (
-    <div>
-      {dias.map((d) => (
-        <div key={d.dia}>
-          <div className="mt-3 mb-1 text-[11px] font-bold uppercase tracking-wide text-zinc-500">{d.dia}</div>
-          {d.items.map((a) => {
-            const p = partesDescripcion(a.descripcion);
-            return (
-              <div key={a.id} className="flex justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 py-2.5">
-                <span className="min-w-0"><span className="block truncate">{TITULO_ACCION[a.tipo]?.[a.accion] ?? a.accion}{p.nombre ? ` · ${p.nombre}` : ""}</span><span className="block truncate text-[12px] text-zinc-500">{p.detalle}</span></span>
-                <span className="shrink-0 text-[12px] text-zinc-500">{horaDe(new Date(a.creadoEn))}</span>
-              </div>
-            );
-          })}
-        </div>
-      ))}
-      {data && !data.data.length && <p className="py-6 text-center text-zinc-500">Sin actividad.</p>}
     </div>
   );
 }
