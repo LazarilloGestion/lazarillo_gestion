@@ -13,6 +13,7 @@ import { leerQrDeArchivo } from "./leer-qr";
 import type { ProyeccionMes } from "@/lib/dashboard/proyeccion";
 import { frescura, hoyArgentina, type Frescura } from "@/lib/dashboard/frescura";
 import { proyectarGastos } from "@/lib/movil/proyeccion-gastos";
+import { difPp, indicadores, promedioMensual } from "@/lib/movil/indicadores";
 import { claveDescarte, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -136,130 +137,150 @@ function BotonGrande({ cls, icono, titulo, sub, onClick, deshabilitado }: { cls:
 }
 
 type Resumen = { ventas: number; gastos: number; resultado: number; rubros: { rubro: string; total: number }[] };
+const $m = (n: number) => `$ ${(n / 1e6).toLocaleString("es-AR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} M`;
+const pc = (x: number | null) => (x == null ? "—" : `${(x * 100).toLocaleString("es-AR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`);
 
+// Inicio v2 (Diego 28/10/2026, mock_inicio_v2): sin switch. El mes en curso se proyecta solo;
+// un mes pasado es real, y si le quedó algo sin cargar se suma (cartel ámbar). Resultado con
+// rentabilidad, chips Food cost · Personal · Mix vs el mes anterior, promedio mensual del año,
+// deuda y sin carga en una línea, y deslizar en cualquier parte cambia de mes.
 function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pdvId: number; irImpagas: () => void; irSinCarga: () => void }) {
   const ahora = new Date();
   const [ym, setYm] = useState({ anio: ahora.getFullYear(), mes: ahora.getMonth() + 1 });
   const mover = (d: number) => setYm((x) => { let m = x.mes + d, a = x.anio; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } return { anio: a, mes: m }; });
-  const { data, isLoading } = useFetchQuery<Resumen>(
-    ["m-resumen", localId, pdvId, ym.anio, ym.mes], `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${ym.anio}&mes=${ym.mes}`);
+  const clave = `${ym.anio}-${String(ym.mes).padStart(2, "0")}`;
+  const url = (a: number, m: number) => `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${a}&mes=${m}`;
+  const { data, isLoading } = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, ym.anio, ym.mes], url(ym.anio, ym.mes));
   const { data: imp } = useFetchQuery<ImpagasResponse>(["impagas", pdvId, null], `/api/impagas?pdvId=${pdvId}`);
-  // Real / Proyección (Diego 28/10): las ventas al cierre son la misma proyección del tooltip
-  // de Ingresos del Panel; los gastos todavía no se proyectan (quedan en gris).
-  const [proyectar, setProyectar] = useState(false);
-  const { data: pr, isLoading: cargandoPr } = useFetchQuery<{ proyeccion: ProyeccionMes | null }>(
-    ["proyeccion-ingresos", ym.anio, localId, pdvId], proyectar ? `/api/dashboard/proyeccion?year=${ym.anio}&localId=${localId}&pdvId=${pdvId}` : null, { staleTime: 5 * 60_000 });
+  const { data: pr } = useFetchQuery<{ proyeccion: ProyeccionMes | null }>(
+    ["proyeccion-ingresos", ym.anio, localId, pdvId], `/api/dashboard/proyeccion?year=${ym.anio}&localId=${localId}&pdvId=${pdvId}`, { staleTime: 5 * 60_000 });
   const proy = pr?.proyeccion && pr.proyeccion.anio === ym.anio && pr.proyeccion.mes === ym.mes ? pr.proyeccion : null;
-  // Sin carga del mes en curso: la tarjeta y la proyección de gastos (Diego 28/10): gastos al
-  // cierre = cargado + lo que falta cargar (Sin carga) + la mercadería que falta según los días de venta.
   const { data: sc } = useFetchQuery<{ meses: MesSinCarga[] }>(["sin-carga", pdvId], `/api/sin-carga?pdvId=${pdvId}`, { staleTime: 60_000 });
-  const scMes = sc?.meses[0];
-  const scTot = scMes ? totales(scMes.items, false) : null;
-  // Los 3 meses cerrados anteriores (para el promedio por rubro y el food cost de la proyección).
+  const scActual = sc?.meses[0];
+  const scActualTot = scActual ? totales(scActual.items, false) : null;
+  const scMes = sc?.meses.find((m) => m.mes === clave);
+  // Los 3 meses anteriores: el anterior para los chips; los tres para el promedio por rubro de la proyección.
   const previos = [1, 2, 3].map((k) => { const t = ym.anio * 12 + (ym.mes - 1) - k; return { anio: Math.floor(t / 12), mes: (t % 12) + 1 }; });
-  const h1 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[0].anio, previos[0].mes], proyectar ? `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${previos[0].anio}&mes=${previos[0].mes}` : null);
-  const h2 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[1].anio, previos[1].mes], proyectar ? `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${previos[1].anio}&mes=${previos[1].mes}` : null);
-  const h3 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[2].anio, previos[2].mes], proyectar ? `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${previos[2].anio}&mes=${previos[2].mes}` : null);
+  const h1 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[0].anio, previos[0].mes], url(previos[0].anio, previos[0].mes));
+  const h2 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[1].anio, previos[1].mes], proy ? url(previos[1].anio, previos[1].mes) : null);
+  const h3 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[2].anio, previos[2].mes], proy ? url(previos[2].anio, previos[2].mes) : null);
   const historia = [h1.data, h2.data, h3.data].filter((x): x is Resumen => !!x && x.ventas > 0);
-  // Gastos al cierre (Diego 28/10): cargado + lo que falta cargar (Sin carga) y, por rubro, nunca
-  // menos que su promedio de los 3 meses cerrados (Mercaderías: food cost promedio × ventas proyectadas).
-  const gastosProy = (() => {
-    if (!proy || !data || !scMes || scMes.mes !== `${ym.anio}-${String(ym.mes).padStart(2, "0")}`) return null;
-    const p = proyectarGastos({ cargado: data.rubros, sinCargar: scMes.items, historia, ventasProy: proy.proyeccion });
-    return { ...p, resultado: proy.proyeccion - p.total };
+  const { data: anual } = useFetchQuery<{ meses: { mes: number; ventas: number; rubros: { rubro: string; total: number }[] }[] }>(
+    ["m-anual", localId, pdvId, ym.anio], `/api/m/anual?localId=${localId}&pdvId=${pdvId}&anio=${ym.anio}`, { staleTime: 10 * 60_000 });
+
+  // Modo del mes: proyección (en curso), real + sin cargar (pasado con faltantes) o real.
+  const sinCargarMes = scMes ? totales(scMes.items, true) : null;
+  const vista = (() => {
+    if (!data) return null;
+    if (proy && scMes) {
+      const g = proyectarGastos({ cargado: data.rubros, sinCargar: scMes.items, historia, ventasProy: proy.proyeccion });
+      return { modo: "proy" as const, ventas: proy.proyeccion, rubros: g.rubros.map((r) => ({ rubro: r.rubro, total: r.total })), gastosReal: data.gastos, faltan: sinCargarMes?.n ?? 0 };
+    }
+    if (sinCargarMes && sinCargarMes.total > 0.5) {
+      const g = proyectarGastos({ cargado: data.rubros, sinCargar: scMes!.items, historia: [], ventasProy: data.ventas });
+      return { modo: "falta" as const, ventas: data.ventas, rubros: g.rubros.map((r) => ({ rubro: r.rubro, total: r.total })), gastosReal: data.gastos, faltan: sinCargarMes.n, faltaTotal: sinCargarMes.total };
+    }
+    return { modo: "real" as const, ventas: data.ventas, rubros: data.rubros, gastosReal: data.gastos, faltan: 0 };
   })();
-  const enProy = proyectar && !!gastosProy && !!proy;
-  const ingresos = enProy ? proy!.proyeccion : data?.ventas ?? 0;
-  const rubrosVista = enProy ? gastosProy!.rubros : (data?.rubros ?? []);
-  const deRubro = (re: RegExp) => rubrosVista.filter((r) => re.test(r.rubro)).reduce((s, r) => s + r.total, 0);
-  const pctIng = (n: number) => (ingresos > 0 ? `${((n / ingresos) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%` : "—");
-  const kpiListo = !!data && (!proyectar || enProy);
-  const foodCost = deRubro(/mercader/i);
-  const costoMix = foodCost + deRubro(/personal/i);
+  const ind = vista ? indicadores(vista.ventas, vista.rubros) : null;
+  const indAnt = h1.data ? indicadores(h1.data.ventas, h1.data.rubros) : null;
+  const mesAnt = MESES[previos[0].mes - 1].slice(0, 3).toLowerCase();
+  // Promedio mensual del año: meses cerrados (antes del mes en curso).
+  const hoyClave = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`;
+  const cerrados = (anual?.meses ?? []).filter((m) => `${ym.anio}-${String(m.mes).padStart(2, "0")}` < hoyClave);
+  const prom = promedioMensual(cerrados);
+  const conVentas = cerrados.filter((m) => m.ventas > 0);
   const deuda = useMemo(() => {
     if (!imp) return null;
     const { impagas } = separar(imp.data);
     return { saldo: impagas.reduce((s, f) => s + saldo(f), 0), n: impagas.length };
   }, [imp]);
+
+  // Deslizar en cualquier parte: ← mes siguiente · → mes anterior.
+  const toque = useRef<{ x: number; y: number } | null>(null);
+  const pctIng = (n: number) => (ind && ind.ventas > 0 ? pc(n / ind.ventas) : "—");
+  const proyectado = vista && vista.modo !== "real";
   return (
-    <div>
+    <div className="touch-pan-y"
+      onTouchStart={(e) => { const t = e.touches[0]; toque.current = { x: t.clientX, y: t.clientY }; }}
+      onTouchEnd={(e) => {
+        const s = toque.current; toque.current = null; if (!s) return;
+        const t = e.changedTouches[0]; const dx = t.clientX - s.x, dy = t.clientY - s.y;
+        if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) mover(dx < 0 ? 1 : -1);
+      }}>
       <Actualizado localId={localId} pdvId={pdvId} />
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-2 flex items-center gap-2">
         <button type="button" onClick={() => mover(-1)} className="size-10 rounded-xl border border-zinc-200 dark:border-zinc-700 flex items-center justify-center"><ChevronLeft className="size-5" /></button>
         <div className="flex-1 text-center font-bold">{MESES[ym.mes - 1]} {ym.anio}</div>
         <button type="button" onClick={() => mover(1)} className="size-10 rounded-xl border border-zinc-200 dark:border-zinc-700 flex items-center justify-center"><ChevronRight className="size-5" /></button>
       </div>
-      <div className="mb-3 flex rounded-xl bg-zinc-100 dark:bg-zinc-800 p-1">
-        {([[false, "Real"], [true, "Proyección"]] as const).map(([v, t]) => (
-          <button key={t} type="button" onClick={() => setProyectar(v)}
-            className={cn("flex-1 rounded-lg py-2 text-[14px] font-semibold", proyectar === v ? "bg-white dark:bg-zinc-950 shadow-sm" : "text-zinc-500")}>{t}</button>
-        ))}
-      </div>
-      {proyectar ? (
-        <>
-          <div className="grid grid-cols-2 gap-2.5">
-            {proy ? (
-              <div className="rounded-2xl border border-[#5BC2EA] bg-[#5BC2EA]/10 px-3 py-2.5">
-                <div className="text-[11.5px] text-zinc-500">Ventas al cierre</div>
-                <b className="text-[17px] tabular-nums text-sky-700 dark:text-sky-300">{$(proy.proyeccion)}</b>
-                <div className="text-[11px] text-zinc-500">{proy.backtest ? `± ${Math.round(proy.backtest.errorMetodo * 100)}% · ` : ""}real {$(proy.facturado)} ({proy.diasTranscurridos} de {proy.diasMes} días)</div>
-                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"><i className="block h-full bg-[#5BC2EA]" style={{ width: `${Math.round((proy.diasTranscurridos / proy.diasMes) * 100)}%` }} /></div>
-              </div>
-            ) : <Kpi t="Ventas al cierre" v={cargandoPr ? "…" : "—"} cls="text-zinc-300" />}
-            {gastosProy ? (
-              <div className="rounded-2xl border border-[#5BC2EA] bg-[#5BC2EA]/10 px-3 py-2.5">
-                <div className="text-[11.5px] text-zinc-500">Gastos al cierre</div>
-                <b className="text-[17px] tabular-nums text-sky-700 dark:text-sky-300">{$(gastosProy.total)}</b>
-                <div className="text-[11px] text-zinc-500">estimado</div>
-              </div>
-            ) : <Kpi t="Gastos al cierre" v={cargandoPr ? "…" : "—"} cls="text-zinc-300" />}
-            <Kpi t="Resultado" v={gastosProy ? $(gastosProy.resultado) : "—"} cls={gastosProy ? (gastosProy.resultado >= 0 ? "text-emerald-700" : "text-red-600") : "text-zinc-300"} />
-            <Kpi t="Gastos / ventas" v={gastosProy && proy ? `${((gastosProy.total / proy.proyeccion) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%` : "—"} cls={gastosProy ? undefined : "text-zinc-300"} />
-          </div>
-          {gastosProy && (
-            <p className="mt-2 text-[12px] leading-relaxed text-zinc-500">
-              Gastos = cargado {$(gastosProy.cargado)} + sin cargar {$(gastosProy.sinCargar)} + variables {$(gastosProy.variable)} (lo que falta para llegar al promedio de cada rubro de los últimos {historia.length} meses; mercadería según el food cost).
-            </p>
-          )}
-          {!proy && !cargandoPr && <p className="mt-2 text-[12px] text-zinc-500">Solo se proyecta el mes en curso, mientras le falten días de ventas.</p>}
-        </>
-      ) : (
+      {vista?.modo === "proy" && proy && (
+        <div className="mb-2.5 text-center"><span className="rounded-full bg-sky-50 dark:bg-sky-950/50 px-3 py-1 text-[11.5px] font-bold text-sky-700 dark:text-sky-300">PROYECCIÓN al cierre · faltan {proy.diasRestantes} día{proy.diasRestantes === 1 ? "" : "s"}</span></div>
+      )}
+      {vista?.modo === "falta" && (
+        <div className="mb-2.5 text-center"><button type="button" onClick={irSinCarga} className="rounded-full bg-amber-50 dark:bg-amber-950/40 px-3 py-1 text-[11.5px] font-bold text-amber-700">REAL + {vista.faltan} sin cargar ({$m(vista.faltaTotal ?? 0)}) ›</button></div>
+      )}
       <div className="grid grid-cols-2 gap-2.5">
-        <Kpi t="Ventas" v={isLoading ? "…" : $(data?.ventas ?? 0)} />
-        <Kpi t="Gastos" v={isLoading ? "…" : $(data?.gastos ?? 0)} />
-        <Kpi t="Resultado" v={isLoading ? "…" : $(data?.resultado ?? 0)} cls={(data?.resultado ?? 0) >= 0 ? "text-emerald-700" : "text-red-600"} />
-        <Kpi t="Gastos / ventas" v={isLoading || !data?.ventas ? "—" : `${((data.gastos / data.ventas) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`} />
+        <Kpi t="Ventas" v={isLoading || !vista ? "…" : $(vista.ventas)} proy={vista?.modo === "proy"}
+          sub={vista?.modo === "proy" && proy ? `real ${$m(proy.facturado)}${proy.backtest ? ` · ±${Math.round(proy.backtest.errorMetodo * 100)}%` : ""}` : undefined} />
+        <Kpi t="Gastos" v={isLoading || !ind ? "…" : $(ind.gastos)} proy={!!proyectado}
+          sub={proyectado && vista ? `real ${$m(vista.gastosReal)}${vista.faltan ? ` · faltan cargar ${vista.faltan}` : ""}` : undefined} />
+        <div className="col-span-2 flex items-baseline rounded-2xl border border-zinc-200 dark:border-zinc-700 px-3 py-2.5">
+          <div><div className="text-[11.5px] text-zinc-500">Resultado</div>
+            <b className={cn("text-[17px] tabular-nums", ind && (ind.resultado >= 0 ? "text-emerald-700" : "text-red-600"))}>{ind ? $(ind.resultado) : "…"}</b></div>
+          <div className="ml-auto text-right"><div className="text-[11.5px] text-zinc-500">Rentabilidad</div>
+            <b className={cn("text-[17px] tabular-nums", ind?.rentabilidad != null && (ind.rentabilidad >= 0 ? "text-emerald-700" : "text-red-600"))}>{pc(ind?.rentabilidad ?? null)}</b></div>
+        </div>
       </div>
-      )}
+      <div className="mt-2.5 grid grid-cols-3 gap-2">
+        {([["Food cost", "foodCost"], ["Personal", "personal"], ["Mix", "mix"]] as const).map(([t, k], i) => {
+          const d = difPp(ind?.[k] ?? null, indAnt?.[k] ?? null);
+          return (
+            <div key={k} className="rounded-2xl border border-zinc-200 dark:border-zinc-700 px-2.5 py-2">
+              <div className="text-[11px] text-zinc-500">{t}</div>
+              <b className="block text-[16px] tabular-nums">{pc(ind?.[k] ?? null)}</b>
+              {d != null && Math.abs(d) >= 0.05 && (
+                <div className={cn("text-[11px] font-bold", d < 0 ? "text-emerald-700" : "text-red-600")}>{d < 0 ? "▼" : "▲"} {Math.abs(d).toLocaleString("es-AR", { maximumFractionDigits: 1 })} pp{i === 0 ? ` vs ${mesAnt}` : ""}</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
       <div className="mt-2.5 grid grid-cols-2 gap-2.5">
-        <Kpi t={`Food cost${enProy ? " al cierre" : ""}`} v={kpiListo ? pctIng(foodCost) : "—"} cls={kpiListo ? undefined : "text-zinc-300"} />
-        <Kpi t={`Costo mix${enProy ? " al cierre" : ""}`} v={kpiListo ? pctIng(costoMix) : "—"} cls={kpiListo ? undefined : "text-zinc-300"} />
-      </div>
-      <p className="mt-1 text-[11.5px] text-zinc-500">Food cost = mercadería / ventas · Costo mix = (personal + mercadería) / ventas.</p>
-      <button type="button" onClick={irImpagas} className="mt-3 block w-full rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4 text-left">
-        <div className="flex justify-between"><b>Deuda con proveedores</b><span className="text-sky-700">ver ›</span></div>
-        <div className="my-1 text-[24px] font-bold">{deuda ? $(deuda.saldo) : "…"}</div>
-        {deuda && <div className="text-[12.5px] text-zinc-500">{deuda.n} factura{deuda.n === 1 ? "" : "s"} impaga{deuda.n === 1 ? "" : "s"}</div>}
-      </button>
-      {scMes && scTot && (
-        <button type="button" onClick={irSinCarga} className="mt-3 block w-full rounded-2xl border border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/30 p-4 text-left">
-          <div className="flex justify-between"><b>Sin carga · {nombrePeriodo(scMes.mes)}</b><span className="text-sky-700">ver ›</span></div>
-          <div className="my-1 text-[24px] font-bold">{$(scTot.total)}</div>
-          <div className="text-[12.5px] text-zinc-500">{scTot.n ? `${scTot.n} gasto${scTot.n === 1 ? "" : "s"} de todos los meses sin cargar` : "Está todo cargado"}</div>
+        <button type="button" onClick={irImpagas} className="rounded-2xl border border-zinc-200 dark:border-zinc-700 px-3 py-2.5 text-left">
+          <div className="flex justify-between text-[11.5px] text-zinc-500"><span>Deuda proveedores</span><span className="text-sky-700">›</span></div>
+          <b className="block text-[17px] tabular-nums">{deuda ? $m(deuda.saldo) : "…"}</b>
+          {deuda && <div className="text-[11px] text-zinc-500">{deuda.n} impaga{deuda.n === 1 ? "" : "s"}</div>}
         </button>
+        <button type="button" onClick={irSinCarga} className="rounded-2xl border border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/30 px-3 py-2.5 text-left">
+          <div className="flex justify-between text-[11.5px] text-zinc-500"><span>Sin carga{scActual ? ` · ${MESES[Number(scActual.mes.slice(5)) - 1].slice(0, 3).toLowerCase()}` : ""}</span><span className="text-sky-700">›</span></div>
+          <b className="block text-[17px] tabular-nums">{scActualTot ? $m(scActualTot.total) : "…"}</b>
+          {scActualTot && <div className="text-[11px] text-zinc-500">{scActualTot.n ? `${scActualTot.n} gasto${scActualTot.n === 1 ? "" : "s"}` : "todo cargado"}</div>}
+        </button>
+      </div>
+      {prom && (
+        <div className="mt-2.5 rounded-2xl border border-zinc-200 dark:border-zinc-700 px-3 py-2.5 text-[13px]">
+          <b className="text-[13.5px]">Promedio mensual {ym.anio}</b>{" "}
+          <span className="text-zinc-400">({MESES[conVentas[0].mes - 1].slice(0, 3).toLowerCase()}–{MESES[conVentas[conVentas.length - 1].mes - 1].slice(0, 3).toLowerCase()})</span>
+          <div className="mt-1 flex justify-between"><span>Ventas</span><b className="tabular-nums">{$m(prom.ventas)}</b></div>
+          <div className="flex justify-between"><span>Gastos</span><b className="tabular-nums">{$m(prom.gastos)}</b></div>
+          <div className="flex justify-between"><span>Resultado · rentabilidad</span><b className="tabular-nums">{$m(prom.resultado)} · {pc(prom.rentabilidad)}</b></div>
+          <div className="flex justify-between"><span>Food cost · Personal · Mix</span><b className="tabular-nums">{pc(prom.foodCost)} · {pc(prom.personal)} · {pc(prom.mix)}</b></div>
+        </div>
       )}
-      <div className="mt-3 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4">
-        <div className="flex items-baseline justify-between"><b>Gastos del mes por rubro{enProy ? " · proyectado" : ""}</b><span className="text-[11.5px] text-zinc-500">% ing</span></div>
-        {rubrosVista.map((r) => (
+      <div className="mt-2.5 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4">
+        <div className="flex items-baseline justify-between"><b>Gastos del mes por rubro{vista?.modo === "proy" ? " · proyectado" : vista?.modo === "falta" ? " · con lo sin cargar" : ""}</b><span className="text-[11.5px] text-zinc-500">% ing</span></div>
+        {(vista?.rubros ?? []).map((r) => (
           <div key={r.rubro} className="flex items-baseline gap-2 border-b border-zinc-100 dark:border-zinc-800 py-2 last:border-0 text-[14px]">
             <span className="min-w-0 flex-1 truncate">{r.rubro}</span>
-            <b className={cn("tabular-nums", enProy && "text-sky-700 dark:text-sky-300")}>{$(r.total)}</b>
+            <b className={cn("tabular-nums", proyectado && "text-sky-700 dark:text-sky-300")}>{$(r.total)}</b>
             <span className="w-12 shrink-0 text-right text-[12.5px] tabular-nums text-zinc-500">{pctIng(r.total)}</span>
           </div>
         ))}
-        {data && !data.rubros.length && <p className="pt-2 text-[13px] text-zinc-500">Sin gastos en el mes.</p>}
+        {vista && !vista.rubros.length && <p className="pt-2 text-[13px] text-zinc-500">Sin gastos en el mes.</p>}
       </div>
-      <Link href="/dashboard?completa=1" className="mt-4 block text-center text-[13px] text-sky-700 underline">Abrir el Panel completo</Link>
+      <p className="mt-2 text-center text-[11.5px] text-zinc-400">← deslizá para cambiar de mes →</p>
+      <Link href="/dashboard?completa=1" className="mt-3 block text-center text-[13px] text-sky-700 underline">Abrir el Panel completo</Link>
     </div>
   );
 }
@@ -287,8 +308,14 @@ function Actualizado({ localId, pdvId }: { localId: number; pdvId: number }) {
   );
 }
 
-function Kpi({ t, v, cls }: { t: string; v: string; cls?: string }) {
-  return <div className="rounded-2xl border border-zinc-200 dark:border-zinc-700 px-3 py-2.5"><div className="text-[11.5px] text-zinc-500">{t}</div><b className={cn("text-[17px] tabular-nums", cls)}>{v}</b></div>;
+function Kpi({ t, v, cls, sub, proy }: { t: string; v: string; cls?: string; sub?: string; proy?: boolean }) {
+  return (
+    <div className={cn("rounded-2xl border px-3 py-2.5", proy ? "border-[#5BC2EA] bg-[#5BC2EA]/10" : "border-zinc-200 dark:border-zinc-700")}>
+      <div className="text-[11.5px] text-zinc-500">{t}</div>
+      <b className={cn("block text-[17px] tabular-nums", proy && "text-sky-700 dark:text-sky-300", cls)}>{v}</b>
+      {sub && <div className="text-[11px] leading-snug text-zinc-500">{sub}</div>}
+    </div>
+  );
 }
 
 function Impagas({ pdvId }: { pdvId: number }) {
