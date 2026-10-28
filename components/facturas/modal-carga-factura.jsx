@@ -490,6 +490,19 @@ function ModalNuevaCarga(props) {
     return () => { vivo = false; };
   }, [prov]);
   const ultConLineas = () => ultFact;
+  // Precargada la estructura y después se cambia el proveedor: se saca la precarga (era de otro
+  // proveedor) y vuelve a aparecer la opción de precargar la del nuevo (Diego, 28/10/2026).
+  const provAnterior = useRef(prov);
+  useEffect(() => {
+    if (provAnterior.current === prov) return;
+    provAnterior.current = prov;
+    if (origenPre && !existente) {
+      setOrigenPre(null);
+      setLineas([]);
+      setPercepciones([]);
+      setImpIntG("");
+    }
+  }, [prov]);
   const cuerpoVisible = existente || !!origenPre || !!(prov && tipoCpb && compNum && fecha);
   useEffect(() => {
     if (modo === "factura" && cuerpoVisible && lineas.length === 0 && !existente)
@@ -653,7 +666,7 @@ function ModalNuevaCarga(props) {
 
         {vista === "nueva" && !rde ? (
           <div style={{ display: "inline-flex", gap: 4, background: C.fondo, borderRadius: 11, padding: 4, margin: "12px 0 14px" }}>
-            {[["factura", "Factura (con o sin pago)"], ["vario", "Gastos Varios"]].map(([k, t]) => (
+            {[["factura", "Factura"], ["vario", "Gastos Varios"]].map(([k, t]) => (
               <button key={k} type="button" tabIndex={-1} onClick={() => { setModo(k); setErrores([]); setErrFecha(false); setParecidoV(null); }}
                 style={{ border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer",
                   background: modo === k ? "#fff" : "transparent", color: modo === k ? C.neg : C.gris, boxShadow: modo === k ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>{t}</button>
@@ -1016,10 +1029,11 @@ function ModalNuevaCarga(props) {
               <FechaInput tabIndex={-1} style={{ ...inp, color: fechaV === fechaDelPeriodo(periodoV) ? C.gris : C.neg, border: errFecha ? `1.6px solid ${C.rojo}` : inp.border }} iso={fechaV}
                 onISO={(v) => { setFechaV(v); setErrFecha(false); }} />
               {errFecha && <div style={{ fontSize: 11, color: C.rojo, fontWeight: 700, marginTop: 3 }}>Falta una fecha válida.</div>}</div>
-            <div><span style={lab}>Rubro</span>
-              <Combo opciones={rubros} valor={rubroV} placeholder="Buscar rubro..." onElegir={(r) => { setRubroV(r); if (rubroDe(conceptoV) !== r) setConceptoV(""); }} /></div>
+            {/* Primero el concepto (el rubro se completa solo), después el rubro (Diego, 28/10/2026). */}
             <div><span style={lab}>Concepto</span>
               <Combo opciones={conceptosDe(rubroV)} valor={conceptoV} placeholder="Buscar concepto..." onElegir={(c) => { setConceptoV(c); setRubroV(rubroDe(c) || rubroV); }} /></div>
+            <div><span style={lab}>Rubro</span>
+              <Combo opciones={rubros} valor={rubroV} placeholder="Buscar rubro..." onElegir={(r) => { setRubroV(r); if (rubroDe(conceptoV) !== r) setConceptoV(""); }} /></div>
             <div style={{ gridColumn: "1 / -1" }}><span style={lab}>Detalle</span>
               <input style={inp} value={detalle} maxLength={200} onChange={(e) => setDetalle(e.target.value)} placeholder="Ej: ferretería, flete, devolución seña cancha" /></div>
             <div><span style={lab}>Importe</span><input style={{ ...inp, textAlign: "right", fontWeight: 700 }} value={importeV} placeholder="0,00" onChange={(e) => setImporteV(fmtImp(e.target.value))} /></div>
