@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createMiddlewareClient } from "@/lib/supabase/middleware";
 import { isAllowedEmail } from "@/lib/auth/allowed-emails";
+import { esCelular } from "@/lib/es-celular";
 
 // /api/cron: lo llama el cron de Vercel sin sesión; la ruta valida su propio secreto.
 const PUBLIC_PATHS = ["/login", "/auth/callback", "/api/cron"];
@@ -64,9 +65,25 @@ export async function proxy(request: NextRequest) {
     return withUpdatedCookies(NextResponse.redirect(loginUrl));
   }
 
+  // Celular → versión celular (Diego 28/10/2026: "¿no debería darse cuenta solo?"). En un
+  // teléfono, /dashboard (y /) abre /m, salvo que se haya pedido el Panel completo desde /m
+  // (?completa=1 → cookie). Entrar a /m (p. ej. "Versión celular" del menú) borra esa elección.
+  if (user) {
+    if (pathname === "/m" && request.cookies.get(COOKIE_VISTA)) {
+      response.cookies.delete(COOKIE_VISTA);
+    } else if (pathname === "/dashboard" && searchParams.get("completa") === "1") {
+      response.cookies.set(COOKIE_VISTA, "completa", { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
+    } else if ((pathname === "/dashboard" || pathname === "/") && esCelular(request.headers.get("user-agent"))
+      && request.cookies.get(COOKIE_VISTA)?.value !== "completa") {
+      return withUpdatedCookies(NextResponse.redirect(new URL("/m", request.url)));
+    }
+  }
+
   // Retornar response con cookies actualizadas (refresh token automático)
   return response;
 }
+
+const COOKIE_VISTA = "lz-vista";
 
 export const config = {
   matcher: [
