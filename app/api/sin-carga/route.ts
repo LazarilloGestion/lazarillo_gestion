@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { hoyArgentina } from "@/lib/dashboard/frescura";
+import { esConceptoFeriado, feriadosDelMes } from "@/lib/feriados";
 import { queCompraSql, sinCargaSql, type FilaSinCarga } from "@/lib/sin-carga/query";
 import { esperadoEnMesCerrado, estaAtrasado, mesesObjetivo, resumenCompra, venceEl, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
 
@@ -24,7 +25,9 @@ export async function GET(request: NextRequest) {
       prisma.sinCargaDescarte.findMany({ where: { pdvId }, orderBy: { creadoEn: "desc" }, select: { id: true, clave: true, nombre: true, creadoEn: true } }),
     ]);
     const mesActual = objetivo[0].slice(0, 7);
-    const vivas = filas.filter((f) => esperadoEnMesCerrado(f.rubro ?? "", f.mes, mesActual, f.meses_con_gasto, f.meses_con_datos));
+    const vivas = filas.filter((f) => esperadoEnMesCerrado(f.rubro ?? "", f.mes, mesActual, f.meses_con_gasto, f.meses_con_datos)
+      // "Feriados" (sueldos) solo en meses con feriados (Diego 28/10). Año sin calendario: se muestra.
+      && !(esConceptoFeriado(f.concepto) && feriadosDelMes(f.mes)?.length === 0));
     // Qué se le compra a cada proveedor (últimos 6 meses), para decidir si este mes va.
     const ids = [...new Set(vivas.map((f) => f.proveedor_id).filter((x): x is number => x != null))];
     const [ya, mo] = objetivo[objetivo.length - 1].split("-").map(Number);
