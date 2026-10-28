@@ -11,6 +11,7 @@ import { agruparPorDia, horaDe, partesDescripcion, TITULO_ACCION } from "@/lib/a
 import { leerQrArca, type DatosQr } from "@/lib/movil/qr-arca";
 import { leerQrDeArchivo } from "./leer-qr";
 import type { ProyeccionMes } from "@/lib/dashboard/proyeccion";
+import { frescura, hoyArgentina, type Frescura } from "@/lib/dashboard/frescura";
 import { FacturaMovil } from "./factura-movil";
 import { GastoMovil } from "./gasto-movil";
 
@@ -140,6 +141,7 @@ function Inicio({ localId, pdvId, irImpagas }: { localId: number; pdvId: number;
   }, [imp]);
   return (
     <div>
+      <Actualizado localId={localId} pdvId={pdvId} />
       <div className="mb-3 flex items-center gap-2">
         <button type="button" onClick={() => mover(-1)} className="size-10 rounded-xl border border-zinc-200 dark:border-zinc-700 flex items-center justify-center"><ChevronLeft className="size-5" /></button>
         <div className="flex-1 text-center font-bold">{MESES[ym.mes - 1]} {ym.anio}</div>
@@ -189,6 +191,29 @@ function Inicio({ localId, pdvId, irImpagas }: { localId: number; pdvId: number;
         {data && !data.rubros.length && <p className="pt-2 text-[13px] text-zinc-500">Sin gastos en el mes.</p>}
       </div>
       <Link href="/dashboard" className="mt-4 block text-center text-[13px] text-sky-700 underline">Abrir el Panel completo</Link>
+    </div>
+  );
+}
+
+// Chip "actualizado al" del PDV elegido, como en el Panel (Diego 28/10): punto verde hasta
+// ayer, ámbar 2-3 días, rojo más viejo; con la fecha de las últimas ventas y compras.
+const PUNTO: Record<Frescura, string> = { al_dia: "bg-emerald-600", atrasado: "bg-amber-500", viejo: "bg-red-600" };
+const LEYENDA: Record<Frescura, string> = { al_dia: "al día", atrasado: "atrasado", viejo: "desactualizado" };
+const ddmm = (f: string) => `${f.slice(8, 10)}/${f.slice(5, 7)}`;
+function Actualizado({ localId, pdvId }: { localId: number; pdvId: number }) {
+  const { data } = useFetchQuery<{ ventas: string | null; compras: string | null }>(
+    ["actualizado-al", localId, pdvId], `/api/dashboard/actualizado?localId=${localId}&pdvId=${pdvId}`, { staleTime: 5 * 60_000 });
+  const base = data?.ventas ?? data?.compras;
+  if (!base) return null;
+  const estado = frescura(base, hoyArgentina());
+  return (
+    <div className="mb-3 flex justify-center">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 dark:border-zinc-700 px-3 py-1 text-[12.5px]">
+        <span className={cn("size-2 shrink-0 rounded-full", PUNTO[estado])} />
+        {LEYENDA[estado]}
+        {data?.ventas && <> · ventas {ddmm(data.ventas)}</>}
+        {data?.compras && <> · compras {ddmm(data.compras)}</>}
+      </span>
     </div>
   );
 }
