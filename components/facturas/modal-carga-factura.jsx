@@ -378,6 +378,7 @@ function ModalNuevaCarga(props) {
   // Factura o Gastos Varios (solo al cargar uno nuevo; ver / editar es siempre factura).
   const [modo, setModo] = useState(vista === "nueva" && ctx.modo === "vario" ? "vario" : "factura");
   const fechaDefault = HOY;
+
   // factura
   const rde = ctx.repetirDe || null;
   const ede = ctx.editarDe || null; // editar una factura existente desde la cta cte
