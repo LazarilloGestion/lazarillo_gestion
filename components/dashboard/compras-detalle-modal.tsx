@@ -448,7 +448,9 @@ function ComprasRow({
           </button>
         )}
       </td>
-      <td className="px-3 py-1.5 truncate text-muted-foreground" title={normalize(item.observacManual ?? item.observac)}>{normalize(item.observacManual ?? item.observac)}</td>
+      {(item.observacManual ?? item.observac ?? "").trim() || !item.obsInsumos
+        ? <td className="px-3 py-1.5 truncate text-muted-foreground" title={normalize(item.observacManual ?? item.observac)}>{normalize(item.observacManual ?? item.observac)}</td>
+        : <td className="px-3 py-1.5 truncate italic text-muted-foreground/60" title={`Insumos de la factura (sin observación): ${item.obsInsumos}`}>{item.obsInsumos}</td>}
       <td className="px-3 py-1.5 truncate" title={normalize(effectiveConcepto?.rubro?.nombre)}>{normalize(effectiveConcepto?.rubro?.nombre)}</td>
       <td className="px-3 py-1.5 truncate" title={normalize(effectiveConcepto?.nombre)}>{normalize(effectiveConcepto?.nombre)}</td>
       <td className="px-3 py-1.5 text-right tabular-nums font-medium whitespace-nowrap">
@@ -812,6 +814,7 @@ export function ComprasDetalleModal({ filter, onClose }: { filter: DetalleFilter
     item.proveedorRef?.razon,
     item.observacManual,
     item.observac,
+    item.obsInsumos,
     item.detalle,
     item.concepto,
     (item.conceptoCajaManual ?? item.conceptoCaja)?.nombre,

@@ -13,6 +13,8 @@ function PopoverContent({
   align = "start",
   sideOffset = 4,
   container,
+  collisionBoundary,
+  collisionPadding = 8,
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Content> & {
   container?: HTMLElement | null;
@@ -22,6 +24,10 @@ function PopoverContent({
       <PopoverPrimitive.Content
         align={align}
         sideOffset={sideOffset}
+        // Dentro de un modal (container) el límite es el modal, no la ventana: si la fila está
+        // abajo de todo el desplegable se abre hacia arriba en vez de quedar cortado (Diego 28/10).
+        collisionBoundary={collisionBoundary ?? container ?? undefined}
+        collisionPadding={collisionPadding}
         className={cn(
           "z-50 flex w-72 max-h-[var(--radix-popper-available-height)] flex-col overflow-hidden rounded-md border border-border bg-popover p-0 text-popover-foreground shadow-md outline-none",
           "data-[state=open]:animate-in data-[state=closed]:animate-out",

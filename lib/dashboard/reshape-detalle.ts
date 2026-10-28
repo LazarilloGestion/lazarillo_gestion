@@ -22,6 +22,7 @@ export interface DetalleSqlRow {
   detalle: string | null;
   observac: string | null;
   observacManual: string | null;
+  obsInsumos?: string | null;
   proveedorTexto: string | null;
   proveedorId: number | null;
   proveedorNombre: string | null;
@@ -70,6 +71,7 @@ export function reshapeDetalle(r: DetalleSqlRow) {
     detalle: r.detalle,
     observac: r.observac,
     observacManual: r.observacManual,
+    obsInsumos: r.obsInsumos ?? null,
     proveedor: r.proveedorTexto,
     proveedorRef: r.proveedorId != null ? { id: r.proveedorId, nombre: r.proveedorNombre, razon: r.proveedorRazon } : null,
     local: r.localNombre != null ? { nombre: r.localNombre } : null,
