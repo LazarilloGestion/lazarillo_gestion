@@ -66,5 +66,24 @@ export function clasificar(arca: ArcaConCarga[], sinPar: SinPar[]) {
       corregir.push({ motivo: "numero", arca: a, panel: par, detalle: `en ARCA Nº ${a.puntoVenta}-${a.numero} · cargada como ${par.comprobante}` });
     } else quedan.push(a);
   }
-  return { ok, faltan: quedan, corregir };
+  // Factura + nota de crédito del mismo proveedor por el mismo importe, ninguna cargada: se anulan
+  // entre sí y no se muestran para cargar (Diego 28/10: "mismo importe, no cuentan").
+  const sinAnuladas = sacarAnuladas(quedan);
+  return { ok, faltan: sinAnuladas.faltan, corregir, anuladasEntreSi: sinAnuladas.anuladas };
+}
+
+/** Empareja FC con NC sin cargar: mismo CUIT, mismo total (±$1) y a 60 días o menos. */
+export function sacarAnuladas(lista: ArcaConCarga[]) {
+  const ncs = lista.filter((a) => a.nc);
+  const usadas = new Set<string>();
+  const anuladas: [ArcaConCarga, ArcaConCarga][] = [];
+  for (const nc of ncs) {
+    const fc = lista
+      .filter((a) => !a.nc && !usadas.has(a.key) && a.cuit === nc.cuit && Math.abs(a.total - nc.total) <= 1 && dias(a.fecha, nc.fecha) <= 60)
+      .sort((x, y) => dias(x.fecha, nc.fecha) - dias(y.fecha, nc.fecha))[0];
+    if (!fc) continue;
+    usadas.add(fc.key); usadas.add(nc.key);
+    anuladas.push([fc, nc]);
+  }
+  return { faltan: lista.filter((a) => !usadas.has(a.key)), anuladas };
 }
