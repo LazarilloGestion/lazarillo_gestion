@@ -758,3 +758,17 @@ model EventoPagoProveedor {
   @@map("eventos_pago_proveedor")
 }
 
+
+// "Sin carga" (28/10/2026): un gasto de todos los meses que en ese PDV ya no va
+// (clave "p:<proveedorId>" o "c:<concepto de caja>"). Se deshace borrando la fila.
+model SinCargaDescarte {
+  id        Int      @id @default(autoincrement())
+  pdvId     Int
+  clave     String
+  nombre    String?
+  creadoEn  DateTime @default(now())
+  creadoPor String?
+
+  @@unique([pdvId, clave])
+  @@map("sin_carga_descartes")
+}

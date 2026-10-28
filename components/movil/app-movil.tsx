@@ -12,13 +12,15 @@ import { leerQrArca, type DatosQr } from "@/lib/movil/qr-arca";
 import { leerQrDeArchivo } from "./leer-qr";
 import type { ProyeccionMes } from "@/lib/dashboard/proyeccion";
 import { frescura, hoyArgentina, type Frescura } from "@/lib/dashboard/frescura";
+import { totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
+import { nombrePeriodo } from "@/lib/gastos-varios/periodo";
 import { FacturaMovil } from "./factura-movil";
 import { GastoMovil } from "./gasto-movil";
 
 // Lazarillo en el celular (Diego 27/10/2026): ver el mes, cargar facturas (con el QR
 // de ARCA de la foto) y ver lo que se debe. Mismo login y mismos datos que el Panel.
 
-type Tab = "inicio" | "cargar" | "impagas" | "actividad";
+type Tab = "inicio" | "cargar" | "impagas" | "actividad" | "sincarga";
 const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const $ = (n: number) => "$ " + Math.round(n).toLocaleString("es-AR");
 const LS_PDV = "movil:pdv";
@@ -42,7 +44,7 @@ export function AppMovil() {
   };
 
   // Carga
-  const [carga, setCarga] = useState<{ qr: DatosQr | null } | { gasto: true } | null>(null);
+  const [carga, setCarga] = useState<{ qr: DatosQr | null } | { gasto: true } | { sc: ItemSinCarga; mes: string } | null>(null);
   const [leyendo, setLeyendo] = useState(false);
   const [errorQr, setErrorQr] = useState<string | null>(null);
   const fotoRef = useRef<HTMLInputElement | null>(null);
@@ -63,7 +65,7 @@ export function AppMovil() {
     }
   }
 
-  const titulos: Record<Tab, string> = { inicio: "Inicio", cargar: carga ? ("gasto" in carga ? "Gasto vario" : "Factura") : "Cargar", impagas: "Impagas", actividad: "Actividad" };
+  const titulos: Record<Tab, string> = { inicio: "Inicio", cargar: carga ? ("gasto" in carga || ("sc" in carga && !carga.sc.proveedorId) ? "Gasto vario" : "Factura") : "Cargar", impagas: "Impagas", actividad: "Actividad", sincarga: "Sin carga" };
 
   return (
     <div className="flex min-h-svh flex-col bg-white dark:bg-zinc-950">
@@ -79,9 +81,13 @@ export function AppMovil() {
 
       <main className="flex-1 px-4 pt-3 pb-24">
         {!actual ? <p className="py-10 text-center text-zinc-500">Cargando…</p>
-          : tab === "inicio" ? <Inicio localId={actual.localId} pdvId={actual.pdvId} irImpagas={() => setTab("impagas")} />
+          : tab === "inicio" ? <Inicio localId={actual.localId} pdvId={actual.pdvId} irImpagas={() => setTab("impagas")} irSinCarga={() => setTab("sincarga")} />
+          : tab === "sincarga" ? <SinCarga pdvId={actual.pdvId} onCargar={(sc, mes) => { setCarga({ sc, mes }); setTab("cargar"); }} />
           : tab === "impagas" ? <Impagas pdvId={actual.pdvId} />
           : tab === "actividad" ? <Actividad />
+          : carga && "sc" in carga ? (carga.sc.proveedorId
+            ? <FacturaMovil key={carga.sc.clave} qr={null} proveedorId={carga.sc.proveedorId} localId={actual.localId} pdvId={actual.pdvId} onCerrar={() => { setCarga(null); setTab("sincarga"); }} />
+            : <GastoMovil key={carga.sc.clave} pdvId={actual.pdvId} inicial={{ conceptoCodigo: carga.sc.conceptoCodigo, periodo: carga.mes, importe: carga.sc.ultimo }} onCerrar={() => { setCarga(null); setTab("sincarga"); }} />)
           : carga && "gasto" in carga ? <GastoMovil key={actual.pdvId} pdvId={actual.pdvId} onCerrar={() => setCarga(null)} />
           : carga ? <FacturaMovil key={JSON.stringify(carga.qr)} qr={carga.qr} localId={actual.localId} pdvId={actual.pdvId} onCerrar={() => setCarga(null)} />
           : (
@@ -121,7 +127,7 @@ function BotonGrande({ cls, icono, titulo, sub, onClick, deshabilitado }: { cls:
   );
 }
 
-function Inicio({ localId, pdvId, irImpagas }: { localId: number; pdvId: number; irImpagas: () => void }) {
+function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pdvId: number; irImpagas: () => void; irSinCarga: () => void }) {
   const ahora = new Date();
   const [ym, setYm] = useState({ anio: ahora.getFullYear(), mes: ahora.getMonth() + 1 });
   const mover = (d: number) => setYm((x) => { let m = x.mes + d, a = x.anio; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } return { anio: a, mes: m }; });
@@ -134,6 +140,19 @@ function Inicio({ localId, pdvId, irImpagas }: { localId: number; pdvId: number;
   const { data: pr, isLoading: cargandoPr } = useFetchQuery<{ proyeccion: ProyeccionMes | null }>(
     ["proyeccion-ingresos", ym.anio, localId, pdvId], proyectar ? `/api/dashboard/proyeccion?year=${ym.anio}&localId=${localId}&pdvId=${pdvId}` : null, { staleTime: 5 * 60_000 });
   const proy = pr?.proyeccion && pr.proyeccion.anio === ym.anio && pr.proyeccion.mes === ym.mes ? pr.proyeccion : null;
+  // Sin carga del mes en curso: la tarjeta y la proyección de gastos (Diego 28/10): gastos al
+  // cierre = cargado + lo que falta cargar (Sin carga) + la mercadería que falta según los días de venta.
+  const { data: sc } = useFetchQuery<{ meses: MesSinCarga[] }>(["sin-carga", pdvId], `/api/sin-carga?pdvId=${pdvId}`, { staleTime: 60_000 });
+  const scMes = sc?.meses[0];
+  const scTot = scMes ? totales(scMes.items, false) : null;
+  const gastosProy = (() => {
+    if (!proy || !data || !scMes || scMes.mes !== `${ym.anio}-${String(ym.mes).padStart(2, "0")}`) return null;
+    const sinCargar = totales(scMes.items, true).total;
+    const merc = data.rubros.find((r) => /mercader/i.test(r.rubro))?.total ?? 0;
+    const mercFalta = proy.diasTranscurridos > 0 ? merc * (proy.diasMes / proy.diasTranscurridos - 1) : 0;
+    const total = data.gastos + sinCargar + mercFalta;
+    return { total, cargado: data.gastos, sinCargar, mercFalta, resultado: proy.proyeccion - total };
+  })();
   const deuda = useMemo(() => {
     if (!imp) return null;
     const { impagas } = separar(imp.data);
@@ -164,10 +183,21 @@ function Inicio({ localId, pdvId, irImpagas }: { localId: number; pdvId: number;
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"><i className="block h-full bg-[#5BC2EA]" style={{ width: `${Math.round((proy.diasTranscurridos / proy.diasMes) * 100)}%` }} /></div>
               </div>
             ) : <Kpi t="Ventas al cierre" v={cargandoPr ? "…" : "—"} cls="text-zinc-300" />}
-            <div className="rounded-2xl border border-zinc-200 dark:border-zinc-700 px-3 py-2.5"><div className="text-[11.5px] text-zinc-500">Gastos al cierre</div><b className="text-[17px] text-zinc-300">—</b><div className="text-[11px] text-zinc-500">próximamente</div></div>
-            <Kpi t="Resultado" v="—" cls="text-zinc-300" />
-            <Kpi t="Gastos / ventas" v="—" cls="text-zinc-300" />
+            {gastosProy ? (
+              <div className="rounded-2xl border border-[#5BC2EA] bg-[#5BC2EA]/10 px-3 py-2.5">
+                <div className="text-[11.5px] text-zinc-500">Gastos al cierre</div>
+                <b className="text-[17px] tabular-nums text-sky-700 dark:text-sky-300">{$(gastosProy.total)}</b>
+                <div className="text-[11px] text-zinc-500">estimado</div>
+              </div>
+            ) : <Kpi t="Gastos al cierre" v={cargandoPr ? "…" : "—"} cls="text-zinc-300" />}
+            <Kpi t="Resultado" v={gastosProy ? $(gastosProy.resultado) : "—"} cls={gastosProy ? (gastosProy.resultado >= 0 ? "text-emerald-700" : "text-red-600") : "text-zinc-300"} />
+            <Kpi t="Gastos / ventas" v={gastosProy && proy ? `${((gastosProy.total / proy.proyeccion) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%` : "—"} cls={gastosProy ? undefined : "text-zinc-300"} />
           </div>
+          {gastosProy && (
+            <p className="mt-2 text-[12px] leading-relaxed text-zinc-500">
+              Gastos = cargado {$(gastosProy.cargado)} + sin cargar {$(gastosProy.sinCargar)} + mercadería que falta {$(gastosProy.mercFalta)}.
+            </p>
+          )}
           {!proy && !cargandoPr && <p className="mt-2 text-[12px] text-zinc-500">Solo se proyecta el mes en curso, mientras le falten días de ventas.</p>}
         </>
       ) : (
@@ -183,6 +213,13 @@ function Inicio({ localId, pdvId, irImpagas }: { localId: number; pdvId: number;
         <div className="my-1 text-[24px] font-bold">{deuda ? $(deuda.saldo) : "…"}</div>
         {deuda && <div className="text-[12.5px] text-zinc-500">{deuda.n} factura{deuda.n === 1 ? "" : "s"} impaga{deuda.n === 1 ? "" : "s"}</div>}
       </button>
+      {scMes && scTot && (
+        <button type="button" onClick={irSinCarga} className="mt-3 block w-full rounded-2xl border border-amber-200 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/30 p-4 text-left">
+          <div className="flex justify-between"><b>Sin carga · {nombrePeriodo(scMes.mes)}</b><span className="text-sky-700">ver ›</span></div>
+          <div className="my-1 text-[24px] font-bold">{$(scTot.total)}</div>
+          <div className="text-[12.5px] text-zinc-500">{scTot.n ? `${scTot.n} gasto${scTot.n === 1 ? "" : "s"} de todos los meses sin cargar` : "Está todo cargado"}</div>
+        </button>
+      )}
       <div className="mt-3 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4">
         <b>Gastos del mes por rubro</b>
         {(data?.rubros ?? []).map((r) => (
@@ -248,6 +285,43 @@ function Impagas({ pdvId }: { pdvId: number }) {
       ))}
       {!grupos.length && <p className="py-6 text-center text-zinc-500">No hay facturas impagas.</p>}
       <p className="mt-3 text-[12px] text-zinc-500">Para pagar, por ahora: la cuenta corriente del proveedor en el Panel.</p>
+    </div>
+  );
+}
+
+// "Sin carga" en el celu (Diego 28/10): por mes, lo que se carga todos los meses y falta.
+// Tocar un gasto lo carga: factura del proveedor, o gasto vario con concepto, período e importe.
+function SinCarga({ pdvId, onCargar }: { pdvId: number; onCargar: (x: ItemSinCarga, mes: string) => void }) {
+  const { data, isLoading } = useFetchQuery<{ meses: MesSinCarga[] }>(["sin-carga", pdvId], `/api/sin-carga?pdvId=${pdvId}`, { staleTime: 60_000 });
+  const [abierto, setAbierto] = useState<string | null>(null);
+  if (isLoading || !data) return <p className="py-10 text-center text-zinc-500">Cargando…</p>;
+  const mes0 = data.meses[0];
+  return (
+    <div>
+      <div className="mb-3 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4">
+        <div className="text-[12.5px] text-zinc-500">{nombrePeriodo(mes0.mes)} · esperado sin cargar</div>
+        <div className="text-[24px] font-bold">{$(totales(mes0.items, false).total)}</div>
+      </div>
+      {data.meses.map((m) => {
+        const t = totales(m.items, false);
+        const ver = (abierto ?? mes0.mes) === m.mes;
+        return (
+          <div key={m.mes} className="border-b border-zinc-100 dark:border-zinc-800">
+            <button type="button" onClick={() => setAbierto(ver ? "" : m.mes)} className="flex w-full items-center gap-2 py-3 text-left font-bold">
+              {nombrePeriodo(m.mes)}<span className="ml-auto text-[13px] font-normal text-zinc-500">{t.n ? `${t.n} · ${$(t.total)}` : "todo cargado"}</span>
+            </button>
+            {ver && t.visibles.map((x) => (
+              <button key={x.clave} type="button" onClick={() => onCargar(x, m.mes)} className="flex w-full items-center gap-2.5 border-t border-zinc-50 dark:border-zinc-900 py-2.5 text-left">
+                <span className={cn("size-2 shrink-0 rounded-full", x.atrasado ? "bg-red-600" : "bg-zinc-300")} />
+                <span className="min-w-0 flex-1"><span className="block truncate text-[15px]">{x.nombre}</span>
+                  <span className={cn("block truncate text-[12px]", x.atrasado ? "text-red-600" : "text-zinc-500")}>{x.atrasado ? "atrasado" : "por venir"} · {x.vencido ? "mes vencido" : `suele el ${x.dia}`} · {x.rubro}</span></span>
+                <b className="tabular-nums">{$(x.ultimo)}</b>
+              </button>
+            ))}
+          </div>
+        );
+      })}
+      <p className="mt-3 text-[12px] text-zinc-500">Tocá un gasto para cargarlo. “Ya no va” se marca desde el Panel.</p>
     </div>
   );
 }

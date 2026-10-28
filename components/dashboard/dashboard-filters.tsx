@@ -22,6 +22,7 @@ import type { Local } from "@/lib/types/domain";
 import { autoSeleccion } from "@/lib/dashboard/auto-seleccion";
 import { ImpagasBoton } from "@/components/impagas/impagas-boton";
 import { CargarFactura } from "@/components/facturas/cargar-factura";
+import { SinCargaBoton } from "@/components/sin-carga/sin-carga-boton";
 
 const PALETTE_PARAM_LABELS: Record<string, string> = {
   rubroCodigo:      "Rubro",
@@ -185,6 +186,8 @@ export function DashboardFilters() {
             {/* "Cargar Gastos" a la izquierda de Impagas (Diego, 27/10/2026). */}
             <CargarFactura />
             <ImpagasBoton locales={locales} pdvId={pdvId} />
+            {/* "Sin carga" al lado de Impagas (Diego, 28/10/2026). */}
+            <SinCargaBoton />
             {!isMobile && <RubrosConfigModal {...rubrosConfigProps} />}
             <button
               onClick={() => setPaletteOpen(true)}

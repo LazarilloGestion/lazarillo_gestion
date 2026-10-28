@@ -24,18 +24,23 @@ const inp = "w-full h-11 rounded-xl border border-zinc-300 dark:border-zinc-600 
 
 type Parecido = { fecha: string; importe: number; origen: string | null; observac: string | null };
 
-export function GastoMovil({ pdvId, onCerrar }: { pdvId: number; onCerrar: () => void }) {
+// Desde "Sin carga" llega precargado: concepto, período e importe del último mes.
+export function GastoMovil({ pdvId, onCerrar, inicial }: {
+  pdvId: number; onCerrar: () => void; inicial?: { conceptoCodigo: string | null; periodo: string; importe: number };
+}) {
   const queryClient = useQueryClient();
   const { data: maestros } = useFetchQuery<Maestros>(["facturas-maestros"], "/api/facturas/maestros", { staleTime: 15 * 60_000 });
   const conceptos = maestros?.conceptos ?? [];
-  const [periodo, setPeriodo] = useState(periodoDe(hoy()));
-  const [fecha, setFecha] = useState(fechaDelPeriodo(periodoDe(hoy())));
+  const [periodo, setPeriodo] = useState(inicial?.periodo ?? periodoDe(hoy()));
+  const [fecha, setFecha] = useState(fechaDelPeriodo(inicial?.periodo ?? periodoDe(hoy())));
   const [cambiarFecha, setCambiarFecha] = useState(false);
   const elegirPeriodo = (p: string) => { setPeriodo(p); setFecha(fechaDelPeriodo(p)); };
-  const [concepto, setConcepto] = useState<{ codigo: string; nombre: string; rubro: string } | null>(null);
+  const [conceptoCod, setConceptoCod] = useState<string | null>(inicial?.conceptoCodigo ?? null);
+  const concepto = conceptos.find((c) => c.codigo === conceptoCod) ?? null;
+  const setConcepto = (c: { codigo: string } | null) => setConceptoCod(c?.codigo ?? null);
   const [busca, setBusca] = useState("");
   const [detalle, setDetalle] = useState("");
-  const [importeTxt, setImporteTxt] = useState("");
+  const [importeTxt, setImporteTxt] = useState(inicial?.importe ? inicial.importe.toLocaleString("es-AR", { maximumFractionDigits: 2 }) : "");
   const importe = aNumero(importeTxt);
 
   const { data: mediosData } = useMediosPago();
@@ -68,7 +73,7 @@ export function GastoMovil({ pdvId, onCerrar }: { pdvId: number; onCerrar: () =>
       if (!res.ok && d?.parecido) { setParecido(d.parecido as Parecido); return; }
       if (!res.ok) { setError([d?.error ?? "No se pudo guardar.", ...((d?.detalle as string[] | undefined) ?? [])].join(" ")); return; }
       toast.success(pagado ? "Gasto cargado y pagado" : "Gasto cargado (impago)", { description: `${concepto.nombre} · ${$(d.total)}` });
-      for (const k of ["pivot", "detalle", "impagas", "cta-cte", "actividad", "m-resumen"]) void queryClient.invalidateQueries({ queryKey: [k] });
+      for (const k of ["pivot", "detalle", "impagas", "cta-cte", "actividad", "m-resumen", "sin-carga"]) void queryClient.invalidateQueries({ queryKey: [k] });
       onCerrar();
     } catch {
       setError("Error de red: no se guardó.");
