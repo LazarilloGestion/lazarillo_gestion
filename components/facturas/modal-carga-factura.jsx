@@ -16,6 +16,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useMediosPago } from "@/hooks/use-medios-pago";
 import { mediosParaElegir } from "@/lib/medios-pago/abm";
+import { fechaDelPeriodo, moverPeriodo, nombrePeriodo, periodoDe } from "@/lib/gastos-varios/periodo";
 
 const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const TIPOS_CPB = ["FcA", "FcB", "FcC", "Ticket", "NC-A"];
@@ -82,7 +83,7 @@ const fechaValida = (s) => {
 const MESES12 = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const pad2 = (n) => String(n).padStart(2, "0");
 const dmy4 = (iso) => { const [y, m, d] = String(iso).split("-"); return `${d}/${m}/${y}`; };
-function FechaInput({ iso, onISO, style: st, title, inputRef }) {
+function FechaInput({ iso, onISO, style: st, title, inputRef, tabIndex }) {
   const [txt, setTxt] = useState(iso ? dmy4(iso) : "");
   useEffect(() => { setTxt(iso ? dmy4(iso) : ""); }, [iso]);
   const commit = () => {
@@ -98,7 +99,7 @@ function FechaInput({ iso, onISO, style: st, title, inputRef }) {
     onISO(`${y}-${pad2(mo)}-${pad2(d)}`);
   };
   return (
-    <input ref={inputRef} style={st} value={txt} placeholder="dd/mm/aaaa" title={title}
+    <input ref={inputRef} style={st} value={txt} placeholder="dd/mm/aaaa" title={title} tabIndex={tabIndex}
       onChange={(e) => {
         let v = e.target.value.replace(/[^\d\/\-.]/g, "");
         if (/^\d+$/.test(v)) {
@@ -201,7 +202,8 @@ const enterAvanza = (e) => {
   const t = e.target;
   if (t.tagName !== "INPUT" && t.tagName !== "SELECT") return;
   e.preventDefault();
-  const campos = Array.from(e.currentTarget.querySelectorAll("input, select")).filter((el) => !el.disabled && el.offsetParent !== null);
+  // Los campos fuera del tabulador (la fecha del gasto vario) tampoco reciben el Enter.
+  const campos = Array.from(e.currentTarget.querySelectorAll("input, select")).filter((el) => !el.disabled && el.offsetParent !== null && el.tabIndex !== -1);
   const i = campos.indexOf(t);
   if (i >= 0 && i + 1 < campos.length) campos[i + 1].focus();
 };
@@ -373,7 +375,8 @@ function ModalNuevaCarga(props) {
   const [errores, setErrores] = useState([]);
   const [editPago, setEditPago] = useState(false);
   const [ep, setEp] = useState(null);
-  const modo = "factura"; // Gastos Varios: va con la carga de pagos (próximo paso)
+  // Factura o Gastos Varios (solo al cargar uno nuevo; ver / editar es siempre factura).
+  const [modo, setModo] = useState(vista === "nueva" && ctx.modo === "vario" ? "vario" : "factura");
   const fechaDefault = HOY;
 
   // factura
@@ -408,10 +411,16 @@ function ModalNuevaCarga(props) {
   const [existente, setExistente] = useState(!!ede);
   const [editId, setEditId] = useState(ede ? ede.id : null);
 
-  // gasto vario
+  // gasto vario: primero el PERÍODO (mes); la fecha va al 15 y el tabulador la saltea (Diego, 27/10/2026).
   const [detalle, setDetalle] = useState("");
-  const [fechaV, setFechaV] = useState(fechaDefault);
-  const [pdvV, setPdvV] = useState(PDVS[0]);
+  const [periodoV, setPeriodoV] = useState(periodoDe(HOY));
+  const [fechaV, setFechaV] = useState(fechaDelPeriodo(periodoDe(HOY)));
+  const elegirPeriodo = (p) => { setPeriodoV(p); setFechaV(fechaDelPeriodo(p)); setErrFecha(false); };
+  const periodosV = Array.from({ length: 15 }, (_, i) => moverPeriodo(periodoDe(HOY), 2 - i)); // 2 meses adelante, 12 atrás
+  const [pdvV, setPdvV] = useState(pdvActual || PDVS[0]);
+  // Un gasto vario casi siempre se carga ya pagado: arranca tildado (sin pago queda IMPAGO).
+  const [pagarV, setPagarV] = useState(true);
+  const [parecidoV, setParecidoV] = useState(null); // ya hay uno parecido: confirmar
   const [rubroV, setRubroV] = useState(ctx.rubro || "");
   const [conceptoV, setConceptoV] = useState(ctx.concepto || "");
   const [importeV, setImporteV] = useState("");
@@ -514,7 +523,44 @@ function ModalNuevaCarga(props) {
   const pagadoExistente = 0;
   const estadoExistente = "";
 
+  // Gasto vario: POST /api/gastos-varios (Ticket interno de "Gastos Varios", con su pago).
+  const guardarVario = (forzar) => {
+    let fAct = fechaV;
+    if (!fechaValida(fAct)) { const c = corregirFecha(fAct); if (c) { fAct = c; setFechaV(c); } }
+    const faltan = [];
+    if (!codConcepto(conceptoV)) faltan.push("Elegí el concepto del gasto.");
+    if (!(parseImp(importeV) > 0)) faltan.push("Poné el importe del gasto.");
+    if (!fechaValida(fAct)) faltan.push("Falta una fecha del gasto válida.");
+    if (pagarV) {
+      if (!medioPago) faltan.push("Elegí el medio de pago (se dan de alta en Medios de pago, en el menú).");
+      if (!fechaValida(fechaPago)) faltan.push("Falta una fecha de pago válida.");
+    }
+    // El 15 del período puede ser posterior a hoy y está bien; otra fecha futura se confirma.
+    if (fechaValida(fAct) && fAct > HOY && fAct !== fechaDelPeriodo(periodoV) && futuraOk !== fAct) {
+      faltan.push(`La fecha del gasto (${dmy4(fAct)}) es posterior a hoy. Revisala; si está bien, tocá Guardar de nuevo.`);
+      setFuturaOk(fAct);
+    }
+    if (faltan.length) { setErrores(faltan); setErrFecha(!fechaValida(fAct)); return; }
+    setErrores([]); setErrFecha(false); setParecidoV(null);
+    const payload = {
+      pdvId: idPdv(pdvV), conceptoCodigo: codConcepto(conceptoV), detalle: detalle.trim() || null,
+      importe: Math.round(parseImp(importeV) * 100) / 100, fecha: fAct, forzar: !!forzar,
+      pago: pagarV ? { fecha: fechaPago, medio: medioPago, referencia: pidePagoId && refPago.trim() ? refPago.trim() : null, pdvPagaId: idPdv(pagadoPor) } : null,
+    };
+    setGuardando(true);
+    fetch("/api/gastos-varios", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+      .then(async (r) => ({ ok: r.ok, d: await r.json().catch(() => null) }))
+      .then(({ ok, d }) => {
+        setGuardando(false);
+        if (!ok && d && d.parecido) { setParecidoV(d.parecido); return; }
+        if (!ok) { setErrores([(d && d.error) || "No se pudo guardar el gasto.", ...((d && d.detalle) || [])]); return; }
+        onGuardado({ ...d, gastoVario: true, concepto: conceptoV });
+      })
+      .catch(() => { setGuardando(false); setErrores(["Error de red: no se guardó."]); });
+  };
+
   const guardar = () => {
+    if (modo === "vario") { guardarVario(false); return; }
     let fAct = modo === "factura" ? fecha : fechaV;
     if (!fechaValida(fAct)) {
       const c = corregirFecha(fAct);
@@ -599,11 +645,19 @@ function ModalNuevaCarga(props) {
     <div style={embebido ? { display: "contents" } : { position: "fixed", inset: 0, background: "rgba(40,40,40,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 55 }} onClick={embebido ? undefined : onCerrar}>
       <div style={embebido ? { padding: "22px 26px" } : { ...card, width: "min(1120px, 96vw)", maxHeight: "92vh", overflow: "auto", padding: "22px 26px" }} onClick={(e) => e.stopPropagation()} onKeyDown={enterAvanza} data-card="1">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <h2 style={{ fontSize: 17, margin: 0 }}>{vista === "ver" ? `Factura ${ede ? ede.comp : ""}` : vista === "editar" ? `Editar factura ${ede ? ede.comp : ""}` : "Carga de factura"}</h2>
+          <h2 style={{ fontSize: 17, margin: 0 }}>{vista === "ver" ? `Factura ${ede ? ede.comp : ""}` : vista === "editar" ? `Editar factura ${ede ? ede.comp : ""}` : modo === "vario" ? "Carga de gasto vario" : "Carga de factura"}</h2>
           <button onClick={onCerrar} style={{ border: "none", background: "none", fontSize: 20, color: "#999", cursor: "pointer" }}>×</button>
         </div>
 
-        <div style={{ margin: "12px 0 14px" }} />
+        {vista === "nueva" && !rde ? (
+          <div style={{ display: "inline-flex", gap: 4, background: C.fondo, borderRadius: 11, padding: 4, margin: "12px 0 14px" }}>
+            {[["factura", "Factura (con o sin pago)"], ["vario", "Gastos Varios"]].map(([k, t]) => (
+              <button key={k} type="button" tabIndex={-1} onClick={() => { setModo(k); setErrores([]); setErrFecha(false); setParecidoV(null); }}
+                style={{ border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                  background: modo === k ? "#fff" : "transparent", color: modo === k ? C.neg : C.gris, boxShadow: modo === k ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>{t}</button>
+            ))}
+          </div>
+        ) : <div style={{ margin: "12px 0 14px" }} />}
         {aviso && <div style={{ border: "1.5px solid #bfe0f0", background: "#f3fafd", borderRadius: 11, padding: "10px 14px", fontSize: 12.5, color: "#2a6b86", marginBottom: 12 }}>{aviso}</div>}
         <fieldset disabled={soloVer} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
 
@@ -946,21 +1000,63 @@ function ModalNuevaCarga(props) {
 
           </>
         ) : (
+          <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div><span style={lab}>Período</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button type="button" tabIndex={-1} title="Mes anterior" onClick={() => elegirPeriodo(moverPeriodo(periodoV, -1))} style={{ ...btn(false), padding: "0 12px", height: 38 }}>‹</button>
+                <select style={{ ...sel, fontWeight: 700 }} autoFocus value={periodoV} onChange={(e) => elegirPeriodo(e.target.value)}>
+                  {(periodosV.includes(periodoV) ? periodosV : [periodoV, ...periodosV]).map((x) => <option key={x} value={x}>{nombrePeriodo(x)}</option>)}
+                </select>
+                <button type="button" tabIndex={-1} title="Mes siguiente" onClick={() => elegirPeriodo(moverPeriodo(periodoV, 1))} style={{ ...btn(false), padding: "0 12px", height: 38 }}>›</button>
+              </div></div>
+            <div><span style={lab}>Fecha del gasto <span style={{ textTransform: "none", fontWeight: 400, letterSpacing: 0 }}>· va al 15, cambiala si querés</span></span>
+              <FechaInput tabIndex={-1} style={{ ...inp, color: fechaV === fechaDelPeriodo(periodoV) ? C.gris : C.neg, border: errFecha ? `1.6px solid ${C.rojo}` : inp.border }} iso={fechaV}
+                onISO={(v) => { setFechaV(v); setErrFecha(false); }} />
+              {errFecha && <div style={{ fontSize: 11, color: C.rojo, fontWeight: 700, marginTop: 3 }}>Falta una fecha válida.</div>}</div>
             <div><span style={lab}>Rubro</span>
-              <Combo opciones={rubros} valor={rubroV} placeholder="Buscar rubro..." autoFocus={!ctx.concepto} onElegir={(r) => { setRubroV(r); if (rubroDe(conceptoV) !== r) setConceptoV(""); }} /></div>
+              <Combo opciones={rubros} valor={rubroV} placeholder="Buscar rubro..." onElegir={(r) => { setRubroV(r); if (rubroDe(conceptoV) !== r) setConceptoV(""); }} /></div>
             <div><span style={lab}>Concepto</span>
               <Combo opciones={conceptosDe(rubroV)} valor={conceptoV} placeholder="Buscar concepto..." onElegir={(c) => { setConceptoV(c); setRubroV(rubroDe(c) || rubroV); }} /></div>
             <div style={{ gridColumn: "1 / -1" }}><span style={lab}>Detalle</span>
-              <input style={inp} autoFocus={!!ctx.concepto} value={detalle} onChange={(e) => setDetalle(e.target.value)} placeholder="Ej: devolución seña cancha" /></div>
-            <div><span style={lab}>Importe</span><input style={inp} value={importeV} onChange={(e) => setImporteV(fmtImp(e.target.value))} /></div>
-            <div><span style={lab}>Fecha del gasto</span>
-              <FechaInput style={{ ...inp, border: errFecha ? `1.6px solid ${C.rojo}` : inp.border }} iso={fechaV}
-                onISO={(v) => { setFechaV(v); setErrFecha(false); }} />
-              {errFecha && modo === "vario" && <div style={{ fontSize: 11, color: C.rojo, fontWeight: 700, marginTop: 3 }}>Falta una fecha válida.</div>}</div>
+              <input style={inp} value={detalle} maxLength={200} onChange={(e) => setDetalle(e.target.value)} placeholder="Ej: ferretería, flete, devolución seña cancha" /></div>
+            <div><span style={lab}>Importe</span><input style={{ ...inp, textAlign: "right", fontWeight: 700 }} value={importeV} placeholder="0,00" onChange={(e) => setImporteV(fmtImp(e.target.value))} /></div>
             <div><span style={lab}>PDV del gasto</span>
-              <select style={inp} value={pdvV} onChange={(e) => setPdvV(e.target.value)}>{PDVS.map((p) => <option key={p}>{p}</option>)}</select></div>
+              <select style={sel} value={pdvV} onChange={(e) => setPdvV(e.target.value)}>{PDVS.map((p) => <option key={p}>{p}</option>)}</select></div>
           </div>
+
+          {/* ── Pago del gasto: tildado de entrada; sin pago queda IMPAGO (Impagas y cta cte de Gastos Varios) ── */}
+          <div style={{ marginTop: 12, border: `1.5px solid ${pagarV ? "#bae6fd" : C.borde}`, background: pagarV ? "#f0f9ff" : "#fff", borderRadius: 11, padding: "10px 14px" }}>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+              <input type="checkbox" checked={pagarV} onChange={(e) => setPagarV(e.target.checked)} style={{ width: 15, height: 15 }} />
+              Pagado
+              {!pagarV && <span style={{ fontSize: 12, fontWeight: 400, color: "#999" }}>— queda IMPAGO: aparece en Impagas y lo pagás después desde la cta cte de Gastos Varios</span>}
+            </label>
+            {pagarV && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 1fr" + (pidePagoId ? " 160px" : ""), gap: 10, marginTop: 10, alignItems: "end" }}>
+                <div><span style={lab}>Medio</span>
+                  <select style={sel} value={medioPago} onChange={(e) => setMedioPago(e.target.value)}>
+                    {mediosPago.map((m) => <option key={m.id} value={m.nombre}>{m.nombre}</option>)}
+                  </select></div>
+                <div><span style={lab}>Fecha de pago</span>
+                  <FechaInput style={inp} iso={fechaPago} onISO={(v) => setFechaPago(v)} /></div>
+                <div><span style={lab}>Paga</span>
+                  <select style={sel} value={pagadoPor} onChange={(e) => setPagadoPor(e.target.value)}>{PDVS.map((x) => <option key={x}>{x}</option>)}</select></div>
+                {pidePagoId && <div><span style={lab}>ID</span>
+                  <input style={{ ...inp, fontFamily: "monospace" }} value={refPago} placeholder="opcional"
+                    onChange={(e) => setRefPago(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase())} /></div>}
+              </div>
+            )}
+          </div>
+          {parecidoV && (
+            <div style={{ border: "1.5px solid #f0c179", background: "#fdf8ef", borderRadius: 11, padding: "12px 14px", fontSize: 13, color: "#8a5a00", marginTop: 12 }}>
+              ⚠ Ya hay un gasto <b>parecido</b> en {nombrePeriodo(periodoDe(parecidoV.fecha))}: {dmy(parecidoV.fecha)} · {$fmt(parecidoV.importe)}
+              {parecidoV.observac ? ` · ${parecidoV.observac}` : ""} ({parecidoV.origen === "lazarillo" ? "cargado en Lazarillo" : "de MaxiRest"}).
+              {" "}¿Es otro gasto? <span onClick={() => guardarVario(true)} style={{ fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}>Sí, cargarlo igual</span>
+              {" · "}<span onClick={() => setParecidoV(null)} style={{ cursor: "pointer", color: C.gris }}>No</span>
+            </div>
+          )}
+          </>
         )}
 
         </fieldset>
