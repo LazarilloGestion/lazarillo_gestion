@@ -112,11 +112,15 @@ export function sinCargaSql(pdvId: number, meses: string[]): Prisma.Sql {
  * conceptos de caja con su observación, para decidir si "este mes va" (Diego 28/10). */
 export function queCompraSql(proveedorIds: number[], desde: string): Prisma.Sql {
   return Prisma.sql`
-    SELECT d."proveedorId" AS pid, 'i' AS tipo, TRIM(d.nombre) AS txt, NULL::text AS obs, SUM(ABS(d.neto))::float8 AS imp
+    -- Insumos con su concepto de caja (en "obs").
+    -- (el renglón casi nunca trae proveedorId: se toma de su compra)
+    SELECT c."proveedorId" AS pid, 'i' AS tipo, TRIM(d.nombre) AS txt, TRIM(COALESCE(cc.nombre, d."nomCga", c.concepto)) AS obs, SUM(ABS(d.neto))::float8 AS imp
     FROM detalle_compras d
-    WHERE d."proveedorId" = ANY(${proveedorIds}::int[]) AND d.fecha >= ${desde}::date
+    JOIN compras c ON c."rowId" = d."compraId"
+    LEFT JOIN conceptos_caja cc ON cc.codigo = d."codCga"
+    WHERE c."proveedorId" = ANY(${proveedorIds}::int[]) AND d.fecha >= ${desde}::date
       AND COALESCE(TRIM(d.medida), '') <> '' AND COALESCE(TRIM(d.nombre), '') <> ''
-    GROUP BY 1, 3
+    GROUP BY 1, 3, 4
     UNION ALL
     SELECT c."proveedorId", 'c', TRIM(COALESCE(cc.nombre, c.concepto)),
            (array_agg(NULLIF(TRIM(COALESCE(c."observacManual", c.observac)), '') ORDER BY c.fecha DESC)

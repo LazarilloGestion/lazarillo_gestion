@@ -65,14 +65,13 @@ export function esperadoEnMesCerrado(rubro: string, mes: string, mesActual: stri
   return mesesConDatos > 0 && mesesConGasto >= mesesConDatos;
 }
 
-/** "Qué le compro" en una línea: los insumos que más pesan; si no hay, conceptos con su observación. */
-export function resumenCompra(insumos: { txt: string; imp: number }[], conceptos: { txt: string; obs: string | null; imp: number }[]): string | null {
-  const corto = (t: string, n: number) => (t.length > n ? t.slice(0, n - 1).trimEnd() + "…" : t);
-  const ins = [...insumos].sort((a, b) => b.imp - a.imp).map((x) => x.txt).filter(Boolean);
-  if (ins.length) return ins.slice(0, 4).join(", ") + (ins.length > 4 ? ` y ${ins.length - 4} más` : "");
-  const con = [...conceptos].sort((a, b) => b.imp - a.imp).filter((x) => x.txt);
-  if (!con.length) return null;
-  return con.slice(0, 3).map((x) => (x.obs ? `${x.txt} (${corto(x.obs, 28)})` : x.txt)).join(", ");
+/** "Qué le compro" (Diego 28/10): su insumo más comprado + el concepto de ese insumo; si no tiene
+ * insumos, su concepto de mayor importe. */
+export function resumenCompra(insumos: { txt: string; obs?: string | null; imp: number }[], conceptos: { txt: string; obs: string | null; imp: number }[]): string | null {
+  const ins = [...insumos].filter((x) => x.txt).sort((a, b) => b.imp - a.imp)[0];
+  if (ins) return ins.obs ? `${ins.txt} · ${ins.obs}` : ins.txt;
+  const con = [...conceptos].filter((x) => x.txt).sort((a, b) => b.imp - a.imp)[0];
+  return con ? con.txt : null;
 }
 
 export function totales(items: ItemSinCarga[], conChicos: boolean) {

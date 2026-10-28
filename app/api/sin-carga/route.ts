@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     const queCompra = new Map<number, string | null>();
     for (const id of ids) {
       const de = compras.filter((c) => c.pid === id);
-      queCompra.set(id, resumenCompra(de.filter((c) => c.tipo === "i").map((c) => ({ txt: c.txt, imp: Number(c.imp) })),
+      queCompra.set(id, resumenCompra(de.filter((c) => c.tipo === "i").map((c) => ({ txt: c.txt, obs: c.obs, imp: Number(c.imp) })),
         de.filter((c) => c.tipo === "c").map((c) => ({ txt: c.txt, obs: c.obs, imp: Number(c.imp) }))));
     }
     const meses: MesSinCarga[] = objetivo.map((m) => ({ mes: m.slice(0, 7), items: [] }));
