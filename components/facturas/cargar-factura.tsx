@@ -8,6 +8,8 @@ import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { cubreFecha, hoyUTC } from "@/lib/apertura/estado-vigencia";
 import type { Local } from "@/lib/types/domain";
+import { normalizarProveedorTexto } from "@/lib/text-normalize";
+import { candidatosEntidadIdProveedor, construirEntidadIdProveedorTexto } from "@/lib/proveedor-entidad-id";
 import ModalNuevaCarga from "./modal-carga-factura";
 
 export type Maestros = {
@@ -41,7 +43,21 @@ export function useCargaFactura(activo: boolean, pdvGestion: number | null | und
     const rep = r.destinos.map((d) => ({ pdv: pdvsRef.find((p) => p.id === d.puntoDeVentaId)?.nombre, pct: Number(d.porcentaje) }));
     return rep.every((x) => x.pdv) ? rep : null;
   };
-  return { maestros: isLoading ? undefined : maestros, pdvsRef, reglaDe, locales };
+  // Regla de apertura del EMPLEADO (nivel proveedor, por nombre + código como en el pivot), con
+  // origen en este PDV y vigente en la fecha: es el reparto por defecto de la carga de empleados.
+  const reglaEmpleadoDe = (nombre: string, codigo: string, fechaISO?: string) => {
+    if (pdvGestion == null) return null;
+    const hoy = fechaISO && /^\d{4}-\d{2}-\d{2}$/.test(fechaISO) ? new Date(`${fechaISO}T00:00:00Z`) : hoyUTC();
+    const ids = candidatosEntidadIdProveedor(construirEntidadIdProveedorTexto(normalizarProveedorTexto(nombre), codigo));
+    const vigentes = reglas.filter((x) => x.estado === "activa" && x.nivel === "proveedor" && ids.includes(x.entidadId)
+      && (x.origenPuntoDeVentaId === pdvGestion || (x.origenPuntoDeVentaId == null && x.origenLocalId === localGestion))
+      && cubreFecha(hoy, x, x.fechaDesde ? new Date(x.fechaDesde) : null, x.fechaHasta ? new Date(x.fechaHasta) : null) !== false);
+    const r = ids.map((id) => vigentes.find((x) => x.entidadId === id)).find(Boolean); // la específica por código primero
+    if (!r || r.destinos.some((d) => d.puntoDeVentaId == null)) return null;
+    const rep = r.destinos.map((d) => ({ pdv: pdvsRef.find((p) => p.id === d.puntoDeVentaId)?.nombre, pct: Number(d.porcentaje) }));
+    return rep.every((x) => x.pdv) ? rep : null;
+  };
+  return { maestros: isLoading ? undefined : maestros, pdvsRef, reglaDe, reglaEmpleadoDe, locales };
 }
 
 // Lo que cambia al cargar / editar / eliminar una factura.
@@ -59,7 +75,7 @@ export function CargarFactura() {
   const queryClient = useQueryClient();
   // Los maestros se piden al abrir el Panel, no al tocar el botón (Diego 27/10: se quedaba
   // "Cargando maestros…"): cuando se abre el modal ya están.
-  const { maestros, pdvsRef, reglaDe } = useCargaFactura(true, pdvId, localId);
+  const { maestros, pdvsRef, reglaDe, reglaEmpleadoDe } = useCargaFactura(true, pdvId, localId);
   const pdvActual = pdvsRef.find((p) => p.id === pdvId)?.nombre;
 
   const puede = localId != null && pdvId != null;
@@ -81,11 +97,14 @@ export function CargarFactura() {
             pdvsRef={pdvsRef}
             pdvActual={pdvActual}
             reglaDe={reglaDe}
+            reglaEmpleadoDe={reglaEmpleadoDe}
             onCerrar={() => setAbierto(false)}
-            onGuardado={(d: { comprobante: string; total: number; pago?: { id: number; aCuenta: number } | null; gastoVario?: boolean; concepto?: string }) => {
+            onGuardado={(d: { comprobante: string; total: number; pago?: { id: number; aCuenta: number } | null; gastoVario?: boolean; concepto?: string; empleado?: boolean; tipo?: string; nombre?: string }) => {
               setAbierto(false);
               const importe = `$ ${d.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}`;
-              if (d.gastoVario) {
+              if (d.empleado) {
+                toast.success(d.tipo === "adelanto" ? "Adelanto cargado" : "Sueldo cargado", { description: `${d.nombre ?? ""} · ${importe}` });
+              } else if (d.gastoVario) {
                 toast.success(d.pago ? "Gasto cargado y pagado" : "Gasto cargado (impago)", {
                   description: `${d.concepto ?? "Gastos Varios"} · ${importe}${d.pago ? ` · Pago Nº ${d.pago.id}` : ""}`,
                 });
