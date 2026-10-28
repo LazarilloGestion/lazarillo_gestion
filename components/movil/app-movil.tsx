@@ -240,7 +240,11 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
               <div className="text-[11px] text-zinc-500">{t}</div>
               <b className="block text-[16px] tabular-nums">{pc(ind?.[k] ?? null)}</b>
               {d != null && Math.abs(d) >= 0.05 && (
-                <div className={cn("text-[11px] font-bold", d < 0 ? "text-emerald-700" : "text-red-600")}>{d < 0 ? "▼" : "▲"} {Math.abs(d).toLocaleString("es-AR", { maximumFractionDigits: 1 })} pp{i === 0 ? ` vs ${mesAnt}` : ""}</div>
+                <div className={cn("text-[11px] font-bold leading-snug", d < 0 ? "text-emerald-700" : "text-red-600")}>
+                  {d < 0 ? "▼" : "▲"} {Math.abs(d).toLocaleString("es-AR", { maximumFractionDigits: 1 })} pp{i === 0 ? ` vs ${mesAnt}` : ""}
+                  {/* Cuánto es en plata (Diego 28/10): los puntos de diferencia sobre las ventas de este mes. */}
+                  {ind && ind.ventas > 0 && <span className="block font-semibold">{d < 0 ? `ahorro ${$m(Math.abs(d) / 100 * ind.ventas)}` : `${$m(d / 100 * ind.ventas)} de más`}</span>}
+                </div>
               )}
             </div>
           );
