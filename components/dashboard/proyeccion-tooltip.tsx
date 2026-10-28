@@ -101,7 +101,9 @@ const nombreMes = (anio: number, mes: number) => {
 const capital = (t: string) => t.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
 
 // Egresos del mes en curso (Diego 28/10/2026): proyección de cierre con el cálculo del celu.
-export function ProyeccionEgresos({ e, anio, corte, children }: { e: EgresosProyectados; anio: number; corte: string | null; children: React.ReactNode }) {
+export function ProyeccionEgresos({ e, anio, corte, ventasProy, children }: { e: EgresosProyectados; anio: number; corte: string | null; ventasProy: number | null; children: React.ReactNode }) {
+  // % de cada rubro sobre las ventas proyectadas (Diego 28/10/2026).
+  const sv = (n: number) => (ventasProy && ventasProy > 0 ? ` · ${((n / ventasProy) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%` : "");
   const pc = (n: number) => `${Math.max(0, Math.min(100, (n / e.total) * 100))}%`;
   const top = e.rubros.slice(0, 4);
   const otros = e.rubros.slice(4).reduce((s, r) => s + r.total, 0);
@@ -123,9 +125,10 @@ export function ProyeccionEgresos({ e, anio, corte, children }: { e: EgresosProy
           <Fila izq="Falta cargar (Sin carga)" der={fmtMillones(e.sinCargar)} />
           <Fila izq="Variable estimado" der={fmtMillones(e.variable)} />
           <Sep />
-          <div className="opacity-60 mb-1">Por rubro</div>
-          {top.map((r) => <Fila key={r.rubro} izq={capital(r.rubro)} der={fmtMillones(r.total)} />)}
-          {otros > 0.5 && <Fila izq="Otros" der={fmtMillones(otros)} />}
+          <div className="opacity-60 mb-1 flex justify-between"><span>Por rubro</span><span>% s/ ventas proy.</span></div>
+          {top.map((r) => <Fila key={r.rubro} izq={capital(r.rubro)} der={fmtMillones(r.total) + sv(r.total)} />)}
+          {otros > 0.5 && <Fila izq="Otros" der={fmtMillones(otros) + sv(otros)} />}
+          <div className="mt-1 opacity-80"><Fila izq="Total" der={fmtMillones(e.total) + sv(e.total)} /></div>
           <Sep />
           <div className="opacity-60">
             Mercaderías: food cost de los meses cerrados{e.foodCost != null ? ` (${Math.round(e.foodCost * 100)}%)` : ""} × ventas proyectadas.

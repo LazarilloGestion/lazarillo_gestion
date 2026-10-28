@@ -76,7 +76,7 @@ export function KpiBlock({
               style={fill ? { backgroundColor: fill.background, color: fill.foreground } : val != null ? { color: RESULT_COLORS.positive } : undefined}
               onClick={() => { if (hasVal) onIngresoCellClick?.(mes); }}
             >
-              {mesProy === mes && hasVal ? <ProyeccionIngresos p={proy!}>{fmtARS(val)}</ProyeccionIngresos> : fmtARS(val)}
+              {mesProy === mes && hasVal ? <ProyeccionIngresos p={proy!}>{fmtARS(esProy(mes) ? proy!.proyeccion : val)}</ProyeccionIngresos> : fmtARS(val)}
             </td>
           );
         })}
@@ -100,7 +100,7 @@ export function KpiBlock({
         </StickyCardCell>
         {months.map((mes) => (
           <td key={mes} className={cn("text-right px-3 py-1.5 tabular-nums text-muted-foreground whitespace-nowrap", cardCellClasses("middle", "mid", { border: bordered }))}>
-            {esProy(mes) ? <ProyeccionEgresos e={egrProy!} anio={year} corte={null}>{fmtARS(egrProy!.total)}</ProyeccionEgresos>
+            {esProy(mes) ? <ProyeccionEgresos e={egrProy!} anio={year} corte={null} ventasProy={ventasProy}>{fmtARS(egrProy!.total)}</ProyeccionEgresos>
               : faltan[mes] && egresosPorMes[mes] != null ? <FaltaCargarTip f={faltan[mes]} anio={year} mes={mes}>{fmtARS(egresosPorMes[mes])}</FaltaCargarTip>
               : fmtARS(egresosPorMes[mes])}
           </td>
