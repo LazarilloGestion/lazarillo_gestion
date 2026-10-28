@@ -28,9 +28,9 @@ describe("sin carga", () => {
     expect(esperadoEnMesCerrado("Mantenimiento", "2026-09", "2026-10", 7, 7)).toBe(true);    // PDV con 7 meses de datos
     expect(esperadoEnMesCerrado("Servicios", "2026-09", "2026-10", 3, 12)).toBe(true);       // otros rubros: igual que antes
   });
-  it("qué le compro: insumos primero, si no conceptos con observación", () => {
-    expect(resumenCompra([{ txt: "Harina 000", imp: 10 }, { txt: "Oregano", imp: 50 }], [])).toBe("Oregano, Harina 000");
-    expect(resumenCompra([], [{ txt: "Flete", obs: null, imp: 5 }, { txt: "Papelera", obs: "Bolsas 15x50", imp: 9 }])).toBe("Papelera (Bolsas 15x50), Flete");
+  it("qué le compro: el insumo más comprado y su concepto; si no, el concepto de mayor importe", () => {
+    expect(resumenCompra([{ txt: "Harina 000", obs: "Almacen", imp: 10 }, { txt: "Oregano", obs: "Especias", imp: 50 }], [])).toBe("Oregano · Especias");
+    expect(resumenCompra([], [{ txt: "Flete", obs: null, imp: 5 }, { txt: "Papelera", obs: "Bolsas 15x50", imp: 9 }])).toBe("Papelera");
     expect(resumenCompra([], [])).toBeNull();
   });
 });
