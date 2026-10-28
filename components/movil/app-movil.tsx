@@ -10,6 +10,7 @@ import { agrupar, separar, saldo, type ImpagasResponse } from "@/lib/impagas/cla
 import { agruparPorDia, horaDe, partesDescripcion, TITULO_ACCION } from "@/lib/actividad/formato";
 import { leerQrArca, type DatosQr } from "@/lib/movil/qr-arca";
 import { leerQrDeArchivo } from "./leer-qr";
+import type { ProyeccionMes } from "@/lib/dashboard/proyeccion";
 import { FacturaMovil } from "./factura-movil";
 import { GastoMovil } from "./gasto-movil";
 
@@ -126,6 +127,12 @@ function Inicio({ localId, pdvId, irImpagas }: { localId: number; pdvId: number;
   const { data, isLoading } = useFetchQuery<{ ventas: number; gastos: number; resultado: number; rubros: { rubro: string; total: number }[] }>(
     ["m-resumen", localId, pdvId, ym.anio, ym.mes], `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${ym.anio}&mes=${ym.mes}`);
   const { data: imp } = useFetchQuery<ImpagasResponse>(["impagas", pdvId, null], `/api/impagas?pdvId=${pdvId}`);
+  // Real / Proyección (Diego 28/10): las ventas al cierre son la misma proyección del tooltip
+  // de Ingresos del Panel; los gastos todavía no se proyectan (quedan en gris).
+  const [proyectar, setProyectar] = useState(false);
+  const { data: pr, isLoading: cargandoPr } = useFetchQuery<{ proyeccion: ProyeccionMes | null }>(
+    ["proyeccion-ingresos", ym.anio, localId, pdvId], proyectar ? `/api/dashboard/proyeccion?year=${ym.anio}&localId=${localId}&pdvId=${pdvId}` : null, { staleTime: 5 * 60_000 });
+  const proy = pr?.proyeccion && pr.proyeccion.anio === ym.anio && pr.proyeccion.mes === ym.mes ? pr.proyeccion : null;
   const deuda = useMemo(() => {
     if (!imp) return null;
     const { impagas } = separar(imp.data);
@@ -138,12 +145,37 @@ function Inicio({ localId, pdvId, irImpagas }: { localId: number; pdvId: number;
         <div className="flex-1 text-center font-bold">{MESES[ym.mes - 1]} {ym.anio}</div>
         <button type="button" onClick={() => mover(1)} className="size-10 rounded-xl border border-zinc-200 dark:border-zinc-700 flex items-center justify-center"><ChevronRight className="size-5" /></button>
       </div>
+      <div className="mb-3 flex rounded-xl bg-zinc-100 dark:bg-zinc-800 p-1">
+        {([[false, "Real"], [true, "Proyección"]] as const).map(([v, t]) => (
+          <button key={t} type="button" onClick={() => setProyectar(v)}
+            className={cn("flex-1 rounded-lg py-2 text-[14px] font-semibold", proyectar === v ? "bg-white dark:bg-zinc-950 shadow-sm" : "text-zinc-500")}>{t}</button>
+        ))}
+      </div>
+      {proyectar ? (
+        <>
+          <div className="grid grid-cols-2 gap-2.5">
+            {proy ? (
+              <div className="rounded-2xl border border-[#5BC2EA] bg-[#5BC2EA]/10 px-3 py-2.5">
+                <div className="text-[11.5px] text-zinc-500">Ventas al cierre</div>
+                <b className="text-[17px] tabular-nums text-sky-700 dark:text-sky-300">{$(proy.proyeccion)}</b>
+                <div className="text-[11px] text-zinc-500">{proy.backtest ? `± ${Math.round(proy.backtest.errorMetodo * 100)}% · ` : ""}real {$(proy.facturado)} ({proy.diasTranscurridos} de {proy.diasMes} días)</div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"><i className="block h-full bg-[#5BC2EA]" style={{ width: `${Math.round((proy.diasTranscurridos / proy.diasMes) * 100)}%` }} /></div>
+              </div>
+            ) : <Kpi t="Ventas al cierre" v={cargandoPr ? "…" : "—"} cls="text-zinc-300" />}
+            <div className="rounded-2xl border border-zinc-200 dark:border-zinc-700 px-3 py-2.5"><div className="text-[11.5px] text-zinc-500">Gastos al cierre</div><b className="text-[17px] text-zinc-300">—</b><div className="text-[11px] text-zinc-500">próximamente</div></div>
+            <Kpi t="Resultado" v="—" cls="text-zinc-300" />
+            <Kpi t="Gastos / ventas" v="—" cls="text-zinc-300" />
+          </div>
+          {!proy && !cargandoPr && <p className="mt-2 text-[12px] text-zinc-500">Solo se proyecta el mes en curso, mientras le falten días de ventas.</p>}
+        </>
+      ) : (
       <div className="grid grid-cols-2 gap-2.5">
         <Kpi t="Ventas" v={isLoading ? "…" : $(data?.ventas ?? 0)} />
         <Kpi t="Gastos" v={isLoading ? "…" : $(data?.gastos ?? 0)} />
         <Kpi t="Resultado" v={isLoading ? "…" : $(data?.resultado ?? 0)} cls={(data?.resultado ?? 0) >= 0 ? "text-emerald-700" : "text-red-600"} />
         <Kpi t="Gastos / ventas" v={isLoading || !data?.ventas ? "—" : `${((data.gastos / data.ventas) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`} />
       </div>
+      )}
       <button type="button" onClick={irImpagas} className="mt-3 block w-full rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4 text-left">
         <div className="flex justify-between"><b>Deuda con proveedores</b><span className="text-sky-700">ver ›</span></div>
         <div className="my-1 text-[24px] font-bold">{deuda ? $(deuda.saldo) : "…"}</div>
