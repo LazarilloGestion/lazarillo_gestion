@@ -76,6 +76,6 @@ export const config = {
     // middleware por completo si no se excluye explícitamente ese prefijo.
     // manifest-m: el de la versión celular (/m), para "Agregar a inicio" desde /m.
     // sw.js: el service worker "de baja" tiene que llegar aunque no haya sesión.
-    "/((?!_next/static|_next/image|favicon.ico|manifest\\\\.webmanifest|manifest-m\\\\.webmanifest|sw\\\\.js|(?!api/).*\\\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest\\.webmanifest|manifest-m\\.webmanifest|sw\\.js|(?!api/).*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
