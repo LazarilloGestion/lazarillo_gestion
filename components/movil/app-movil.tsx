@@ -12,6 +12,7 @@ import { leerQrArca, type DatosQr } from "@/lib/movil/qr-arca";
 import { leerQrDeArchivo } from "./leer-qr";
 import type { ProyeccionMes } from "@/lib/dashboard/proyeccion";
 import { frescura, hoyArgentina, type Frescura } from "@/lib/dashboard/frescura";
+import { proyectarGastos } from "@/lib/movil/proyeccion-gastos";
 import { claveDescarte, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -134,11 +135,13 @@ function BotonGrande({ cls, icono, titulo, sub, onClick, deshabilitado }: { cls:
   );
 }
 
+type Resumen = { ventas: number; gastos: number; resultado: number; rubros: { rubro: string; total: number }[] };
+
 function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pdvId: number; irImpagas: () => void; irSinCarga: () => void }) {
   const ahora = new Date();
   const [ym, setYm] = useState({ anio: ahora.getFullYear(), mes: ahora.getMonth() + 1 });
   const mover = (d: number) => setYm((x) => { let m = x.mes + d, a = x.anio; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } return { anio: a, mes: m }; });
-  const { data, isLoading } = useFetchQuery<{ ventas: number; gastos: number; resultado: number; rubros: { rubro: string; total: number }[] }>(
+  const { data, isLoading } = useFetchQuery<Resumen>(
     ["m-resumen", localId, pdvId, ym.anio, ym.mes], `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${ym.anio}&mes=${ym.mes}`);
   const { data: imp } = useFetchQuery<ImpagasResponse>(["impagas", pdvId, null], `/api/impagas?pdvId=${pdvId}`);
   // Real / Proyección (Diego 28/10): las ventas al cierre son la misma proyección del tooltip
@@ -152,33 +155,22 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
   const { data: sc } = useFetchQuery<{ meses: MesSinCarga[] }>(["sin-carga", pdvId], `/api/sin-carga?pdvId=${pdvId}`, { staleTime: 60_000 });
   const scMes = sc?.meses[0];
   const scTot = scMes ? totales(scMes.items, false) : null;
+  // Los 3 meses cerrados anteriores (para el promedio por rubro y el food cost de la proyección).
+  const previos = [1, 2, 3].map((k) => { const t = ym.anio * 12 + (ym.mes - 1) - k; return { anio: Math.floor(t / 12), mes: (t % 12) + 1 }; });
+  const h1 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[0].anio, previos[0].mes], proyectar ? `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${previos[0].anio}&mes=${previos[0].mes}` : null);
+  const h2 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[1].anio, previos[1].mes], proyectar ? `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${previos[1].anio}&mes=${previos[1].mes}` : null);
+  const h3 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[2].anio, previos[2].mes], proyectar ? `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${previos[2].anio}&mes=${previos[2].mes}` : null);
+  const historia = [h1.data, h2.data, h3.data].filter((x): x is Resumen => !!x && x.ventas > 0);
+  // Gastos al cierre (Diego 28/10): cargado + lo que falta cargar (Sin carga) y, por rubro, nunca
+  // menos que su promedio de los 3 meses cerrados (Mercaderías: food cost promedio × ventas proyectadas).
   const gastosProy = (() => {
     if (!proy || !data || !scMes || scMes.mes !== `${ym.anio}-${String(ym.mes).padStart(2, "0")}`) return null;
-    const sinCargar = totales(scMes.items, true).total;
-    const merc = data.rubros.find((r) => /mercader/i.test(r.rubro))?.total ?? 0;
-    const mercFalta = proy.diasTranscurridos > 0 ? merc * (proy.diasMes / proy.diasTranscurridos - 1) : 0;
-    const total = data.gastos + sinCargar + mercFalta;
-    return { total, cargado: data.gastos, sinCargar, mercFalta, resultado: proy.proyeccion - total };
+    const p = proyectarGastos({ cargado: data.rubros, sinCargar: scMes.items, historia, ventasProy: proy.proyeccion });
+    return { ...p, resultado: proy.proyeccion - p.total };
   })();
-  // Rubros (Diego 28/10): en Proyección cada rubro suma lo que le falta cargar (y Mercaderías la
-  // mercadería que falta), con % sobre ingresos; y los KPI de food cost y costo mix.
-  const norm = (t: string) => t.trim().toLowerCase();
   const enProy = proyectar && !!gastosProy && !!proy;
   const ingresos = enProy ? proy!.proyeccion : data?.ventas ?? 0;
-  const rubrosVista = (() => {
-    const base = (data?.rubros ?? []).map((r) => ({ rubro: r.rubro, total: r.total }));
-    if (!enProy || !scMes) return base;
-    const m = new Map(base.map((r) => [norm(r.rubro), { ...r }]));
-    for (const x of scMes.items) {
-      const k = norm(x.rubro);
-      const r = m.get(k) ?? { rubro: x.rubro, total: 0 };
-      r.total += x.ultimo;
-      m.set(k, r);
-    }
-    const merc = [...m.values()].find((r) => /mercader/i.test(r.rubro));
-    if (merc) merc.total += gastosProy!.mercFalta;
-    return [...m.values()].sort((a, b) => b.total - a.total);
-  })();
+  const rubrosVista = enProy ? gastosProy!.rubros : (data?.rubros ?? []);
   const deRubro = (re: RegExp) => rubrosVista.filter((r) => re.test(r.rubro)).reduce((s, r) => s + r.total, 0);
   const pctIng = (n: number) => (ingresos > 0 ? `${((n / ingresos) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%` : "—");
   const kpiListo = !!data && (!proyectar || enProy);
@@ -226,7 +218,7 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
           </div>
           {gastosProy && (
             <p className="mt-2 text-[12px] leading-relaxed text-zinc-500">
-              Gastos = cargado {$(gastosProy.cargado)} + sin cargar {$(gastosProy.sinCargar)} + mercadería que falta {$(gastosProy.mercFalta)}.
+              Gastos = cargado {$(gastosProy.cargado)} + sin cargar {$(gastosProy.sinCargar)} + variables {$(gastosProy.variable)} (lo que falta para llegar al promedio de cada rubro de los últimos {historia.length} meses; mercadería según el food cost).
             </p>
           )}
           {!proy && !cargandoPr && <p className="mt-2 text-[12px] text-zinc-500">Solo se proyecta el mes en curso, mientras le falten días de ventas.</p>}
