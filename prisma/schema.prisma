@@ -490,7 +490,7 @@ model FlujoCajaManual {
   @@map("flujo_caja_manual")
 }
 
-// ─── APERTURA DE GASTOS ─────────────────────────────────────────────────────
+// ─── APERTURA DE GASTOS ────────────────────────────────────────────────────
 
 model ReglaApertura {
   id        Int    @id @default(autoincrement())
