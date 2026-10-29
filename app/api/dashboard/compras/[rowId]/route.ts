@@ -35,7 +35,7 @@ export async function PATCH(
 
   const { importeManual, fechaManual, conceptoCodigoManual, observacManual } = parsed.data;
 
-  const compra = await prisma.compra.findUnique({ where: { rowId }, select: { rowId: true } });
+  const compra = await prisma.compra.findUnique({ where: { rowId }, select: { rowId: true, conceptoCodigoManual: true } });
   if (!compra) return NextResponse.json({ error: "Registro no encontrado" }, { status: 404 });
 
   // Solo un cambio en un campo que afecta el matching de reglas dispara la
@@ -58,6 +58,12 @@ export async function PATCH(
         },
         select: { rowId: true, importeManual: true, fechaManual: true, conceptoCodigoManual: true, observacManual: true },
       });
+
+      // Si una persona cambia el concepto, deja de ser el "concepto fijo del empleado" (Diego
+      // 29/10/2026): la regla ya no lo vuelve a tocar.
+      if (conceptoCodigoManual !== undefined && conceptoCodigoManual !== compra.conceptoCodigoManual) {
+        await tx.$executeRaw`UPDATE compras SET "conceptoPorRegla" = NULL WHERE "rowId" = ${rowId}`;
+      }
 
       const reeval = afectaMatching
         ? await reevaluarCompra(tx, rowId)

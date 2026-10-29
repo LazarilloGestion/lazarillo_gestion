@@ -22,6 +22,7 @@ import { PivotDetailModals, useAperturaModalState } from "./pivot-detail-modals"
 import { EditedDot, AperturaDot } from "./edit-row-controls";
 import type { PivotDataPorProveedor, PivotRubroRowPorProveedor, PivotProveedorSubRow, PivotConceptoSubRow } from "@/lib/dashboard/types";
 import { AperturaSplitButton } from "./apertura-split-button";
+import { ConceptoFijoEmpleado, useConceptosEmpleado } from "@/components/empleados/concepto-fijo";
 import { candidatosEntidadIdProveedor } from "@/lib/proveedor-entidad-id";
 
 export function PivotTableByProveedor() {
@@ -37,6 +38,7 @@ export function PivotTableByProveedor() {
   const cargaEnCelda = modoPanel !== "financiera" && localId != null && pdvId != null;
 
   const [apertura, setApertura] = useAperturaModalState();
+  const { data: conceptosFijos } = useConceptosEmpleado(pdvId);
   const { reglas } = useReglasApertura();
   // Reemplaza conceptosConReglaActiva (Fase 1) ahora que hay 3 niveles que
   // pueden mostrar el ícono coloreado.
@@ -153,6 +155,10 @@ export function PivotTableByProveedor() {
                             origenPdvId: pdvId ?? null,
                           })}
                         />
+                        {/* Concepto fijo del empleado (personas de planilla: texto del ERP con código). */}
+                        {proveedor.proveedorId == null && proveedor.codigo && proveedor.entidadIdProveedor.startsWith("texto:") && (
+                          <ConceptoFijoEmpleado pdvId={pdvId} entidadId={proveedor.entidadIdProveedor} nombre={normalize(proveedor.nombre)} reglas={conceptosFijos?.reglas ?? []} />
+                        )}
                       </div>
                     </td>
                     {months.map((mes) => (
