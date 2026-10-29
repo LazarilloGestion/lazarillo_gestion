@@ -237,6 +237,10 @@ model Compra {
   // motor matchea por proveedorId, este campo no se usa ni se mantiene.
   proveedorTextoNormalizado String?
 
+  // Concepto fijo por empleado: id de la regla (reglas_concepto_empleado) que puso
+  // conceptoCodigoManual. NULL = lo puso una persona o no hay override.
+  conceptoPorRegla Int?
+
   detalles DetalleCompra[]
 
   @@index([fecha])
@@ -486,7 +490,7 @@ model FlujoCajaManual {
   @@map("flujo_caja_manual")
 }
 
-// ─── APERTURA DE GASTOS ────────────────────────────────────────────────────
+// ─── APERTURA DE GASTOS ─────────────────────────────────────────────────────
 
 model ReglaApertura {
   id        Int    @id @default(autoincrement())
@@ -844,4 +848,23 @@ model LiquidacionEmpleado {
 
   @@index([puntoDeVentaId, empleadoCodigo, periodo], map: "liquidaciones_empleado_pdv_empleado_periodo_idx")
   @@map("liquidaciones_empleado")
+}
+
+// Concepto fijo por empleado (29/10/2026): todo lo de un empleado va a un concepto de caja.
+model ReglaConceptoEmpleado {
+  id                   Int       @id @default(autoincrement())
+  entidadId            String
+  nombre               String?
+  origenPuntoDeVentaId Int
+  conceptoCodigo       String
+  modo                 String
+  fechaDesde           DateTime?
+  fechaHasta           DateTime?
+  extremosInclusivos   Boolean   @default(true)
+  estado               String    @default("activa")
+  creadoPor            String?
+  creadoEn             DateTime  @default(now())
+
+  @@index([origenPuntoDeVentaId, estado], map: "reglas_concepto_empleado_pdv_idx")
+  @@map("reglas_concepto_empleado")
 }

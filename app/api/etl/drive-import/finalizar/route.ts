@@ -5,6 +5,7 @@ import { getEtlClient } from "@/lib/etl/etl-client";
 import { linkDetalleCompras } from "@/lib/etl/link-detalle-compras";
 import { sincronizarTrasImport, type SincronizarTrasImportResultado } from "@/lib/apertura/reimportacion";
 import type { DbClient } from "@/lib/etl/types";
+import { aplicarConceptosEmpleado } from "@/lib/empleados/concepto-fijo-db";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -53,6 +54,9 @@ export async function POST(req: NextRequest) {
     if (!huboComprasTocadas) {
       return NextResponse.json({ apertura: SIN_APERTURA });
     }
+
+    // Concepto fijo por empleado (Diego 29/10/2026): antes de la apertura, que puede depender del concepto.
+    await aplicarConceptosEmpleado().catch((err: unknown) => console.error("[finalizar] concepto fijo", err));
 
     let apertura: SincronizarTrasImportResultado;
     try {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, requireAuthUser } from "@/lib/auth/require-auth";
 import { reaplicarReglasActivas } from "@/lib/apertura/motor";
+import { aplicarConceptosEmpleado } from "@/lib/empleados/concepto-fijo-db";
 import { registrarActividad } from "@/lib/facturas/guardar";
 import { ORIGEN_LAZARILLO } from "@/lib/facturas/armar";
 import { normalizarProveedorTexto } from "@/lib/text-normalize";
@@ -112,6 +113,8 @@ export async function POST(request: NextRequest) {
       return { id, libres: filas.filter((f) => !f.bloqueada).map((f) => f.rowId) };
     });
 
+    // Concepto fijo del empleado (si tiene) antes de la apertura.
+    await aplicarConceptosEmpleado(prisma, { pdvId: c.pdvId }).catch((err: unknown) => console.error("[empleados] concepto fijo", err));
     // La regla de apertura del empleado, como a cualquier sueldo.
     const apertura = await reaplicarReglasActivas(prisma, { rowIds: res.libres }).catch((err: unknown) => ({ reglasReaplicadas: 0, errores: [String(err)] }));
     if (apertura.errores.length) console.error("[empleados] apertura", apertura.errores);

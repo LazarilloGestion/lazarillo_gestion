@@ -9,6 +9,7 @@ import type { DbClient, ETLReport } from "@/lib/etl/types";
 import { filaDeRender, informeDeTabla } from "./filas";
 import { huellaTabla, leerCargas, leerTabla, PDV_MAESTROS } from "./db";
 import { revisarHuerfanas } from "./huerfanas";
+import { aplicarConceptosEmpleado } from "@/lib/empleados/concepto-fijo-db";
 
 // Un ítem = una tabla de Render para un PDV (ej. i14 2026 del BAR → Ramos · Bar).
 export type ItemRender = {
@@ -174,7 +175,11 @@ export async function sincronizarItem(item: ItemRender, opts: { forzar?: boolean
 export async function finalizarLocal(localId: number, reports: ETLReport[]): Promise<void> {
   await linkDetalleCompras(getEtlClient() as unknown as DbClient, localId);
   const { huboComprasTocadas, comprasModificadas } = accumulateAperturaInputs(reports);
-  if (huboComprasTocadas) await sincronizarTrasImport(getEtlClient(), comprasModificadas);
+  if (huboComprasTocadas) {
+    // Concepto fijo por empleado (Diego 29/10/2026) antes de la apertura.
+    await aplicarConceptosEmpleado().catch((err: unknown) => console.error("[render] concepto fijo", err));
+    await sincronizarTrasImport(getEtlClient(), comprasModificadas);
+  }
 }
 
 // Corrida completa: todo lo pendiente, con tope de tiempo. onItem informa el
