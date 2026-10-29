@@ -91,7 +91,8 @@ export function buildPivotDataByProveedor(
       const proveedor: PivotProveedorSubRow = {
         level: 1,
         id: provKey,
-        nombre: proveedor_nombre,
+        // Empleado con apellido (solo para mostrar; la clave sigue con el texto crudo).
+        nombre: row.proveedor_display ?? proveedor_nombre,
         proveedorId: proveedor_id,
         // Ojo: el filtro de drill-down sale de la columna CRUDA, no del
         // proveedor_nombre del COALESCE — cuando no hay ni proveedor ni texto,

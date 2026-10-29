@@ -213,6 +213,8 @@ export type SqlRow = {
   // clave de agrupación de proveedores sin proveedorId real (ver
   // pivot-por-proveedor.ts).
   proveedor_codigo: string | null;
+  // "Nombre Apellido" del empleado cuando la compra es un sueldo suyo; solo para mostrar.
+  proveedor_display?: string | null;
   mes: number;
   total: DecimalLike;
   row_id: string;
