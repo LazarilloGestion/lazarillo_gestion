@@ -78,3 +78,13 @@ export function totales(items: ItemSinCarga[], conChicos: boolean) {
   const vis = conChicos ? items : items.filter((x) => x.ultimo >= CHICO);
   return { n: vis.length, total: vis.reduce((s, x) => s + x.ultimo, 0), visibles: vis };
 }
+
+/**
+ * Saca un gasto de la respuesta de /api/sin-carga en el momento (Diego 29/10: "Ya no va" tardaba
+ * en sacarlo — esperaba a que se recalculara todo en el servidor). "Ya no va" (mes null) lo saca
+ * de todos los meses; "Este mes no", solo de ese mes. El servidor confirma después.
+ */
+export function sinElGasto<T extends { meses: MesSinCarga[] }>(data: T | undefined, clave: string, mes: string | null): T | undefined {
+  if (!data) return data;
+  return { ...data, meses: data.meses.map((m) => (mes && m.mes !== mes ? m : { ...m, items: m.items.filter((x) => x.clave !== clave) })) };
+}

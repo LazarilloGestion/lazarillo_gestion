@@ -9,7 +9,7 @@ import { useDashboard } from "@/hooks/use-dashboard-store";
 import { cn } from "@/lib/utils";
 import { fmtMillones, fmtPesos } from "@/lib/impagas/clasificar";
 import { nombrePeriodo } from "@/lib/gastos-varios/periodo";
-import { CHICO, claveDescarte, mesDeDescarte, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
+import { CHICO, claveDescarte, mesDeDescarte, sinElGasto, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
 import type { Local } from "@/lib/types/domain";
 import { refrescarCompras, useCargaFactura } from "@/components/facturas/cargar-factura";
 import ModalNuevaCarga from "@/components/facturas/modal-carga-factura";
@@ -107,8 +107,10 @@ function SinCargaModal({ pdvId, localId, onClose }: { pdvId: number; localId: nu
 
   // "Ya no va" (para siempre) o "Este mes no" (solo ese mes); se deshace desde "Ya no van".
   async function descartar(item: ItemSinCarga, mes: string | null) {
-    const r = await fetch("/api/sin-carga/descartes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdvId, clave: claveDescarte(item.clave, mes), nombre: item.nombre }) });
-    if (!r.ok) { toast.error("No se pudo marcar"); return; }
+    // Sale de la lista en el acto (Diego 29/10: tardaba en sacarlo); si el servidor falla, vuelve.
+    queryClient.setQueriesData<SinCargaResponse>({ queryKey: ["sin-carga", pdvId] }, (v) => sinElGasto(v, item.clave, mes));
+    const r = await fetch("/api/sin-carga/descartes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdvId, clave: claveDescarte(item.clave, mes), nombre: item.nombre }) }).catch(() => null);
+    if (!r?.ok) { toast.error("No se pudo marcar"); void queryClient.invalidateQueries({ queryKey: ["sin-carga"] }); return; }
     toast.success(mes ? `${item.nombre}: no va en ${nombrePeriodo(mes)}` : `${item.nombre}: ya no va`, { description: "Lo volvés a mostrar desde la pestaña \"Ya no van\"." });
     void queryClient.invalidateQueries({ queryKey: ["sin-carga"] });
   }

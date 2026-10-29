@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { esperadoEnMesCerrado, estaAtrasado, mesesObjetivo, resumenCompra, totales, venceEl, type ItemSinCarga } from "./estado";
+import { esperadoEnMesCerrado, estaAtrasado, mesesObjetivo, resumenCompra, sinElGasto, totales, venceEl, type ItemSinCarga } from "./estado";
 
 describe("sin carga", () => {
   it("vence el día habitual del mes, o del siguiente si va a mes vencido", () => {
@@ -33,4 +33,19 @@ describe("sin carga", () => {
     expect(resumenCompra([], [{ txt: "Flete", obs: null, imp: 5 }, { txt: "Papelera", obs: "Bolsas 15x50", imp: 9 }])).toBe("Papelera");
     expect(resumenCompra([], [])).toBeNull();
   });
+});
+
+describe("sinElGasto (descarte al instante)", () => {
+  const it0 = (clave: string) => ({ clave, nombre: clave, detalle: "", rubro: "R", ultimo: 1, ultimoTotal: 1, pdvOrigenId: null, dia: 1, vencido: false, proveedorId: null, conceptoCodigo: null, vence: "", atrasado: false, queCompra: null });
+  const data = { hoy: "x", meses: [{ mes: "2026-10", items: [it0("p:1"), it0("p:2")] }, { mes: "2026-09", items: [it0("p:1")] }] };
+  it("Ya no va: sale de todos los meses", () => {
+    expect(sinElGasto(data, "p:1", null)!.meses.map((m) => m.items.map((x) => x.clave))).toEqual([["p:2"], []]);
+  });
+  it("Este mes no: solo de ese mes; lo demás no se toca", () => {
+    const r = sinElGasto(data, "p:1", "2026-09")!;
+    expect(r.meses.map((m) => m.items.map((x) => x.clave))).toEqual([["p:1", "p:2"], []]);
+    expect(r.hoy).toBe("x");
+    expect(data.meses[1].items).toHaveLength(1);
+  });
+  it("sin datos devuelve lo mismo", () => { expect(sinElGasto(undefined, "p:1", null)).toBeUndefined(); });
 });

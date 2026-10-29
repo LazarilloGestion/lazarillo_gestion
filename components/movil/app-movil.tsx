@@ -14,7 +14,7 @@ import { frescura, hoyArgentina, type Frescura } from "@/lib/dashboard/frescura"
 import { proyectarGastos } from "@/lib/movil/proyeccion-gastos";
 import { cargadasDe, esPersonal, lineasRubro } from "@/lib/movil/rubro-detalle";
 import { difPp, indicadores, promedioMensual } from "@/lib/movil/indicadores";
-import { claveDescarte, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
+import { claveDescarte, sinElGasto, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { nombrePeriodo } from "@/lib/gastos-varios/periodo";
@@ -459,9 +459,11 @@ function SinCarga({ pdvId, mesInicial, onCargar, nombrePdv }: { pdvId: number; m
   // Deslizar (Diego 28/10): a la izquierda "Este mes no" (sigue los próximos meses), a la derecha
   // "Ya no va" (no es de todos los meses o ya no se contrata). Con "Deshacer" en el aviso.
   async function descartar(x: ItemSinCarga, mes: string | null) {
-    const r = await fetch("/api/sin-carga/descartes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdvId, clave: claveDescarte(x.clave, mes), nombre: x.nombre }) });
-    const d = await r.json().catch(() => null);
-    if (!r.ok) { toast.error("No se pudo marcar"); return; }
+    // Sale de la lista en el acto (Diego 29/10: tardaba); si el servidor falla, vuelve.
+    queryClient.setQueriesData<{ meses: MesSinCarga[] }>({ queryKey: ["sin-carga", pdvId] }, (v) => sinElGasto(v, x.clave, mes));
+    const r = await fetch("/api/sin-carga/descartes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdvId, clave: claveDescarte(x.clave, mes), nombre: x.nombre }) }).catch(() => null);
+    const d = await r?.json().catch(() => null);
+    if (!r?.ok) { toast.error("No se pudo marcar"); void queryClient.invalidateQueries({ queryKey: ["sin-carga"] }); return; }
     void queryClient.invalidateQueries({ queryKey: ["sin-carga"] });
     toast(mes ? `${x.nombre}: este mes no` : `${x.nombre}: ya no va`, {
       action: { label: "Deshacer", onClick: () => { void fetch(`/api/sin-carga/descartes?id=${d?.id}`, { method: "DELETE" }).then(() => queryClient.invalidateQueries({ queryKey: ["sin-carga"] })); } },
