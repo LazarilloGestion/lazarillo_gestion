@@ -6,6 +6,7 @@ import type { ETLRow, ETLRowError, ETLContext, ETLSkippedRow } from "../types";
 import { ventaRowSchema, type VentaRow } from "../schemas/ventas";
 import { formatZodError } from "../schemas/common";
 import { insertChunkWithRowFallback } from "../chunked-upsert";
+import { esManual } from "@/lib/ventas-manuales/carga";
 
 // Filas por chunk de INSERT ... ON CONFLICT.
 // 500 → 2000 (22/10/2026): el 22 de Comercio 2025 trae 40.886 filas y con
@@ -50,11 +51,13 @@ async function reusarRowIdsExistentes(prisma: DbClient, filas: { rowId: string; 
     select: { rowId: true, turno: true, comprobant: true, codCobro: true, cobro: true, importe: true, cupon: true, fecha: true },
   });
   if (!existentes?.length) return;
+  // Las cargadas a mano en el Panel ("man-…") no son de MaxiRest: nunca se reusan.
+  const deMaxiRest = existentes.filter((e) => !esManual(e.rowId));
   const idsExistentes = new Set(existentes.map((e) => e.rowId));
   const enArchivo = new Set(filas.map((f) => f.rowId));
   // Por clave, los rowId que hay en la base y que este archivo no trae (los que quedarían "colgados").
   const libres = new Map<string, string[]>();
-  for (const e of existentes) {
+  for (const e of deMaxiRest) {
     if (enArchivo.has(e.rowId)) continue;
     const k = claveLogica(e);
     libres.set(k, [...(libres.get(k) ?? []), e.rowId]);
@@ -283,7 +286,8 @@ async function quitarVentasQueNoVinieron(prisma: DbClient, filas: { rowId: strin
     select: { rowId: true, importeManual: true },
   });
   // Las que tienen un importe corregido a mano en el Panel no se tocan.
-  const sobran = (enBase ?? []).filter((v) => !enArchivo.has(v.rowId) && v.importeManual == null).map((v) => v.rowId);
+  // Las cargadas a mano en el Panel ("man-…") no vienen de MaxiRest: nunca se quitan.
+  const sobran = (enBase ?? []).filter((v) => !enArchivo.has(v.rowId) && v.importeManual == null && !esManual(v.rowId)).map((v) => v.rowId);
   if (!sobran.length) return { quitadas: 0 };
   if (sobran.length > 200) {
     return { quitadas: 0, aviso: `Hay ${sobran.length} ventas en el Panel que no están en este archivo (mismos días). Son demasiadas para quitarlas solas: revisá que el archivo esté completo.` };
