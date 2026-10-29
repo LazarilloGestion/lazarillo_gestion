@@ -7,6 +7,9 @@ import { RUBRO_GASTOS_EN_PERSONAL_CODIGO } from "@/lib/dashboard/constants";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { filtroFilaProveedor } from "@/lib/dashboard/filtro-fila-proveedor";
 import { useDashboard } from "@/hooks/use-dashboard-store";
+import { useCargaDesdeCelda } from "@/hooks/use-carga-desde-celda";
+import { mesAnteriorConValor } from "@/lib/dashboard/carga-desde-celda";
+import { MONTHS } from "@/lib/dashboard/constants";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { useReglasActivasPorNivel } from "@/hooks/use-reglas-activas-por-nivel";
 import { usePctMode, makeFmtCelda } from "@/hooks/use-pct-mode";
@@ -27,6 +30,11 @@ export function PivotTableByProveedor() {
     months, activeMonths, sortCol, sortDir, handleSortClick,
     rubroConfigVersion, agrupacionCompras, setAgrupacionCompras, modoCelda, setModoCelda,
   } = useDashboard();
+  // Mes vacío de un concepto → cargar el gasto vario de ese mes (Diego 29/10). Solo en Económica
+  // (el mes es el período) y con local + PDV elegidos (la carga va a ese PDV).
+  const { modoPanel } = useDashboard();
+  const pedirCarga = useCargaDesdeCelda((x) => x.pedir);
+  const cargaEnCelda = modoPanel !== "financiera" && localId != null && pdvId != null;
 
   const [apertura, setApertura] = useAperturaModalState();
   const { reglas } = useReglasApertura();
@@ -223,12 +231,17 @@ export function PivotTableByProveedor() {
                         <td
                           className={cn(
                             "text-right px-3 py-2 tabular-nums text-muted-foreground",
-                            hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
+                            hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground",
+                            !hasValue(concepto.values[mes]) && cargaEnCelda && concepto.proveedorId == null && "cursor-copy hover:bg-sky-50 dark:hover:bg-sky-950/40"
                           )}
+                          title={!hasValue(concepto.values[mes]) && cargaEnCelda && concepto.proveedorId == null ? `Cargar ${concepto.nombre} en ${MONTHS[mes - 1]} como gasto vario` : undefined}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (hasValue(concepto.values[mes]))
                               openDetalle({ mes, conceptoCodigo: concepto.conceptoCodigo, ...filtroProveedorConcepto });
+                            else if (cargaEnCelda && concepto.proveedorId == null)
+                              pedirCarga({ anio: year, mes, conceptoCodigo: concepto.conceptoCodigo, conceptoNombre: concepto.nombre, prev: mesAnteriorConValor(concepto.values, mes),
+                                filtroPrev: { conceptoCodigo: concepto.conceptoCodigo, ...filtroProveedorConcepto } });
                           }}
                         >
                           {fmtCelda(concepto.values[mes], mes)}

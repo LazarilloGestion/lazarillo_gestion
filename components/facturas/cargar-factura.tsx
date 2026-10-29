@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
@@ -11,6 +11,9 @@ import type { Local } from "@/lib/types/domain";
 import { normalizarProveedorTexto } from "@/lib/text-normalize";
 import { candidatosEntidadIdProveedor, construirEntidadIdProveedorTexto } from "@/lib/proveedor-entidad-id";
 import ModalNuevaCarga from "./modal-carga-factura";
+import { useCargaDesdeCelda } from "@/hooks/use-carga-desde-celda";
+import { ctxDesdeCelda } from "@/lib/dashboard/carga-desde-celda";
+import { buildComprasDetalleUrl } from "@/lib/dashboard/params";
 
 export type Maestros = {
   proveedores: { id: number; codigo: string; nombre: string | null; razon: string | null; cuit: string | null }[];
@@ -72,6 +75,25 @@ export function refrescarCompras(queryClient: QueryClient) {
 export function CargarFactura() {
   const { localId, pdvId } = useDashboard();
   const [abierto, setAbierto] = useState(false);
+  // Celda vacía de un concepto en el pivot → Gasto Vario armado (Diego 29/10). Del mes anterior se
+  // trae la fecha de pago (del detalle de ese mes); si no llega, la carga abre igual.
+  const pedido = useCargaDesdeCelda((x) => x.pedido);
+  const limpiarPedido = useCargaDesdeCelda((x) => x.limpiar);
+  const [ctx, setCtx] = useState<ReturnType<typeof ctxDesdeCelda> | null>(null);
+  useEffect(() => {
+    if (!pedido) return;
+    let vivo = true;
+    const abrir = (fechaPagoPrev: string | null) => { if (!vivo) return; setCtx(ctxDesdeCelda(pedido, fechaPagoPrev)); setAbierto(true); limpiarPedido(); };
+    if (!pedido.filtroPrev || !pedido.prev) { abrir(null); return () => { vivo = false; }; }
+    const url = buildComprasDetalleUrl({ year: pedido.anio, localId: localId ?? undefined, pdvId: pdvId ?? undefined, ...pedido.filtroPrev, mes: pedido.prev.mes } as Parameters<typeof buildComprasDetalleUrl>[0]);
+    fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null).then((d: { data?: { fechaPago?: string | null; fecha?: string | null }[] } | null) => {
+      const filas = (d?.data ?? []).filter((f) => f.fechaPago);
+      filas.sort((a, b) => String(b.fecha ?? "").localeCompare(String(a.fecha ?? "")));
+      abrir(filas[0]?.fechaPago ? String(filas[0].fechaPago) : null);
+    });
+    return () => { vivo = false; };
+  }, [pedido, localId, pdvId, limpiarPedido]);
+  const cerrar = () => { setAbierto(false); setCtx(null); };
   const queryClient = useQueryClient();
   // Los maestros se piden al abrir el Panel, no al tocar el botón (Diego 27/10: se quedaba
   // "Cargando maestros…"): cuando se abre el modal ya están.
@@ -98,9 +120,10 @@ export function CargarFactura() {
             pdvActual={pdvActual}
             reglaDe={reglaDe}
             reglaEmpleadoDe={reglaEmpleadoDe}
-            onCerrar={() => setAbierto(false)}
+            ctx={ctx ?? undefined}
+            onCerrar={cerrar}
             onGuardado={(d: { comprobante: string; total: number; pago?: { id: number; aCuenta: number } | null; gastoVario?: boolean; concepto?: string; empleado?: boolean; tipo?: string; nombre?: string }) => {
-              setAbierto(false);
+              cerrar();
               const importe = `$ ${d.total.toLocaleString("es-AR", { minimumFractionDigits: 2 })}`;
               if (d.empleado) {
                 toast.success(d.tipo === "adelanto" ? "Adelanto cargado" : "Sueldo cargado", { description: `${d.nombre ?? ""} · ${importe}` });
