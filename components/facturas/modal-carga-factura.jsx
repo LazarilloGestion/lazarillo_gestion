@@ -697,6 +697,7 @@ function ModalNuevaCarga(props) {
             reglaEmpleadoDe={reglaEmpleadoDe} onGuardado={onGuardado} onCerrar={onCerrar} />
         ) : (<>
         <fieldset disabled={soloVer} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+
         {modo === "factura" ? (
           <>
             {yaCargada && (
