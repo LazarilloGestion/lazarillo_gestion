@@ -209,3 +209,18 @@ describe("ventas: el archivo manda en sus días", () => {
     expect(res.errors[0].message).toMatch(/201 ventas/);
   });
 });
+
+describe("ventas: las cargadas a mano no se tocan al importar", () => {
+  it("no quita una venta manual (man-…) aunque no venga en el archivo", async () => {
+    const deleteMany = vi.fn();
+    const venta = {
+      findMany: vi.fn().mockImplementation(async (args: { where?: { fecha?: unknown }; select?: Record<string, boolean> }) =>
+        args?.where?.fecha ? [{ rowId: "man-123", importeManual: null, turno: null, comprobant: "0001", codCobro: "MAN", cobro: null, importe: 500, cupon: null, fecha: new Date("2023-03-15T00:00:00.000Z") }] : []),
+      deleteMany,
+    };
+    const db = createMockDb({ venta } as never);
+    const res = await normalizeVentas([baseRow()], db, { localId: 1, puntoDeVentaId: 1 } as never);
+    expect(deleteMany).not.toHaveBeenCalled();
+    expect(res.created).toBe(1);
+  });
+});

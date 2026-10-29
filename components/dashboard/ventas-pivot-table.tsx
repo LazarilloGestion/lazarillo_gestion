@@ -5,7 +5,9 @@ import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { ExpandableButton } from "@/components/ui/expandable-button";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { cn, fmtARS, normalize } from "@/lib/utils";
-import { MONTHS } from "@/lib/dashboard/constants";
+import { MONTHS, SIN_COBRO_NOMBRE } from "@/lib/dashboard/constants";
+import { COD_COBRO_MANUAL } from "@/lib/ventas-manuales/carga";
+import { BarraIngresosManuales } from "@/components/ventas/ingresos-manuales";
 import { buildVentasPivotUrl } from "@/lib/dashboard/params";
 import { flattenRows, sortPivotRows, hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
@@ -58,10 +60,11 @@ export function VentasPivotTable() {
 
   if (isLoading) return <PivotLoading />;
   if (error) return <PivotError />;
-  if (!data || data.rows.length === 0) return <PivotEmpty />;
+  if (!data || data.rows.length === 0) return <><BarraIngresosManuales pdvId={pdvId} /><PivotEmpty /></>;
 
   return (
     <>
+      <BarraIngresosManuales pdvId={pdvId} />
       <div className="overflow-auto flex-1 min-h-0">
         <table className="w-full text-sm border-separate border-spacing-0">
           <thead>
@@ -158,7 +161,11 @@ export function VentasPivotTable() {
                   onContextMenu={collapseConceptos}
                 >
                   <td className="sticky left-0 z-10 bg-background px-4 py-2 shadow-[1px_0_0_0_hsl(var(--border))]">
-                    <span className="pl-7 block text-left">{normalize(cobro.nombre)}</span>
+                    <span className="pl-7 block text-left">
+                      {/* Cargado a mano (Ventas → Cargar ingreso): fila propia, marcada MANUAL. */}
+                      {cobro.conceptoCodigo === COD_COBRO_MANUAL && cobro.nombre === SIN_COBRO_NOMBRE ? "Sin especificar" : normalize(cobro.nombre)}
+                      {cobro.conceptoCodigo === COD_COBRO_MANUAL && <span className="ml-1.5 rounded bg-sky-100 dark:bg-sky-950 px-1.5 py-px text-[10px] font-bold text-sky-700 dark:text-sky-300">MANUAL</span>}
+                    </span>
                   </td>
                   {months.map((mes) => (
                     <td
