@@ -23,6 +23,16 @@ import type {
 
 export const dynamic = "force-dynamic";
 
+// Empleado con nombre Y apellido para mostrar (Diego 29/10/2026): la compra de un sueldo trae
+// en c.proveedor solo el nombre ("Diego"); si coincide con el empleado de ese código y PDV se
+// muestra "Diego ALBO". Solo para mostrar: las claves y reglas siguen con el texto crudo.
+const NOMBRE_EMPLEADO = Prisma.sql`(
+  SELECT NULLIF(TRIM(CONCAT_WS(' ', e.nombre, e.apellido)), '')
+  FROM empleados e
+  WHERE c."proveedorId" IS NULL AND e.codigo = c.codigo AND e."puntoDeVentaId" = c."puntoDeVentaIdOrigen"
+    AND LOWER(TRIM(e.nombre)) = LOWER(TRIM(c.proveedor)) AND e.apellido IS NOT NULL AND TRIM(e.apellido) <> ''
+  LIMIT 1)`;
+
 export async function GET(request: NextRequest) {
   const denied = await requireAuth();
   if (denied) return denied;
@@ -89,6 +99,7 @@ export async function GET(request: NextRequest) {
           COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor')         AS proveedor_nombre,
           c.proveedor                                                        AS proveedor_texto_crudo,
           c.codigo                                                           AS proveedor_codigo,
+          ${NOMBRE_EMPLEADO}                                                 AS proveedor_display,
           EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int        AS mes,
           COALESCE(c."importeManual", c.importe)                             AS total,
           c."rowId"                                                           AS row_id,
@@ -126,7 +137,7 @@ export async function GET(request: NextRequest) {
       SELECT c.rubro_codigo, c.rubro_nombre,
         CASE WHEN l.ins IS NULL THEN c.concepto_codigo ELSE 'ins:' || l.ins END AS concepto_codigo,
         CASE WHEN l.ins IS NULL THEN c.concepto_nombre ELSE l.nombre END        AS concepto_nombre,
-        c.proveedor_id, c.proveedor_nombre, c.proveedor_texto_crudo, c.proveedor_codigo, c.mes,
+        c.proveedor_id, c.proveedor_nombre, c.proveedor_texto_crudo, c.proveedor_codigo, c.proveedor_display, c.mes,
         c.total * l.w / lt.wt AS total,
         c.row_id, c.distribucion_id,
         COALESCE(c.pago_ref, '') || '|' || COALESCE(l.ins, 'c') AS pago_ref,
@@ -138,7 +149,7 @@ export async function GET(request: NextRequest) {
       UNION ALL
       -- Sin insumos: por su concepto, como en la vista por Concepto.
       SELECT c.rubro_codigo, c.rubro_nombre, c.concepto_codigo, c.concepto_nombre,
-        c.proveedor_id, c.proveedor_nombre, c.proveedor_texto_crudo, c.proveedor_codigo, c.mes,
+        c.proveedor_id, c.proveedor_nombre, c.proveedor_texto_crudo, c.proveedor_codigo, c.proveedor_display, c.mes,
         c.total, c.row_id, c.distribucion_id, c.pago_ref,
         c.fecha, c.observac, c.has_manual_override, c.local_id_origen, c.punto_de_venta_id_origen
       FROM c
@@ -162,6 +173,7 @@ export async function GET(request: NextRequest) {
       COALESCE(p.nombre, p.razon, c.proveedor, 'Sin Proveedor')         AS proveedor_nombre,
       c.proveedor                                                        AS proveedor_texto_crudo,
       c.codigo                                                           AS proveedor_codigo,
+      ${NOMBRE_EMPLEADO}                                                 AS proveedor_display,
       EXTRACT(MONTH FROM COALESCE(c."fechaManual", c.fecha))::int        AS mes,
       COALESCE(c."importeManual", c.importe)                             AS total,
       c."rowId"                                                           AS row_id,
@@ -331,7 +343,7 @@ function buildPivotData(
       id: `${concKey}|${row_id}|${distribucion_id ?? "orig"}${pago_ref ? `|${pago_ref}` : ""}`,
       rowId: row_id,
       distribucionId: distribucion_id,
-      nombre: proveedor_nombre,
+      nombre: row.proveedor_display ?? proveedor_nombre,
       fecha: fecha ?? null,
       observac: observac ?? null,
       importe: t,
