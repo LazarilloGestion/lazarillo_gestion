@@ -294,6 +294,9 @@ function ReportCard({ report }: { report: ETLReport }) {
         {report.comprasReconciliadas && report.comprasReconciliadas.length > 0 && (
           <Badge variant="secondary" className="text-xs">{report.comprasReconciliadas.length} reconciliados</Badge>
         )}
+        {(report.ventasQuitadas ?? 0) > 0 && (
+          <Badge variant="outline" className="text-xs" title="Estaban en el Panel en esos días y ya no están en MaxiRest (anuladas o cambiadas)">{report.ventasQuitadas} quitadas</Badge>
+        )}
         {report.errors.length > 0 && (
           <Badge variant="destructive" className="text-xs">{report.errors.length} errores</Badge>
         )}

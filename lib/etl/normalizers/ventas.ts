@@ -17,7 +17,10 @@ const CHUNK_SIZE = 2000;
 // makeRowId opera sobre la fila ya "rellenada" por fillPartialRows (igual que el
 // comportamiento original) pero nunca sobre datos coercionados por Zod — el hash
 // tiene que ser estable entre reimports del mismo archivo.
-export function makeRowId(r: ETLRow): string {
+// `vez`: la 2ª, 3ª… vez que la MISMA fila aparece en el archivo (dos cobros idénticos en un ticket,
+// que MaxiRest lista dos veces de verdad). Antes daban el mismo rowId y se guardaba una sola
+// (Diego 29/10/2026: faltaban $87.157 en 4 meses de Comercio). La 1ª vez da el rowId de siempre.
+export function makeRowId(r: ETLRow, vez = 1): string {
   // FECHA incluida para evitar colisiones entre transacciones sin TURNO/COMPROBANT
   // (ventas de cancha sin turno asignado): distintos días con mismo COBRO/IMPORTE
   // colisionaban y se perdían. Secondary rows (FECHA=null) pueden colidir entre sí,
@@ -25,7 +28,7 @@ export function makeRowId(r: ETLRow): string {
   const key = [r["TURNO"], r["COMPROBANT"], r["COD_COBRO"], r["COBRO"], r["IMPORTE"], r["CUPON"], r["FECHA"]]
     .map((v) => String(v ?? ""))
     .join("|");
-  return createHash("sha256").update(key).digest("hex").substring(0, 24);
+  return createHash("sha256").update(vez > 1 ? `${key}#${vez}` : key).digest("hex").substring(0, 24);
 }
 
 /** Clave de la venta con los valores ya normalizados (los mismos que quedan en la base). */
@@ -97,7 +100,7 @@ export async function normalizeVentas(
   rows: ETLRow[],
   prisma: DbClient,
   ctx?: ETLContext
-): Promise<{ created: number; updated: number; skipped: number; skippedRows: ETLSkippedRow[]; errors: ETLRowError[] }> {
+): Promise<{ created: number; updated: number; skipped: number; skippedRows: ETLSkippedRow[]; errors: ETLRowError[]; ventasQuitadas?: number }> {
   // Filtrar primero: eliminar encabezados de fecha/totales del día (TURNO y COD_COBRO ambos vacíos)
   const indiceEnArchivo = new Map(rows.map((r, i) => [r, i] as const));
   const invalidRows = rows.filter((r) => trim(r["TURNO"]) == null && trim(r["COD_COBRO"]) == null);
@@ -117,13 +120,18 @@ export async function normalizeVentas(
   // contenido no numérico) que no parsea → errors, no null en silencio.
   type ParsedRow = { rowId: string; row: ETLRow; data: VentaRow; idx: number };
   const parsedRows: ParsedRow[] = [];
+  const vecesVista = new Map<string, number>();
   filled.forEach((r, idx) => {
     const parsed = ventaRowSchema.safeParse(r);
     if (!parsed.success) {
       errors.push({ rowIndex: idx, rawCodigo: r["COMPROBANT"], message: formatZodError(parsed.error), ...filaCruda(r, idx) });
       return;
     }
-    parsedRows.push({ rowId: makeRowId(r), row: r, data: parsed.data, idx });
+    // Solo filas con fecha: las secundarias de pago partido (sin fecha) siguen como antes.
+    const base = makeRowId(r);
+    const vez = parsed.data.FECHA ? (vecesVista.get(base) ?? 0) + 1 : 1;
+    vecesVista.set(base, vez);
+    parsedRows.push({ rowId: vez > 1 ? makeRowId(r, vez) : base, row: r, data: parsed.data, idx });
   });
 
   // Dedup por rowId — last-wins, pero ahora la fila que se pisa se reporta en
@@ -250,5 +258,36 @@ export async function normalizeVentas(
     errors.push(...chunkErrors);
   }
 
-  return { created, updated, skipped, skippedRows, errors };
+  // Ventas que ya no están en MaxiRest (Diego 29/10/2026): el archivo es la verdad para sus
+  // días; lo que en la base quedó en ese PDV y esas fechas y no vino (un ticket que se anuló o
+  // cambió después de importarlo, o un doble viejo) se quita. Freno: si fueran más de 200 no se
+  // toca nada y se avisa — puede ser un archivo cortado. Con errores en el archivo, tampoco.
+  let ventasQuitadas = 0;
+  if (puntoDeVentaId != null && errors.length === 0) {
+    const r = await quitarVentasQueNoVinieron(prisma, filtered, puntoDeVentaId);
+    ventasQuitadas = r.quitadas;
+    if (r.aviso) errors.push({ rowIndex: -1, rawCodigo: null, message: r.aviso });
+  }
+
+  return { created, updated, skipped, skippedRows, errors, ventasQuitadas };
+}
+
+async function quitarVentasQueNoVinieron(prisma: DbClient, filas: { rowId: string; data: VentaRow }[], puntoDeVentaId: number): Promise<{ quitadas: number; aviso?: string }> {
+  const ts = filas.map((f) => f.data.FECHA).filter((d): d is Date => d instanceof Date && !isNaN(d.getTime())).map((d) => d.getTime());
+  if (!ts.length) return { quitadas: 0 };
+  const desde = new Date(ts.reduce((a, b) => Math.min(a, b)));
+  const hasta = new Date(ts.reduce((a, b) => Math.max(a, b)));
+  const enArchivo = new Set(filas.map((f) => f.rowId));
+  const enBase = await prisma.venta.findMany({
+    where: { puntoDeVentaId, fecha: { gte: desde, lte: hasta } },
+    select: { rowId: true, importeManual: true },
+  });
+  // Las que tienen un importe corregido a mano en el Panel no se tocan.
+  const sobran = (enBase ?? []).filter((v) => !enArchivo.has(v.rowId) && v.importeManual == null).map((v) => v.rowId);
+  if (!sobran.length) return { quitadas: 0 };
+  if (sobran.length > 200) {
+    return { quitadas: 0, aviso: `Hay ${sobran.length} ventas en el Panel que no están en este archivo (mismos días). Son demasiadas para quitarlas solas: revisá que el archivo esté completo.` };
+  }
+  await prisma.venta.deleteMany({ where: { rowId: { in: sobran } } });
+  return { quitadas: sobran.length };
 }

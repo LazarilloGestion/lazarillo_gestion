@@ -49,8 +49,11 @@ export function serialExcel(valor: string): number | null {
 // ("FCB 0006-00004888"). El rowId de ventas hashea el comprobante crudo, así que
 // se rearma igual que en el Excel (si no, la misma venta leída de Render y del
 // Excel daría dos registros).
+// Ojo: las letras de una sola posición ("U", "_", "Y") vienen con varios espacios ("U   0006-…");
+// antes el patrón pedía UN espacio, esas no se rearmaban y daban otro rowId → venta duplicada
+// (San Justo, Comercio; Diego 29/10/2026).
 export function comprobanteDelExcel(s: string): string | null {
-  const m = /^(\S+) (\d{4}-\d{8})$/.exec(s.trim());
+  const m = /^(\S+)\s+(\d{4}-\d{8})$/.exec(s.trim());
   return m ? `  ${m[1].padEnd(3)} ${m[2]} ` : null;
 }
 

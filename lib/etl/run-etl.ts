@@ -27,6 +27,7 @@ type NormalizerFn = (
   comprasDistribuidasModificadas?: string[];
   comprasReconciliadas?: string[];
   reconciliacionesAmbiguas?: ETLReconciliacionAmbigua[];
+  ventasQuitadas?: number;
 }>;
 
 const NORMALIZERS: Record<string, NormalizerFn> = {
@@ -65,7 +66,7 @@ export async function runETL(
   const client = db ?? (prisma as unknown as DbClient);
   const {
     created, updated, skipped, skippedRows, errors,
-    comprasDistribuidasModificadas, comprasReconciliadas, reconciliacionesAmbiguas,
+    comprasDistribuidasModificadas, comprasReconciliadas, reconciliacionesAmbiguas, ventasQuitadas,
   } = await normalizer(rows, client, ctx);
 
   return {
@@ -79,6 +80,7 @@ export async function runETL(
     comprasDistribuidasModificadas,
     comprasReconciliadas,
     reconciliacionesAmbiguas,
+    ventasQuitadas,
     durationMs: Date.now() - startMs,
     storagePath,
   };
@@ -99,7 +101,7 @@ export async function runETLFilas(
   if (!normalizer) throw new Error(`No hay normalizer registrado para el tipo de archivo: ${fileType}`);
   const {
     created, updated, skipped, skippedRows, errors,
-    comprasDistribuidasModificadas, comprasReconciliadas, reconciliacionesAmbiguas,
+    comprasDistribuidasModificadas, comprasReconciliadas, reconciliacionesAmbiguas, ventasQuitadas,
   } = await normalizer(rows, db, ctx);
   return {
     fileType,
@@ -112,6 +114,7 @@ export async function runETLFilas(
     comprasDistribuidasModificadas,
     comprasReconciliadas,
     reconciliacionesAmbiguas,
+    ventasQuitadas,
     durationMs: Date.now() - startMs,
   };
 }
