@@ -19,6 +19,9 @@ describe("22 desde Render", () => {
     expect(comprobanteDelExcel("FCB 0006-00004888")).toBe("  FCB 0006-00004888 ");
     expect(comprobanteDelExcel("TIC 0001-00003128")).toBe("  TIC 0001-00003128 ");
     expect(comprobanteDelExcel("TOTALES DEL DIA:")).toBeNull();
+    // Letra de una posición: Render la guarda "U   0006-…" (3 espacios) y el Excel "  U   0006-… ".
+    expect(comprobanteDelExcel("U   0006-00032398")).toBe("  U   0006-00032398 ");
+    expect(comprobanteDelExcel("_   0001-00000111")).toBe("  _   0001-00000111 ");
   });
   it("hora como fracción del día, igual que el Excel", () => {
     expect(horaDelExcel("13:09:00")).toBe(0.5479166666666667);

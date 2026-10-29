@@ -75,6 +75,8 @@ export interface ETLReport {
   comprasDistribuidasModificadas?: string[];
   comprasReconciliadas?: string[];
   reconciliacionesAmbiguas?: ETLReconciliacionAmbigua[];
+  // Ventas que estaban en el Panel en los días del archivo y ya no vinieron (se quitaron).
+  ventasQuitadas?: number;
   durationMs: number;
   storagePath?: string;
 }

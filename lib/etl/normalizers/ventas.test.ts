@@ -60,9 +60,11 @@ describe("normalizeVentas", () => {
     expect(res.errors).toHaveLength(0);
   });
 
-  it("dos filas con hash idéntico (duplicado real): una se inserta, la otra queda en skippedRows motivo duplicado", async () => {
+  // Con fecha, dos filas idénticas son dos cobros reales y se guardan las dos (ver más abajo);
+  // las secundarias de pago partido (sin fecha) siguen deduplicándose como antes.
+  it("dos filas secundarias (sin fecha) con hash idéntico: una se inserta, la otra queda en skippedRows motivo duplicado", async () => {
     const db = createMockDb();
-    const res = await normalizeVentas([baseRow(), baseRow()], db);
+    const res = await normalizeVentas([baseRow({ FECHA: null }), baseRow({ FECHA: null })], db);
     expect(res.created).toBe(1);
     expect(res.skippedRows).toHaveLength(1);
     expect(res.skippedRows[0].motivo).toBe("duplicado");
@@ -167,5 +169,43 @@ describe("ventas: nunca duplicar (misma venta con otro rowId en la base)", () =>
     const db = createMockDb({ venta });
     const res = await normalizeVentas([baseRow({ COMPROBANT: "0002" }), baseRow({ COMPROBANT: "0001" })], db, { localId: 1, puntoDeVentaId: 1 } as never);
     expect(res.created + res.updated).toBe(2);
+  });
+});
+
+describe("ventas: el archivo manda en sus días", () => {
+  it("dos cobros idénticos en el mismo ticket se guardan los dos (no se pisan)", async () => {
+    const db = createMockDb();
+    const res = await normalizeVentas([baseRow(), baseRow()], db, { localId: 1, puntoDeVentaId: 1 } as never);
+    expect(res.created).toBe(2);
+    expect(res.skippedRows.filter((s) => s.motivo === "duplicado")).toHaveLength(0);
+  });
+
+  it("quita la venta que está en la base en esos días y ya no vino (anulada/cambiada en MaxiRest), salvo si tiene importe a mano", async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const venta = {
+      findMany: vi.fn().mockImplementation(async (args: { where?: { fecha?: unknown }; select?: Record<string, boolean> }) => {
+        if (!args?.where?.fecha) return [];
+        if (args.select?.importeManual) return [{ rowId: "fantasma", importeManual: null }, { rowId: "editada", importeManual: "100" }];
+        return [];
+      }),
+      deleteMany,
+    };
+    const db = createMockDb({ venta } as never);
+    const res = await normalizeVentas([baseRow()], db, { localId: 1, puntoDeVentaId: 1 } as never);
+    expect(deleteMany).toHaveBeenCalledWith({ where: { rowId: { in: ["fantasma"] } } });
+    expect(res.ventasQuitadas).toBe(1);
+  });
+
+  it("si sobran más de 200 no borra nada y avisa", async () => {
+    const deleteMany = vi.fn();
+    const venta = {
+      findMany: vi.fn().mockImplementation(async (args: { where?: { fecha?: unknown }; select?: Record<string, boolean> }) =>
+        args?.where?.fecha && args.select?.importeManual ? Array.from({ length: 201 }, (_, i) => ({ rowId: `x${i}`, importeManual: null })) : []),
+      deleteMany,
+    };
+    const db = createMockDb({ venta } as never);
+    const res = await normalizeVentas([baseRow()], db, { localId: 1, puntoDeVentaId: 1 } as never);
+    expect(deleteMany).not.toHaveBeenCalled();
+    expect(res.errors[0].message).toMatch(/201 ventas/);
   });
 });
