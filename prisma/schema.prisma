@@ -76,6 +76,13 @@ model ConceptoCaja {
   codRga String?
   rubro  RubroConceptoCaja? @relation(fields: [codRga], references: [codigo])
 
+  // Original de MaxiRest (Diego 29/10/2026): nombre / tipo / codRga se pueden editar en
+  // Lazarillo (editadoEnLazarillo) y el import del maestro ya no los pisa.
+  nombreMaxirest     String?
+  tipoMaxirest       String?
+  codRgaMaxirest     String?
+  editadoEnLazarillo Boolean @default(false)
+
   compras         Compra[] @relation("conceptoPrincipal")
   comprasManuales Compra[] @relation("conceptoManual")
 
