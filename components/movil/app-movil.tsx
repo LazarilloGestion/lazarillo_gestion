@@ -218,7 +218,7 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
       const g = proyectarGastos({ cargado: data.rubros, sinCargar: scMes!.items, historia: [], ventasProy: data.ventas });
       return { modo: "falta" as const, ventas: data.ventas, rubros: g.rubros.map((r) => ({ rubro: r.rubro, total: r.total, variable: r.variable })), gastosReal: data.gastos, faltan: sinCargarMes.n, faltaTotal: sinCargarMes.total };
     }
-    return { modo: "real" as const, ventas: data.ventas, rubros: data.rubros, gastosReal: data.gastos, faltan: 0 };
+    return { modo: "real" as const, ventas: data.ventas, rubros: data.rubros.map((r) => ({ rubro: r.rubro, total: r.total, variable: 0 })), gastosReal: data.gastos, faltan: 0 };
   })();
   const ind = vista ? indicadores(vista.ventas, vista.rubros) : null;
   const indAnt = h1.data ? indicadores(h1.data.ventas, h1.data.rubros) : null;
@@ -316,7 +316,7 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
       <div className="mt-2.5 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4">
         <div className="flex items-baseline justify-between"><b>Gastos del mes por rubro{vista?.modo === "proy" ? " · proyectado" : vista?.modo === "falta" ? " · con lo sin cargar" : ""}</b><span className="text-[11.5px] text-zinc-500">% ing</span></div>
         {[...(vista?.rubros ?? [])].sort((a, b) => b.total - a.total).map((r) => (
-          <RubroMes key={r.rubro} rubro={r.rubro} total={r.total} estimado={"variable" in r ? (r.variable ?? 0) : 0}
+          <RubroMes key={r.rubro} rubro={r.rubro} total={r.total} estimado={r.variable}
             proyectado={!!proyectado} pctIng={pctIng} abierto={abierto === r.rubro} onToggle={() => setAbierto((x) => (x === r.rubro ? null : r.rubro))}
             detalle={{ localId, pdvId, anio: ym.anio, mes: ym.mes }} sinCargar={vista?.modo !== "real" ? (scMes?.items ?? []) : []} />
         ))}
