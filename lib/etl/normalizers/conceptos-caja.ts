@@ -58,23 +58,32 @@ export async function normalizeConceptosCaja(
         const values = rowsToInsert.map(({ data }) => {
           const rawRga = data.COD_RGA != null && data.COD_RGA > 0 ? String(data.COD_RGA) : null;
           const codRga = rawRga != null && (validRgaSet.size === 0 || validRgaSet.has(rawRga)) ? rawRga : null;
+          const nombre = data.NOMBRE ?? "(sin nombre)";
           return Prisma.sql`(
             ${data.CODIGO},
-            ${data.NOMBRE ?? "(sin nombre)"},
+            ${nombre},
             ${data.TIPO},
             ${data.COD_IMP},
+            ${codRga},
+            ${nombre},
+            ${data.TIPO},
             ${codRga}
           )`;
         });
 
+        // Lo de MaxiRest queda siempre en *Maxirest (el original, en gris en Conceptos). Si el
+        // concepto se editó en Lazarillo (Diego 29/10/2026), nombre / tipo / rubro no se pisan.
         return Prisma.sql`
-          INSERT INTO conceptos_caja (codigo, nombre, tipo, "codImp", "codRga")
+          INSERT INTO conceptos_caja (codigo, nombre, tipo, "codImp", "codRga", "nombreMaxirest", "tipoMaxirest", "codRgaMaxirest")
           VALUES ${Prisma.join(values)}
           ON CONFLICT (codigo) DO UPDATE SET
-            nombre    = EXCLUDED.nombre,
-            tipo      = EXCLUDED.tipo,
+            nombre    = CASE WHEN conceptos_caja."editadoEnLazarillo" THEN conceptos_caja.nombre ELSE EXCLUDED.nombre END,
+            tipo      = CASE WHEN conceptos_caja."editadoEnLazarillo" THEN conceptos_caja.tipo ELSE EXCLUDED.tipo END,
             "codImp"  = EXCLUDED."codImp",
-            "codRga"  = EXCLUDED."codRga"
+            "codRga"  = CASE WHEN conceptos_caja."editadoEnLazarillo" THEN conceptos_caja."codRga" ELSE EXCLUDED."codRga" END,
+            "nombreMaxirest" = EXCLUDED."nombreMaxirest",
+            "tipoMaxirest"   = EXCLUDED."tipoMaxirest",
+            "codRgaMaxirest" = EXCLUDED."codRgaMaxirest"
         `;
       },
       ({ data, idx }, err) => ({

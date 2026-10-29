@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Check, Search, Tags, ChevronDown, ChevronsUpDown, Plus, Pencil, Trash2, Lock, Split, X } from "lucide-react";
+import { Copy, Check, Search, Tags, ChevronDown, ChevronsUpDown, Plus, Pencil, Trash2, Split, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { AperturaGastosModal } from "@/components/dashboard/apertura-gastos-modal";
@@ -21,9 +21,12 @@ import { cn } from "@/lib/utils";
 import { rangosLibres, cantidadLibres, textoRango, libreDesde, MAX_CODIGO_CONCEPTO } from "@/lib/conceptos/codigos-libres";
 import type { ConceptoMaestro } from "@/lib/render/db";
 
-type Respuesta = { fuente: "render" | "panel"; conceptos: ConceptoMaestro[]; conRegistros: string[] | null; rubros: { codigo: string; nombre: string }[] };
+// Concepto de MaxiRest editado en Lazarillo (Diego 29/10/2026): `original` es el de MaxiRest (en gris).
+type OriginalMx = { nombre: string; tipo: string | null; codRubro: number | null; rubro: string | null };
+type ConceptoUI = ConceptoMaestro & { editado?: boolean; original?: OriginalMx };
+type Respuesta = { fuente: "render" | "panel"; conceptos: ConceptoUI[]; conRegistros: string[] | null; rubros: { codigo: string; nombre: string }[] };
 
-type FormConcepto = { codigo: number | null; nombre: string; tipo: string; codRubro: string; padrino: string | null };
+type FormConcepto = { codigo: number | null; nombre: string; tipo: string; codRubro: string; padrino: string | null; original?: OriginalMx; editado?: boolean };
 type Opcion = { valor: string; texto: string; detalle?: string };
 
 // Lista desplegable con buscador (rubro y padrino).
@@ -99,7 +102,7 @@ function FormularioConcepto({
   inicial: FormConcepto;
   proximo: number;
   rubros: { codigo: string; nombre: string }[];
-  conceptos: ConceptoMaestro[];
+  conceptos: ConceptoUI[];
   reglasDe: (codigo: string | number) => ReglaAperturaDTO[];
   locales: Local[];
   onAbrirReglas: (codigo: number, nombre: string) => void;
@@ -110,6 +113,8 @@ function FormularioConcepto({
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const editando = inicial.codigo != null;
+  const deMaxirest = editando && !esPropio(inicial.codigo!);
+  const orig = inicial.original;
   const padrino = f.padrino != null ? conceptos.find((c) => String(c.codigo) === f.padrino) : undefined;
   // Reglas que se ven: las del concepto (al modificar) o las que se copian del padrino.
   const reglas = editando ? reglasDe(inicial.codigo!) : padrino ? reglasDe(padrino.codigo) : [];
@@ -143,6 +148,17 @@ function FormularioConcepto({
       setGuardando(false);
     }
   }
+  async function restaurar() {
+    setGuardando(true);
+    setError(null);
+    const res = await fetch(`/api/conceptos/${inicial.codigo}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ restaurar: true }) }).catch(() => null);
+    setGuardando(false);
+    if (!res?.ok) { setError("No se pudo volver al de MaxiRest"); return; }
+    toast.success(`Concepto ${inicial.codigo}: volvió al de MaxiRest`);
+    onGuardado();
+  }
+  // Original de MaxiRest debajo de cada campo (en gris, no se edita).
+  const original = (v: string | null | undefined) => (deMaxirest && orig ? <span className="text-[11px] text-zinc-400" title="Original de MaxiRest">MaxiRest: {v || "—"}</span> : null);
   const campo = "h-8 rounded-md border bg-background px-2 text-sm";
   const opcionesRubro = rubros.map((r) => ({ valor: r.codigo, texto: `${r.codigo} · ${r.nombre}` }));
   const opcionesPadrino = conceptos.map((c) => ({ valor: String(c.codigo), texto: `${c.codigo} · ${c.nombre}`, detalle: c.rubro ?? undefined }));
@@ -150,7 +166,7 @@ function FormularioConcepto({
     <div className="mx-4 my-3 rounded-lg border border-sky-200 bg-sky-50/60 p-3 dark:border-sky-900 dark:bg-sky-950/20">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs font-medium">
-          {editando ? `Modificar concepto ${inicial.codigo}` : `Nuevo concepto de Lazarillo · código ${proximo}`}
+          {deMaxirest ? `Modificar concepto ${inicial.codigo} de MaxiRest · lo que cambies vale solo en Lazarillo (el código no cambia)` : editando ? `Modificar concepto ${inicial.codigo}` : `Nuevo concepto de Lazarillo · código ${proximo}`}
         </span>
         {!editando && (
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -167,14 +183,17 @@ function FormularioConcepto({
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">Nombre
           <Input autoFocus value={f.nombre} maxLength={60} onChange={(e) => setF({ ...f, nombre: e.target.value })} className="h-8 w-64" />
+          {original(orig?.nombre)}
         </label>
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">Tipo
           <select value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })} className={campo}>
             {TIPOS_CONCEPTO.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
           </select>
+          {original(orig ? TIPOS_CONCEPTO.find((t) => t.valor === orig.tipo)?.etiqueta ?? orig.tipo : null)}
         </label>
         <div className="flex flex-col gap-1 text-xs text-muted-foreground">Rubro
           <Buscador valor={f.codRubro} opciones={opcionesRubro} placeholder="Buscar rubro..." vacio="Elegí un rubro" ancho="w-64" onCambio={(v) => setF({ ...f, codRubro: v })} />
+          {original(orig ? `${orig.codRubro ?? ""} · ${orig.rubro ?? ""}` : null)}
         </div>
         <div className="flex gap-2">
           <button type="button" onClick={onCerrar} disabled={guardando} className="h-8 rounded-md border px-3 text-xs hover:bg-muted">Cancelar</button>
@@ -187,6 +206,11 @@ function FormularioConcepto({
             {guardando && <Spinner size="sm" className="text-primary-foreground" />}
             {editando ? "Guardar" : "Crear concepto"}
           </button>
+          {deMaxirest && inicial.editado && (
+            <button type="button" onClick={restaurar} disabled={guardando} className="h-8 rounded-md px-2 text-xs text-muted-foreground hover:text-foreground hover:underline">
+              Volver al de MaxiRest
+            </button>
+          )}
         </div>
       </div>
       <div className="mt-3 border-t border-sky-200/70 pt-2 dark:border-sky-900">
@@ -298,7 +322,7 @@ export default function ConceptosPage() {
     await queryClient.invalidateQueries({ queryKey: ["conceptos-maestro"] });
   }
   const conRegistros = useMemo(() => (data?.conRegistros ? new Set(data.conRegistros) : null), [data]);
-  const sinUso = (c: ConceptoMaestro) => conRegistros != null && !conRegistros.has(String(c.codigo));
+  const sinUso = (c: ConceptoUI) => conRegistros != null && !conRegistros.has(String(c.codigo));
 
   const conceptos = useMemo(() => data?.conceptos ?? [], [data]);
   const porCodigo = useMemo(() => new Map(conceptos.map((c) => [c.codigo, c])), [conceptos]);
@@ -319,7 +343,7 @@ export default function ConceptosPage() {
     const filtrados = t
       ? conceptos.filter((c) => String(c.codigo).includes(t) || c.nombre.toLowerCase().includes(t) || (c.rubro ?? "").toLowerCase().includes(t))
       : conceptos;
-    const m = new Map<string, ConceptoMaestro[]>();
+    const m = new Map<string, ConceptoUI[]>();
     for (const c of filtrados) {
       const k = c.rubro ? `${c.codRubro ?? ""} · ${c.rubro}` : "Sin rubro";
       m.set(k, [...(m.get(k) ?? []), c]);
@@ -347,7 +371,7 @@ export default function ConceptosPage() {
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white">Conceptos de caja</h1>
         <p className="text-sm text-muted-foreground">
-          Códigos libres para dar de alta en MaxiRest y conceptos propios de Lazarillo (desde el {CODIGO_MIN_LAZARILLO}). Los de MaxiRest se modifican en MaxiRest.
+          Códigos libres para dar de alta en MaxiRest y conceptos propios de Lazarillo (desde el {CODIGO_MIN_LAZARILLO}). Los de MaxiRest también se pueden modificar acá: vale solo en Lazarillo y el original queda en gris.
         </p>
       </div>
 
@@ -491,7 +515,10 @@ export default function ConceptosPage() {
                         {cs.map((c) => (
                           <div key={c.codigo} className="group flex break-inside-avoid items-center gap-3 py-0.5" title={sinUso(c) ? "Sin registros en el Panel" : undefined}>
                             <span className="w-10 shrink-0 tabular-nums text-muted-foreground text-right">{c.codigo}</span>
-                            <span className={cn("truncate", sinUso(c) && "text-muted-foreground")}>{c.nombre}</span>
+                            <span className={cn("min-w-0 truncate", sinUso(c) && "text-muted-foreground")} title={c.editado && c.original ? `MaxiRest: ${c.original.nombre}${c.original.rubro ? ` · ${c.original.rubro}` : ""}` : undefined}>
+                              {c.nombre}
+                              {c.editado && c.original && <span className="ml-1.5 text-[11px] text-zinc-400">MaxiRest: {c.original.nombre}</span>}
+                            </span>
                             {sinUso(c) && <span className="size-1.5 shrink-0 rounded-full bg-zinc-300" />}
                             {reglasDe(c.codigo).length > 0 ? (
                               <button
@@ -534,8 +561,17 @@ export default function ConceptosPage() {
                                 )}
                               </span>
                             ) : (
-                              <span title="Concepto de MaxiRest: se modifica en MaxiRest" className="ml-auto opacity-0 group-hover:opacity-100">
-                                <Lock className="h-3 w-3 text-muted-foreground/60" />
+                              <span className="ml-auto flex shrink-0 items-center gap-1">
+                                {c.editado && <span className="rounded bg-violet-100 px-1 text-[10px] font-semibold text-violet-700" title="Modificado en Lazarillo">EDITADO</span>}
+                                <button
+                                  type="button"
+                                  title="Modificar en Lazarillo (el original de MaxiRest queda guardado)"
+                                  onClick={() => { setFormEn(rubro); setForm({ codigo: c.codigo, nombre: c.nombre, tipo: c.tipo ?? "-", codRubro: c.codRubro != null ? String(c.codRubro) : "", padrino: null,
+                                    original: c.original ?? { nombre: c.nombre, tipo: c.tipo, codRubro: c.codRubro, rubro: c.rubro }, editado: !!c.editado }); }}
+                                  className={cn("flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted", !c.editado && "opacity-0 group-hover:opacity-100")}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
                               </span>
                             )}
                           </div>
