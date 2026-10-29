@@ -12,6 +12,7 @@ import { leerQrDeArchivo } from "./leer-qr";
 import type { ProyeccionMes } from "@/lib/dashboard/proyeccion";
 import { frescura, hoyArgentina, type Frescura } from "@/lib/dashboard/frescura";
 import { proyectarGastos } from "@/lib/movil/proyeccion-gastos";
+import { cargadasDe, esPersonal, lineasRubro } from "@/lib/movil/rubro-detalle";
 import { difPp, indicadores, promedioMensual } from "@/lib/movil/indicadores";
 import { claveDescarte, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
 import { useQueryClient } from "@tanstack/react-query";
@@ -211,11 +212,11 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
     if (!data) return null;
     if (proy && scMes) {
       const g = proyectarGastos({ cargado: data.rubros, sinCargar: scMes.items, historia, ventasProy: proy.proyeccion });
-      return { modo: "proy" as const, ventas: proy.proyeccion, rubros: g.rubros.map((r) => ({ rubro: r.rubro, total: r.total })), gastosReal: data.gastos, faltan: sinCargarMes?.n ?? 0 };
+      return { modo: "proy" as const, ventas: proy.proyeccion, rubros: g.rubros.map((r) => ({ rubro: r.rubro, total: r.total, variable: r.variable })), gastosReal: data.gastos, faltan: sinCargarMes?.n ?? 0 };
     }
     if (sinCargarMes && sinCargarMes.total > 0.5) {
       const g = proyectarGastos({ cargado: data.rubros, sinCargar: scMes!.items, historia: [], ventasProy: data.ventas });
-      return { modo: "falta" as const, ventas: data.ventas, rubros: g.rubros.map((r) => ({ rubro: r.rubro, total: r.total })), gastosReal: data.gastos, faltan: sinCargarMes.n, faltaTotal: sinCargarMes.total };
+      return { modo: "falta" as const, ventas: data.ventas, rubros: g.rubros.map((r) => ({ rubro: r.rubro, total: r.total, variable: r.variable })), gastosReal: data.gastos, faltan: sinCargarMes.n, faltaTotal: sinCargarMes.total };
     }
     return { modo: "real" as const, ventas: data.ventas, rubros: data.rubros, gastosReal: data.gastos, faltan: 0 };
   })();
@@ -237,6 +238,9 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
   const toque = useRef<{ x: number; y: number } | null>(null);
   const pctIng = (n: number) => (ind && ind.ventas > 0 ? pc(n / ind.ventas) : "—");
   const proyectado = vista && vista.modo !== "real";
+  // Rubro desplegado en "Gastos del mes por rubro" (Diego 29/10); se cierra al cambiar de mes.
+  const [abierto, setAbierto] = useState<string | null>(null);
+  useEffect(() => setAbierto(null), [clave]);
   return (
     <div className="touch-pan-y"
       onTouchStart={(e) => { const t = e.touches[0]; toque.current = { x: t.clientX, y: t.clientY }; }}
@@ -311,17 +315,65 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
       )}
       <div className="mt-2.5 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-4">
         <div className="flex items-baseline justify-between"><b>Gastos del mes por rubro{vista?.modo === "proy" ? " · proyectado" : vista?.modo === "falta" ? " · con lo sin cargar" : ""}</b><span className="text-[11.5px] text-zinc-500">% ing</span></div>
-        {(vista?.rubros ?? []).map((r) => (
-          <div key={r.rubro} className="flex items-baseline gap-2 border-b border-zinc-100 dark:border-zinc-800 py-2 last:border-0 text-[14px]">
-            <span className="min-w-0 flex-1 truncate">{r.rubro}</span>
-            <b className={cn("tabular-nums", proyectado && "text-sky-700 dark:text-sky-300")}>{$(r.total)}</b>
-            <span className="w-12 shrink-0 text-right text-[12.5px] tabular-nums text-zinc-500">{pctIng(r.total)}</span>
-          </div>
+        {[...(vista?.rubros ?? [])].sort((a, b) => b.total - a.total).map((r) => (
+          <RubroMes key={r.rubro} rubro={r.rubro} total={r.total} estimado={"variable" in r ? (r.variable ?? 0) : 0}
+            proyectado={!!proyectado} pctIng={pctIng} abierto={abierto === r.rubro} onToggle={() => setAbierto((x) => (x === r.rubro ? null : r.rubro))}
+            detalle={{ localId, pdvId, anio: ym.anio, mes: ym.mes }} sinCargar={vista?.modo !== "real" ? (scMes?.items ?? []) : []} />
         ))}
         {vista && !vista.rubros.length && <p className="pt-2 text-[13px] text-zinc-500">Sin gastos en el mes.</p>}
       </div>
       <p className="mt-2 text-center text-[11.5px] text-zinc-400">← deslizá para cambiar de mes →</p>
       <Link href="/dashboard?completa=1" className="mt-3 block text-center text-[13px] text-sky-700 underline">Abrir el Panel completo</Link>
+    </div>
+  );
+}
+
+// Un rubro de "Gastos del mes por rubro": tocándolo se despliega su detalle de mayor a menor
+// (Diego 29/10/2026). Personal por empleado (vista Proveedor del Panel); el resto por insumo
+// o concepto (vista Insumos). Se piden al abrir: un pivot del mes por agrupación, compartido.
+function RubroMes({ rubro, total, estimado, proyectado, pctIng, abierto, onToggle, detalle, sinCargar }: {
+  rubro: string; total: number; estimado: number; proyectado: boolean; pctIng: (n: number) => string;
+  abierto: boolean; onToggle: () => void; detalle: { localId: number; pdvId: number; anio: number; mes: number };
+  sinCargar: ItemSinCarga[];
+}) {
+  const agrupacion = esPersonal(rubro) ? "proveedor" : "insumo";
+  const { localId, pdvId, anio, mes } = detalle;
+  const { data, isLoading, isError } = useFetchQuery<{ rows: { nombre: string; rowTotal: number; children: { nombre: string; rowTotal: number }[] }[] }>(
+    ["m-rubro-detalle", localId, pdvId, anio, mes, agrupacion],
+    abierto ? `/api/dashboard/pivot?year=${anio}&localId=${localId}&pdvId=${pdvId}&months=${mes}&agrupacion=${agrupacion}` : null,
+    { staleTime: 5 * 60_000 });
+  const [todas, setTodas] = useState(false);
+  const lineas = useMemo(() => lineasRubro({ rubro, cargadas: cargadasDe(data?.rows, rubro), sinCargar, estimado }), [data, rubro, sinCargar, estimado]);
+  const MAX = 12;
+  const vis = todas ? lineas : lineas.slice(0, MAX);
+  const resto = lineas.slice(MAX);
+  return (
+    <div className="border-b border-zinc-100 dark:border-zinc-800 last:border-0">
+      <button type="button" onClick={onToggle} aria-expanded={abierto} className="flex w-full items-baseline gap-2 py-2 text-left text-[14px]">
+        <ChevronRight className={cn("size-3.5 shrink-0 self-center text-zinc-400 transition-transform", abierto && "rotate-90")} />
+        <span className="min-w-0 flex-1 truncate">{rubro}</span>
+        <b className={cn("tabular-nums", proyectado && "text-sky-700 dark:text-sky-300")}>{$(total)}</b>
+        <span className="w-12 shrink-0 text-right text-[12.5px] tabular-nums text-zinc-500">{pctIng(total)}</span>
+      </button>
+      {abierto && (
+        <div className="mb-2 ml-5 rounded-xl bg-zinc-50 dark:bg-zinc-900 px-3 py-1.5 text-[13px]">
+          {isLoading && <p className="py-1.5 text-zinc-500">Cargando…</p>}
+          {isError && <p className="py-1.5 text-red-600">No se pudo traer el detalle.</p>}
+          {!isLoading && !isError && !lineas.length && <p className="py-1.5 text-zinc-500">Sin detalle.</p>}
+          {vis.map((l, i) => (
+            <div key={`${l.tipo}-${l.nombre}-${i}`} className="flex items-baseline gap-2 border-b border-zinc-100 dark:border-zinc-800 py-1.5 last:border-0">
+              <span className="min-w-0 flex-1 truncate">{l.nombre}
+                {l.nota && <span className={cn("ml-1.5 text-[11px] font-semibold", l.tipo === "sinCargar" ? "text-amber-600" : "text-sky-700 dark:text-sky-300")}>{l.nota}</span>}</span>
+              <span className={cn("tabular-nums", l.tipo !== "cargado" && "text-zinc-500")}>{$(l.total)}</span>
+            </div>
+          ))}
+          {!todas && resto.length > 0 && (
+            <button type="button" onClick={() => setTodas(true)} className="w-full py-1.5 text-left text-[12.5px] text-sky-700">
+              + {resto.length} más · {$(resto.reduce((s, l) => s + l.total, 0))}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
