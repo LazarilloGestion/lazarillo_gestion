@@ -441,13 +441,15 @@ function ModalNuevaCarga(props) {
   const [rubroV, setRubroV] = useState(ctx.rubro || (concCtx && concCtx.rubro) || "");
   const [conceptoV, setConceptoV] = useState(ctx.concepto || (concCtx && concCtx.concepto) || "");
   const [importeV, setImporteV] = useState(ctx.importe > 0 ? fmtNum(ctx.importe) : "");
+  // Desde una celda vacía del Panel: el importe es el del mes anterior y queda marcado hasta que lo toques (Diego 29/10).
+  const [importeRevisar, setImporteRevisar] = useState(!!ctx.importeAnterior && ctx.importe > 0);
 
   // pago
   // "Registrar el pago ahora" (Etapa 4, paso 4): arranca destildado; sin pago la factura queda IMPAGA.
   const [pagarAhora, setPagarAhora] = useState(false);
   const formas = [];
   const [formaId, setFormaId] = useState(0);
-  const [fechaPago, setFechaPago] = useState(hoyISO());
+  const [fechaPago, setFechaPago] = useState(ctx.fechaPago || hoyISO());
   const [pagadoPor, setPagadoPor] = useState(pdvActual || PDVS[0]);
   const { data: mediosData } = useMediosPago();
   const mediosPago = mediosParaElegir(mediosData);
@@ -695,7 +697,6 @@ function ModalNuevaCarga(props) {
             reglaEmpleadoDe={reglaEmpleadoDe} onGuardado={onGuardado} onCerrar={onCerrar} />
         ) : (<>
         <fieldset disabled={soloVer} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-
         {modo === "factura" ? (
           <>
             {yaCargada && (
@@ -1061,7 +1062,9 @@ function ModalNuevaCarga(props) {
               <Combo opciones={rubros} valor={rubroV} placeholder="Buscar rubro..." onElegir={(r) => { setRubroV(r); if (rubroDe(conceptoV) !== r) setConceptoV(""); }} /></div>
             <div style={{ gridColumn: "1 / -1" }}><span style={lab}>Detalle</span>
               <input style={inp} value={detalle} maxLength={200} onChange={(e) => setDetalle(e.target.value)} placeholder="Ej: ferretería, flete, devolución seña cancha" /></div>
-            <div><span style={lab}>Importe</span><input style={{ ...inp, textAlign: "right", fontWeight: 700 }} value={importeV} placeholder="0,00" onChange={(e) => setImporteV(fmtImp(e.target.value))} /></div>
+            <div><span style={lab}>Importe{importeRevisar && <span style={{ textTransform: "none", fontWeight: 700, letterSpacing: 0, color: "#b45309" }}> · el de {nombrePeriodo(ctx.importeAnterior)}, corregilo</span>}</span>
+              <input style={{ ...inp, textAlign: "right", fontWeight: 700, ...(importeRevisar ? { border: "1.6px solid #f59e0b", background: "#fffbeb" } : {}) }} value={importeV} placeholder="0,00"
+                onChange={(e) => { setImporteV(fmtImp(e.target.value)); setImporteRevisar(false); }} /></div>
             <div><span style={lab}>PDV del gasto</span>
               <select style={sel} value={pdvV} onChange={(e) => setPdvV(e.target.value)}>{PDVS.map((p) => <option key={p}>{p}</option>)}</select></div>
           </div>

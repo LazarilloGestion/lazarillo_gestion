@@ -7,6 +7,9 @@ import { ExpandableButton } from "@/components/ui/expandable-button";
 import { cn, fmtARS, normalize } from "@/lib/utils";
 import { hasValue } from "@/lib/dashboard/pivot-utils";
 import { useDashboard } from "@/hooks/use-dashboard-store";
+import { useCargaDesdeCelda } from "@/hooks/use-carga-desde-celda";
+import { mesAnteriorConValor } from "@/lib/dashboard/carga-desde-celda";
+import { MONTHS } from "@/lib/dashboard/constants";
 import { useReglasApertura } from "@/hooks/use-reglas-apertura";
 import { useReglasActivasPorNivel } from "@/hooks/use-reglas-activas-por-nivel";
 import { usePctMode, makeFmtCelda } from "@/hooks/use-pct-mode";
@@ -29,6 +32,11 @@ export function PivotTableByConcepto({ agrupacion }: { agrupacion?: "insumo" } =
     months, activeMonths, sortCol, sortDir, handleSortClick,
     rubroConfigVersion, agrupacionCompras, setAgrupacionCompras, modoCelda, setModoCelda,
   } = useDashboard();
+  // Mes vacío de un concepto → cargar el gasto vario de ese mes (Diego 29/10). Solo en Económica
+  // (el mes es el período) y con local + PDV elegidos (la carga va a ese PDV).
+  const { modoPanel } = useDashboard();
+  const pedirCarga = useCargaDesdeCelda((x) => x.pedir);
+  const cargaEnCelda = modoPanel !== "financiera" && localId != null && pdvId != null && !porInsumo;
 
   const [apertura, setApertura] = useAperturaModalState();
   const { reglas } = useReglasApertura();
@@ -172,12 +180,16 @@ export function PivotTableByConcepto({ agrupacion }: { agrupacion?: "insumo" } =
                         <td
                           className={cn(
                             "text-right px-3 py-2 tabular-nums text-muted-foreground",
-                            hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground"
+                            hasValue(concepto.values[mes]) && "cursor-pointer hover:text-foreground",
+                            !hasValue(concepto.values[mes]) && cargaEnCelda && !insumo && "cursor-copy hover:bg-sky-50 dark:hover:bg-sky-950/40"
                           )}
+                          title={!hasValue(concepto.values[mes]) && cargaEnCelda && !insumo ? `Cargar ${concepto.nombre} en ${MONTHS[mes - 1]} como gasto vario` : undefined}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (hasValue(concepto.values[mes]))
                               openDetalle({ mes, ...filtroFila });
+                            else if (cargaEnCelda && !insumo)
+                              pedirCarga({ anio: year, mes, conceptoCodigo: concepto.conceptoCodigo, conceptoNombre: concepto.nombre, prev: mesAnteriorConValor(concepto.values, mes), filtroPrev: filtroFila });
                           }}
                         >
                           {fmtCelda(concepto.values[mes], mes)}
