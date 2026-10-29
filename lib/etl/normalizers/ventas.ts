@@ -28,6 +28,43 @@ export function makeRowId(r: ETLRow): string {
   return createHash("sha256").update(key).digest("hex").substring(0, 24);
 }
 
+/** Clave de la venta con los valores ya normalizados (los mismos que quedan en la base). */
+export function claveLogica(v: { turno: unknown; comprobant: unknown; codCobro: unknown; cobro: unknown; importe: unknown; cupon: unknown; fecha: Date | string | null | undefined }): string {
+  const t = (x: unknown) => (x == null ? "" : String(x).trim());
+  const imp = v.importe == null || String(v.importe).trim() === "" ? "" : Number(String(v.importe)).toFixed(2);
+  const f = v.fecha == null ? "" : (v.fecha instanceof Date ? v.fecha.toISOString() : String(v.fecha)).slice(0, 10);
+  return [t(v.turno), t(v.comprobant), t(v.codCobro), t(v.cobro), imp, t(v.cupon), f].join("|");
+}
+
+async function reusarRowIdsExistentes(prisma: DbClient, filas: { rowId: string; data: VentaRow }[], puntoDeVentaId: number) {
+  const fechas = filas.map((f) => f.data.FECHA).filter((d): d is Date => d instanceof Date && !isNaN(d.getTime()));
+  if (!fechas.length) return;
+  const ts = fechas.map((d) => d.getTime());
+  const desde = new Date(ts.reduce((a, b) => Math.min(a, b)));
+  const hasta = new Date(ts.reduce((a, b) => Math.max(a, b)));
+  const existentes = await prisma.venta.findMany({
+    where: { puntoDeVentaId, fecha: { gte: desde, lte: hasta } },
+    select: { rowId: true, turno: true, comprobant: true, codCobro: true, cobro: true, importe: true, cupon: true, fecha: true },
+  });
+  if (!existentes?.length) return;
+  const idsExistentes = new Set(existentes.map((e) => e.rowId));
+  const enArchivo = new Set(filas.map((f) => f.rowId));
+  // Por clave, los rowId que hay en la base y que este archivo no trae (los que quedarían "colgados").
+  const libres = new Map<string, string[]>();
+  for (const e of existentes) {
+    if (enArchivo.has(e.rowId)) continue;
+    const k = claveLogica(e);
+    libres.set(k, [...(libres.get(k) ?? []), e.rowId]);
+  }
+  for (const f of filas) {
+    if (idsExistentes.has(f.rowId)) continue;
+    const d = f.data;
+    const lista = libres.get(claveLogica({ turno: d.TURNO, comprobant: d.COMPROBANT, codCobro: d.COD_COBRO, cobro: d.COBRO, importe: d.IMPORTE, cupon: d.CUPON, fecha: d.FECHA }));
+    const id = lista?.shift();
+    if (id) f.rowId = id;
+  }
+}
+
 // Completa TURNO→NOMBRESUC cuando una venta tiene múltiples formas de pago (pago partido).
 // El ERP deja esos campos vacíos en las filas secundarias; se heredan de la fila anterior.
 // Soporta N formas de cobro consecutivas (el cliente puede pagar con 4, 5 o 6 métodos).
@@ -111,6 +148,13 @@ export async function normalizeVentas(
 
   const localId = ctx?.localId ?? null;
   const puntoDeVentaId = ctx?.puntoDeVentaId ?? null;
+
+  // Nunca duplicar una venta (Diego 29/10/2026): en Comercio había ~20% de filas dobles (todas las
+  // facturas U/_/Y, desde 2025) — la misma venta guardada dos veces con rowId distinto, porque el
+  // rowId se arma con el texto crudo del Excel y una exportación anterior lo escribía distinto.
+  // Antes de insertar, si ya hay en ese PDV una venta con los mismos datos (ya normalizados) y otro
+  // rowId, se usa ese rowId: se actualiza en vez de crear otra.
+  if (puntoDeVentaId != null) await reusarRowIdsExistentes(prisma, filtered, puntoDeVentaId);
 
   let created = 0;
   let updated = 0;

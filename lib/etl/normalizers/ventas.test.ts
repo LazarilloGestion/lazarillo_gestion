@@ -144,3 +144,28 @@ describe("normalizeVentas", () => {
     expect(res.created + res.updated + res.skippedRows.length + res.errors.length).toBe(rows.length);
   });
 });
+
+describe("ventas: nunca duplicar (misma venta con otro rowId en la base)", () => {
+  it("reusa el rowId de la venta que ya está con los mismos datos y la actualiza en vez de crear otra", async () => {
+    const venta = {
+      findMany: vi.fn().mockImplementation(async (args: { where?: { rowId?: { in?: string[] }; fecha?: unknown } }) => {
+        if (args?.where?.fecha) return [{ rowId: "viejo123", turno: "1", comprobant: "0001", codCobro: "EF", cobro: "Efectivo", importe: "500.000000", cupon: null, fecha: new Date("2023-03-15T00:00:00.000Z") }];
+        return (args?.where?.rowId?.in ?? []).filter((id) => id === "viejo123").map((rowId) => ({ rowId }));
+      }),
+    };
+    const db = createMockDb({ venta });
+    const res = await normalizeVentas([baseRow({ COMPROBANT: "  0001 ", COBRO: "Efectivo   " })], db, { localId: 1, puntoDeVentaId: 1 } as never);
+    expect(res.created).toBe(0);
+    expect(res.updated).toBe(1);
+  });
+
+  it("sin coincidencia crea normal; y dos ventas iguales del archivo no se pisan con el mismo rowId viejo", async () => {
+    const venta = {
+      findMany: vi.fn().mockImplementation(async (args: { where?: { fecha?: unknown } }) =>
+        args?.where?.fecha ? [{ rowId: "viejo123", turno: "1", comprobant: "0001", codCobro: "EF", cobro: "Efectivo", importe: 500, cupon: "", fecha: new Date("2023-03-15T00:00:00.000Z") }] : []),
+    };
+    const db = createMockDb({ venta });
+    const res = await normalizeVentas([baseRow({ COMPROBANT: "0002" }), baseRow({ COMPROBANT: "0001" })], db, { localId: 1, puntoDeVentaId: 1 } as never);
+    expect(res.created + res.updated).toBe(2);
+  });
+});
