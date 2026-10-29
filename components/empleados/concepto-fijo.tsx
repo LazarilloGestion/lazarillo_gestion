@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Tag, X } from "lucide-react";
@@ -39,7 +40,9 @@ export function ConceptoFijoEmpleado({ pdvId, entidadId, nombre, reglas }: { pdv
         className={cn("shrink-0 rounded p-1 hover:bg-zinc-200 dark:hover:bg-zinc-700", suyas.length ? "text-violet-600" : "text-muted-foreground")}>
         <Tag className="h-3.5 w-3.5" />
       </button>
-      {abierto && <Modal pdvId={pdvId} entidadId={entidadId} nombre={nombre} suyas={suyas} onClose={() => setAbierto(false)} />}
+      {/* Portal al body: dentro de la celda sticky de la tabla, el encabezado de la tabla (sticky,
+          z-20/30) le pasaba por encima al modal (Diego 29/10). */}
+      {abierto && createPortal(<Modal pdvId={pdvId} entidadId={entidadId} nombre={nombre} suyas={suyas} onClose={() => setAbierto(false)} />, document.body)}
     </>
   );
 }
@@ -98,7 +101,7 @@ function Modal({ pdvId, entidadId, nombre, suyas, onClose }: { pdvId: number; en
   const elegido = conceptos.find((c) => c.codigo === concepto);
   const lista = conceptos.filter((c) => !buscar || `${c.nombre} ${c.rubro}`.toLowerCase().includes(buscar.toLowerCase())).slice(0, 60);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 shadow-xl font-normal" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3 px-5 pt-4 pb-2">
           <div><h2 className="text-lg font-semibold">Concepto fijo · {nombre}</h2>
