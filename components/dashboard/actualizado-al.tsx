@@ -2,6 +2,7 @@
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { frescura, hoyArgentina, diasAtras, type Frescura } from "@/lib/dashboard/frescura";
 import type { Local } from "@/lib/types/domain";
 
@@ -21,7 +22,9 @@ const LEYENDA: Record<Frescura, string> = {
 // Chip "actualizado al" del PDV seleccionado (opción A, Diego 26/10/2026: solo
 // el PDV elegido, no todos): ventas y compras con un punto de color según qué
 // tan viejas son las ventas (verde hasta ayer, ámbar 2-3 días, rojo más).
-export function ActualizadoAl() {
+// variante="punto" (Panel en compu, rediseño Diego 30/10/2026): solo el punto al lado del título y las
+// fechas en el tooltip. En el celu sigue el chip (ahí no hay tooltip).
+export function ActualizadoAl({ variante = "chip" }: { variante?: "chip" | "punto" } = {}) {
   const { localId, pdvId } = useDashboard();
   const sp = new URLSearchParams();
   if (localId != null) sp.set("localId", String(localId));
@@ -45,6 +48,31 @@ export function ActualizadoAl() {
     `${nombre}: ${LEYENDA[estado]} (ventas de hace ${diasAtras(base, hoy)} día${diasAtras(base, hoy) === 1 ? "" : "s"})`,
     imp ? `Última lectura: ${imp.toLocaleDateString("es-AR")} ${imp.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}` : null,
   ].filter(Boolean).join(" · ");
+
+  if (variante === "punto") {
+    return (
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" aria-label={titulo} className="inline-flex size-5 items-center justify-center rounded-full cursor-help">
+              <span className={cn("size-2.5 rounded-full", PUNTO[estado])} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="start" className="text-xs leading-snug">
+            <div className="flex flex-col gap-0.5">
+            <div className="font-medium">{nombre} · {LEYENDA[estado]}</div>
+            <div>
+              {data?.ventas && <>ventas {ddmm(data.ventas)}</>}
+              {data?.ventas && data?.compras && " · "}
+              {data?.compras && <>compras {ddmm(data.compras)}</>}
+            </div>
+            {imp && <div className="opacity-80">Última lectura: {imp.toLocaleDateString("es-AR")} {imp.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</div>}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
 
   return (
     <span

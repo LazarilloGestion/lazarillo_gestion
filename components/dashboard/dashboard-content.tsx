@@ -40,12 +40,16 @@ export function DashboardContent() {
         onAnimationStart={() => setClipping(true)}
         onAnimationComplete={() => setClipping(!showFilters)}
       >
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-col gap-1 min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white truncate">
-              Panel de Gestión
-            </h1>
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white truncate">
+                Panel de Gestión
+              </h1>
+              {/* Compu: solo el punto con las fechas en el tooltip (rediseño, Diego 30/10/2026). */}
+              <span className="hidden md:inline-flex"><ActualizadoAl variante="punto" /></span>
+            </div>
+            <p className="flex md:hidden flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
               <span className="truncate">Resumen general de operaciones</span>
               <ActualizadoAl />
             </p>
