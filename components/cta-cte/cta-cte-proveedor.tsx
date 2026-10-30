@@ -134,9 +134,11 @@ function FilaMes({ ym, n, total, unidad }: { ym: string; n: number; total: numbe
   );
 }
 
-export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, titulo }: {
+export function CtaCteContenido({ origen: origenInicial, resaltado, pagar, onCerrar, titulo }: {
   origen: OrigenCtaCte;
   resaltado?: { pdvId: number; comprobante: string } | null; // factura a dejar elegida
+  // Facturas a dejar tildadas con el pago abierto (botón Pagar de Impagas, Diego 30/10/2026).
+  pagar?: { pdvId: number; comprobante: string }[] | null;
   onCerrar?: () => void;
   titulo?: (nodo: React.ReactNode) => React.ReactNode;       // el modal lo envuelve en DialogTitle
 }) {
@@ -158,8 +160,8 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
   const filaSel = useRef<HTMLDivElement | null>(null);
   // ---- pagos (etapa 4) ----
   const queryClient = useQueryClient();
-  const [tildadas, setTildadas] = useState<Set<string>>(() => new Set());
-  const [form, setForm] = useState<{ tipo: "facturas" } | { tipo: "cuenta" } | { tipo: "editar"; pagoId: number } | null>(null);
+  const [tildadas, setTildadas] = useState<Set<string>>(() => new Set((pagar ?? []).map(claveF)));
+  const [form, setForm] = useState<{ tipo: "facturas" } | { tipo: "cuenta" } | { tipo: "editar"; pagoId: number } | null>(pagar?.length ? { tipo: "facturas" } : null);
   const [guardando, setGuardando] = useState(false);
   const [anulando, setAnulando] = useState<number | null>(null);
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
@@ -635,13 +637,14 @@ export function CtaCteContenido({ origen: origenInicial, resaltado, onCerrar, ti
 }
 
 // Modal propio (desde el proveedor de Detalle de compras o desde Impagas).
-export function CtaCteModal({ origen, resaltado, onCerrar }: {
-  origen: OrigenCtaCte; resaltado?: { pdvId: number; comprobante: string } | null; onCerrar: () => void;
+export function CtaCteModal({ origen, resaltado, pagar, onCerrar }: {
+  origen: OrigenCtaCte; resaltado?: { pdvId: number; comprobante: string } | null;
+  pagar?: { pdvId: number; comprobante: string }[] | null; onCerrar: () => void;
 }) {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onCerrar(); }}>
       <DialogContent showCloseButton={false} onOpenAutoFocus={(e) => e.preventDefault()} className="w-[min(1180px,94vw)] max-w-[94vw] sm:max-w-[1180px] h-[min(90vh,820px)] flex flex-col gap-0 p-0 overflow-hidden">
-        <CtaCteContenido origen={origen} resaltado={resaltado} onCerrar={onCerrar}
+        <CtaCteContenido origen={origen} resaltado={resaltado} pagar={pagar} onCerrar={onCerrar}
           titulo={(n) => <DialogTitle asChild>{n}</DialogTitle>} />
       </DialogContent>
     </Dialog>

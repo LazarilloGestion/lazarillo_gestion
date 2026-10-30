@@ -172,7 +172,7 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [ctaCte, setCtaCte] = useState<{ codPro: string; resaltado: string } | null>(null);
   const [opMx, setOpMx] = useState<{ orden: string; fecha: string } | null>(null);
-  const [ctaCteCompleta, setCtaCteCompleta] = useState<{ origen: OrigenCtaCte; resaltado: string } | null>(null);
+  const [ctaCteCompleta, setCtaCteCompleta] = useState<{ origen: OrigenCtaCte; resaltado: string; pagar?: string[] } | null>(null);
   const [guardando, setGuardando] = useState(false);
 
   const key = impagasQueryKey(pdvId, desde);
@@ -632,10 +632,16 @@ function ImpagasContenido({ onClose, pdvs, pdvInicial }: Omit<Props, "open">) {
                 const origen = f && origenDeFila({ codigo: f.codPro, pdvId, nombre: f.proveedor, tieneMaestro: f.proveedorId != null });
                 if (origen) setCtaCteCompleta({ origen, resaltado: f?.comprobante ?? "" });
               }}
+              onPagar={(fs) => {
+                const f = fs[0];
+                const origen = f && origenDeFila({ codigo: f.codPro, pdvId, nombre: f.proveedor, tieneMaestro: f.proveedorId != null });
+                if (origen) setCtaCteCompleta({ origen, resaltado: f.comprobante, pagar: fs.map((x) => x.comprobante) });
+              }}
             />
           )}
           {ctaCteCompleta && pdvId && (
-            <CtaCteModal origen={ctaCteCompleta.origen} resaltado={ctaCteCompleta.resaltado ? { pdvId, comprobante: ctaCteCompleta.resaltado } : null} onCerrar={() => setCtaCteCompleta(null)} />
+            <CtaCteModal origen={ctaCteCompleta.origen} resaltado={ctaCteCompleta.resaltado ? { pdvId, comprobante: ctaCteCompleta.resaltado } : null}
+              pagar={ctaCteCompleta.pagar?.map((comprobante) => ({ pdvId, comprobante }))} onCerrar={() => setCtaCteCompleta(null)} />
           )}
           {opMx && pdvId && (
             <OpMaxirestModal
