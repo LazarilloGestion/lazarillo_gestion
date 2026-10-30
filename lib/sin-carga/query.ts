@@ -119,7 +119,9 @@ export function queCompraSql(proveedorIds: number[], desde: string): Prisma.Sql 
     FROM detalle_compras d
     JOIN compras c ON c."rowId" = d."compraId"
     LEFT JOIN conceptos_caja cc ON cc.codigo = d."codCga"
-    WHERE c."proveedorId" = ANY(${proveedorIds}::int[]) AND d.fecha >= ${desde}::date
+    -- Fecha de la FACTURA (la del renglón del 25 es la de carga en MaxiRest y la de factura en Lazarillo:
+    -- regla del proyecto, la fecha vive en el comprobante — Diego 30/10/2026).
+    WHERE c."proveedorId" = ANY(${proveedorIds}::int[]) AND COALESCE(c."fechaManual", c.fecha) >= ${desde}::date
       AND COALESCE(TRIM(d.medida), '') <> '' AND COALESCE(TRIM(d.nombre), '') <> ''
     GROUP BY 1, 3, 4
     UNION ALL

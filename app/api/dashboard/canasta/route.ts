@@ -28,6 +28,9 @@ export async function GET(request: NextRequest) {
   const imp = Prisma.sql`COALESCE(v."importeManual", v.importe)`;
   const lugar = pdvId ? Prisma.sql`v."puntoDeVentaId" = ${pdvId}` : localId ? Prisma.sql`v."localId" = ${localId}` : Prisma.sql`TRUE`;
   const rango = Prisma.sql`${fecha} >= ${desde}::timestamp AND ${fecha} < ${finRef}::timestamp`;
+  // Precio de un insumo = mes de la FACTURA, no la fecha del renglón del 25 (en MaxiRest es la de carga y
+  // en Lazarillo la de factura). Regla del proyecto: la fecha vive en el comprobante (Diego 30/10/2026).
+  const fFactura = Prisma.sql`COALESCE(c."fechaManual", c.fecha)`;
   const concepto = Prisma.sql`cc.codigo = COALESCE(v."conceptoCodigoManual", v."conceptoCodigo")`;
   const mesDe = (e: Prisma.Sql) => Prisma.sql`to_char(date_trunc('month', ${e}), 'YYYY-MM')`;
   const anterior = (a: string) => Prisma.sql`to_char(to_date(${Prisma.raw(a)}, 'YYYY-MM') - interval '1 month', 'YYYY-MM')`;
@@ -38,13 +41,13 @@ export async function GET(request: NextRequest) {
       prisma.$queryRaw<{ m: string; v: number | null; revisar: number }[]>(Prisma.sql`
         WITH comp AS (SELECT DISTINCT v."rowId" FROM v_compras_distribuidas v WHERE ${lugar} AND ${rango}),
         l AS (
-          SELECT ${mesDe(Prisma.sql`d.fecha`)} AS m, d.codigo || '|' || COALESCE(UPPER(TRIM(d.medida)), '') AS k,
+          SELECT ${mesDe(fFactura)} AS m, d.codigo || '|' || COALESCE(UPPER(TRIM(d.medida)), '') AS k,
                  SUM(d.cantidad) AS q, SUM(d.neto) AS val
           FROM detalle_compras d
           JOIN compras c ON c."rowId" = d."compraId"
           JOIN comp ON comp."rowId" = c."rowId"
           JOIN conceptos_caja cc ON cc.codigo = COALESCE(d."codCga", c."conceptoCodigoManual", c."conceptoCodigo")
-          WHERE cc."codRga" = ${RUBRO.mercaderias} AND d.fecha >= ${desde}::timestamp AND d.fecha < ${finRef}::timestamp
+          WHERE cc."codRga" = ${RUBRO.mercaderias} AND ${fFactura} >= ${desde}::timestamp AND ${fFactura} < ${finRef}::timestamp
             AND d.cantidad > 0 AND d.neto > 0 AND d.codigo IS NOT NULL
           GROUP BY 1, 2),
         p AS (SELECT m, k, q, val / q AS pr FROM l),
