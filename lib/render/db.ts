@@ -41,6 +41,14 @@ async function conRender<T>(fn: (c: Client) => Promise<T>): Promise<T> {
   }
 }
 
+/** Consulta de solo lectura con parámetros (los nombres de tabla se validan con identRender). */
+export async function consultaRender<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+  return conRender(async (c) => (await c.query(sql, params)).rows as T[]);
+}
+export function identRender(nombre: string): string {
+  return ident(nombre);
+}
+
 // Así anota el kit en _cargas las tablas de maestros (una por organización, sin pdv).
 export const PDV_MAESTROS = "(maestros)";
 

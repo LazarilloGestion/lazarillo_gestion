@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { renderConfigurado } from "@/lib/render/db";
 import { abrirCorrida, ejecutarCorrida, ultimaCorrida } from "@/lib/render/sync";
+import { detectarAumentos } from "@/lib/render/aumentos";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -24,5 +25,8 @@ export async function GET(req: NextRequest) {
   await ejecutarCorrida(id, "cron-render");
   const c = await ultimaCorrida();
   console.log("[cron/render]", JSON.stringify({ estado: c?.estado, hechos: c?.hechos, total: c?.total }));
+  // Aumentos de precios de la carta (informe 12) para la Canasta. Si falla, la lectura ya quedó hecha.
+  const aumentos = await detectarAumentos().catch((err) => { console.error("[cron/render] aumentos", err); return null; });
+  if (aumentos) console.log("[cron/render] aumentos", JSON.stringify(aumentos.filter((a) => a.nuevos.length)));
   return NextResponse.json({ ok: true, estado: c?.estado, hechos: c?.hechos, total: c?.total });
 }
