@@ -14,6 +14,7 @@ import { frescura, hoyArgentina, type Frescura } from "@/lib/dashboard/frescura"
 import { proyectarGastos } from "@/lib/movil/proyeccion-gastos";
 import { cargadasDe, esPersonal, lineasRubro } from "@/lib/movil/rubro-detalle";
 import { difPp, indicadores, promedioMensual } from "@/lib/movil/indicadores";
+import { serieIndicador, type ClaveIndicador } from "@/lib/movil/evolucion";
 import { claveDescarte, sinElGasto, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -238,9 +239,11 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
   const toque = useRef<{ x: number; y: number } | null>(null);
   const pctIng = (n: number) => (ind && ind.ventas > 0 ? pc(n / ind.ventas) : "—");
   const proyectado = vista && vista.modo !== "real";
+  // Evolución de Food cost / Personal / Mix al tocar la tarjeta (Diego 29/10).
+  const [evolucion, setEvolucion] = useState<ClaveIndicador | null>(null);
   // Rubro desplegado en "Gastos del mes por rubro" (Diego 29/10); se cierra al cambiar de mes.
-  const [abierto, setAbierto] = useState<string | null>(null);
-  useEffect(() => setAbierto(null), [clave]);
+  const [abiertoEn, setAbiertoEn] = useState<{ clave: string; rubro: string } | null>(null);
+  const abierto = abiertoEn?.clave === clave ? abiertoEn.rubro : null;
   return (
     <div className="touch-pan-y"
       onTouchStart={(e) => { const t = e.touches[0]; toque.current = { x: t.clientX, y: t.clientY }; }}
@@ -278,7 +281,7 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
         {([["Food cost", "foodCost"], ["Personal", "personal"], ["Mix", "mix"]] as const).map(([t, k], i) => {
           const d = difPp(ind?.[k] ?? null, indAnt?.[k] ?? null);
           return (
-            <div key={k} className="rounded-2xl border border-zinc-200 dark:border-zinc-700 px-2.5 py-2">
+            <button type="button" key={k} onClick={() => setEvolucion(k)} className="rounded-2xl border border-zinc-200 dark:border-zinc-700 px-2.5 py-2 text-left active:bg-zinc-50">
               <div className="text-[11px] text-zinc-500">{t}</div>
               <b className="block text-[16px] tabular-nums">{pc(ind?.[k] ?? null)}</b>
               {d != null && Math.abs(d) >= 0.05 && (
@@ -288,7 +291,7 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
                   {ind && ind.ventas > 0 && <span className="block font-semibold">{d < 0 ? `ahorro ${$m(Math.abs(d) / 100 * ind.ventas)}` : `${$m(d / 100 * ind.ventas)} de más`}</span>}
                 </div>
               )}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -318,13 +321,83 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
         <div className="flex items-baseline justify-between"><b>Gastos del mes por rubro{vista?.modo === "proy" ? " · proyectado" : vista?.modo === "falta" ? " · con lo sin cargar" : ""}</b><span className="text-[11.5px] text-zinc-500">% ing</span></div>
         {[...(vista?.rubros ?? [])].sort((a, b) => b.total - a.total).map((r) => (
           <RubroMes key={r.rubro} rubro={r.rubro} total={r.total} estimado={r.variable}
-            proyectado={!!proyectado} pctIng={pctIng} abierto={abierto === r.rubro} onToggle={() => setAbierto((x) => (x === r.rubro ? null : r.rubro))}
+            proyectado={!!proyectado} pctIng={pctIng} abierto={abierto === r.rubro} onToggle={() => setAbiertoEn(abierto === r.rubro ? null : { clave, rubro: r.rubro })}
             detalle={{ localId, pdvId, anio: ym.anio, mes: ym.mes }} sinCargar={vista?.modo !== "real" ? (scMes?.items ?? []) : []} />
         ))}
         {vista && !vista.rubros.length && <p className="pt-2 text-[13px] text-zinc-500">Sin gastos en el mes.</p>}
       </div>
       <p className="mt-2 text-center text-[11.5px] text-zinc-400">← deslizá para cambiar de mes →</p>
       <Link href="/dashboard?completa=1" className="mt-3 block text-center text-[13px] text-sky-700 underline">Abrir el Panel completo</Link>
+      {evolucion && (
+        <Evolucion clave={evolucion} localId={localId} pdvId={pdvId} hasta={ym} anualActual={anual?.meses ?? []}
+          actual={vista && vista.modo !== "real" ? { valor: ind?.[evolucion] ?? null, proyectado: vista.modo === "proy" } : null}
+          onClose={() => setEvolucion(null)} />
+      )}
+    </div>
+  );
+}
+
+// Evolución de un indicador (Diego 29/10/2026, mockup_celu_pdvs_indicadores): barras de los últimos
+// 3 / 6 / 9 / 12 meses hasta el que se mira y la diferencia en puntos contra el mes anterior.
+const TITULO_IND: Record<ClaveIndicador, string> = { foodCost: "Food cost", personal: "Personal", mix: "Mix" };
+function Evolucion({ clave, localId, pdvId, hasta, anualActual, actual, onClose }: {
+  clave: ClaveIndicador; localId: number; pdvId: number; hasta: { anio: number; mes: number };
+  anualActual: { mes: number; ventas: number; rubros: { rubro: string; total: number }[] }[];
+  actual: { valor: number | null; proyectado: boolean } | null; onClose: () => void;
+}) {
+  const [n, setN] = useState(6);
+  const ant = hasta.anio - 1;
+  // El año anterior solo si la ventana lo necesita.
+  const necesitaAnt = hasta.mes < n;
+  const { data: anualAnt } = useFetchQuery<{ meses: { mes: number; ventas: number; rubros: { rubro: string; total: number }[] }[] }>(
+    ["m-anual", localId, pdvId, ant], necesitaAnt ? `/api/m/anual?localId=${localId}&pdvId=${pdvId}&anio=${ant}` : null, { staleTime: 10 * 60_000 });
+  const serie = serieIndicador({
+    meses: [...(anualAnt?.meses ?? []).map((m) => ({ ...m, anio: ant })), ...anualActual.map((m) => ({ ...m, anio: hasta.anio }))],
+    clave, hasta, n, actual,
+  });
+  const vals = serie.map((x) => x.valor).filter((v): v is number => v != null);
+  const min = vals.length ? Math.min(...vals) : 0, max = vals.length ? Math.max(...vals) : 1;
+  // La barra más baja queda en 40%: se ven las diferencias sin exagerarlas.
+  const alto = (v: number) => 40 + (max > min ? ((v - min) / (max - min)) * 60 : 40);
+  const mesCorto = (m: number) => MESES[m - 1].slice(0, 3).toLowerCase();
+  return (
+    <div className="fixed inset-0 z-40 overflow-y-auto bg-white dark:bg-zinc-950" onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
+      <div className="sticky top-0 flex items-center gap-2 border-b border-zinc-100 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 px-4 py-3 backdrop-blur">
+        <button type="button" onClick={onClose} aria-label="Volver" className="-ml-2 flex items-center text-sky-700"><ChevronLeft className="size-6" /></button>
+        <b className="text-[19px]">{TITULO_IND[clave]}</b>
+        <span className="ml-auto text-[12px] text-zinc-500">hasta {MESES[hasta.mes - 1]} {hasta.anio}</span>
+      </div>
+      <div className="px-4 pt-3 pb-10">
+        <div className="inline-flex rounded-xl bg-zinc-100 dark:bg-zinc-800 p-1">
+          {[3, 6, 9, 12].map((k) => (
+            <button key={k} type="button" onClick={() => setN(k)}
+              className={cn("rounded-lg px-3.5 py-1 text-[13px] font-semibold", n === k ? "bg-white dark:bg-zinc-700 shadow-sm" : "text-zinc-500")}>{k}</button>
+          ))}
+          <span className="self-center px-2 text-[12px] text-zinc-500">meses</span>
+        </div>
+        <div className="mt-5 flex h-44 items-end gap-1.5 border-b border-zinc-200 dark:border-zinc-700">
+          {serie.map((x) => (
+            <div key={`${x.anio}-${x.mes}`} className="flex h-full flex-1 flex-col items-center justify-end">
+              {x.valor != null && <span className="mb-0.5 text-[10px] tabular-nums text-zinc-600 dark:text-zinc-300">{(x.valor * 100).toLocaleString("es-AR", { maximumFractionDigits: n > 6 ? 0 : 1 })}%</span>}
+              <div className={cn("w-full rounded-t-md", x.proyectado ? "bg-sky-500" : "bg-[#5BC2EA]")} style={{ height: x.valor != null ? `${alto(x.valor) * 0.8}%` : 0 }} />
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-1.5">
+          {serie.map((x) => <span key={`${x.anio}-${x.mes}`} className="flex-1 text-center text-[10.5px] text-zinc-500">{mesCorto(x.mes)}{x.proyectado ? "*" : ""}</span>)}
+        </div>
+        <div className="mt-4">
+          {[...serie].reverse().map((x) => (
+            <div key={`${x.anio}-${x.mes}`} className="flex items-baseline gap-2 border-b border-zinc-100 dark:border-zinc-800 py-2 text-[14px]">
+              <span className="flex-1">{MESES[x.mes - 1]} {x.anio !== hasta.anio ? x.anio : ""}{x.proyectado && <span className="ml-1.5 text-[11.5px] text-zinc-500">proyectado</span>}</span>
+              <b className="w-16 text-right tabular-nums">{pc(x.valor)}</b>
+              <span className={cn("w-20 text-right text-[12.5px] font-bold tabular-nums", x.dif == null || Math.abs(x.dif) < 0.05 ? "text-zinc-400" : x.dif > 0 ? "text-red-600" : "text-emerald-700")}>
+                {x.dif == null ? "—" : Math.abs(x.dif) < 0.05 ? "=" : `${x.dif > 0 ? "▲" : "▼"} ${Math.abs(x.dif).toLocaleString("es-AR", { maximumFractionDigits: 1 })} pp`}</span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-[11.5px] text-zinc-500">pp = puntos contra el mes anterior · rojo: sube el costo · verde: baja</p>
+      </div>
     </div>
   );
 }
