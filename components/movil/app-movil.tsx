@@ -14,7 +14,7 @@ import { frescura, hoyArgentina, type Frescura } from "@/lib/dashboard/frescura"
 import { proyectarGastos } from "@/lib/movil/proyeccion-gastos";
 import { cargadasDe, esPersonal, lineasRubro } from "@/lib/movil/rubro-detalle";
 import { difPp, indicadores, promedioMensual } from "@/lib/movil/indicadores";
-import { serieIndicador, type ClaveIndicador } from "@/lib/movil/evolucion";
+import { serieIndicador, sentido, INFO_INDICADOR, type ClaveIndicador } from "@/lib/movil/evolucion";
 import { claveDescarte, sinElGasto, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { HttpError, REINTENTOS } from "@/lib/query-retry";
@@ -290,7 +290,7 @@ function Inicio({ sel, irImpagas, irSinCarga }: { sel: Sel[]; irImpagas: () => v
   const toque = useRef<{ x: number; y: number } | null>(null);
   const pctIng = (n: number) => (ind && ind.ventas > 0 ? pc(n / ind.ventas) : "—");
   const proyectado = vista && vista.modo !== "real";
-  // Evolución de Food cost / Personal / Mix al tocar la tarjeta (Diego 29/10).
+  // Evolución del indicador al tocar su tarjeta (Diego 29/10: Food cost / Personal / Mix, y después todas).
   const [evolucion, setEvolucion] = useState<ClaveIndicador | null>(null);
   // Rubro desplegado en "Gastos del mes por rubro" (Diego 29/10); se cierra al cambiar de mes.
   const [abiertoEn, setAbiertoEn] = useState<{ clave: string; rubro: string } | null>(null);
@@ -317,15 +317,16 @@ function Inicio({ sel, irImpagas, irSinCarga }: { sel: Sel[]; irImpagas: () => v
         <div className="mb-2.5 text-center"><button type="button" onClick={() => irSinCarga(clave)} className="rounded-full bg-amber-50 dark:bg-amber-950/40 px-3 py-1 text-[11.5px] font-bold text-amber-700">REAL + {vista.faltan} sin cargar ({$m(vista.faltaTotal ?? 0)}) ›</button></div>
       )}
       <div className="grid grid-cols-2 gap-2.5">
-        <Kpi t="Ventas" v={isLoading || !vista ? "…" : $(vista.ventas)} proy={vista?.modo === "proy"}
+        {/* Todas las tarjetas abren su evolución (Diego 29/10/2026). */}
+        <Kpi t="Ventas" v={isLoading || !vista ? "…" : $(vista.ventas)} proy={vista?.modo === "proy"} onClick={() => setEvolucion("ventas")}
           sub={vista?.modo === "proy" && proy ? `real ${$m(proy.facturado)}${proy.backtest ? ` · ±${Math.round(proy.backtest.errorMetodo * 100)}%` : ""}` : undefined} />
-        <Kpi t="Gastos" v={isLoading || !ind ? "…" : $(ind.gastos)} proy={!!proyectado}
+        <Kpi t="Gastos" v={isLoading || !ind ? "…" : $(ind.gastos)} proy={!!proyectado} onClick={() => setEvolucion("gastos")}
           sub={proyectado && vista ? `real ${$m(vista.gastosReal)}${vista.faltan ? ` · faltan cargar ${vista.faltan}` : ""}` : undefined} />
-        <div className="col-span-2 flex items-baseline rounded-2xl border border-zinc-200 dark:border-zinc-700 px-3 py-2.5">
-          <div><div className="text-[11.5px] text-zinc-500">Resultado</div>
-            <b className={cn("text-[17px] tabular-nums", ind && (ind.resultado >= 0 ? "text-emerald-700" : "text-red-600"))}>{ind ? $(ind.resultado) : "…"}</b></div>
-          <div className="ml-auto text-right"><div className="text-[11.5px] text-zinc-500">Rentabilidad</div>
-            <b className={cn("text-[17px] tabular-nums", ind?.rentabilidad != null && (ind.rentabilidad >= 0 ? "text-emerald-700" : "text-red-600"))}>{pc(ind?.rentabilidad ?? null)}</b></div>
+        <div className="col-span-2 flex items-baseline rounded-2xl border border-zinc-200 dark:border-zinc-700">
+          <button type="button" onClick={() => setEvolucion("resultado")} className="flex-1 rounded-l-2xl px-3 py-2.5 text-left active:bg-zinc-50 dark:active:bg-zinc-800"><div className="text-[11.5px] text-zinc-500">Resultado</div>
+            <b className={cn("text-[17px] tabular-nums", ind && (ind.resultado >= 0 ? "text-emerald-700" : "text-red-600"))}>{ind ? $(ind.resultado) : "…"}</b></button>
+          <button type="button" onClick={() => setEvolucion("rentabilidad")} className="flex-1 rounded-r-2xl px-3 py-2.5 text-right active:bg-zinc-50 dark:active:bg-zinc-800"><div className="text-[11.5px] text-zinc-500">Rentabilidad</div>
+            <b className={cn("text-[17px] tabular-nums", ind?.rentabilidad != null && (ind.rentabilidad >= 0 ? "text-emerald-700" : "text-red-600"))}>{pc(ind?.rentabilidad ?? null)}</b></button>
         </div>
       </div>
       <div className="mt-2.5 grid grid-cols-3 gap-2">
@@ -389,8 +390,13 @@ function Inicio({ sel, irImpagas, irSinCarga }: { sel: Sel[]; irImpagas: () => v
 }
 
 // Evolución de un indicador (Diego 29/10/2026, mockup_celu_pdvs_indicadores): barras de los últimos
-// 3 / 6 / 9 / 12 meses hasta el que se mira y la diferencia en puntos contra el mes anterior.
-const TITULO_IND: Record<ClaveIndicador, string> = { foodCost: "Food cost", personal: "Personal", mix: "Mix" };
+// 3 / 6 / 9 / 12 meses hasta el que se mira y la diferencia contra el mes anterior (puntos en los %,
+// variación % en la plata). Verde/rojo según hacia dónde conviene que vaya.
+const plataCorta = (n: number) => {
+  const a = Math.abs(n), sg = n < 0 ? "-" : "";
+  if (a >= 1e6) return `${sg}${(a / 1e6).toLocaleString("es-AR", { maximumFractionDigits: a >= 1e8 ? 0 : 1 })}M`;
+  return `${sg}${Math.round(a / 1e3).toLocaleString("es-AR")}k`;
+};
 function Evolucion({ clave, sel, hasta, anualActual, actual, onClose }: {
   clave: ClaveIndicador; sel: Sel[]; hasta: { anio: number; mes: number };
   anualActual: { mes: number; ventas: number; rubros: { rubro: string; total: number }[] }[];
@@ -407,6 +413,9 @@ function Evolucion({ clave, sel, hasta, anualActual, actual, onClose }: {
     meses: [...(anualAnt?.meses ?? []).map((m) => ({ ...m, anio: ant })), ...anualActual.map((m) => ({ ...m, anio: hasta.anio }))],
     clave, hasta, n, actual,
   });
+  const info = INFO_INDICADOR[clave];
+  const plata = info.tipo === "plata";
+  const unidad = plata ? "%" : " pp";
   const vals = serie.map((x) => x.valor).filter((v): v is number => v != null);
   const min = vals.length ? Math.min(...vals) : 0, max = vals.length ? Math.max(...vals) : 1;
   // La barra más baja queda en 40%: se ven las diferencias sin exagerarlas.
@@ -416,7 +425,7 @@ function Evolucion({ clave, sel, hasta, anualActual, actual, onClose }: {
     <div className="fixed inset-0 z-40 overflow-y-auto bg-white dark:bg-zinc-950" onTouchStart={(e) => e.stopPropagation()} onTouchEnd={(e) => e.stopPropagation()}>
       <div className="sticky top-0 flex items-center gap-2 border-b border-zinc-100 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 px-4 py-3 backdrop-blur">
         <button type="button" onClick={onClose} aria-label="Volver" className="-ml-2 flex items-center text-sky-700"><ChevronLeft className="size-6" /></button>
-        <b className="text-[19px]">{TITULO_IND[clave]}</b>
+        <b className="text-[19px]">{info.titulo}</b>
         <span className="ml-auto text-[12px] text-zinc-500">hasta {MESES[hasta.mes - 1]} {hasta.anio}</span>
       </div>
       <div className="px-4 pt-3 pb-10">
@@ -430,8 +439,8 @@ function Evolucion({ clave, sel, hasta, anualActual, actual, onClose }: {
         <div className="mt-5 flex h-44 items-end gap-1.5 border-b border-zinc-200 dark:border-zinc-700">
           {serie.map((x) => (
             <div key={`${x.anio}-${x.mes}`} className="flex h-full flex-1 flex-col items-center justify-end">
-              {x.valor != null && <span className="mb-0.5 text-[10px] tabular-nums text-zinc-600 dark:text-zinc-300">{(x.valor * 100).toLocaleString("es-AR", { maximumFractionDigits: n > 6 ? 0 : 1 })}%</span>}
-              <div className={cn("w-full rounded-t-md", x.proyectado ? "bg-sky-500" : "bg-[#5BC2EA]")} style={{ height: x.valor != null ? `${alto(x.valor) * 0.8}%` : 0 }} />
+              {x.valor != null && <span className="mb-0.5 whitespace-nowrap text-[10px] tabular-nums text-zinc-600 dark:text-zinc-300">{plata ? plataCorta(x.valor) : `${(x.valor * 100).toLocaleString("es-AR", { maximumFractionDigits: n > 6 ? 0 : 1 })}%`}</span>}
+              <div className={cn("w-full rounded-t-md", x.valor != null && x.valor < 0 ? "bg-red-400" : x.proyectado ? "bg-sky-500" : "bg-[#5BC2EA]")} style={{ height: x.valor != null ? `${alto(x.valor) * 0.8}%` : 0 }} />
             </div>
           ))}
         </div>
@@ -442,13 +451,13 @@ function Evolucion({ clave, sel, hasta, anualActual, actual, onClose }: {
           {[...serie].reverse().map((x) => (
             <div key={`${x.anio}-${x.mes}`} className="flex items-baseline gap-2 border-b border-zinc-100 dark:border-zinc-800 py-2 text-[14px]">
               <span className="flex-1">{MESES[x.mes - 1]} {x.anio !== hasta.anio ? x.anio : ""}{x.proyectado && <span className="ml-1.5 text-[11.5px] text-zinc-500">proyectado</span>}</span>
-              <b className="w-16 text-right tabular-nums">{pc(x.valor)}</b>
-              <span className={cn("w-20 text-right text-[12.5px] font-bold tabular-nums", x.dif == null || Math.abs(x.dif) < 0.05 ? "text-zinc-400" : x.dif > 0 ? "text-red-600" : "text-emerald-700")}>
-                {x.dif == null ? "—" : Math.abs(x.dif) < 0.05 ? "=" : `${x.dif > 0 ? "▲" : "▼"} ${Math.abs(x.dif).toLocaleString("es-AR", { maximumFractionDigits: 1 })} pp`}</span>
+              <b className={cn("text-right tabular-nums", plata ? "w-24" : "w-16")}>{plata ? (x.valor == null ? "—" : $m(x.valor)) : pc(x.valor)}</b>
+              <span className={cn("w-20 text-right text-[12.5px] font-bold tabular-nums", { bueno: "text-emerald-700", malo: "text-red-600", nada: "text-zinc-400" }[sentido(clave, x.dif) ?? "nada"])}>
+                {x.dif == null ? "—" : Math.abs(x.dif) < 0.05 ? "=" : `${x.dif > 0 ? "▲" : "▼"} ${Math.abs(x.dif).toLocaleString("es-AR", { maximumFractionDigits: 1 })}${unidad}`}</span>
             </div>
           ))}
         </div>
-        <p className="mt-2 text-[11.5px] text-zinc-500">pp = puntos contra el mes anterior · rojo: sube el costo · verde: baja</p>
+        <p className="mt-2 text-[11.5px] text-zinc-500">{plata ? "% contra el mes anterior" : "pp = puntos contra el mes anterior"} · verde: mejora · rojo: empeora</p>
       </div>
     </div>
   );
@@ -572,13 +581,13 @@ function Actualizado({ localId, pdvId }: { localId: number; pdvId: number }) {
   );
 }
 
-function Kpi({ t, v, cls, sub, proy }: { t: string; v: string; cls?: string; sub?: string; proy?: boolean }) {
+function Kpi({ t, v, cls, sub, proy, onClick }: { t: string; v: string; cls?: string; sub?: string; proy?: boolean; onClick?: () => void }) {
   return (
-    <div className={cn("rounded-2xl border px-3 py-2.5", proy ? "border-[#5BC2EA] bg-[#5BC2EA]/10" : "border-zinc-200 dark:border-zinc-700")}>
+    <button type="button" onClick={onClick} disabled={!onClick} className={cn("rounded-2xl border px-3 py-2.5 text-left active:bg-zinc-50 dark:active:bg-zinc-800", proy ? "border-[#5BC2EA] bg-[#5BC2EA]/10" : "border-zinc-200 dark:border-zinc-700")}>
       <div className="text-[11.5px] text-zinc-500">{t}</div>
       <b className={cn("block text-[17px] tabular-nums", proy && "text-sky-700 dark:text-sky-300", cls)}>{v}</b>
       {sub && <div className="text-[11px] leading-snug text-zinc-500">{sub}</div>}
-    </div>
+    </button>
   );
 }
 
