@@ -2,7 +2,9 @@ import { cn, fmtARS } from "@/lib/utils";
 import { heatmapFill, RESULT_COLORS } from "@/lib/dashboard/resultados-calc";
 import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
 import { StickyCardCell } from "./sticky-card-cell";
-import { FaltaCargarTip, ProyeccionEgresos, ProyeccionIngresos, TipProyectado } from "./proyeccion-tooltip";
+import { EquilibrioTip, FaltaCargarTip, ProyeccionEgresos, ProyeccionIngresos, TipProyectado } from "./proyeccion-tooltip";
+import { useEquilibrio } from "@/hooks/use-equilibrio";
+import { equilibrioMes, equilibrioProyectado, pctVariableReciente } from "@/lib/dashboard/equilibrio";
 import { useEgresosProyeccion } from "@/hooks/use-egresos-proyeccion";
 import { useProyeccionIngresos } from "@/hooks/use-proyeccion-ingresos";
 import { useDashboard } from "@/hooks/use-dashboard-store";
@@ -56,6 +58,18 @@ export function KpiBlock({
     if (faltan[m] && egresosPorMes[m] != null) return { ing: ingresosPorMes[m] ?? 0, egr: egresosPorMes[m] + faltan[m].total, tipo: "falta" };
     return null;
   };
+  // Punto de equilibrio (Diego 30/10/2026): fila debajo de Gastos / Ventas, solo en la Económica sin búsqueda.
+  const { data: eqData } = useEquilibrio();
+  const conEquilibrio = !!eqData;
+  const varDe = (m: number) => eqData?.porMes[m]?.total ?? 0;
+  const eqCerrado = (m: number) => (ingresosPorMes[m] > 0 && egresosPorMes[m] != null ? equilibrioMes(ingresosPorMes[m], egresosPorMes[m], varDe(m)) : null);
+  const eqProyectado = (() => {
+    if (!eqData || !proy || !egrProy || ventasProy == null || !esProy(egrProy.mes)) return null;
+    const previos = months.filter((m) => m < egrProy.mes && ingresosPorMes[m] > 0).slice(-3);
+    const pct = pctVariableReciente(previos.map((m) => ({ ventas: ingresosPorMes[m], variable: varDe(m) })));
+    return pct == null ? null : equilibrioProyectado({ ventasProy, egresosProy: egrProy.total, pctVariable: pct, facturado: proy.facturado, diasRestantes: proy.diasRestantes });
+  })();
+  const nombresVariables = (eqData?.variables ?? []).map((v) => `${v.nombre.trim().toLowerCase().replace(/^\S/, (c) => c.toUpperCase())}${v.pct < 100 ? ` (${v.pct}%)` : ""}`);
 
   return (
     <>
@@ -159,7 +173,7 @@ export function KpiBlock({
       </tr>
 
       <tr>
-        <StickyCardCell position="last" bordered={bordered} className="px-4 py-1.5 font-medium text-muted-foreground whitespace-nowrap">
+        <StickyCardCell position={conEquilibrio ? "middle" : "last"} bordered={bordered} className="px-4 py-1.5 font-medium text-muted-foreground whitespace-nowrap">
           Gastos / Ventas
         </StickyCardCell>
         {months.map((mes) => {
@@ -172,7 +186,7 @@ export function KpiBlock({
               key={mes}
               className={cn(
                 "text-right px-3 py-1.5 font-medium tabular-nums whitespace-nowrap",
-                cardCellClasses("last", "mid", { border: bordered }),
+                cardCellClasses(conEquilibrio ? "middle" : "last", "mid", { border: bordered }),
                 ratio === null && "text-muted-foreground/40"
               )}
               style={ratio === null ? undefined : { color: ratio > 90 ? RESULT_COLORS.negative : ratio > 60 ? RESULT_COLORS.neutral : RESULT_COLORS.positive }}
@@ -191,7 +205,7 @@ export function KpiBlock({
             <td
               className={cn(
                 "text-right px-4 py-1.5 font-semibold tabular-nums whitespace-nowrap",
-                cardCellClasses("last", "mid", { border: bordered }),
+                cardCellClasses(conEquilibrio ? "middle" : "last", "mid", { border: bordered }),
                 ratio === null && "text-muted-foreground/40"
               )}
               style={ratio === null ? undefined : { color: ratio > 90 ? RESULT_COLORS.negative : ratio > 60 ? RESULT_COLORS.neutral : RESULT_COLORS.positive }}
@@ -200,8 +214,31 @@ export function KpiBlock({
             </td>
           );
         })()}
-        <td className={cardCellClasses("last", "right", { border: bordered })} />
+        <td className={cardCellClasses(conEquilibrio ? "middle" : "last", "right", { border: bordered })} />
       </tr>
+
+      {conEquilibrio && (
+        <tr>
+          <StickyCardCell position="last" bordered={bordered} className="px-4 py-1.5 font-medium text-muted-foreground whitespace-nowrap">
+            Punto de equilibrio
+          </StickyCardCell>
+          {months.map((mes) => {
+            const p = eqProyectado && egrProy?.mes === mes ? eqProyectado : null;
+            // El mes en curso solo con la proyección (con gastos a medio cargar el equilibrio no dice nada).
+            const e = p ?? (mes === mesProy ? null : eqCerrado(mes));
+            return (
+              <td key={mes} className={cn("text-right px-3 py-1.5 font-medium tabular-nums whitespace-nowrap", cardCellClasses("last", "mid", { border: bordered }), !e?.equilibrio && "text-muted-foreground/40")}
+                style={e?.equilibrio != null && e.diferencia < 0 ? { color: RESULT_COLORS.negative } : { color: "hsl(var(--muted-foreground))" }}>
+                {e?.equilibrio != null
+                  ? <EquilibrioTip e={e} p={p} anio={year} mes={mes} detalle={eqData!.porMes[mes]?.detalle ?? []} variables={nombresVariables}>{fmtARS(e.equilibrio)}</EquilibrioTip>
+                  : "—"}
+              </td>
+            );
+          })}
+          <td className={cn("text-right px-4 py-1.5 text-muted-foreground/40", cardCellClasses("last", "mid", { border: bordered }))}>—</td>
+          <td className={cardCellClasses("last", "right", { border: bordered })} />
+        </tr>
+      )}
     </>
   );
 }
