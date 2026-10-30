@@ -30,9 +30,10 @@ export async function GET(request: NextRequest) {
     const hoy = new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
     if (!ultimo || !debeProyectar(ultimo, hoy)) return NextResponse.json({ proyeccion: null });
 
-    // Desde el mismo mes del año anterior (comparación + backtest + ventana de 8 semanas).
+    // Dos años y dos meses para atrás: estacionalidad de los 2 años anteriores (cada uno con su
+    // ventana de 8 semanas), backtest de 6 meses y comparación con el año anterior.
     const [uy, um] = ultimo.split("-").map(Number);
-    const desde = `${uy - 1}-${String(um).padStart(2, "0")}-01`;
+    const desde = new Date(Date.UTC(uy - 2, um - 3, 1)).toISOString().slice(0, 10);
 
     const rows = await prisma.$queryRaw<{ fecha: string; total: Prisma.Decimal | number }[]>(Prisma.sql`
       SELECT to_char(v.fecha::date, 'YYYY-MM-DD') AS fecha,
