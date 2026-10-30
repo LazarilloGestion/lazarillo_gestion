@@ -4,6 +4,7 @@ import { cardCellClasses } from "@/lib/dashboard/card-row-classes";
 import { StickyCardCell } from "./sticky-card-cell";
 import { EquilibrioTip, FaltaCargarTip, ProyeccionEgresos, ProyeccionIngresos, TipProyectado } from "./proyeccion-tooltip";
 import { useEquilibrio } from "@/hooks/use-equilibrio";
+import { EquilibrioConfigModal } from "./equilibrio-config-modal";
 import { equilibrioMes, equilibrioProyectado, pctVariableReciente } from "@/lib/dashboard/equilibrio";
 import { useEgresosProyeccion } from "@/hooks/use-egresos-proyeccion";
 import { useProyeccionIngresos } from "@/hooks/use-proyeccion-ingresos";
@@ -70,6 +71,8 @@ export function KpiBlock({
     const pct = pctVariableReciente(previos.map((m) => ({ ventas: ingresosPorMes[m], variable: varDe(m) })));
     return pct == null ? null : equilibrioProyectado({ ventasProy, egresosProy: egrProy.total, pctVariable: pct, facturado: proy.facturado, diasRestantes: proy.diasRestantes });
   })();
+  // Mes de referencia del ⚙: el último cerrado con ventas y gastos (el que se proyecta no).
+  const mesRef = [...months].reverse().find((m) => m !== mesProy && ingresosPorMes[m] > 0 && egresosPorMes[m] != null) ?? null;
   const nombresVariables = (eqData?.variables ?? []).map((v) => `${v.nombre.trim().toLowerCase().replace(/^\S/, (c) => c.toUpperCase())}${v.pct < 100 ? ` (${v.pct}%)` : ""}`);
 
   return (
@@ -222,6 +225,7 @@ export function KpiBlock({
         <tr>
           <StickyCardCell position="last" bordered={bordered} className="px-4 py-1.5 font-medium text-muted-foreground whitespace-nowrap">
             Punto de equilibrio
+            {mesRef != null && <EquilibrioConfigModal anio={year} mes={mesRef} ventasMes={ingresosPorMes[mesRef]} egresosMes={egresosPorMes[mesRef]} />}
           </StickyCardCell>
           {months.map((mes) => {
             const p = eqProyectado && egrProy?.mes === mes ? eqProyectado : null;

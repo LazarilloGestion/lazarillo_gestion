@@ -20,6 +20,9 @@ import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { cn } from "@/lib/utils";
 import { rangosLibres, cantidadLibres, textoRango, libreDesde, MAX_CODIGO_CONCEPTO } from "@/lib/conceptos/codigos-libres";
 import type { ConceptoMaestro } from "@/lib/render/db";
+import { ChipVariable } from "@/components/dashboard/chip-variable";
+import { useEquilibrioVariables } from "@/hooks/use-equilibrio-variables";
+import { claveVar, mapaVariables } from "@/lib/dashboard/equilibrio-config";
 
 // Concepto de MaxiRest editado en Lazarillo (Diego 29/10/2026): `original` es el de MaxiRest (en gris).
 type OriginalMx = { nombre: string; tipo: string | null; codRubro: number | null; rubro: string | null };
@@ -312,6 +315,9 @@ export default function ConceptosPage() {
     return m;
   }, [reglas]);
   const reglasDe = (codigo: string | number) => reglasPorConcepto.get(String(codigo)) ?? [];
+  // Fijo / Variable / % para el punto de equilibrio (Diego 30/10/2026): chip en cada rubro y concepto.
+  const { variables: varsEq, guardar: guardarVar } = useEquilibrioVariables(null);
+  const mapaEq = useMemo(() => mapaVariables(varsEq ?? []), [varsEq]);
   const nuevo = (codRubro = "", en: string | null = null) => { setFormEn(en); setForm({ codigo: null, nombre: "", tipo: "-", codRubro, padrino: null }); };
   async function darDeBaja(codigo: number) {
     const res = await fetch(`/api/conceptos/${codigo}`, { method: "DELETE" });
@@ -494,6 +500,9 @@ export default function ConceptosPage() {
                       <span className="text-foreground">{rubro}</span>
                       <span className="font-normal">· {cs.length} concepto{cs.length === 1 ? "" : "s"}{nSinUso ? ` · ${nSinUso} sin registros` : ""}</span>
                     </button>
+                    {varsEq && cs[0]?.codRubro != null && (
+                      <ChipVariable tipo="rubro" codigo={String(cs[0].codRubro)} valor={mapaEq.get(claveVar("rubro", cs[0].codRubro))} guardar={guardarVar} />
+                    )}
                     {cs[0]?.codRubro != null && (
                       <button
                         type="button"
@@ -539,8 +548,14 @@ export default function ConceptosPage() {
                                 <Split className="h-3 w-3" />
                               </button>
                             )}
+                            {varsEq && (
+                              <span className="ml-auto flex shrink-0">
+                                <ChipVariable tipo="concepto" codigo={String(c.codigo)} valor={mapaEq.get(claveVar("concepto", c.codigo))}
+                                  heredado={c.codRubro != null ? mapaEq.get(claveVar("rubro", c.codRubro)) : undefined} guardar={guardarVar} />
+                              </span>
+                            )}
                             {esPropio(c.codigo) ? (
-                              <span className="ml-auto flex shrink-0 items-center gap-1">
+                              <span className={cn("flex shrink-0 items-center gap-1", !varsEq && "ml-auto")}>
                                 <span className="rounded bg-sky-100 px-1 text-[10px] font-semibold text-sky-700">LZ</span>
                                 <button
                                   type="button"
@@ -561,7 +576,7 @@ export default function ConceptosPage() {
                                 )}
                               </span>
                             ) : (
-                              <span className="ml-auto flex shrink-0 items-center gap-1">
+                              <span className={cn("flex shrink-0 items-center gap-1", !varsEq && "ml-auto")}>
                                 {c.editado && <span className="rounded bg-violet-100 px-1 text-[10px] font-semibold text-violet-700" title="Modificado en Lazarillo">EDITADO</span>}
                                 <button
                                   type="button"
