@@ -8,21 +8,27 @@ import type { EquilibrioMes, EquilibrioProyectado } from "@/lib/dashboard/equili
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const pct1 = (x: number) => `${(x * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
 const ddmm = (f: string) => `${f.slice(8, 10)}/${f.slice(5, 7)}`;
-const NOMBRE: Record<Metodo, string> = { unico: "el cálculo completo", semanas: "8 semanas × ritmo", dias_mes: "el promedio de cada día en el mes" };
 const OTROS: Record<Metodo, Metodo[]> = { unico: ["semanas", "dias_mes"], semanas: ["unico", "dias_mes"], dias_mes: ["unico", "semanas"] };
-// 1,23 → "un 23% más de lo habitual"; 0,9 → "un 10% menos"; ~1 → "lo habitual".
-const estacionalTxt = (f: number) =>
-  Math.abs(f - 1) < 0.02 ? "lo habitual" : `un ${Math.round(Math.abs(f - 1) * 100)}% ${f > 1 ? "más" : "menos"} de lo habitual`;
 
 // Celda de Ingresos del mes incompleto: el valor subrayado (sin ensanchar la
 // columna) y, al pasar el mouse, cómo se llega a la proyección de cierre.
+// Compacto (Diego 30/10/2026: "es tan grande que no veo el número"): el número arriba, una línea
+// por idea y los otros cálculos en una grilla chica.
+const CORTO: Record<Metodo, string> = { unico: "Cálculo completo", semanas: "8 sem. × ritmo", dias_mes: "Prom. del mes" };
 export function ProyeccionIngresos({ p, children }: { p: ProyeccionMes; children: React.ReactNode }) {
   const mesLargo = new Date(Date.UTC(p.anio, p.mes - 1, 1)).toLocaleDateString("es-AR", { month: "long", timeZone: "UTC" });
   const mesNombre = mesLargo.charAt(0).toUpperCase() + mesLargo.slice(1);
-  const mesAA = `${mesLargo.slice(0, 3)}-${p.anio - 1}`;
-  const siguiente = `${String(p.diasTranscurridos + 1).padStart(2, "0")}/${String(p.mes).padStart(2, "0")}`;
-  const fin = `${p.diasMes}/${String(p.mes).padStart(2, "0")}`;
   const pctFacturado = Math.min(100, (p.facturado / p.proyeccion) * 100);
+  const signo = (f: number) => `${f >= 1 ? "+" : "−"}${Math.round(Math.abs(f - 1) * 100)}%`;
+  const como = p.metodo === "unico"
+    ? <>día de semana{p.estacional != null && Math.abs(p.estacional - 1) >= 0.02 ? <> × época <b>{signo(p.estacional)}</b></> : null} × ritmo <b>{pct(p.ritmoEstacional)}</b></>
+    : p.metodo === "semanas" ? <>día de semana (8 sem.) × ritmo <b>{pct(p.ritmo)}</b></> : <>promedio de cada día en {mesLargo}</>;
+  const otros: [string, number][] = [
+    ...OTROS[p.metodo].map((m) => [CORTO[m], p.proyecciones[m]] as [string, number]),
+    ["Regla de 3", p.reglaDeTres],
+    ...(p.cierreAnioAnterior != null ? [[`${mesNombre.slice(0, 3)} ${p.anio - 1} cerró`, p.cierreAnioAnterior] as [string, number]] : []),
+  ];
+  const errOtros = p.backtest ? [...OTROS[p.metodo].map((m) => p.backtest!.errores[m]), ...(p.backtest.errorReglaDeTres != null ? [p.backtest.errorReglaDeTres] : [])] : [];
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -30,78 +36,27 @@ export function ProyeccionIngresos({ p, children }: { p: ProyeccionMes; children
         <TooltipTrigger asChild>
           <span className="cursor-help border-b-[1.5px] border-dashed border-[#5BC2EA]">{children}</span>
         </TooltipTrigger>
-        <TooltipContent side="bottom" align="end" className="block max-w-none w-[360px] p-3.5 text-[12.5px] leading-[1.45] font-normal text-left">
-          <div className="opacity-60">Proyección de cierre · {mesNombre} {p.anio}</div>
-          <div className="text-[22px] font-bold my-0.5">{fmtMillones(p.proyeccion)}</div>
-          {p.rango && (
-            <div className="opacity-60">
-              rango probable {fmtMillones(p.rango.min)} – {fmtMillones(p.rango.max)} (±{pct(p.backtest!.errorMetodo)})
-            </div>
-          )}
-          <div className="relative h-2 rounded bg-white/15 dark:bg-black/15 my-2 overflow-hidden">
+        <TooltipContent side="bottom" align="end" collisionPadding={8} className="block max-w-none w-[300px] p-3 text-[12px] leading-[1.4] font-normal text-left">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="opacity-60">Cierre {mesNombre}</span>
+            <span className="text-[20px] font-bold">{fmtMillones(p.proyeccion)}</span>
+          </div>
+          {p.rango && <div className="opacity-60 text-right text-[11px]">{fmtMillones(p.rango.min)} – {fmtMillones(p.rango.max)} (±{pct(p.backtest!.errorMetodo)})</div>}
+          <div className="relative h-1.5 rounded bg-white/15 dark:bg-black/15 my-1.5 overflow-hidden">
             <div className="absolute inset-y-0 left-0 bg-[#5BC2EA]" style={{ width: `${pctFacturado}%` }} />
-            <div
-              className="absolute inset-y-0 right-0"
-              style={{ left: `${pctFacturado}%`, background: "repeating-linear-gradient(45deg,#5BC2EA66 0 4px,transparent 4px 8px)" }}
-            />
+            <div className="absolute inset-y-0 right-0" style={{ left: `${pctFacturado}%`, background: "repeating-linear-gradient(45deg,#5BC2EA66 0 4px,transparent 4px 8px)" }} />
           </div>
-          <Fila izq={`Facturado al ${ddmm(p.corte)} (${p.diasTranscurridos} días)`} der={fmtMillones(p.facturado)} />
-          <Fila izq={`Estimado ${siguiente} → ${fin} (${p.diasRestantes} días)`} der={fmtMillones(p.estimadoRestante)} />
-          <div className="opacity-60 mt-0.5">
-            quedan{" "}
-            {p.restantesPorDia.map((d) => (
-              <span key={d.dow} className="inline-block mr-1 mt-0.5 text-[11px] rounded px-1.5 bg-white/15 dark:bg-black/15">
-                {d.cantidad} {DIA_SEMANA_CORTO[d.dow]}
-              </span>
-            ))}
-          </div>
-          <Sep />
-          <div className="opacity-60 mb-1">Cómo se calcula</div>
-          {p.metodo === "unico" ? (
-            <div>
-              Cada día que falta vale lo que suele vender <b>ese día de la semana</b> (últimas 8 semanas)
-              {p.estacional != null && (
-                <> × la <b>época del año</b>: en los años anteriores, el resto de {mesLargo} vendió {estacionalTxt(p.estacional)}</>
-              )}{" "}
-              × el <b>ritmo del mes</b>: {mesLargo} viene al <b>{pct(p.ritmoEstacional)}</b> de lo esperado.
-            </div>
-          ) : p.metodo === "semanas" ? (
-            <div>
-              Cada día que falta vale lo que suele vender <b>ese día de la semana</b> (promedio de las últimas 8 semanas) × el{" "}
-              <b>ritmo del mes</b>: {mesLargo} viene al <b>{pct(p.ritmo)}</b> de lo habitual.
-            </div>
-          ) : (
-            <div>
-              Cada día que falta vale el <b>promedio de ese día de la semana en {mesLargo}</b> (los jueves que faltan, lo que vienen
-              vendiendo los jueves de este mes).
-            </div>
-          )}
-          <div className="opacity-60 mt-1">
-            {OTROS[p.metodo].map((m) => <Fila key={m} izq={`Con ${NOMBRE[m]}`} der={fmtMillones(p.proyecciones[m])} />)}
-          </div>
-          <Sep />
-          <div className="opacity-60">
-            <Fila izq="Regla de 3 simple" der={fmtMillones(p.reglaDeTres)} />
-            {p.mismoRitmoAnioAnterior != null && <Fila izq={`Mismo ritmo que ${mesAA}`} der={fmtMillones(p.mismoRitmoAnioAnterior)} />}
-            {p.cierreAnioAnterior != null && <Fila izq={`${mesNombre} ${p.anio - 1} cerró en`} der={fmtMillones(p.cierreAnioAnterior)} />}
+          <Fila izq={`Facturado al ${ddmm(p.corte)}`} der={fmtMillones(p.facturado)} />
+          <Fila izq={`Faltan ${p.diasRestantes} días (${p.restantesPorDia.map((d) => `${d.cantidad} ${DIA_SEMANA_CORTO[d.dow]}`).join(", ")})`} der={`+${fmtMillones(p.estimadoRestante)}`} />
+          <div className="opacity-70 mt-1">Cómo: {como}</div>
+          <div className="grid grid-cols-2 gap-x-3 mt-1.5 pt-1.5 border-t border-white/20 dark:border-black/20 opacity-60 text-[11px]">
+            {otros.map(([a, b]) => <div key={a} className="flex justify-between gap-1"><span>{a}</span><b className="tabular-nums">{fmtMillones(b)}</b></div>)}
           </div>
           {p.backtest && (
-            <>
-              <Sep />
-              <div className="opacity-60">
-                {p.backtest.fuente === "guardadas"
-                  ? <>Medido con lo que proyectó cada día en los últimos {p.backtest.meses} meses contra cómo cerraron: </>
-                  : <>Probado contra los {p.backtest.meses} meses anteriores cortando cada uno el día {p.backtest.dia}: </>}
-                este cálculo erró <b className="opacity-100">{pct1(p.backtest.errorMetodo)}</b> en promedio
-                {OTROS[p.metodo].map((m) => (
-                  <span key={m}>; {NOMBRE[m]}, <b className="opacity-100">{pct1(p.backtest!.errores[m])}</b></span>
-                ))}
-                {p.backtest.errorReglaDeTres != null && (
-                  <>; la regla de 3, <b className="opacity-100">{pct1(p.backtest.errorReglaDeTres)}</b></>
-                )}
-                . Se usa el que menos erra, y cada día se guarda lo proyectado para seguir midiendo.
-              </div>
-            </>
+            <div className="opacity-60 text-[11px] mt-1">
+              Error medio{p.backtest.fuente === "backtest" ? ` (${p.backtest.meses} meses, día ${p.backtest.dia})` : ""}: este <b className="opacity-100">{pct1(p.backtest.errorMetodo)}</b>
+              {errOtros.length ? <> · otros {pct1(Math.min(...errOtros))}–{pct1(Math.max(...errOtros))}</> : null}
+            </div>
           )}
         </TooltipContent>
       </Tooltip>
