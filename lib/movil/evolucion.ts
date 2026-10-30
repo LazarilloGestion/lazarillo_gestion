@@ -1,10 +1,35 @@
 import { indicadores, type RubroMonto } from "./indicadores";
 
-// Evolución de un indicador del celu (Diego 29/10/2026): al tocar Food cost / Personal / Mix, los
-// últimos N meses hasta el que se mira, con la diferencia en puntos contra el mes anterior.
-export type ClaveIndicador = "foodCost" | "personal" | "mix";
+// Evolución de un indicador del celu (Diego 29/10/2026): al tocar una tarjeta del Inicio, los
+// últimos N meses hasta el que se mira, con la diferencia contra el mes anterior.
+// Food cost / Personal / Mix / Rentabilidad son % (diferencia en puntos); Ventas / Gastos /
+// Resultado son plata (diferencia en % contra el mes anterior).
+export type ClaveIndicador = "foodCost" | "personal" | "mix" | "ventas" | "gastos" | "resultado" | "rentabilidad";
 export interface MesAnual { anio: number; mes: number; ventas: number; rubros: RubroMonto[] }
 export interface PuntoEvolucion { anio: number; mes: number; valor: number | null; dif: number | null; proyectado: boolean }
+
+export const INFO_INDICADOR: Record<ClaveIndicador, { titulo: string; tipo: "pct" | "plata"; mejor: "sube" | "baja" }> = {
+  ventas:       { titulo: "Ventas",       tipo: "plata", mejor: "sube" },
+  gastos:       { titulo: "Gastos",       tipo: "plata", mejor: "baja" },
+  resultado:    { titulo: "Resultado",    tipo: "plata", mejor: "sube" },
+  rentabilidad: { titulo: "Rentabilidad", tipo: "pct",   mejor: "sube" },
+  foodCost:     { titulo: "Food cost",    tipo: "pct",   mejor: "baja" },
+  personal:     { titulo: "Personal",     tipo: "pct",   mejor: "baja" },
+  mix:          { titulo: "Mix",          tipo: "pct",   mejor: "baja" },
+};
+
+/** Diferencia contra el anterior: puntos (0.32 vs 0.30 → 2) para %, variación % para plata. */
+export function difContra(clave: ClaveIndicador, valor: number | null, ant: number | null): number | null {
+  if (valor == null || ant == null) return null;
+  if (INFO_INDICADOR[clave].tipo === "pct") return (valor - ant) * 100;
+  return ant === 0 ? null : ((valor - ant) / Math.abs(ant)) * 100;
+}
+
+/** "bueno" / "malo" / null (sin cambio) según hacia dónde conviene que vaya el indicador. */
+export function sentido(clave: ClaveIndicador, dif: number | null): "bueno" | "malo" | null {
+  if (dif == null || Math.abs(dif) < 0.05) return null;
+  return (dif > 0) === (INFO_INDICADOR[clave].mejor === "sube") ? "bueno" : "malo";
+}
 
 export function serieIndicador(p: {
   meses: MesAnual[];
@@ -27,7 +52,7 @@ export function serieIndicador(p: {
     const anio = Math.floor(t / 12), mes = (t % 12) + 1;
     const valor = valorDe(anio, mes);
     const ant = out.length ? out[out.length - 1].valor : null;
-    out.push({ anio, mes, valor, dif: valor != null && ant != null ? (valor - ant) * 100 : null, proyectado: k === 0 && !!p.actual?.proyectado });
+    out.push({ anio, mes, valor, dif: difContra(p.clave, valor, ant), proyectado: k === 0 && !!p.actual?.proyectado });
   }
   return out.slice(1);
 }
