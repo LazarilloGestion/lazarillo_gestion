@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
-import { CalendarDays, Building2, Store, Search, X, Filter, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, Building2, Store, Search, X, ChevronLeft, ChevronRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -20,6 +20,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useAnioRange } from "@/hooks/use-anio-range";
 import type { Local } from "@/lib/types/domain";
 import { autoSeleccion } from "@/lib/dashboard/auto-seleccion";
+import { etiquetaMeses, leerLugar, valorLugar } from "@/lib/dashboard/etiqueta-filtros";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ImpagasBoton } from "@/components/impagas/impagas-boton";
 import { CargarFactura } from "@/components/facturas/cargar-factura";
 import { SinCargaBoton } from "@/components/sin-carga/sin-carga-boton";
@@ -39,6 +41,8 @@ const PALETTE_PARAM_COLORS: Record<string, { label: string; bg: string; border: 
   observacionQuery: { label: "text-cat-observacion",  bg: "bg-cat-observacion/8",  border: "border-cat-observacion/25" },
   importeQuery:     { label: "text-cat-importe",      bg: "bg-cat-importe/8",      border: "border-cat-importe/25" },
 };
+
+const BOTON = "h-8 px-3 flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm text-zinc-700 dark:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shrink-0";
 
 const MONTH_LABELS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
@@ -90,6 +94,14 @@ export function DashboardFilters() {
 
   const puntosDeVenta =
     locales.find((l) => l.id === localId)?.puntosDeVenta ?? [];
+
+  const localSel = locales.find((l) => l.id === localId);
+  const pdvSel = puntosDeVenta.find((p) => p.id === pdvId);
+  const etiquetaLugar = !localSel
+    ? "Todos los locales"
+    : localSel.puntosDeVenta.length > 1
+      ? `${localSel.nombre} · ${pdvSel?.nombre ?? "todos"}`
+      : localSel.nombre;
 
   const activeSearchParam = !isVentas ? activeParam : undefined;
 
@@ -147,67 +159,93 @@ export function DashboardFilters() {
 
       {/* ── Desktop ── */}
       <div className="hidden md:flex gap-2 items-center">
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          <CalendarDays className="w-4 h-4 shrink-0" />
-          <button
-            onClick={() => setYear(year - 1)}
-            disabled={minYear === undefined || year <= minYear}
-            aria-label="Año anterior"
-            className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shrink-0 disabled:opacity-40 disabled:hover:text-muted-foreground disabled:hover:border-zinc-200 dark:disabled:hover:border-zinc-700 disabled:cursor-not-allowed"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-          <span className="w-14 h-8 flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-medium text-muted-foreground tabular-nums">
-            {year}
-          </span>
-          <button
-            onClick={() => setYear(year + 1)}
-            disabled={maxYear === undefined || year >= maxYear}
-            aria-label="Año siguiente"
-            className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shrink-0 disabled:opacity-40 disabled:hover:text-muted-foreground disabled:hover:border-zinc-200 dark:disabled:hover:border-zinc-700 disabled:cursor-not-allowed"
-          >
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          <Building2 className="w-4 h-4 shrink-0" />
-          <Select
-            value={localId ? String(localId) : "__all"}
-            onValueChange={(v) => setLocalId(v === "__all" ? undefined : Number(v))}
-            disabled={localesLoading}
-          >
-            <SelectTrigger className="w-44 h-8 text-sm">
-              <SelectValue placeholder="Todos los locales" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all">Todos los locales</SelectItem>
-              {locales.map((l) => (
-                <SelectItem key={l.id} value={String(l.id)}>{l.nombre}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {!localesLoading && localId && puntosDeVenta.length > 0 && (
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <Store className="w-4 h-4 shrink-0" />
-            <Select
-              value={pdvId ? String(pdvId) : "__all"}
-              onValueChange={(v) => setPdvId(v === "__all" ? undefined : Number(v))}
+        {/* Barra unificada (rediseño, Diego 30/10/2026): año + meses en un botón, local + PDV en otro. */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button className={BOTON}>
+              <CalendarDays className="w-4 h-4 shrink-0 text-muted-foreground" />
+              <span className="font-medium tabular-nums">{year}</span>
+              <span className="text-muted-foreground">·</span>
+              <span>{etiquetaMeses(selectedMonths)}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-3 gap-3">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setYear(year - 1)}
+                disabled={minYear === undefined || year <= minYear}
+                aria-label="Año anterior"
+                className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-sm font-semibold tabular-nums">{year}</span>
+              <button
+                onClick={() => setYear(year + 1)}
+                disabled={maxYear === undefined || year >= maxYear}
+                aria-label="Año siguiente"
+                className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700 text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {MONTH_LABELS.map((label, i) => {
+                const idx = i + 1;
+                const active = selectedMonths.has(idx);
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => toggleMonth(idx)}
+                    aria-pressed={active}
+                    className={cn(
+                      "h-7 rounded-md text-xs font-medium transition-all duration-100 border",
+                      active
+                        ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white"
+                        : "bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200"
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={clearMonths}
+              disabled={selectedMonths.size === 0}
+              className="h-7 rounded-md text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
             >
-              <SelectTrigger className="w-48 h-8 text-sm">
-                <SelectValue placeholder="Todos los PDV" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all">Todos los PDV</SelectItem>
-                {puntosDeVenta.map((p) => (
-                  <SelectItem key={p.id} value={String(p.id)}>{p.nombre}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+              Todo el año
+            </button>
+          </PopoverContent>
+        </Popover>
+
+        <Select
+          value={valorLugar(localId, pdvId)}
+          onValueChange={(v) => { const l = leerLugar(v); setLocalId(l.localId); setPdvId(l.pdvId); }}
+          disabled={localesLoading}
+        >
+          <SelectTrigger className="h-8 w-auto justify-start gap-1.5 px-3 text-sm bg-white dark:bg-zinc-800">
+            <Building2 className="w-4 h-4 shrink-0 text-muted-foreground" />
+            <SelectValue>{etiquetaLugar}</SelectValue>
+          </SelectTrigger>
+          <SelectContent position="popper" align="start">
+            <SelectItem value="__all">Todos los locales</SelectItem>
+            {locales.map((l) => (
+              l.puntosDeVenta.length > 1 ? (
+                <Fragment key={l.id}>
+                  <SelectItem value={`l:${l.id}`}>{l.nombre} · todos</SelectItem>
+                  {l.puntosDeVenta.map((p) => (
+                    <SelectItem key={p.id} value={`p:${l.id}:${p.id}`} className="pl-6">{l.nombre} · {p.nombre}</SelectItem>
+                  ))}
+                </Fragment>
+              ) : (
+                <SelectItem key={l.id} value={l.puntosDeVenta[0] ? `p:${l.id}:${l.puntosDeVenta[0].id}` : `l:${l.id}`}>{l.nombre}</SelectItem>
+              )
+            ))}
+          </SelectContent>
+        </Select>
 
         {!isVentas && (
           <div className="flex items-center gap-2 ml-auto shrink-0">
@@ -228,39 +266,6 @@ export function DashboardFilters() {
               </kbd>
             </button>
           </div>
-        )}
-      </div>
-
-      {/* Chips de meses — solo desktop */}
-      <div className="hidden md:flex items-center gap-1.5 flex-wrap">
-        <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-        {MONTH_LABELS.map((label, i) => {
-          const idx = i + 1;
-          const active = selectedMonths.has(idx);
-          return (
-            <button
-              key={idx}
-              onClick={() => toggleMonth(idx)}
-              aria-pressed={active}
-              className={cn(
-                "h-6 px-2 rounded-md text-xs font-medium transition-all duration-100 border",
-                active
-                  ? "bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 border-zinc-900 dark:border-white"
-                  : "bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200"
-              )}
-            >
-              {label}
-            </button>
-          );
-        })}
-        {selectedMonths.size > 0 && (
-          <button
-            onClick={clearMonths}
-            className="h-6 px-1.5 rounded text-xs text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Limpiar filtro de meses"
-          >
-            <X className="w-3 h-3" />
-          </button>
         )}
       </div>
 
