@@ -23,14 +23,14 @@ const CLICKABLE = "cursor-pointer hover:bg-accent transition-colors";
 // extracción. Los totales por mes/año abren el detalle del período (pedido
 // del cliente: buscar registros por período, no solo por rubro).
 export function PivotTableFoot({
-  year, months, columnTotals, grandTotal, pctMode, fmtPct, fmtCelda, onMonthClick, onTotalClick,
+  months, columnTotals, grandTotal, pctMode, fmtPct, fmtCelda, onMonthClick, onTotalClick,
 }: PivotTableFootProps) {
   const totalClickable = onTotalClick && hasValue(grandTotal);
   return (
     <tfoot>
       <tr className="border-t-2 bg-muted font-semibold text-[15px]">
         <td className="sticky left-0 z-10 bg-muted px-4 py-3 shadow-[1px_0_0_0_hsl(var(--border))]">
-          Total {year}
+          Total gastos
         </td>
         {months.map((mes) => {
           const clickable = onMonthClick && hasValue(columnTotals[mes]);

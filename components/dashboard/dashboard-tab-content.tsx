@@ -7,6 +7,7 @@ import { PivotTable } from "./pivot-table";
 import { VentasPivotTable } from "./ventas-pivot-table";
 import { ResultadosPivotTable } from "./resultados-pivot-table";
 import { Maximize2, Minimize2 } from "lucide-react";
+import { VistaTablaToggles } from "./vista-tabla-toggles";
 
 interface DashboardTabContentProps {
   isFullscreen: boolean;
@@ -38,7 +39,7 @@ export function DashboardTabContent({ isFullscreen, onToggleFullscreen }: Dashbo
       <div
         role="tablist"
         aria-label="Vista del panel de gestión"
-        className="flex items-center justify-between gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50 shrink-0"
+        className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-zinc-100 dark:border-zinc-700/50 shrink-0"
       >
         <div className="flex gap-0 border border-zinc-200 dark:border-zinc-700 rounded-lg p-1 bg-zinc-50 dark:bg-zinc-800/50">
           {(["compras", "ventas", "resultados"] as const).map((t) => (
@@ -61,6 +62,8 @@ export function DashboardTabContent({ isFullscreen, onToggleFullscreen }: Dashbo
           ))}
         </div>
 
+        <div className="flex items-center gap-2 ml-auto">
+          {tab === "compras" && <VistaTablaToggles />}
         <button
           onClick={onToggleFullscreen}
           title={isFullscreen ? "Salir de pantalla completa (Esc)" : "Pantalla completa"}
@@ -68,6 +71,7 @@ export function DashboardTabContent({ isFullscreen, onToggleFullscreen }: Dashbo
         >
           {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
         </button>
+        </div>
       </div>
 
       <div
