@@ -13,6 +13,8 @@ import { ImpagasBoton } from "@/components/impagas/impagas-boton";
 import { SinCargaBoton } from "@/components/sin-carga/sin-carga-boton";
 import type { Local } from "@/lib/types/domain";
 import { serieIndicador, sentido, INFO_INDICADOR, type ClaveIndicador } from "@/lib/movil/evolucion";
+import { useCanasta } from "@/hooks/use-canasta";
+import { CanastaDetalle, CanastaMini, resumirCanasta } from "./canasta-tarjeta";
 
 // Tarjetas arriba de la tabla (rediseño del Panel, Diego 30/10/2026, mockup_panel_v2c):
 // el ÚLTIMO MES CERRADO (Ventas → Equilibrio → Resultado, Mix con food cost y personal adentro) y
@@ -23,7 +25,7 @@ const MES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Ag
 const pc = (x: number | null) => (x == null ? "—" : `${(x * 100).toLocaleString("es-AR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`);
 const ppTxt = (d: number) => `${d > 0 ? "▲" : "▼"} ${Math.abs(d).toLocaleString("es-AR", { maximumFractionDigits: 1 })}`;
 type Anual = { meses: MesDatos[] };
-type Abierta = ClaveIndicador | "equilibrio" | null;
+type Abierta = ClaveIndicador | "equilibrio" | "canasta" | null;
 
 export function KpiTarjetas() {
   const { year, localId, pdvId, modoPanel, activeSearchParam } = useDashboard();
@@ -42,6 +44,11 @@ export function KpiTarjetas() {
   const { proyectado: egrProy, ventasProy } = useEgresosProyeccion(egresosPorMes);
   const [abierta, setAbierta] = useState<Abierta>(null);
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
+  // Canasta del último mes cerrado (Diego 30/10/2026): se pide acá arriba porque los hooks no pueden ir después de un return.
+  const hoy0 = new Date();
+  const mcCanasta = anual && modoPanel === "economica" && !activeSearchParam ? mesCerrado(anual.meses, year, { anio: hoy0.getFullYear(), mes: hoy0.getMonth() + 1 }) : null;
+  const canasta = useCanasta(mcCanasta ? { anio: year, mes: mcCanasta } : null);
+  const rc = canasta.data && canasta.data.componentes.length ? resumirCanasta(canasta.data) : null;
 
   if (modoPanel !== "economica" || activeSearchParam) return null;
   // "Para mirar" (Impagas, Sin carga y alertas) está siempre que haya un PDV elegido: los botones
@@ -72,10 +79,10 @@ export function KpiTarjetas() {
   ];
   return (
     <div className="mb-4">
-      <div className={cn("grid gap-4", enCurso ? "lg:grid-cols-[3fr_1.4fr_0.95fr]" : "lg:grid-cols-[3fr_0.95fr]")}>
+      <div className={cn("grid gap-4", enCurso ? (rc ? "lg:grid-cols-[3.5fr_1.4fr_0.95fr]" : "lg:grid-cols-[3fr_1.4fr_0.95fr]") : (rc ? "lg:grid-cols-[3.5fr_0.95fr]" : "lg:grid-cols-[3fr_0.95fr]"))}>
         <div>
           <Grupo>{MES[t.mes - 1]} · último mes cerrado</Grupo>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-[1fr_1fr_1fr_1.5fr]">
+          <div className={cn("grid grid-cols-2 gap-2", rc ? "md:grid-cols-[1fr_1fr_1fr_1.5fr_1.1fr]" : "md:grid-cols-[1fr_1fr_1fr_1.5fr]")}>
             <Tarjeta titulo="Ventas" activa={abierta === "ventas"} onClick={() => toggle("ventas")}>
               <Grande>{fmtMillones(t.ventas)}</Grande>
               {t.ventasVsAnterior != null && <Chico className={t.ventasVsAnterior >= 0 ? "text-emerald-700" : "text-red-600"}>{t.ventasVsAnterior >= 0 ? "▲" : "▼"} {pc(Math.abs(t.ventasVsAnterior))} vs {MES[(t.mes + 10) % 12].slice(0, 3).toLowerCase()}</Chico>}
@@ -99,6 +106,11 @@ export function KpiTarjetas() {
                 </button>
               </div>
             </Tarjeta>
+            {rc && (
+              <Tarjeta titulo="Tu canasta" activa={abierta === "canasta"} onClick={() => toggle("canasta")}>
+                <CanastaMini r={rc} />
+              </Tarjeta>
+            )}
           </div>
         </div>
         {enCurso && (
@@ -130,7 +142,11 @@ export function KpiTarjetas() {
         )}
         {pdvId != null && <div className="flex flex-col"><Grupo>&nbsp;</Grupo>{paraMirar(alertas)}</div>}
       </div>
-      {abierta && (
+      {abierta === "canasta" && canasta.data && rc && (
+        <CanastaDetalle d={canasta.data} r={rc} mesRef={t.mes} conPdv={canasta.conPdv}
+          onAgregar={(f) => void canasta.agregarAumento(f)} onQuitar={(f) => void canasta.quitarAumento(f)} onCerrar={() => setAbierta(null)} />
+      )}
+      {abierta && abierta !== "canasta" && (
         <Evolucion clave={abierta} anio={year} mesHasta={t.mes} meses={anual.meses} mesesAnt={anualAnt?.meses ?? []}
           variablePorMes={eq?.porMes ?? null} onCerrar={() => setAbierta(null)} />
       )}
@@ -192,7 +208,7 @@ function Tarjeta({ titulo, activa, deshabilitada, onClick, children }: { titulo:
 
 // Evolución de la tarjeta tocada, a todo el ancho (como en el celu): barras de los últimos 3/6/9/12 meses.
 function Evolucion({ clave, anio, mesHasta, meses, mesesAnt, variablePorMes, onCerrar }: {
-  clave: Exclude<Abierta, null>; anio: number; mesHasta: number; meses: MesDatos[]; mesesAnt: MesDatos[];
+  clave: Exclude<Abierta, null | "canasta">; anio: number; mesHasta: number; meses: MesDatos[]; mesesAnt: MesDatos[];
   variablePorMes: Record<number, { total: number }> | null; onCerrar: () => void;
 }) {
   const [n, setN] = useState(6);
