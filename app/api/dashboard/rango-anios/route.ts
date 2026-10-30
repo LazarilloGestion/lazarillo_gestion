@@ -39,16 +39,18 @@ export async function GET(request: NextRequest) {
   try {
     // COALESCE(fechaManual, fecha) en compras — un override manual de fecha puede mover
     // la fila a otro año, igual que en el resto del dashboard (ver query-builders.ts).
+    // MIN/MAX directo sobre la fecha (y no sobre EXTRACT(YEAR …) de cada fila): sale de los
+    // índices de fecha en vez de recorrer compras + ventas enteras (4 s por carga, 29/10/2026).
+    // MIN/MAX y LEAST/GREATEST ignoran los NULL: mismo resultado que antes.
     const [row] = await prisma.$queryRaw<RangoRow[]>(Prisma.sql`
-      SELECT MIN(y)::int AS "minYear", MAX(y)::int AS "maxYear"
+      SELECT EXTRACT(YEAR FROM LEAST(t.c_min, t.v_min))::int    AS "minYear",
+             EXTRACT(YEAR FROM GREATEST(t.c_max, t.v_max))::int AS "maxYear"
       FROM (
-        SELECT EXTRACT(YEAR FROM COALESCE("fechaManual", fecha))::int AS y
-        FROM compras
-        WHERE (fecha IS NOT NULL OR "fechaManual" IS NOT NULL) AND ${localGuard} AND ${pdvGuard}
-        UNION ALL
-        SELECT EXTRACT(YEAR FROM fecha)::int AS y
-        FROM ventas
-        WHERE fecha IS NOT NULL AND ${localGuard} AND ${pdvGuard}
+        SELECT
+          (SELECT MIN(COALESCE("fechaManual", fecha)) FROM compras WHERE ${localGuard} AND ${pdvGuard}) AS c_min,
+          (SELECT MAX(COALESCE("fechaManual", fecha)) FROM compras WHERE ${localGuard} AND ${pdvGuard}) AS c_max,
+          (SELECT MIN(fecha) FROM ventas WHERE ${localGuard} AND ${pdvGuard}) AS v_min,
+          (SELECT MAX(fecha) FROM ventas WHERE ${localGuard} AND ${pdvGuard}) AS v_max
       ) t
     `);
 

@@ -9,6 +9,11 @@ export function buildDateRange(year: number, mes?: number): { fechaStart: Date; 
   return { fechaStart, fechaEnd };
 }
 
+/** `expr` dentro del año (timestamp sin zona, como fecha/fechaManual). Usa los índices de fecha. */
+export function rangoAnio(expr: Prisma.Sql, year: number): Prisma.Sql {
+  return Prisma.sql`${expr} >= ${`${year}-01-01`}::timestamp AND ${expr} < ${`${year + 1}-01-01`}::timestamp`;
+}
+
 interface PivotConditionParams {
   // Sin año no se acota por año: lo usa la búsqueda, que recorre todos los años.
   year?: number;
@@ -95,7 +100,10 @@ export function buildPivotConditions({
     Prisma.sql`${Prisma.raw(t)}.importe IS NOT NULL`,
     Prisma.sql`${importeExpr} != 0`,
   ];
-  if (year !== undefined) conditions.unshift(Prisma.sql`EXTRACT(YEAR FROM ${fechaExpr}) = ${year}`);
+  // El año va como rango (>= 1/1 y < 1/1 del siguiente), no como EXTRACT(YEAR …) = año: así
+  // Postgres usa los índices de fecha y no recorre la tabla entera (Diego 29/10/2026: "le
+  // cuesta bastante cargar los datos" — 3 s → 0,1 s por consulta). Mismo resultado.
+  if (year !== undefined) conditions.unshift(rangoAnio(fechaExpr, year));
   if (localId) conditions.push(Prisma.sql`${Prisma.raw(t)}."localId" = ${localId}`);
   if (pdvId) conditions.push(Prisma.sql`${Prisma.raw(t)}."puntoDeVentaId" = ${pdvId}`);
   if (months?.length) {

@@ -4,12 +4,25 @@ import { buildPivotConditions, observacionCondition, importeCondition, sinRubroV
 const sqlDe = (conds: ReturnType<typeof buildPivotConditions>) => conds.map((c) => c.sql).join(" AND ");
 
 describe("buildPivotConditions — año", () => {
-  it("con año filtra por ese año (comportamiento del pivot)", () => {
-    expect(sqlDe(buildPivotConditions({ year: 2025, tableAlias: "c" }))).toContain("EXTRACT(YEAR FROM");
+  it("con año filtra por ese año como rango, para que use los índices de fecha", () => {
+    const conds = buildPivotConditions({ year: 2025, tableAlias: "c" });
+    const sql = sqlDe(conds);
+    expect(sql).toContain(`COALESCE(c."fechaManual", c.fecha) >= `);
+    expect(sql).toContain(`COALESCE(c."fechaManual", c.fecha) < `);
+    expect(sql).not.toContain("EXTRACT(YEAR FROM");
+    expect(conds.flatMap((c) => c.values)).toEqual(expect.arrayContaining(["2025-01-01", "2026-01-01"]));
+  });
+
+  it("ventas (sin fecha manual): rango sobre v.fecha", () => {
+    const sql = sqlDe(buildPivotConditions({ year: 2025, tableAlias: "v", hasFechaManual: false }));
+    expect(sql).toContain("v.fecha >= ");
+    expect(sql).not.toContain("fechaManual");
   });
 
   it("sin año no filtra por año: la búsqueda recorre todos los años", () => {
-    expect(sqlDe(buildPivotConditions({ tableAlias: "c" }))).not.toContain("EXTRACT(YEAR FROM");
+    const sql = sqlDe(buildPivotConditions({ tableAlias: "c" }));
+    expect(sql).not.toContain("EXTRACT(YEAR FROM");
+    expect(sql).not.toContain("::timestamp");
   });
 
   it("sin año igual exige fecha e importe efectivos distintos de 0", () => {
