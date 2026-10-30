@@ -29,7 +29,7 @@ export function PivotTableByProveedor() {
   const {
     year, localId, pdvId, rubroCodigo, conceptoCodigo, proveedorId, observacionQuery, importeQuery,
     months, activeMonths, sortCol, sortDir, handleSortClick,
-    rubroConfigVersion, agrupacionCompras, setAgrupacionCompras, modoCelda, setModoCelda,
+    rubroConfigVersion, modoCelda,
   } = useDashboard();
   // Mes vacío de un concepto → cargar el gasto vario de ese mes (Diego 29/10). Solo en Económica
   // (el mes es el período) y con local + PDV elegidos (la carga va a ese PDV).
@@ -83,10 +83,6 @@ export function PivotTableByProveedor() {
             sortCol={sortCol}
             sortDir={sortDir}
             onSortClick={handleSortClick}
-            agrupacionCompras={agrupacionCompras}
-            onAgrupacionChange={setAgrupacionCompras}
-            modoCelda={modoCelda}
-            onModoCeldaChange={setModoCelda}
             pctMode={pctMode}
             onTogglePctMode={togglePctMode}
             ingresosPorMes={ingresosPorMes}
