@@ -6,6 +6,7 @@ import { DashboardTabContent } from "@/components/dashboard/dashboard-tab-conten
 import { useFiltersPanel } from "@/hooks/use-dashboard-store";
 import { ActualizadoAl } from "@/components/dashboard/actualizado-al";
 import { SwitchEcoFin } from "@/components/dashboard/switch-eco-fin";
+import { KpiTarjetas } from "@/components/dashboard/kpi-tarjetas";
 export function DashboardContent() {
   // showFilters se seedea sincrónicamente desde localStorage en el store
   // (ver readPersistedField) — el primer render de cliente ya tiene el
@@ -54,9 +55,11 @@ export function DashboardContent() {
             <SwitchEcoFin />
           </div>
         </div>
-        <div className="pt-6 pb-6">
+        <div className="pt-6 pb-4">
           <DashboardFilters />
         </div>
+        {/* Tarjetas del último mes cerrado + proyección del que corre (rediseño, Diego 30/10/2026). */}
+        <KpiTarjetas />
       </motion.div>
 
       <div className="h-[calc(100svh-4rem)] [@media(min-width:768px)_and_(min-height:560px)]:h-auto [@media(min-width:768px)_and_(min-height:560px)]:flex-1 min-h-0 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden flex flex-col">
