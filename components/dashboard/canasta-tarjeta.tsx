@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { RefreshCw, X } from "lucide-react";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { acumulada, canastaMensual, pesoRelativo, ventanaUltimoAumento, type ClaveComponente } from "@/lib/dashboard/canasta";
 import { alcanceAumento, aumentosVsCostos, GRUPOS, NOMBRE_GRUPO } from "@/lib/dashboard/aumentos";
@@ -56,12 +56,11 @@ export function CanastaMini({ r }: { r: ResumenCanasta }) {
 }
 
 /** Detalle a todo el ancho (al tocar la tarjeta). */
-export function CanastaDetalle({ d, r, mesRef, conPdv, onAgregar, onQuitar, onDetectar, onCerrar }: {
+export function CanastaDetalle({ d, r, mesRef, conPdv, onAgregar, onQuitar, onCerrar }: {
   d: CanastaData; r: ResumenCanasta; mesRef: number; conPdv: boolean;
-  onAgregar: (f: string) => void; onQuitar: (f: string) => void; onDetectar: () => Promise<void>; onCerrar: () => void;
+  onAgregar: (f: string) => void; onQuitar: (f: string) => void; onCerrar: () => void;
 }) {
   const [nueva, setNueva] = useState("");
-  const [detectando, setDetectando] = useState(false);
   const filas = aumentosVsCostos(d.meses, r.serie, d.aumentos).filter((f) => f.costos != null);
   const ultimoAum = d.aumentos.length ? d.aumentos[d.aumentos.length - 1] : null;
   const aumPorFecha = new Map(d.aumentos.map((a) => [a.fecha, a]));
@@ -157,18 +156,11 @@ export function CanastaDetalle({ d, r, mesRef, conPdv, onAgregar, onQuitar, onDe
             <div>Desde el {ddmm(r.base)} tus costos subieron <b className="text-violet-700 dark:text-violet-300">{pct(r.desde)}</b>: para volver al margen de entonces, <b className="text-violet-700 dark:text-violet-300">aumentar ~{pct(r.desde, false)}</b>.</div>
           )}
           {!r.base && (
-            <div className="text-xs text-muted-foreground">Anotá la fecha de tu último aumento de precios (o tocá ↻ para buscarlo en el informe 12) para ver cuánto subieron tus costos desde entonces.</div>
+            <div className="text-xs text-muted-foreground">Anotá la fecha de tu último aumento de precios para ver cuánto subieron tus costos desde entonces.</div>
           )}
           {conPdv && (
             <div className="mt-1 border-t border-violet-100 dark:border-violet-900/40 pt-2">
-              <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-                <span>Aumentos de precios</span>
-                <button type="button" disabled={detectando} title="Buscar aumentos en el informe 12 (se hace solo cada noche)"
-                  onClick={async () => { setDetectando(true); await onDetectar(); setDetectando(false); }}
-                  className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 hover:bg-muted hover:text-foreground disabled:opacity-50">
-                  <RefreshCw className={cn("h-3 w-3", detectando && "animate-spin")} /> detectar
-                </button>
-              </div>
+              <div className="mb-1 text-xs text-muted-foreground" title="Se detectan solos cada noche del informe 12; acá se corrigen">Aumentos de precios</div>
               <div className="flex flex-wrap gap-1">
                 {d.aumentos.filter((a) => a.fecha.slice(0, 7) >= d.meses[0]).map((a) => (
                   <span key={a.fecha} className="inline-flex h-6 items-center gap-1 rounded-md border border-violet-200 dark:border-violet-800 bg-white dark:bg-zinc-900 pl-2 pr-1 text-xs tabular-nums"

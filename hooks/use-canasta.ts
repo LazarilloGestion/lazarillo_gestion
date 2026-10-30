@@ -30,16 +30,5 @@ export function useCanasta(ref: { anio: number; mes: number } | null) {
     await queryClient.invalidateQueries({ queryKey: ["canasta"] });
   }
 
-  async function detectar(): Promise<void> {
-    if (pdvId == null) return;
-    const res = await fetch("/api/dashboard/canasta/aumentos", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pdvId, detectar: true }),
-    }).catch(() => null);
-    const d = await res?.json().catch(() => null);
-    if (!res?.ok) { toast.error(d?.error ?? "No se pudo detectar"); return; }
-    toast.success(d.nuevos?.length ? `Aumentos nuevos: ${d.nuevos.map((f: string) => `${f.slice(8, 10)}/${f.slice(5, 7)}`).join(", ")}` : "No hay aumentos nuevos");
-    await queryClient.invalidateQueries({ queryKey: ["canasta"] });
-  }
-
-  return { data: data ?? null, isLoading, detectar, agregarAumento: (f: string) => aumento("POST", f), quitarAumento: (f: string) => aumento("DELETE", f), conPdv: pdvId != null };
+  return { data: data ?? null, isLoading, agregarAumento: (f: string) => aumento("POST", f), quitarAumento: (f: string) => aumento("DELETE", f), conPdv: pdvId != null };
 }

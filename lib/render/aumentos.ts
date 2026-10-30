@@ -3,7 +3,7 @@ import { consultaRender, identRender, renderConfigurado } from "./db";
 import { detectarSemanas, dias, PATRON_BEBIDAS, PATRON_PROMOS, type Grupo, type VentanaGrupo } from "@/lib/dashboard/aumentos";
 
 // Detección de aumentos de precios de la carta desde el informe 12 de Render (Diego 30/10/2026).
-// Corre después de la lectura diaria (cron) y desde el botón "detectar" de la Canasta.
+// Corre después de la lectura diaria (cron). Sin botón: menos es más (Diego 30/10/2026).
 // Mira cada agrupación (comidas / bebidas / promos) por separado: a veces sube solo una.
 
 const T12 = "i12_ventas_por_articulo_ranking_detallado_por_dia_";
@@ -75,9 +75,9 @@ async function medirAumento(fuente: string, esquema: string, pdv: string, fecha:
 
 export interface ResultadoAumentos { puntoDeVentaId: number; detectados: string[]; nuevos: string[] }
 
-export async function detectarAumentos(soloPdv?: number): Promise<ResultadoAumentos[]> {
+export async function detectarAumentos(): Promise<ResultadoAumentos[]> {
   if (!renderConfigurado()) return [];
-  const origenes = await prisma.renderOrigen.findMany({ where: { activo: true, ...(soloPdv ? { puntoDeVentaId: soloPdv } : {}) } });
+  const origenes = await prisma.renderOrigen.findMany({ where: { activo: true } });
   const hoy = new Date().toISOString().slice(0, 10);
   const anio = Number(hoy.slice(0, 4));
   const out: ResultadoAumentos[] = [];

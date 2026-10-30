@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth/require-auth";
-import { detectarAumentos } from "@/lib/render/aumentos";
-
-export const maxDuration = 60;
 
 export const dynamic = "force-dynamic";
 
@@ -16,22 +13,10 @@ function leer(body: unknown): { pdvId: number; fecha: string } | null {
 }
 
 // POST { pdvId, fecha } — anota un aumento de precios de la carta (sin duplicar).
-// POST { pdvId, detectar: true } — busca ahora los aumentos en el informe 12 (lo mismo que hace el cron).
 export async function POST(request: NextRequest) {
   const denied = await requireAuth();
   if (denied) return denied;
-  const body = await request.json().catch(() => null) as { detectar?: unknown; pdvId?: unknown } | null;
-  if (body?.detectar === true) {
-    const pdvId = Number(body.pdvId);
-    if (!Number.isInteger(pdvId) || pdvId <= 0) return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
-    try {
-      const r = await detectarAumentos(pdvId);
-      return NextResponse.json({ ok: true, nuevos: r.flatMap((x) => x.nuevos), detectados: r.flatMap((x) => x.detectados) });
-    } catch (err) {
-      console.error("[POST /api/dashboard/canasta/aumentos detectar]", err);
-      return NextResponse.json({ error: "No se pudo leer el informe 12" }, { status: 502 });
-    }
-  }
+  const body = await request.json().catch(() => null);
   const d = leer(body);
   if (!d) return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
   try {
