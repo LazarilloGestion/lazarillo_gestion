@@ -4,8 +4,9 @@ import { toast } from "sonner";
 import { useFetchQuery } from "@/hooks/use-fetch-query";
 import { useDashboard } from "@/hooks/use-dashboard-store";
 import type { Componente } from "@/lib/dashboard/canasta";
+import type { Grupo } from "@/lib/dashboard/aumentos";
 
-export interface Aumento { fecha: string; origen: string; pct: number | null; provisorio: boolean }
+export interface Aumento { fecha: string; origen: string; pct: number | null; provisorio: boolean; detalle?: Partial<Record<Grupo, number>> | null }
 export interface CanastaData { meses: string[]; componentes: Componente[]; aumentos: Aumento[] }
 
 // Canasta del PDV elegido hasta el mes de referencia (el último cerrado). Se recalcula poco: 1 h.

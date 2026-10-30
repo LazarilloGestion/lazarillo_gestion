@@ -1,30 +1,56 @@
 // Aumentos de precios de la carta (Diego 30/10/2026): se detectan del informe 12 (ventas por
 // artículo por día) y se comparan con la Canasta para ver la BRECHA de cada aumento.
 
-export interface SemanaPrecios {
-  semana: string;   // lunes, "YYYY-MM-DD"
-  n: number;        // artículos comparables con la semana anterior
-  suben: number;    // fracción de esos artículos que subieron más de 3%
-  variacion: number; // variación de precio ponderada por lo vendido (0,05 = +5%)
+export type Grupo = "comidas" | "bebidas" | "promos";
+export const GRUPOS: Grupo[] = ["comidas", "bebidas", "promos"];
+export const NOMBRE_GRUPO: Record<Grupo, string> = { comidas: "comidas", bebidas: "bebidas", promos: "promos" };
+
+// Agrupación de la carta según el rubro del artículo en MaxiRest. Los mismos patrones se usan en SQL
+// (lib/render/aumentos.ts) con ~*, así que tienen que ser regex válidas en JS y en Postgres.
+export const PATRON_PROMOS = "promo";
+export const PATRON_BEBIDAS = "(cerveza|bebida|trago|limonada|mocktail|cafeter|vino|gaseosa|jugo|aperitiv|espumante)";
+
+export function grupoDeRubro(rubro: string | null | undefined): Grupo {
+  const r = rubro ?? "";
+  if (new RegExp(PATRON_PROMOS, "i").test(r)) return "promos";
+  if (new RegExp(PATRON_BEBIDAS, "i").test(r)) return "bebidas";
+  return "comidas";
 }
 
-// Fuera de un aumento, cada semana sube ~15–25% de los artículos (promos, descuentos) y la variación
-// ponderada ronda ±2%: un aumento general es más de un tercio de la carta subiendo y la carta +2,5%.
-export const UMBRAL_SUBEN = 0.35;
-export const UMBRAL_VARIACION = 0.025;
-export const MIN_ARTICULOS = 20;
+/** Una agrupación en una semana: precios de las 2 semanas anteriores vs las semanas 2 y 3 siguientes. */
+export interface VentanaGrupo { semana: string; grupo: Grupo; n: number; suben: number; variacion: number }
 
-/** Semanas de aumento. Un aumento que se aplica en dos semanas seguidas cuenta una vez (la primera). */
-export function detectarSemanas(semanas: SemanaPrecios[]): string[] {
-  const orden = [...semanas].sort((a, b) => a.semana.localeCompare(b.semana));
-  const out: string[] = [];
-  let anterior: string | null = null;
-  for (const s of orden) {
-    const es = s.n >= MIN_ARTICULOS && s.suben >= UMBRAL_SUBEN && s.variacion >= UMBRAL_VARIACION;
-    if (es && !(anterior && dias(anterior, s.semana) <= 7)) out.push(s.semana);
-    anterior = es ? s.semana : null;
+// Fuera de un aumento, en esa ventana sube menos de la mitad de los artículos de una agrupación y su
+// precio se mueve menos de 3%. Calibrado con el Bar (sep-25 a oct-26): marca 29/09, 01/12, 30/03,
+// 15/06, 24/08 y 19/10, y nada más.
+export const UMBRAL_SUBEN = 0.5;
+export const UMBRAL_VARIACION = 0.03;
+export const MIN_ARTICULOS = 15;
+
+export function marcaAumento(v: VentanaGrupo): boolean {
+  return v.n >= MIN_ARTICULOS && v.suben >= UMBRAL_SUBEN && v.variacion >= UMBRAL_VARIACION;
+}
+
+/**
+ * Semanas de aumento. La ventana de 5 semanas marca también las vecinas: las semanas marcadas seguidas
+ * son UN aumento, y su fecha es la semana en que más artículos subieron contra la anterior.
+ */
+export function detectarSemanas(ventanas: VentanaGrupo[], subenSemanal: Map<string, number>): string[] {
+  const marcadas = [...new Set(ventanas.filter(marcaAumento).map((v) => v.semana))].sort();
+  const grupos: string[][] = [];
+  for (const w of marcadas) {
+    const ult = grupos[grupos.length - 1];
+    if (ult && dias(ult[ult.length - 1], w) <= 7) ult.push(w); else grupos.push([w]);
   }
-  return out;
+  return grupos.map((g) => g.reduce((mejor, w) => ((subenSemanal.get(w) ?? 0) > (subenSemanal.get(mejor) ?? 0) ? w : mejor), g[0]));
+}
+
+/** "general" si subieron las tres agrupaciones; si no, cuáles. */
+export function alcanceAumento(detalle: Partial<Record<Grupo, number | null>> | null | undefined): string | null {
+  if (!detalle) return null;
+  const suben = GRUPOS.filter((g) => (detalle[g] ?? 0) >= 0.02);
+  if (suben.length === 0 || suben.length === GRUPOS.length) return null;
+  return `solo ${suben.map((g) => NOMBRE_GRUPO[g]).join(" y ")}`;
 }
 
 export function dias(a: string, b: string): number {
