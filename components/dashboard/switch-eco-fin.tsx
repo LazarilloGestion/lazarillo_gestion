@@ -2,6 +2,7 @@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDashboardStore } from "@/hooks/use-dashboard-store";
 import { cn } from "@/lib/utils";
+import { Info } from "lucide-react";
 
 type Modo = "economica" | "financiera";
 
@@ -31,8 +32,9 @@ export function SwitchEcoFin() {
   const actual = MODOS.find((m) => m.modo === modo) ?? MODOS[0];
 
   return (
-    <div className="flex flex-col items-start gap-1 md:items-end">
-      <TooltipProvider delayDuration={200}>
+    // La leyenda pasó a un ⓘ para despejar el encabezado (rediseño, Diego 30/10/2026).
+    <TooltipProvider delayDuration={200}>
+      <div className="flex items-center gap-1.5">
         <div role="radiogroup" aria-label="Vista del panel" className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 p-0.5">
           {MODOS.map((m) => (
             <Tooltip key={m.modo}>
@@ -58,11 +60,18 @@ export function SwitchEcoFin() {
             </Tooltip>
           ))}
         </div>
-      </TooltipProvider>
-      <p className="max-w-[440px] text-xs text-muted-foreground md:text-right">
-        {actual.leyenda}
-        {modo === "financiera" && <span className="block mt-0.5 text-[11px] opacity-80">{NOTA_FINANCIERA}</span>}
-      </p>
-    </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" aria-label={`Qué muestra la vista ${actual.label}`} className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground">
+              <Info className="w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="end" className="max-w-[340px] text-xs leading-snug">
+            {actual.leyenda}
+            {modo === "financiera" && <span className="block mt-1 opacity-80">{NOTA_FINANCIERA}</span>}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </TooltipProvider>
   );
 }
