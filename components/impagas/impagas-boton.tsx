@@ -9,7 +9,8 @@ import { ImpagasModal, impagasQueryKey, leerDesde, resumenDeuda, type OpcionPdv 
 
 // Botón del panel "● Impagas · $X M" (sin la cantidad: Diego, 27/10/2026) — cuenta las del PDV elegido en el panel
 // y abre el listado filtrado en ese PDV (se puede cambiar adentro).
-export function ImpagasBoton({ locales, pdvId }: { locales: Local[]; pdvId: number | undefined }) {
+// variante "linea": renglón compacto para la tarjeta "Para mirar" del Panel (rediseño, Diego 30/10/2026).
+export function ImpagasBoton({ locales, pdvId, variante = "boton" }: { locales: Local[]; pdvId: number | undefined; variante?: "boton" | "linea" }) {
   const [open, setOpen] = useState(false);
   const pdvs: OpcionPdv[] = useMemo(
     () => locales.flatMap((l) => l.puntosDeVenta.map((p) => ({ id: p.id, label: `${l.nombre} · ${p.nombre}` }))),
@@ -34,6 +35,16 @@ export function ImpagasBoton({ locales, pdvId }: { locales: Local[]; pdvId: numb
   }, [data]);
 
   if (pdvs.length === 0) return null;
+  if (variante === "linea") return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-1.5 text-left hover:underline">
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", resumen?.n ? "bg-red-500" : "bg-zinc-300")} />
+        <span className="truncate">Impagas {resumen ? (resumen.n ? fmtMillones(resumen.saldo) : "· nada") : "…"}</span>
+        <span className="ml-auto text-muted-foreground">›</span>
+      </button>
+      <ImpagasModal open={open} onClose={() => { setOpen(false); setLeido((n) => n + 1); }} pdvs={pdvs} pdvInicial={pdvId} />
+    </>
+  );
   return (
     <>
       <button

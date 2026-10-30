@@ -32,13 +32,24 @@ export function useSinCarga(pdvId: number | null | undefined) {
   return useFetchQuery<SinCargaResponse>(sinCargaKey(pdvId), pdvId ? `/api/sin-carga?pdvId=${pdvId}` : null, { staleTime: 60_000 });
 }
 
-export function SinCargaBoton() {
+export function SinCargaBoton({ variante = "boton" }: { variante?: "boton" | "linea" } = {}) {
   const { localId, pdvId } = useDashboard();
   const [open, setOpen] = useState(false);
   const { data } = useSinCarga(pdvId);
   const actual = data?.meses[0];
   const res = actual ? totales(actual.items, false) : null;
   if (pdvId == null) return null;
+  // Renglón compacto para la tarjeta "Para mirar" del Panel (rediseño, Diego 30/10/2026).
+  if (variante === "linea") return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="flex w-full items-center gap-1.5 text-left hover:underline">
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", res?.n ? "bg-amber-500" : "bg-zinc-300")} />
+        <span className="truncate">Sin carga {res ? (res.n ? fmtMillones(res.total) : "· nada") : "…"}</span>
+        <span className="ml-auto text-muted-foreground">›</span>
+      </button>
+      {open && <SinCargaModal pdvId={pdvId} localId={localId ?? null} onClose={() => setOpen(false)} />}
+    </>
+  );
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}
