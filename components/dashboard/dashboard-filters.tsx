@@ -116,6 +116,31 @@ export function DashboardFilters() {
           </>
         )}
       </div>
+      {/* Local y PDV a la vista también en el celu (Diego 29/10: "no tengo los selectores"). */}
+      <div className="grid md:hidden grid-cols-2 gap-2">
+        <Select
+          value={localId ? String(localId) : "__all"}
+          onValueChange={(v) => { setLocalId(v === "__all" ? undefined : Number(v)); setPdvId(undefined); }}
+          disabled={localesLoading}
+        >
+          <SelectTrigger className="h-9 w-full text-sm"><Building2 className="w-4 h-4 shrink-0 text-muted-foreground" /><SelectValue placeholder="Todos los locales" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all">Todos los locales</SelectItem>
+            {locales.map((l) => <SelectItem key={l.id} value={String(l.id)}>{l.nombre}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select
+          value={pdvId ? String(pdvId) : "__all"}
+          onValueChange={(v) => setPdvId(v === "__all" ? undefined : Number(v))}
+          disabled={localesLoading || !localId || puntosDeVenta.length === 0}
+        >
+          <SelectTrigger className="h-9 w-full text-sm"><Store className="w-4 h-4 shrink-0 text-muted-foreground" /><SelectValue placeholder="Todos los PDV" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all">Todos los PDV</SelectItem>
+            {puntosDeVenta.map((p) => <SelectItem key={p.id} value={String(p.id)}>{p.nombre}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* ── Desktop ── */}
       <div className="hidden md:flex gap-2 items-center">
