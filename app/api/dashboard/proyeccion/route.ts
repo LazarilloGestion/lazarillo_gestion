@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { parseVentasParams } from "@/lib/dashboard/params";
-import { buildPivotConditions } from "@/lib/dashboard/query-builders";
+import { buildPivotConditions, rangoAnio } from "@/lib/dashboard/query-builders";
 import { toNumber } from "@/lib/dashboard/pivot-utils";
 import { proyectarMes, debeProyectar, METODOS, type Metodo } from "@/lib/dashboard/proyeccion";
 
@@ -21,9 +21,9 @@ export async function GET(request: NextRequest) {
     const base = buildPivotConditions({ tableAlias: "v", hasFechaManual: false, localId, pdvId });
 
     const [ult] = await prisma.$queryRaw<{ ultimo: string | null }[]>(Prisma.sql`
-      SELECT to_char(MAX(v.fecha::date), 'YYYY-MM-DD') AS ultimo
+      SELECT to_char(MAX(v.fecha)::date, 'YYYY-MM-DD') AS ultimo
       FROM ventas v
-      WHERE ${Prisma.join([...base, Prisma.sql`EXTRACT(YEAR FROM v.fecha) = ${year}`], " AND ")}
+      WHERE ${Prisma.join([...base, rangoAnio(Prisma.sql`v.fecha`, year)], " AND ")}
     `);
     const ultimo = ult?.ultimo ?? null;
     // "Hoy" en Argentina (UTC-3).
@@ -40,8 +40,9 @@ export async function GET(request: NextRequest) {
       FROM ventas v
       WHERE ${Prisma.join([
         ...base,
-        Prisma.sql`v.fecha::date >= ${desde}::date`,
-        Prisma.sql`v.fecha::date <= ${ultimo}::date`,
+        // Rangos sobre v.fecha (no v.fecha::date) para que use el índice (Diego 29/10/2026).
+        Prisma.sql`v.fecha >= ${desde}::timestamp`,
+        Prisma.sql`v.fecha < ${ultimo}::date + 1`,
       ], " AND ")}
       GROUP BY 1
       ORDER BY 1
