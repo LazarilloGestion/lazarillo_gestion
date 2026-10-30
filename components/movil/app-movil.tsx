@@ -16,7 +16,9 @@ import { cargadasDe, esPersonal, lineasRubro } from "@/lib/movil/rubro-detalle";
 import { difPp, indicadores, promedioMensual } from "@/lib/movil/indicadores";
 import { serieIndicador, type ClaveIndicador } from "@/lib/movil/evolucion";
 import { claveDescarte, sinElGasto, totales, type ItemSinCarga, type MesSinCarga } from "@/lib/sin-carga/estado";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { HttpError, REINTENTOS } from "@/lib/query-retry";
+import { etiquetaSeleccion, sumarAnual, sumarProyeccion, sumarResumen, unirSinCarga } from "@/lib/movil/multi";
 import { toast } from "sonner";
 import { nombrePeriodo } from "@/lib/gastos-varios/periodo";
 import { FacturaMovil } from "./factura-movil";
@@ -37,19 +39,52 @@ function leerPdv(): { localId: number; pdvId: number } | null {
 }
 
 type Carga = { qr: DatosQr | null } | { gasto: true } | { sc: ItemSinCarga; mes: string } | null;
+type Sel = { localId: number; pdvId: number };
+const LS_PDVS = "movil:pdvs";
+
+function leerPdvs(): number[] | null {
+  try { const v = JSON.parse(localStorage.getItem(LS_PDVS) ?? "null"); return Array.isArray(v) && v.length ? v.map(Number) : null; } catch { return null; }
+}
+
+// Una misma consulta para cada PDV elegido (misma clave que con uno solo: comparte caché). `list`
+// llega cuando están todas (Diego 29/10: ver varios PDV juntos).
+function useMulti<T>(sel: Sel[], key: (s: Sel) => unknown[], url: (s: Sel) => string | null, staleTime = 30_000) {
+  const qs = useQueries({
+    queries: sel.map((s) => {
+      const u = url(s);
+      return {
+        queryKey: key(s),
+        queryFn: async () => { const r = await fetch(u!); if (!r.ok) throw new HttpError(r.status); return r.json() as Promise<T>; },
+        enabled: u !== null, staleTime, ...REINTENTOS,
+      };
+    }),
+  });
+  const listo = qs.length > 0 && qs.every((q) => q.data !== undefined);
+  return { list: listo ? qs.map((q) => q.data as T) : undefined, isLoading: qs.some((q) => q.isLoading), isError: qs.some((q) => q.isError) };
+}
 
 export function AppMovil() {
   const [tab, setTabCrudo] = useState<Tab>("inicio");
   const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
   const pdvs = useMemo(() => (locales ?? []).flatMap((l) => l.puntosDeVenta.map((p) => ({ localId: l.id, pdvId: p.id, label: `${l.nombre} · ${p.nombre}` }))), [locales]);
-  // El PDV elegido se recuerda en el celular (la lista llega del servidor después: no hay desfasaje al hidratar).
-  const [sel, setSel] = useState<{ localId: number; pdvId: number } | null>(() => (typeof window === "undefined" ? null : leerPdv()));
-  const actual = pdvs.find((p) => p.pdvId === sel?.pdvId) ?? pdvs[0] ?? null;
-  const elegir = (pdvId: number) => {
-    const p = pdvs.find((x) => x.pdvId === pdvId);
-    if (!p) return;
-    setSel({ localId: p.localId, pdvId: p.pdvId });
-    try { localStorage.setItem(LS_PDV, JSON.stringify({ localId: p.localId, pdvId: p.pdvId })); } catch { /* sin almacenamiento */ }
+  // Los PDV elegidos se recuerdan en el celular (Diego 29/10: varios a la vez). Inicio suma todos;
+  // Cargar / Impagas / Sin carga trabajan sobre uno (el "actual", que se elige entre los tildados).
+  const [selIds, setSelIds] = useState<number[] | null>(() => {
+    if (typeof window === "undefined") return null;
+    const v = leerPdvs(); if (v) return v;
+    const uno = leerPdv(); return uno ? [uno.pdvId] : null;
+  });
+  const elegidos = useMemo(() => { const e = pdvs.filter((p) => selIds?.includes(p.pdvId)); return e.length ? e : pdvs.slice(0, 1); }, [pdvs, selIds]);
+  const [actualId, setActualId] = useState<number | null>(null);
+  const actual = elegidos.find((p) => p.pdvId === actualId) ?? elegidos[0] ?? null;
+  const [eligiendo, setEligiendo] = useState(false);
+  const guardarSeleccion = (ids: number[]) => {
+    setSelIds(ids); setActualId(null); setEligiendo(false);
+    try {
+      localStorage.setItem(LS_PDVS, JSON.stringify(ids));
+      const p = pdvs.find((x) => x.pdvId === ids[0]);
+      if (p) localStorage.setItem(LS_PDV, JSON.stringify({ localId: p.localId, pdvId: p.pdvId }));
+    } catch { /* sin almacenamiento */ }
   };
 
   // Carga
@@ -106,12 +141,18 @@ export function AppMovil() {
           <button type="button" onClick={atras} aria-label="Volver" className="-ml-2 flex items-center text-sky-700"><ChevronLeft className="size-6" /></button>
         )}
         <b className="text-[19px]">{titulos[tab]}</b>
-        {pdvs.length > 0 && (
-          <select value={actual?.pdvId ?? ""} onChange={(e) => elegir(Number(e.target.value))}
+        {pdvs.length > 0 && (enInicio || elegidos.length === 1 ? (
+          <button type="button" onClick={() => setEligiendo(true)}
+            className="ml-auto max-w-[62%] truncate rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-3 py-1.5 text-[13px]">
+            {etiquetaSeleccion(locales ?? [], elegidos.map((p) => p.pdvId))} ▾
+          </button>
+        ) : (
+          // Fuera de Inicio, con varios tildados: en cuál se trabaja.
+          <select value={actual?.pdvId ?? ""} onChange={(e) => setActualId(Number(e.target.value))}
             className="ml-auto max-w-[60%] truncate rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-3 py-1.5 text-[13px]">
-            {pdvs.map((p) => <option key={p.pdvId} value={p.pdvId}>{p.label}</option>)}
+            {elegidos.map((p) => <option key={p.pdvId} value={p.pdvId}>{p.label}</option>)}
           </select>
-        )}
+        ))}
       </header>
 
       <main className="flex-1 px-4 pt-3 pb-24 touch-pan-y"
@@ -126,7 +167,7 @@ export function AppMovil() {
           if (dx > 80 && Math.abs(dx) > Math.abs(dy) * 1.5) atras();
         }}>
         {!actual ? <p className="py-10 text-center text-zinc-500">Cargando…</p>
-          : tab === "inicio" ? <Inicio localId={actual.localId} pdvId={actual.pdvId} irImpagas={() => setTab("impagas")} irSinCarga={(mes) => { setMesSc(mes); setTab("sincarga"); }} />
+          : tab === "inicio" ? <Inicio sel={elegidos.map((p) => ({ localId: p.localId, pdvId: p.pdvId }))} irImpagas={() => setTab("impagas")} irSinCarga={(mes) => { setMesSc(mes); setTab("sincarga"); }} />
           : tab === "sincarga" ? <SinCarga pdvId={actual.pdvId} mesInicial={mesSc} nombrePdv={(id) => pdvs.find((p) => p.pdvId === id)?.label ?? "otro PDV"} onCargar={(sc, mes) => ir("cargar", { sc, mes })} />
           : tab === "impagas" ? <Impagas pdvId={actual.pdvId} volverLocalRef={volverLocalRef} />
           : carga && "sc" in carga ? (() => {
@@ -153,6 +194,7 @@ export function AppMovil() {
             </div>
           )}
       </main>
+      {eligiendo && <ElegirPdvs locales={locales ?? []} inicial={elegidos.map((p) => p.pdvId)} onListo={guardarSeleccion} onCerrar={() => setEligiendo(false)} />}
 
       <nav className="fixed inset-x-0 bottom-0 z-20 flex border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 pb-[env(safe-area-inset-bottom)]">
         {([["inicio", Home, "Inicio"], ["cargar", Plus, "Cargar"], ["impagas", CircleDot, "Impagas"], ["sincarga", ClipboardList, "Sin carga"]] as const).map(([k, Icono, t]) => (
@@ -183,29 +225,38 @@ const pc = (x: number | null) => (x == null ? "—" : `${(x * 100).toLocaleStrin
 // un mes pasado es real, y si le quedó algo sin cargar se suma (cartel ámbar). Resultado con
 // rentabilidad, chips Food cost · Personal · Mix vs el mes anterior, promedio mensual del año,
 // deuda y sin carga en una línea, y deslizar en cualquier parte cambia de mes.
-function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pdvId: number; irImpagas: () => void; irSinCarga: (mes: string | null) => void }) {
+function Inicio({ sel, irImpagas, irSinCarga }: { sel: Sel[]; irImpagas: () => void; irSinCarga: (mes: string | null) => void }) {
+  // El primero, para lo que es de un PDV (la fecha de actualización).
+  const { localId, pdvId } = sel[0];
   const ahora = new Date();
   const [ym, setYm] = useState({ anio: ahora.getFullYear(), mes: ahora.getMonth() + 1 });
   const mover = (d: number) => setYm((x) => { let m = x.mes + d, a = x.anio; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } return { anio: a, mes: m }; });
   const clave = `${ym.anio}-${String(ym.mes).padStart(2, "0")}`;
-  const url = (a: number, m: number) => `/api/m/resumen?localId=${localId}&pdvId=${pdvId}&anio=${a}&mes=${m}`;
-  const { data, isLoading } = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, ym.anio, ym.mes], url(ym.anio, ym.mes));
-  const { data: imp } = useFetchQuery<ImpagasResponse>(["impagas", pdvId, null], `/api/impagas?pdvId=${pdvId}`);
-  const { data: pr } = useFetchQuery<{ proyeccion: ProyeccionMes | null }>(
-    ["proyeccion-ingresos", ym.anio, localId, pdvId], `/api/dashboard/proyeccion?year=${ym.anio}&localId=${localId}&pdvId=${pdvId}`, { staleTime: 5 * 60_000 });
-  const proy = pr?.proyeccion && pr.proyeccion.anio === ym.anio && pr.proyeccion.mes === ym.mes ? pr.proyeccion : null;
-  const { data: sc } = useFetchQuery<{ meses: MesSinCarga[] }>(["sin-carga", pdvId], `/api/sin-carga?pdvId=${pdvId}`, { staleTime: 60_000 });
+  // Cada consulta va por PDV y se suma (varios PDV juntos, Diego 29/10).
+  const url = (s: Sel, a: number, m: number) => `/api/m/resumen?localId=${s.localId}&pdvId=${s.pdvId}&anio=${a}&mes=${m}`;
+  const res = useMulti<Resumen>(sel, (s) => ["m-resumen", s.localId, s.pdvId, ym.anio, ym.mes], (s) => url(s, ym.anio, ym.mes));
+  const data = res.list ? sumarResumen(res.list) : undefined;
+  const isLoading = res.isLoading;
+  const imps = useMulti<ImpagasResponse>(sel, (s) => ["impagas", s.pdvId, null], (s) => `/api/impagas?pdvId=${s.pdvId}`).list;
+  const prs = useMulti<{ proyeccion: ProyeccionMes | null }>(sel, (s) => ["proyeccion-ingresos", ym.anio, s.localId, s.pdvId],
+    (s) => `/api/dashboard/proyeccion?year=${ym.anio}&localId=${s.localId}&pdvId=${s.pdvId}`, 5 * 60_000).list;
+  const prSum = prs ? sumarProyeccion(prs.map((x) => x.proyeccion)) : null;
+  const proy = prSum && prSum.anio === ym.anio && prSum.mes === ym.mes ? prSum : null;
+  const scs = useMulti<{ meses: MesSinCarga[] }>(sel, (s) => ["sin-carga", s.pdvId], (s) => `/api/sin-carga?pdvId=${s.pdvId}`, 60_000).list;
+  const sc = scs ? unirSinCarga(scs) : undefined;
   const scActual = sc?.meses.find((m) => m.mes === clave) ?? sc?.meses[0]; // el mes que se mira (Diego 28/10)
   const scActualTot = scActual ? totales(scActual.items, false) : null;
   const scMes = sc?.meses.find((m) => m.mes === clave);
   // Los 3 meses anteriores: el anterior para los chips; los tres para el promedio por rubro de la proyección.
   const previos = [1, 2, 3].map((k) => { const t = ym.anio * 12 + (ym.mes - 1) - k; return { anio: Math.floor(t / 12), mes: (t % 12) + 1 }; });
-  const h1 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[0].anio, previos[0].mes], url(previos[0].anio, previos[0].mes));
-  const h2 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[1].anio, previos[1].mes], proy ? url(previos[1].anio, previos[1].mes) : null);
-  const h3 = useFetchQuery<Resumen>(["m-resumen", localId, pdvId, previos[2].anio, previos[2].mes], proy ? url(previos[2].anio, previos[2].mes) : null);
-  const historia = [h1.data, h2.data, h3.data].filter((x): x is Resumen => !!x && x.ventas > 0);
-  const { data: anual } = useFetchQuery<{ meses: { mes: number; ventas: number; rubros: { rubro: string; total: number }[] }[] }>(
-    ["m-anual", localId, pdvId, ym.anio], `/api/m/anual?localId=${localId}&pdvId=${pdvId}&anio=${ym.anio}`, { staleTime: 10 * 60_000 });
+  const h1l = useMulti<Resumen>(sel, (s) => ["m-resumen", s.localId, s.pdvId, previos[0].anio, previos[0].mes], (s) => url(s, previos[0].anio, previos[0].mes)).list;
+  const h2l = useMulti<Resumen>(sel, (s) => ["m-resumen", s.localId, s.pdvId, previos[1].anio, previos[1].mes], (s) => (proy ? url(s, previos[1].anio, previos[1].mes) : null)).list;
+  const h3l = useMulti<Resumen>(sel, (s) => ["m-resumen", s.localId, s.pdvId, previos[2].anio, previos[2].mes], (s) => (proy ? url(s, previos[2].anio, previos[2].mes) : null)).list;
+  const h1 = { data: h1l ? sumarResumen(h1l) : undefined };
+  const historia = [h1l, h2l, h3l].map((l) => (l ? sumarResumen(l) : undefined)).filter((x): x is Resumen => !!x && x.ventas > 0);
+  type Anual = { meses: { mes: number; ventas: number; rubros: { rubro: string; total: number }[] }[] };
+  const anuales = useMulti<Anual>(sel, (s) => ["m-anual", s.localId, s.pdvId, ym.anio], (s) => `/api/m/anual?localId=${s.localId}&pdvId=${s.pdvId}&anio=${ym.anio}`, 10 * 60_000).list;
+  const anual = anuales ? sumarAnual(anuales) : undefined;
 
   // Modo del mes: proyección (en curso), real + sin cargar (pasado con faltantes) o real.
   const sinCargarMes = scMes ? totales(scMes.items, true) : null;
@@ -230,10 +281,10 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
   const prom = promedioMensual(cerrados);
   const conVentas = cerrados.filter((m) => m.ventas > 0);
   const deuda = useMemo(() => {
-    if (!imp) return null;
-    const { impagas } = separar(imp.data);
+    if (!imps) return null;
+    const impagas = imps.flatMap((imp) => separar(imp.data).impagas);
     return { saldo: impagas.reduce((s, f) => s + saldo(f), 0), n: impagas.length };
-  }, [imp]);
+  }, [imps]);
 
   // Deslizar en cualquier parte: ← mes siguiente · → mes anterior.
   const toque = useRef<{ x: number; y: number } | null>(null);
@@ -322,14 +373,14 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
         {[...(vista?.rubros ?? [])].sort((a, b) => b.total - a.total).map((r) => (
           <RubroMes key={r.rubro} rubro={r.rubro} total={r.total} estimado={r.variable}
             proyectado={!!proyectado} pctIng={pctIng} abierto={abierto === r.rubro} onToggle={() => setAbiertoEn(abierto === r.rubro ? null : { clave, rubro: r.rubro })}
-            detalle={{ localId, pdvId, anio: ym.anio, mes: ym.mes }} sinCargar={vista?.modo !== "real" ? (scMes?.items ?? []) : []} />
+            detalle={{ sel, anio: ym.anio, mes: ym.mes }} sinCargar={vista?.modo !== "real" ? (scMes?.items ?? []) : []} />
         ))}
         {vista && !vista.rubros.length && <p className="pt-2 text-[13px] text-zinc-500">Sin gastos en el mes.</p>}
       </div>
       <p className="mt-2 text-center text-[11.5px] text-zinc-400">← deslizá para cambiar de mes →</p>
       <Link href="/dashboard?completa=1" className="mt-3 block text-center text-[13px] text-sky-700 underline">Abrir el Panel completo</Link>
       {evolucion && (
-        <Evolucion clave={evolucion} localId={localId} pdvId={pdvId} hasta={ym} anualActual={anual?.meses ?? []}
+        <Evolucion clave={evolucion} sel={sel} hasta={ym} anualActual={anual?.meses ?? []}
           actual={vista && vista.modo !== "real" ? { valor: ind?.[evolucion] ?? null, proyectado: vista.modo === "proy" } : null}
           onClose={() => setEvolucion(null)} />
       )}
@@ -340,8 +391,8 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
 // Evolución de un indicador (Diego 29/10/2026, mockup_celu_pdvs_indicadores): barras de los últimos
 // 3 / 6 / 9 / 12 meses hasta el que se mira y la diferencia en puntos contra el mes anterior.
 const TITULO_IND: Record<ClaveIndicador, string> = { foodCost: "Food cost", personal: "Personal", mix: "Mix" };
-function Evolucion({ clave, localId, pdvId, hasta, anualActual, actual, onClose }: {
-  clave: ClaveIndicador; localId: number; pdvId: number; hasta: { anio: number; mes: number };
+function Evolucion({ clave, sel, hasta, anualActual, actual, onClose }: {
+  clave: ClaveIndicador; sel: Sel[]; hasta: { anio: number; mes: number };
   anualActual: { mes: number; ventas: number; rubros: { rubro: string; total: number }[] }[];
   actual: { valor: number | null; proyectado: boolean } | null; onClose: () => void;
 }) {
@@ -349,8 +400,9 @@ function Evolucion({ clave, localId, pdvId, hasta, anualActual, actual, onClose 
   const ant = hasta.anio - 1;
   // El año anterior solo si la ventana lo necesita.
   const necesitaAnt = hasta.mes < n;
-  const { data: anualAnt } = useFetchQuery<{ meses: { mes: number; ventas: number; rubros: { rubro: string; total: number }[] }[] }>(
-    ["m-anual", localId, pdvId, ant], necesitaAnt ? `/api/m/anual?localId=${localId}&pdvId=${pdvId}&anio=${ant}` : null, { staleTime: 10 * 60_000 });
+  const antes = useMulti<{ meses: { mes: number; ventas: number; rubros: { rubro: string; total: number }[] }[] }>(sel, (s) => ["m-anual", s.localId, s.pdvId, ant],
+    (s) => (necesitaAnt ? `/api/m/anual?localId=${s.localId}&pdvId=${s.pdvId}&anio=${ant}` : null), 10 * 60_000).list;
+  const anualAnt = antes ? sumarAnual(antes) : undefined;
   const serie = serieIndicador({
     meses: [...(anualAnt?.meses ?? []).map((m) => ({ ...m, anio: ant })), ...anualActual.map((m) => ({ ...m, anio: hasta.anio }))],
     clave, hasta, n, actual,
@@ -407,17 +459,19 @@ function Evolucion({ clave, localId, pdvId, hasta, anualActual, actual, onClose 
 // o concepto (vista Insumos). Se piden al abrir: un pivot del mes por agrupación, compartido.
 function RubroMes({ rubro, total, estimado, proyectado, pctIng, abierto, onToggle, detalle, sinCargar }: {
   rubro: string; total: number; estimado: number; proyectado: boolean; pctIng: (n: number) => string;
-  abierto: boolean; onToggle: () => void; detalle: { localId: number; pdvId: number; anio: number; mes: number };
+  abierto: boolean; onToggle: () => void; detalle: { sel: Sel[]; anio: number; mes: number };
   sinCargar: ItemSinCarga[];
 }) {
   const agrupacion = esPersonal(rubro) ? "proveedor" : "insumo";
-  const { localId, pdvId, anio, mes } = detalle;
-  const { data, isLoading, isError } = useFetchQuery<{ rows: { nombre: string; rowTotal: number; children: { nombre: string; rowTotal: number }[] }[] }>(
-    ["m-rubro-detalle", localId, pdvId, anio, mes, agrupacion],
-    abierto ? `/api/dashboard/pivot?year=${anio}&localId=${localId}&pdvId=${pdvId}&months=${mes}&agrupacion=${agrupacion}` : null,
-    { staleTime: 5 * 60_000 });
+  const { sel, anio, mes } = detalle;
+  const piv = useMulti<{ rows: { nombre: string; rowTotal: number; children: { nombre: string; rowTotal: number }[] }[] }>(sel,
+    (s) => ["m-rubro-detalle", s.localId, s.pdvId, anio, mes, agrupacion],
+    (s) => (abierto ? `/api/dashboard/pivot?year=${anio}&localId=${s.localId}&pdvId=${s.pdvId}&months=${mes}&agrupacion=${agrupacion}` : null), 5 * 60_000);
+  // Varios PDV: se juntan las filas; cargadasDe suma los repetidos.
+  const data = piv.list ? { rows: piv.list.flatMap((x) => x.rows) } : undefined;
+  const isLoading = abierto && !piv.list && !piv.isError, isError = piv.isError;
   const [todas, setTodas] = useState(false);
-  const lineas = useMemo(() => lineasRubro({ rubro, cargadas: cargadasDe(data?.rows, rubro), sinCargar, estimado }), [data, rubro, sinCargar, estimado]);
+  const lineas = lineasRubro({ rubro, cargadas: cargadasDe(data?.rows, rubro), sinCargar, estimado });
   const MAX = 12;
   const vis = todas ? lineas : lineas.slice(0, MAX);
   const resto = lineas.slice(MAX);
@@ -448,6 +502,49 @@ function RubroMes({ rubro, total, estimado, proyectado, pctIng, abierto, onToggl
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function Caja({ on }: { on: boolean }) {
+  return <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-md border-[1.5px] text-[12px] text-white", on ? "border-zinc-900 bg-zinc-900 dark:border-white dark:bg-white dark:text-zinc-900" : "border-zinc-300")}>{on ? "✓" : ""}</span>;
+}
+
+// Elegir qué PDV ver (Diego 29/10/2026, mockup_celu_pdvs_indicadores): se tildan por local, con atajos
+// "Todo <local>" y "Todos los PDV". Inicio suma los elegidos.
+function ElegirPdvs({ locales, inicial, onListo, onCerrar }: { locales: Local[]; inicial: number[]; onListo: (ids: number[]) => void; onCerrar: () => void }) {
+  const [ids, setIds] = useState<number[]>(inicial);
+  const todos = locales.flatMap((l) => l.puntosDeVenta.map((p) => p.id));
+  const tiene = (id: number) => ids.includes(id);
+  const alternar = (id: number) => setIds((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
+  const todosDe = (ls: number[]) => ls.length > 0 && ls.every(tiene);
+  const fila = "flex w-full items-center gap-3 border-b border-zinc-100 dark:border-zinc-800 py-2.5 text-left text-[15px]";
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-black/40" onClick={onCerrar}>
+      <div className="max-h-[85svh] w-full overflow-y-auto rounded-t-3xl bg-white dark:bg-zinc-950 px-5 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-zinc-300" />
+        <b className="text-[16px]">Qué PDV ver</b>
+        <div className="text-[12.5px] text-zinc-500">Se suman ventas, gastos e indicadores</div>
+        {locales.map((l) => (
+          <div key={l.id} className="mt-3">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">{l.nombre}</div>
+            {l.puntosDeVenta.map((p) => (
+              <button key={p.id} type="button" className={fila} onClick={() => alternar(p.id)}><Caja on={tiene(p.id)} />{p.nombre}</button>
+            ))}
+          </div>
+        ))}
+        <div className="mt-3 text-[11px] font-bold uppercase tracking-wide text-zinc-500">Atajos</div>
+        {locales.filter((l) => l.puntosDeVenta.length > 1).map((l) => {
+          const de = l.puntosDeVenta.map((p) => p.id);
+          return <button key={l.id} type="button" className={fila} onClick={() => setIds(de)}><Caja on={todosDe(de) && ids.length === de.length} />Todo {l.nombre}</button>;
+        })}
+        {todos.length > 1 && <button type="button" className={fila} onClick={() => setIds(todos)}><Caja on={todosDe(todos)} />Todos los PDV</button>}
+        <button type="button" disabled={!ids.length} onClick={() => onListo(todos.filter((id) => ids.includes(id)))}
+          className="mt-4 w-full rounded-2xl bg-zinc-900 py-3 text-[15px] font-bold text-white disabled:opacity-40 dark:bg-white dark:text-zinc-900">
+          {ids.length === 1 ? "Ver 1 PDV" : `Ver ${ids.length} PDV`}
+        </button>
+        <p className="mt-2 text-[12px] text-zinc-500">Cargar, Impagas y Sin carga siguen siendo de a un PDV: arriba elegís en cuál.</p>
+      </div>
     </div>
   );
 }
