@@ -6,6 +6,8 @@ import { ActividadCampana } from "@/components/actividad-campana";
 import { DashboardFiltersToggle } from "@/components/dashboard/dashboard-filters-toggle";
 import { getAuthUser } from "@/lib/auth/get-user";
 import { buildBootstrapScript } from "@/lib/ui-persistence/bootstrap-script";
+import { saltoPanel } from "@/lib/salto-panel";
+import { ArrowUpRight } from "lucide-react";
 
 // Corrige data-state/data-collapsible del sidebar ANTES de hidratar,
 // reutilizando los mismos atributos que components/ui/sidebar.tsx ya
@@ -27,6 +29,7 @@ const sidebarBootstrapScript = buildBootstrapScript([
 
 export default async function ShellLayout({ children }: { children: React.ReactNode }) {
   const user = await getAuthUser();
+  const salto = saltoPanel(user?.email);
 
   return (
     <AppSidebarProvider className="h-svh">
@@ -39,6 +42,11 @@ export default async function ShellLayout({ children }: { children: React.ReactN
             Lazarillo <span className="text-muted-foreground font-normal">Gestión</span>
           </span>
           <div className="ml-auto flex items-center gap-1">
+            {salto && (
+              <a href={salto.href} className="mr-1 inline-flex h-8 items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+                {salto.label} <ArrowUpRight className="h-3.5 w-3.5" />
+              </a>
+            )}
             <DashboardFiltersToggle />
             <ThemeToggle />
             {/* Campanita de Actividad, a la derecha de la luna (Diego, 27/10/2026). */}
