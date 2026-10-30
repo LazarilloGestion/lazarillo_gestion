@@ -58,6 +58,7 @@ export function KpiBlock({
     if (faltan[m] && egresosPorMes[m] != null) return { ing: ingresosPorMes[m] ?? 0, egr: egresosPorMes[m] + faltan[m].total, tipo: "falta" };
     return null;
   };
+
   // Punto de equilibrio (Diego 30/10/2026): fila debajo de Gastos / Ventas, solo en la Económica sin búsqueda.
   const { data: eqData } = useEquilibrio();
   const conEquilibrio = !!eqData;
