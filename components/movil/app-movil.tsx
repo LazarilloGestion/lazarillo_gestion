@@ -250,7 +250,8 @@ function Inicio({ localId, pdvId, irImpagas, irSinCarga }: { localId: number; pd
         if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) mover(dx < 0 ? 1 : -1);
       }}>
       <Actualizado localId={localId} pdvId={pdvId} />
-      <div className="mb-2 flex items-center gap-2">
+      {/* Selector de mes fijo debajo del encabezado al scrollear (Diego 29/10). */}
+      <div className="sticky top-[56px] z-10 -mx-4 mb-2 flex items-center gap-2 bg-white/95 dark:bg-zinc-950/95 px-4 py-1.5 backdrop-blur">
         <button type="button" onClick={() => mover(-1)} className="size-10 rounded-xl border border-zinc-200 dark:border-zinc-700 flex items-center justify-center"><ChevronLeft className="size-5" /></button>
         <div className="flex-1 text-center font-bold">{MESES[ym.mes - 1]} {ym.anio}</div>
         <button type="button" onClick={() => mover(1)} className="size-10 rounded-xl border border-zinc-200 dark:border-zinc-700 flex items-center justify-center"><ChevronRight className="size-5" /></button>
