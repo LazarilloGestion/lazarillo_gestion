@@ -21,3 +21,10 @@ describe("detalle de rubro en el celu", () => {
     expect(esPersonal("Mercaderias")).toBe(false);
   });
 });
+
+describe("detalle de rubro con varios PDV", () => {
+  it("suma las filas del mismo rubro de cada PDV", () => {
+    const rows = [{ nombre: "Mercaderias", rowTotal: 10, children: [{ nombre: "Harina", rowTotal: 10 }] }, { nombre: "Mercaderias", rowTotal: 5, children: [{ nombre: "Harina", rowTotal: 5 }] }];
+    expect(cargadasDe(rows, "Mercaderias")).toEqual([{ nombre: "Harina", total: 15, tipo: "cargado" }]);
+  });
+});

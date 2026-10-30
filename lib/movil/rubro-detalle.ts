@@ -11,9 +11,10 @@ export const esPersonal = (rubro: string) => /personal/i.test(rubro);
 
 /** Líneas cargadas de un rubro, desde la respuesta del pivot (por proveedor o por insumo) del mes. */
 export function cargadasDe(rows: Fila[] | undefined, rubro: string): LineaRubro[] {
-  const r = (rows ?? []).find((x) => norm(x.nombre) === norm(rubro));
+  // Con varios PDV llegan varias filas del mismo rubro: se suman.
+  const filas = (rows ?? []).filter((x) => norm(x.nombre) === norm(rubro));
   const m = new Map<string, number>();
-  for (const c of r?.children ?? []) {
+  for (const c of filas.flatMap((r) => r.children ?? [])) {
     const k = c.nombre.trim();
     m.set(k, (m.get(k) ?? 0) + c.rowTotal);
   }
