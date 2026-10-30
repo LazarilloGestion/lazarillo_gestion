@@ -100,6 +100,7 @@ describe("dos métodos y elección por error", () => {
     const g: ProyeccionGuardada[] = [7, 8, 9].flatMap((mes) => [
       { anio: 2026, mes, metodo: "semanas" as const, proyeccion: reales[mes] * 1.1 },
       { anio: 2026, mes, metodo: "dias_mes" as const, proyeccion: reales[mes] * 0.98 },
+      { anio: 2026, mes, metodo: "unico" as const, proyeccion: reales[mes] * 1.05 },
     ]);
     const r = proyectarMes(todo.filter((d) => d.fecha <= "2026-10-21"), "2026-10-21", g)!;
     expect(r.backtest?.fuente).toBe("guardadas");
@@ -127,5 +128,38 @@ describe("fmtMillones", () => {
   it("formatea compacto", () => {
     expect(fmtMillones(95_287_577)).toBe("$ 95,3 M");
     expect(fmtMillones(450_000)).toBe("$ 450 mil");
+  });
+});
+
+describe("método único (estacionalidad)", () => {
+  // Julio vende el doble todos los años (vacaciones): con 8 semanas de junio, solo el único lo ve venir.
+  const julioDoble = (f: string) => (f.slice(5, 7) === "07" ? 2 : 1);
+  const d = serie("2023-04-01", "2026-07-05", julioDoble);
+  const real = sumaMes(serie("2026-07-01", "2026-07-31", julioDoble), "2026-07");
+
+  it("el 5 de julio anticipa el salto de julio por los años anteriores", () => {
+    const r = proyectarMes(d, "2026-07-05")!;
+    expect(r.estacional!).toBeGreaterThan(1.6);
+    expect(Math.abs(r.proyecciones.unico - real) / real).toBeLessThan(0.05);
+  });
+
+  it("se elige por backtest el que menos erró y con historia es el único", () => {
+    const r = proyectarMes(d, "2026-07-05")!;
+    expect(r.metodo).toBe("unico");
+    expect(r.backtest!.errores.unico).toBeLessThanOrEqual(r.backtest!.errores.semanas);
+  });
+
+  it("sin años anteriores no hay estacionalidad y no se rompe", () => {
+    const r = proyectarMes(serie("2026-05-01", "2026-07-05"), "2026-07-05")!;
+    expect(r.estacional).toBeNull();
+    expect(r.proyecciones.unico).toBeGreaterThan(r.facturado);
+  });
+
+  it("lo guardado solo manda cuando cada método tiene 3 meses medidos", () => {
+    const g: ProyeccionGuardada[] = [3, 4, 5].flatMap((mes) => [
+      { anio: 2026, mes, metodo: "semanas" as const, proyeccion: 1 },
+      { anio: 2026, mes, metodo: "dias_mes" as const, proyeccion: 1 },
+    ]);
+    expect(proyectarMes(d, "2026-07-05", g)!.backtest!.fuente).toBe("backtest");
   });
 });

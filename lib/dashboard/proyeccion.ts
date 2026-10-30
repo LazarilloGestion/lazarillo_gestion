@@ -1,6 +1,17 @@
 // Proyección de cierre de un mes con ventas incompletas (tooltip de Ingresos).
 //
-// Dos métodos, se usa el que menos erró en ese local/PDV:
+// Método ÚNICO (Diego 30/10/2026: "tenemos que tener un único método que contemple todo"):
+//    cada día que falta = lo que suele vender ese día de la semana (8 semanas)
+//    × ESTACIONALIDAD (cuánto se apartó ese mismo tramo del mes, en los 2 años
+//    anteriores, de lo que su propia base de 8 semanas decía: vacaciones de
+//    invierno, diciembre, etc.; con menos de 10 días por delante pesa de a poco) ×
+//    RITMO del mes contra lo esperado con esa estacionalidad, frenado al principio
+//    del mes (con pocos días pesa poco).
+//    Backtest con las ventas reales 2025–sep 2026, cortando los días 5/10/15/20/25:
+//    Bar 9,0% → 6,3% de error medio (peor caso 50% → 21%), Canchas Ramos 11,2% → 8,9%,
+//    San Justo 8,2% → 6,6% (método solo; eligiendo por error real: Bar 9,1% → 6,7%). Los feriados nacionales probados no mejoraban: quedan
+//    para cuando esté el calendario del negocio (fechas especiales de RRHH).
+// Los dos métodos anteriores se siguen calculando para comparar; se usa el que menos erró en ese local/PDV:
 //  - "semanas": cada día que falta vale lo que suele vender ese día de la
 //    semana (promedio de las últimas 8 semanas) × el ritmo del mes (lo
 //    facturado hasta el corte ÷ lo esperado hasta el corte con ese promedio).
@@ -15,8 +26,8 @@
 // Puro (sin DB): recibe las ventas diarias y la fecha de corte.
 
 export type VentaDia = { fecha: string; total: number }; // fecha YYYY-MM-DD
-export type Metodo = "semanas" | "dias_mes";
-export const METODOS: Metodo[] = ["semanas", "dias_mes"];
+export type Metodo = "unico" | "semanas" | "dias_mes";
+export const METODOS: Metodo[] = ["unico", "semanas", "dias_mes"];
 // Proyección guardada un día cualquiera de un mes (tabla proyecciones_ingresos).
 export type ProyeccionGuardada = { anio: number; mes: number; metodo: Metodo; proyeccion: number };
 
@@ -33,6 +44,10 @@ export interface ProyeccionMes {
   metodo: Metodo; // el que se usa (menor error)
   proyecciones: Record<Metodo, number>; // los dos, para guardarlos y comparar
   ritmo: number; // 1 = vende como siempre (método "semanas")
+  // Método único: estacionalidad del resto del mes (1 = como su base de 8 semanas; null = sin años anteriores)
+  // y ritmo del mes contra lo esperado con esa estacionalidad (ya frenado).
+  estacional: number | null;
+  ritmoEstacional: number;
   // Cantidad de días que faltan por día de semana (0 = domingo), en el orden en que aparecen.
   restantesPorDia: { dow: number; cantidad: number }[];
   reglaDeTres: number;
@@ -54,6 +69,9 @@ export interface ProyeccionMes {
 
 const VENTANA_DIAS = 56; // 8 semanas
 const MESES_BACKTEST = 6;
+const ANIOS_ESTACIONALIDAD = 2;
+const FRENO_RITMO = 14; // con d días del mes, el ritmo pesa d / (d + 14)
+const FRENO_ESTACIONAL = 10; // la estacionalidad del resto pesa entera con 10+ días por delante
 
 const DIA_MS = 86_400_000;
 
@@ -95,6 +113,47 @@ function sumaRango(s: Serie, desdeMs: number, hastaMs: number): number {
   return t;
 }
 
+// Promedio por día de semana en las 8 semanas hasta `corteMs` (los días sin ventas cuentan como 0:
+// si el local cierra los lunes, el lunes vale 0).
+function promedioPorDia(s: Serie, corteMs: number): number[] {
+  const desde = Math.max(corteMs - (VENTANA_DIAS - 1) * DIA_MS, s.primerDia);
+  const suma = new Array(7).fill(0);
+  const cant = new Array(7).fill(0);
+  for (let ms = desde; ms <= corteMs; ms += DIA_MS) {
+    suma[dow(ms)] += venta(s, ms);
+    cant[dow(ms)] += 1;
+  }
+  const dias = cant.reduce((a, b) => a + b, 0);
+  const promGeneral = dias > 0 ? suma.reduce((a, b) => a + b, 0) / dias : 0;
+  return suma.map((v, i) => (cant[i] > 0 ? v / cant[i] : promGeneral));
+}
+
+// Estacionalidad del mes de `corteMs` cortado el día `dia`: en cada uno de los años anteriores, lo que
+// vendió el tramo hasta el corte y el resto del mes contra lo que decía su base de 8 semanas.
+// Media geométrica de los años con historia completa, acotada a 0,5–2. null si no hay años.
+function estacionalidad(s: Serie, anio: number, mes: number, dia: number): { hasta: number; resto: number } | null {
+  const hasta: number[] = [];
+  const resto: number[] = [];
+  for (let k = 1; k <= ANIOS_ESTACIONALIDAD; k++) {
+    const dm = diasDelMes(anio - k, mes);
+    const ini = Date.UTC(anio - k, mes - 1, 1);
+    const corte = Date.UTC(anio - k, mes - 1, Math.min(dia, dm));
+    const fin = Date.UTC(anio - k, mes - 1, dm);
+    if (corte - (VENTANA_DIAS - 1) * DIA_MS < s.primerDia) continue;
+    const p = promedioPorDia(s, corte);
+    let bH = 0, bR = 0;
+    for (let ms = ini; ms <= corte; ms += DIA_MS) bH += p[dow(ms)];
+    for (let ms = corte + DIA_MS; ms <= fin; ms += DIA_MS) bR += p[dow(ms)];
+    const aH = sumaRango(s, ini, corte), aR = sumaRango(s, corte + DIA_MS, fin);
+    if (bH > 0 && aH > 0) hasta.push(aH / bH);
+    if (bR > 0 && aR > 0) resto.push(aR / bR);
+  }
+  if (!hasta.length && !resto.length) return null;
+  const gm = (xs: number[]) => (xs.length ? Math.exp(xs.reduce((a, b) => a + Math.log(b), 0) / xs.length) : 1);
+  const acotar = (x: number) => Math.min(2, Math.max(0.5, x));
+  return { hasta: acotar(gm(hasta)), resto: acotar(gm(resto)) };
+}
+
 // Núcleo: estimación del cierre del mes de `corteMs` usando solo datos hasta el corte.
 function estimar(s: Serie, corteMs: number, metodo: Metodo = "semanas") {
   const c = new Date(corteMs);
@@ -103,19 +162,7 @@ function estimar(s: Serie, corteMs: number, metodo: Metodo = "semanas") {
   const inicioMes = Date.UTC(anio, mes - 1, 1);
   const finMes = Date.UTC(anio, mes - 1, diasDelMes(anio, mes));
 
-  // Promedio por día de semana en la ventana (los días sin ventas cuentan como 0:
-  // si el local cierra los lunes, el lunes vale 0).
-  const desde = Math.max(corteMs - (VENTANA_DIAS - 1) * DIA_MS, s.primerDia);
-  const suma = new Array(7).fill(0);
-  const cant = new Array(7).fill(0);
-  for (let ms = desde; ms <= corteMs; ms += DIA_MS) {
-    suma[dow(ms)] += venta(s, ms);
-    cant[dow(ms)] += 1;
-  }
-  const totalVentana = suma.reduce((a, b) => a + b, 0);
-  const diasVentana = cant.reduce((a, b) => a + b, 0);
-  const promGeneral = diasVentana > 0 ? totalVentana / diasVentana : 0;
-  const prom = suma.map((v, i) => (cant[i] > 0 ? v / cant[i] : promGeneral));
+  const prom = promedioPorDia(s, corteMs);
 
   let esperadoHasta = 0;
   const sumaMes = new Array(7).fill(0);
@@ -127,18 +174,29 @@ function estimar(s: Serie, corteMs: number, metodo: Metodo = "semanas") {
   }
   const facturado = sumaMes.reduce((a, b) => a + b, 0);
   const ritmo = esperadoHasta > 0 ? facturado / esperadoHasta : 1;
+  const diasMes = diasDelMes(anio, mes);
+  const diasTranscurridos = Math.round((corteMs - inicioMes) / DIA_MS) + 1;
 
+  // Método único: base × estacionalidad × ritmo frenado.
+  const est = metodo === "unico" ? estacionalidad(s, anio, mes, diasTranscurridos) : null;
+  const ritmoBruto = esperadoHasta > 0 ? facturado / (esperadoHasta * (est?.hasta ?? 1)) : 1;
+  const ritmoEstacional = 1 + (ritmoBruto - 1) * (diasTranscurridos / (diasTranscurridos + FRENO_RITMO));
+
+  // Con pocos días por delante la estacionalidad de ese tramo es ruidosa (2-3 días de otro año): pesa
+  // de a poco, entera recién con 10+ días restantes (backtest: mejora los cortes del 25 en adelante).
+  const restantes = diasMes - diasTranscurridos;
+  const estResto = est ? 1 + (est.resto - 1) * Math.min(1, restantes / FRENO_ESTACIONAL) : 1;
   let restante = 0;
   for (let ms = corteMs + DIA_MS; ms <= finMes; ms += DIA_MS) {
     const d = dow(ms);
-    restante += metodo === "dias_mes" && cantMes[d] > 0 ? sumaMes[d] / cantMes[d] : prom[d] * ritmo;
+    restante += metodo === "unico" ? prom[d] * estResto * ritmoEstacional
+      : metodo === "dias_mes" && cantMes[d] > 0 ? sumaMes[d] / cantMes[d] : prom[d] * ritmo;
   }
 
-  const diasMes = diasDelMes(anio, mes);
-  const diasTranscurridos = Math.round((corteMs - inicioMes) / DIA_MS) + 1;
   return {
     anio, mes, inicioMes, finMes, diasMes, diasTranscurridos,
     facturado, ritmo, restante, proyeccion: facturado + restante,
+    estacional: est ? estResto : null, ritmoEstacional,
     reglaDeTres: diasTranscurridos > 0 ? (facturado / diasTranscurridos) * diasMes : 0,
   };
 }
@@ -153,7 +211,8 @@ export function proyectarMes(
   const corteMs = aMs(corte);
   const e = estimar(s, corteMs, "semanas");
   const eMes = estimar(s, corteMs, "dias_mes");
-  const proyecciones: Record<Metodo, number> = { semanas: e.proyeccion, dias_mes: eMes.proyeccion };
+  const eUnico = estimar(s, corteMs, "unico");
+  const proyecciones: Record<Metodo, number> = { unico: eUnico.proyeccion, semanas: e.proyeccion, dias_mes: eMes.proyeccion };
   if (e.diasTranscurridos >= e.diasMes || e.facturado <= 0) return null;
 
   // Días que faltan agrupados por día de semana, en orden de aparición.
@@ -175,7 +234,7 @@ export function proyectarMes(
   const lyHasta = hayLy ? sumaRango(s, lyInicio, lyCorte) : 0;
 
   // Backtest: los meses anteriores, cortados el mismo día del mes.
-  const errBt: Record<Metodo, number[]> = { semanas: [], dias_mes: [] };
+  const errBt: Record<Metodo, number[]> = { unico: [], semanas: [], dias_mes: [] };
   const errR: number[] = [];
   for (let k = 1; k <= MESES_BACKTEST; k++) {
     const a = new Date(Date.UTC(e.anio, e.mes - 1 - k, 1));
@@ -194,8 +253,9 @@ export function proyectarMes(
   const media = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
   // Proyecciones guardadas de meses ya cerrados (anteriores al del corte) contra su cierre real.
-  const errG: Record<Metodo, number[]> = { semanas: [], dias_mes: [] };
+  const errG: Record<Metodo, number[]> = { unico: [], semanas: [], dias_mes: [] };
   const mesesG = new Set<string>();
+  const mesesPorMetodo: Record<Metodo, Set<string>> = { unico: new Set(), semanas: new Set(), dias_mes: new Set() };
   const realMes = new Map<string, number>();
   for (const g of guardadas) {
     if (g.anio * 12 + g.mes >= e.anio * 12 + e.mes) continue;
@@ -208,20 +268,25 @@ export function proyectarMes(
     if (real <= 0 || !errG[g.metodo]) continue;
     errG[g.metodo].push(Math.abs(g.proyeccion - real) / real);
     mesesG.add(clave);
+    mesesPorMetodo[g.metodo].add(clave);
   }
 
   let backtest: ProyeccionMes["backtest"] = null;
-  if (mesesG.size >= 3 && METODOS.every((m) => errG[m].length > 0)) {
-    const errores = { semanas: media(errG.semanas), dias_mes: media(errG.dias_mes) };
+  // Lo guardado manda cuando CADA método tiene 3+ meses cerrados medidos (el único empezó a
+  // guardarse el 30/10/2026: hasta entonces se compara por backtest, en igualdad de condiciones).
+  if (mesesG.size >= 3 && METODOS.every((m) => mesesPorMetodo[m].size >= 3)) {
+    const errores = { unico: media(errG.unico), semanas: media(errG.semanas), dias_mes: media(errG.dias_mes) };
     backtest = { fuente: "guardadas", meses: mesesG.size, dia: e.diasTranscurridos, errorMetodo: 0, errores, errorReglaDeTres: errR.length ? media(errR) : null };
   } else if (errBt.semanas.length) {
-    const errores = { semanas: media(errBt.semanas), dias_mes: media(errBt.dias_mes) };
+    const errores = { unico: media(errBt.unico), semanas: media(errBt.semanas), dias_mes: media(errBt.dias_mes) };
     backtest = { fuente: "backtest", meses: errBt.semanas.length, dia: e.diasTranscurridos, errorMetodo: 0, errores, errorReglaDeTres: media(errR) };
   }
-  // Se usa el que menos erró; empate o sin datos → "semanas".
-  const metodo: Metodo = backtest && backtest.errores.dias_mes < backtest.errores.semanas ? "dias_mes" : "semanas";
+  // Se usa el que menos erró; empate o sin datos → el único.
+  const metodo: Metodo = backtest
+    ? METODOS.reduce((m, x) => (backtest!.errores[x] < backtest!.errores[m] ? x : m), "unico" as Metodo)
+    : "unico";
   if (backtest) backtest.errorMetodo = backtest.errores[metodo];
-  const elegido = metodo === "semanas" ? e : eMes;
+  const elegido = metodo === "unico" ? eUnico : metodo === "semanas" ? e : eMes;
 
   // Lo ya facturado es seguro: el rango nunca baja de ahí.
   const rango = backtest
@@ -242,6 +307,8 @@ export function proyectarMes(
     metodo,
     proyecciones,
     ritmo: e.ritmo,
+    estacional: eUnico.estacional,
+    ritmoEstacional: eUnico.ritmoEstacional,
     restantesPorDia: orden.map((d) => ({ dow: d, cantidad: cuenta.get(d)! })),
     reglaDeTres: e.reglaDeTres,
     mismoRitmoAnioAnterior: hayLy && lyHasta > 0 && cierreLy > 0 ? cierreLy * (e.facturado / lyHasta) : null,

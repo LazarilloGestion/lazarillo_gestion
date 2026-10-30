@@ -1,12 +1,17 @@
 "use client";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { fmtMillones, DIA_SEMANA_CORTO, type ProyeccionMes } from "@/lib/dashboard/proyeccion";
+import { fmtMillones, DIA_SEMANA_CORTO, type Metodo, type ProyeccionMes } from "@/lib/dashboard/proyeccion";
 import type { EgresosProyectados } from "@/lib/dashboard/egresos-proy";
 import type { FaltaCargar } from "@/hooks/use-egresos-proyeccion";
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const pct1 = (x: number) => `${(x * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
 const ddmm = (f: string) => `${f.slice(8, 10)}/${f.slice(5, 7)}`;
+const NOMBRE: Record<Metodo, string> = { unico: "el cálculo completo", semanas: "8 semanas × ritmo", dias_mes: "el promedio de cada día en el mes" };
+const OTROS: Record<Metodo, Metodo[]> = { unico: ["semanas", "dias_mes"], semanas: ["unico", "dias_mes"], dias_mes: ["unico", "semanas"] };
+// 1,23 → "un 23% más de lo habitual"; 0,9 → "un 10% menos"; ~1 → "lo habitual".
+const estacionalTxt = (f: number) =>
+  Math.abs(f - 1) < 0.02 ? "lo habitual" : `un ${Math.round(Math.abs(f - 1) * 100)}% ${f > 1 ? "más" : "menos"} de lo habitual`;
 
 // Celda de Ingresos del mes incompleto: el valor subrayado (sin ensanchar la
 // columna) y, al pasar el mouse, cómo se llega a la proyección de cierre.
@@ -51,7 +56,15 @@ export function ProyeccionIngresos({ p, children }: { p: ProyeccionMes; children
           </div>
           <Sep />
           <div className="opacity-60 mb-1">Cómo se calcula</div>
-          {p.metodo === "semanas" ? (
+          {p.metodo === "unico" ? (
+            <div>
+              Cada día que falta vale lo que suele vender <b>ese día de la semana</b> (últimas 8 semanas)
+              {p.estacional != null && (
+                <> × la <b>época del año</b>: en los años anteriores, el resto de {mesLargo} vendió {estacionalTxt(p.estacional)}</>
+              )}{" "}
+              × el <b>ritmo del mes</b>: {mesLargo} viene al <b>{pct(p.ritmoEstacional)}</b> de lo esperado.
+            </div>
+          ) : p.metodo === "semanas" ? (
             <div>
               Cada día que falta vale lo que suele vender <b>ese día de la semana</b> (promedio de las últimas 8 semanas) × el{" "}
               <b>ritmo del mes</b>: {mesLargo} viene al <b>{pct(p.ritmo)}</b> de lo habitual.
@@ -63,8 +76,7 @@ export function ProyeccionIngresos({ p, children }: { p: ProyeccionMes; children
             </div>
           )}
           <div className="opacity-60 mt-1">
-            Con el otro cálculo ({p.metodo === "semanas" ? "promedio de cada día en el mes" : "8 semanas × ritmo"}):{" "}
-            {fmtMillones(p.proyecciones[p.metodo === "semanas" ? "dias_mes" : "semanas"])}
+            {OTROS[p.metodo].map((m) => <Fila key={m} izq={`Con ${NOMBRE[m]}`} der={fmtMillones(p.proyecciones[m])} />)}
           </div>
           <Sep />
           <div className="opacity-60">
@@ -79,8 +91,10 @@ export function ProyeccionIngresos({ p, children }: { p: ProyeccionMes; children
                 {p.backtest.fuente === "guardadas"
                   ? <>Medido con lo que proyectó cada día en los últimos {p.backtest.meses} meses contra cómo cerraron: </>
                   : <>Probado contra los {p.backtest.meses} meses anteriores cortando cada uno el día {p.backtest.dia}: </>}
-                este cálculo erró <b className="opacity-100">{pct1(p.backtest.errorMetodo)}</b> en promedio; el otro,{" "}
-                <b className="opacity-100">{pct1(p.backtest.errores[p.metodo === "semanas" ? "dias_mes" : "semanas"])}</b>
+                este cálculo erró <b className="opacity-100">{pct1(p.backtest.errorMetodo)}</b> en promedio
+                {OTROS[p.metodo].map((m) => (
+                  <span key={m}>; {NOMBRE[m]}, <b className="opacity-100">{pct1(p.backtest!.errores[m])}</b></span>
+                ))}
                 {p.backtest.errorReglaDeTres != null && (
                   <>; la regla de 3, <b className="opacity-100">{pct1(p.backtest.errorReglaDeTres)}</b></>
                 )}
