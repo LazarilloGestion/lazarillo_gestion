@@ -3,7 +3,7 @@ import { useState } from "react";
 import { RefreshCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { acumulada, canastaMensual, pesoRelativo, ventanaUltimoAumento, type ClaveComponente } from "@/lib/dashboard/canasta";
-import { aumentosVsCostos } from "@/lib/dashboard/aumentos";
+import { alcanceAumento, aumentosVsCostos, GRUPOS, NOMBRE_GRUPO } from "@/lib/dashboard/aumentos";
 import type { CanastaData } from "@/hooks/use-canasta";
 
 const MES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -16,6 +16,14 @@ const COMO: Record<ClaveComponente, string> = {
   servicios: "por proveedor × concepto",
   alquiler: "en revisión: no entra al %",
 };
+
+/** Tooltip del aumento: cuánto subió cada agrupación. */
+function detalleAumento(a: CanastaData["aumentos"][number]): string {
+  const base = a.origen === "detectado" ? "Detectado en el informe 12" : "Cargado a mano";
+  if (!a.detalle) return base;
+  const partes = GRUPOS.filter((g) => a.detalle?.[g] != null).map((g) => `${NOMBRE_GRUPO[g]} ${pct(a.detalle![g])}`);
+  return `${base}${partes.length ? ` · ${partes.join(" · ")}` : ""}${a.provisorio ? " · provisorio" : ""}`;
+}
 
 export interface ResumenCanasta {
   mes: number | null; tres: number | null; doce: number | null;
@@ -56,6 +64,7 @@ export function CanastaDetalle({ d, r, mesRef, conPdv, onAgregar, onQuitar, onDe
   const [detectando, setDetectando] = useState(false);
   const filas = aumentosVsCostos(d.meses, r.serie, d.aumentos).filter((f) => f.costos != null);
   const ultimoAum = d.aumentos.length ? d.aumentos[d.aumentos.length - 1] : null;
+  const aumPorFecha = new Map(d.aumentos.map((a) => [a.fecha, a]));
   const ult = d.meses.length - 1;
   const v = ventanaUltimoAumento(d.meses, d.aumentos.map((a) => a.fecha));
   const pesos = pesoRelativo(d.componentes);
@@ -126,7 +135,10 @@ export function CanastaDetalle({ d, r, mesRef, conPdv, onAgregar, onQuitar, onDe
                 <tbody>
                   {filas.map((f) => (
                     <tr key={f.fecha} className="border-t border-violet-100 dark:border-violet-900/40">
-                      <td className="py-1 tabular-nums">{ddmm(f.fecha)}{f.provisorio && <span title="Menos de 3 semanas después del aumento: el % todavía se puede mover" className="text-muted-foreground">*</span>}</td>
+                      <td className="py-1 tabular-nums" title={aumPorFecha.get(f.fecha) ? detalleAumento(aumPorFecha.get(f.fecha)!) : undefined}>
+                        {ddmm(f.fecha)}{f.provisorio && <span className="text-muted-foreground">*</span>}
+                        {alcanceAumento(aumPorFecha.get(f.fecha)?.detalle) && <span className="ml-1 text-[11px] text-muted-foreground">{alcanceAumento(aumPorFecha.get(f.fecha)?.detalle)}</span>}
+                      </td>
                       <td className="text-right tabular-nums">{pct(f.carta)}</td>
                       <td className="text-right tabular-nums" title={f.hastaMes ? `hasta ${MES[Number(f.hastaMes.slice(5)) - 1]}` : undefined}>{pct(f.costos)}{f.hastaMes && <span className="text-muted-foreground">¹</span>}</td>
                       <td className={cn("text-right font-semibold tabular-nums", f.brecha == null ? "" : f.brecha >= 0 ? "text-emerald-700" : "text-red-600")}>
@@ -158,10 +170,11 @@ export function CanastaDetalle({ d, r, mesRef, conPdv, onAgregar, onQuitar, onDe
                 </button>
               </div>
               <div className="flex flex-wrap gap-1">
-                {d.aumentos.map((a) => (
+                {d.aumentos.filter((a) => a.fecha.slice(0, 7) >= d.meses[0]).map((a) => (
                   <span key={a.fecha} className="inline-flex h-6 items-center gap-1 rounded-md border border-violet-200 dark:border-violet-800 bg-white dark:bg-zinc-900 pl-2 pr-1 text-xs tabular-nums"
-                    title={a.origen === "detectado" ? "Detectado en el informe 12" : "Cargado a mano"}>
+                    title={detalleAumento(a)}>
                     {ddmm(a.fecha)}/{a.fecha.slice(2, 4)}{a.pct != null && <b className="ml-0.5 text-violet-700 dark:text-violet-300">{pct(a.pct)}{a.provisorio ? "*" : ""}</b>}
+                    {alcanceAumento(a.detalle) && <span className="text-[10.5px] text-muted-foreground">{alcanceAumento(a.detalle)}</span>}
                     <button type="button" aria-label={`Quitar aumento del ${ddmm(a.fecha)}`} onClick={() => onQuitar(a.fecha)} className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-3 w-3" /></button>
                   </span>
                 ))}

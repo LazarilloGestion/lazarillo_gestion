@@ -90,8 +90,8 @@ export async function GET(request: NextRequest) {
           AND cc."codRga" IN (${RUBRO.mercaderias}, ${RUBRO.servicios}, ${RUBRO.personal}, ${RUBRO.alquiler})
         GROUP BY 1`),
       pdvId
-        ? prisma.$queryRaw<{ fecha: string; origen: string; pct: number | null; provisorio: boolean }[]>`
-            SELECT fecha::text AS fecha, origen, pct::float8 AS pct, provisorio FROM aumentos_precio
+        ? prisma.$queryRaw<{ fecha: string; origen: string; pct: number | null; provisorio: boolean; detalle: Record<string, number> | null }[]>`
+            SELECT fecha::text AS fecha, origen, pct::float8 AS pct, provisorio, detalle FROM aumentos_precio
             WHERE "puntoDeVentaId" = ${pdvId} AND NOT descartado ORDER BY fecha`
         : Promise.resolve([]),
     ]);
