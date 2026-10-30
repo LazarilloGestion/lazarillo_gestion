@@ -144,7 +144,7 @@ export function KpiTarjetas() {
       </div>
       {abierta === "canasta" && canasta.data && rc && (
         <CanastaDetalle d={canasta.data} r={rc} mesRef={t.mes} conPdv={canasta.conPdv}
-          onAgregar={(f) => void canasta.agregarAumento(f)} onQuitar={(f) => void canasta.quitarAumento(f)} onCerrar={() => setAbierta(null)} />
+          onAgregar={(f) => void canasta.agregarAumento(f)} onQuitar={(f) => void canasta.quitarAumento(f)} onDetectar={canasta.detectar} onCerrar={() => setAbierta(null)} />
       )}
       {abierta && abierta !== "canasta" && (
         <Evolucion clave={abierta} anio={year} mesHasta={t.mes} meses={anual.meses} mesesAnt={anualAnt?.meses ?? []}

@@ -1,8 +1,9 @@
 "use client";
 import { useState } from "react";
-import { X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { acumulada, canastaMensual, pesoRelativo, ventanaUltimoAumento, type ClaveComponente } from "@/lib/dashboard/canasta";
+import { aumentosVsCostos } from "@/lib/dashboard/aumentos";
 import type { CanastaData } from "@/hooks/use-canasta";
 
 const MES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -47,11 +48,14 @@ export function CanastaMini({ r }: { r: ResumenCanasta }) {
 }
 
 /** Detalle a todo el ancho (al tocar la tarjeta). */
-export function CanastaDetalle({ d, r, mesRef, conPdv, onAgregar, onQuitar, onCerrar }: {
+export function CanastaDetalle({ d, r, mesRef, conPdv, onAgregar, onQuitar, onDetectar, onCerrar }: {
   d: CanastaData; r: ResumenCanasta; mesRef: number; conPdv: boolean;
-  onAgregar: (f: string) => void; onQuitar: (f: string) => void; onCerrar: () => void;
+  onAgregar: (f: string) => void; onQuitar: (f: string) => void; onDetectar: () => Promise<void>; onCerrar: () => void;
 }) {
   const [nueva, setNueva] = useState("");
+  const [detectando, setDetectando] = useState(false);
+  const filas = aumentosVsCostos(d.meses, r.serie, d.aumentos).filter((f) => f.costos != null);
+  const ultimoAum = d.aumentos.length ? d.aumentos[d.aumentos.length - 1] : null;
   const ult = d.meses.length - 1;
   const v = ventanaUltimoAumento(d.meses, d.aumentos.map((a) => a.fecha));
   const pesos = pesoRelativo(d.componentes);
@@ -81,7 +85,7 @@ export function CanastaDetalle({ d, r, mesRef, conPdv, onAgregar, onQuitar, onCe
         </div>
         <button type="button" onClick={onCerrar} className="shrink-0 text-xs font-semibold text-violet-700 hover:underline">▴ cerrar</button>
       </div>
-      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
@@ -111,25 +115,53 @@ export function CanastaDetalle({ d, r, mesRef, conPdv, onAgregar, onQuitar, onCe
           </table>
         </div>
         <div className="flex flex-col gap-2 rounded-lg bg-white/70 dark:bg-zinc-900/50 p-3 text-[13px]">
-          {r.base ? (
-            <>
-              <div className="text-xs text-muted-foreground">Desde el último aumento ({ddmm(r.base)}) al cierre de {nombreMes}</div>
-              <div>Tus costos subieron <b className="text-violet-700 dark:text-violet-300">{pct(r.desde)}</b></div>
-              {r.posterior
-                ? <div className="text-xs text-muted-foreground">Aumentaste el {ddmm(r.posterior)}: si ese aumento fue menor a {pct(r.desde, false)}, te quedó brecha.</div>
-                : <div>Para volver al margen de entonces: <b className="text-violet-700 dark:text-violet-300">aumentar ~{pct(r.desde, false)}</b></div>}
-            </>
-          ) : (
-            <div className="text-xs text-muted-foreground">Anotá la fecha de tu último aumento de precios para ver cuánto subieron tus costos desde entonces.</div>
+          {filas.length > 0 && (
+            <div>
+              <div className="mb-1 text-xs text-muted-foreground">Cada aumento contra lo que subieron tus costos desde el anterior</div>
+              <table className="w-full text-[12.5px]">
+                <thead><tr className="text-[11px] text-muted-foreground">
+                  <th className="text-left font-medium">Aumento</th><th className="text-right font-medium">Carta</th>
+                  <th className="text-right font-medium">Costos</th><th className="text-right font-medium">Brecha</th>
+                </tr></thead>
+                <tbody>
+                  {filas.map((f) => (
+                    <tr key={f.fecha} className="border-t border-violet-100 dark:border-violet-900/40">
+                      <td className="py-1 tabular-nums">{ddmm(f.fecha)}{f.provisorio && <span title="Menos de 3 semanas después del aumento: el % todavía se puede mover" className="text-muted-foreground">*</span>}</td>
+                      <td className="text-right tabular-nums">{pct(f.carta)}</td>
+                      <td className="text-right tabular-nums" title={f.hastaMes ? `hasta ${MES[Number(f.hastaMes.slice(5)) - 1]}` : undefined}>{pct(f.costos)}{f.hastaMes && <span className="text-muted-foreground">¹</span>}</td>
+                      <td className={cn("text-right font-semibold tabular-nums", f.brecha == null ? "" : f.brecha >= 0 ? "text-emerald-700" : "text-red-600")}>
+                        {f.brecha == null ? "—" : `${f.brecha >= 0 ? "+" : "−"}${Math.abs(f.brecha * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })} pts`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                Brecha positiva = el aumento cubrió lo que subieron tus costos.{filas.some((f) => f.provisorio) && " * provisorio."}{filas.some((f) => f.hastaMes) && ` ¹ costos hasta ${nombreMes}.`}
+              </div>
+            </div>
+          )}
+          {r.base && ultimoAum && ultimoAum.fecha.slice(0, 7) <= d.meses[d.meses.length - 1] && (
+            <div>Desde el {ddmm(r.base)} tus costos subieron <b className="text-violet-700 dark:text-violet-300">{pct(r.desde)}</b>: para volver al margen de entonces, <b className="text-violet-700 dark:text-violet-300">aumentar ~{pct(r.desde, false)}</b>.</div>
+          )}
+          {!r.base && (
+            <div className="text-xs text-muted-foreground">Anotá la fecha de tu último aumento de precios (o tocá ↻ para buscarlo en el informe 12) para ver cuánto subieron tus costos desde entonces.</div>
           )}
           {conPdv && (
             <div className="mt-1 border-t border-violet-100 dark:border-violet-900/40 pt-2">
-              <div className="mb-1 text-xs text-muted-foreground">Aumentos de precios</div>
+              <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+                <span>Aumentos de precios</span>
+                <button type="button" disabled={detectando} title="Buscar aumentos en el informe 12 (se hace solo cada noche)"
+                  onClick={async () => { setDetectando(true); await onDetectar(); setDetectando(false); }}
+                  className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 hover:bg-muted hover:text-foreground disabled:opacity-50">
+                  <RefreshCw className={cn("h-3 w-3", detectando && "animate-spin")} /> detectar
+                </button>
+              </div>
               <div className="flex flex-wrap gap-1">
                 {d.aumentos.map((a) => (
                   <span key={a.fecha} className="inline-flex h-6 items-center gap-1 rounded-md border border-violet-200 dark:border-violet-800 bg-white dark:bg-zinc-900 pl-2 pr-1 text-xs tabular-nums"
                     title={a.origen === "detectado" ? "Detectado en el informe 12" : "Cargado a mano"}>
-                    {ddmm(a.fecha)}/{a.fecha.slice(2, 4)}
+                    {ddmm(a.fecha)}/{a.fecha.slice(2, 4)}{a.pct != null && <b className="ml-0.5 text-violet-700 dark:text-violet-300">{pct(a.pct)}{a.provisorio ? "*" : ""}</b>}
                     <button type="button" aria-label={`Quitar aumento del ${ddmm(a.fecha)}`} onClick={() => onQuitar(a.fecha)} className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-3 w-3" /></button>
                   </span>
                 ))}
