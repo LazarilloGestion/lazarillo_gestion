@@ -21,3 +21,17 @@ describe("tarjetas del Panel", () => {
     expect(tarjetasDelMes(meses, 9, null)!.equilibrio).toBeNull();
   });
 });
+
+describe("alertas de Para mirar", async () => {
+  const { alertasDelMes } = await import("./tarjetas");
+  it("personal arriba de lo normal y equilibrio no alcanzado", () => {
+    const ms = [m(4, 70, 22, 25, 30), m(5, 70, 22, 25, 30), m(6, 70, 22, 25, 30), m(7, 70, 22, 30, 30)];
+    const t = tarjetasDelMes(ms, 7, 22)!; // personal 42,9% vs 35,7% normal; gastos 82 > ventas 70
+    const a = alertasDelMes(ms, t);
+    expect(a.map((x) => x.texto)).toEqual(["No llegó al equilibrio", expect.stringMatching(/^Personal 42,9% · 7,1 pp arriba/)]);
+  });
+  it("con menos de 3 meses de historia no inventa alertas de indicadores", () => {
+    const t = tarjetasDelMes(meses, 9, 35.47)!;
+    expect(alertasDelMes(meses, t)).toEqual([]);
+  });
+});

@@ -8,7 +8,10 @@ import { useEgresosProyeccion } from "@/hooks/use-egresos-proyeccion";
 import { useEquilibrio } from "@/hooks/use-equilibrio";
 import { fmtMillones } from "@/lib/dashboard/proyeccion";
 import { equilibrioMes, equilibrioProyectado, pctVariableReciente } from "@/lib/dashboard/equilibrio";
-import { mesCerrado, tarjetasDelMes, type MesDatos } from "@/lib/dashboard/tarjetas";
+import { alertasDelMes, mesCerrado, tarjetasDelMes, type Alerta, type MesDatos } from "@/lib/dashboard/tarjetas";
+import { ImpagasBoton } from "@/components/impagas/impagas-boton";
+import { SinCargaBoton } from "@/components/sin-carga/sin-carga-boton";
+import type { Local } from "@/lib/types/domain";
 import { serieIndicador, sentido, INFO_INDICADOR, type ClaveIndicador } from "@/lib/movil/evolucion";
 
 // Tarjetas arriba de la tabla (rediseño del Panel, Diego 30/10/2026, mockup_panel_v2c):
@@ -38,13 +41,20 @@ export function KpiTarjetas() {
   const egresosPorMes = useMemo(() => Object.fromEntries((anual?.meses ?? []).map((m) => [m.mes, m.rubros.reduce((s, r) => s + r.total, 0)])), [anual]);
   const { proyectado: egrProy, ventasProy } = useEgresosProyeccion(egresosPorMes);
   const [abierta, setAbierta] = useState<Abierta>(null);
+  const { data: locales } = useFetchQuery<Local[]>(["locales"], "/api/locales");
 
-  if (modoPanel !== "economica" || activeSearchParam || !anual) return null;
+  if (modoPanel !== "economica" || activeSearchParam) return null;
+  // "Para mirar" (Impagas, Sin carga y alertas) está siempre que haya un PDV elegido: los botones
+  // de la barra de filtros se esconden en ese caso (dashboard-filters).
+  const paraMirar = (alertas: Alerta[]) => (pdvId != null ? <ParaMirar locales={locales ?? []} pdvId={pdvId} alertas={alertas} /> : null);
   const hoy = new Date();
-  const mc = mesCerrado(anual.meses, year, { anio: hoy.getFullYear(), mes: hoy.getMonth() + 1 });
+  const mc = anual ? mesCerrado(anual.meses, year, { anio: hoy.getFullYear(), mes: hoy.getMonth() + 1 }) : null;
   const anteriorDic = anualAnt?.meses.find((m) => m.mes === 12) ?? null;
-  const t = mc ? tarjetasDelMes(anual.meses, mc, eq ? eq.porMes[mc]?.total ?? 0 : null, mc === 1 ? anteriorDic : undefined) : null;
-  if (!t) return null;
+  const t = anual && mc ? tarjetasDelMes(anual.meses, mc, eq ? eq.porMes[mc]?.total ?? 0 : null, mc === 1 ? anteriorDic : undefined) : null;
+  if (!anual || !t) {
+    const pm = paraMirar([]);
+    return pm ? <div className="mb-4 max-w-sm">{pm}</div> : null;
+  }
 
   // Mes en curso: ventas proyectadas, egresos proyectados y equilibrio con el % variable de los cerrados.
   const enCurso = proy && proy.anio === year && egrProy && ventasProy != null ? proy.mes : null;
@@ -56,9 +66,13 @@ export function KpiTarjetas() {
 
   const toggle = (k: Abierta) => setAbierta((a) => (a === k ? null : k));
   const e = t.equilibrio;
+  const alertas = [
+    ...alertasDelMes(anual.meses, t, t.mes <= 6 ? (anualAnt?.meses ?? []).filter((m) => m.mes > t.mes + 6) : []),
+    ...(eqProy && eqProy.falta > 0 && enCurso ? [{ texto: `${MES[enCurso - 1]}: faltan ${fmtMillones(eqProy.falta)} para el equilibrio`, nivel: "ambar" as const }] : []),
+  ];
   return (
     <div className="mb-4">
-      <div className="grid gap-4 lg:grid-cols-[3fr_1.4fr]">
+      <div className={cn("grid gap-4", enCurso ? "lg:grid-cols-[3fr_1.4fr_0.95fr]" : "lg:grid-cols-[3fr_0.95fr]")}>
         <div>
           <Grupo>{MES[t.mes - 1]} · último mes cerrado</Grupo>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-[1fr_1fr_1fr_1.5fr]">
@@ -77,10 +91,10 @@ export function KpiTarjetas() {
             <Tarjeta titulo="Mix" activa={abierta === "mix" || abierta === "foodCost" || abierta === "personal"} onClick={() => toggle("mix")}>
               <div className="flex items-baseline gap-2"><Grande>{pc(t.mix)}</Grande>{t.difMix != null && Math.abs(t.difMix) >= 0.05 && <Chico className={t.difMix < 0 ? "text-emerald-700" : "text-red-600"}>{ppTxt(t.difMix)} pp</Chico>}</div>
               <div className="mt-1 flex gap-3 border-t border-dashed border-zinc-200 dark:border-zinc-700 pt-1 text-[12px]">
-                <button type="button" className="hover:underline" onClick={(ev) => { ev.stopPropagation(); toggle("foodCost"); }}>
+                <button type="button" className="text-left hover:underline" onClick={(ev) => { ev.stopPropagation(); toggle("foodCost"); }}>
                   Food cost <b>{pc(t.foodCost)}</b>{t.difFoodCost != null && Math.abs(t.difFoodCost) >= 0.05 && <span className={cn("ml-1 font-bold", t.difFoodCost < 0 ? "text-emerald-700" : "text-red-600")}>{ppTxt(t.difFoodCost)}</span>}
                 </button>
-                <button type="button" className="hover:underline" onClick={(ev) => { ev.stopPropagation(); toggle("personal"); }}>
+                <button type="button" className="text-left hover:underline" onClick={(ev) => { ev.stopPropagation(); toggle("personal"); }}>
                   Personal <b>{pc(t.personal)}</b>{t.difPersonal != null && Math.abs(t.difPersonal) >= 0.05 && <span className={cn("ml-1 font-bold", t.difPersonal < 0 ? "text-emerald-700" : "text-red-600")}>{ppTxt(t.difPersonal)}</span>}
                 </button>
               </div>
@@ -114,10 +128,42 @@ export function KpiTarjetas() {
             </div>
           </div>
         )}
+        {pdvId != null && <div className="flex flex-col"><Grupo>&nbsp;</Grupo>{paraMirar(alertas)}</div>}
       </div>
       {abierta && (
         <Evolucion clave={abierta} anio={year} mesHasta={t.mes} meses={anual.meses} mesesAnt={anualAnt?.meses ?? []}
           variablePorMes={eq?.porMes ?? null} onCerrar={() => setAbierta(null)} />
+      )}
+    </div>
+  );
+}
+
+// Impagas, Sin carga y alertas en una tarjeta que NUNCA es más alta que las de KPI (Diego 30/10/2026):
+// tres renglones a la vista y el resto en "+N más".
+function ParaMirar({ locales, pdvId, alertas }: { locales: Local[]; pdvId: number; alertas: Alerta[] }) {
+  const [mas, setMas] = useState(false);
+  const visibles = alertas.slice(0, 1), resto = alertas.slice(1);
+  const linea = (a: Alerta) => (
+    <div key={a.texto} className="flex items-center gap-1.5">
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", a.nivel === "rojo" ? "bg-red-500" : "bg-amber-500")} />
+      <span className="truncate" title={a.texto}>{a.texto}</span>
+    </div>
+  );
+  return (
+    <div className="relative flex-1 rounded-xl border border-amber-300/70 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-2 text-[12.5px] leading-[1.55] max-h-[96px]">
+      <div className="flex justify-between text-[11.5px] text-muted-foreground"><span>Para mirar</span>{alertas.length > 0 && <b className="text-amber-700">{alertas.length}</b>}</div>
+      <ImpagasBoton locales={locales} pdvId={pdvId} variante="linea" />
+      <SinCargaBoton variante="linea" />
+      {visibles.map(linea)}
+      {resto.length > 0 && (
+        <button type="button" onClick={() => setMas((v) => !v)} className="text-[11.5px] font-bold text-amber-700 hover:underline">
+          {mas ? "menos ▴" : `+${resto.length} más ›`}
+        </button>
+      )}
+      {mas && (
+        <div className="absolute right-0 top-full z-30 mt-1 w-72 rounded-xl border border-amber-300 bg-white dark:bg-zinc-900 px-3 py-2 shadow-lg">
+          {resto.map(linea)}
+        </div>
       )}
     </div>
   );

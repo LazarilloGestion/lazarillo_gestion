@@ -46,3 +46,28 @@ export function tarjetasDelMes(meses: MesDatos[], mes: number, variable: number 
     equilibrio: variable == null ? null : equilibrioMes(i.ventas, i.gastos, variable),
   };
 }
+
+export interface Alerta { texto: string; nivel: "rojo" | "ambar" }
+
+/**
+ * Alertas de "Para mirar": un indicador del mes cerrado que se fue de lo normal (más de 2 puntos
+ * arriba del promedio de los 6 meses anteriores con ventas) y no haber llegado al equilibrio.
+ */
+export function alertasDelMes(meses: MesDatos[], t: TarjetasMes, anteriores: MesDatos[] = []): Alerta[] {
+  const previos = [...anteriores, ...meses.filter((m) => m.mes < t.mes)].filter((m) => m.ventas > 0).slice(-6);
+  const out: Alerta[] = [];
+  if (t.equilibrio?.equilibrio != null && t.equilibrio.diferencia < 0) out.push({ texto: "No llegó al equilibrio", nivel: "rojo" });
+  if (previos.length >= 3) {
+    const prom = (k: "foodCost" | "personal") => {
+      const xs = previos.map((m) => indicadores(m.ventas, m.rubros)[k]).filter((v): v is number => v != null);
+      return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+    };
+    for (const [k, nombre] of [["foodCost", "Food cost"], ["personal", "Personal"]] as const) {
+      const p = prom(k), v = t[k];
+      if (p != null && v != null && (v - p) * 100 > 2) {
+        out.push({ texto: `${nombre} ${(v * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}% · ${((v - p) * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })} pp arriba de lo normal`, nivel: "ambar" });
+      }
+    }
+  }
+  return out;
+}

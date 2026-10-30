@@ -48,8 +48,11 @@ export function DashboardFilters() {
     setYear, setLocalId, setPdvId,
     selectedMonths, toggleMonth, clearMonths,
     activeSearchParam: activeParam, searchLabel,
-    clearSearch,
+    clearSearch, modoPanel,
   } = useDashboard();
+  // Con las tarjetas del Panel a la vista (Económica, sin búsqueda, un PDV), Impagas y Sin carga van
+  // en la tarjeta "Para mirar" (rediseño, Diego 30/10/2026); si no, siguen acá.
+  const enParaMirar = modoPanel === "economica" && !activeParam && pdvId != null;
 
   const isVentas = tab === "ventas";
   const isResultados = tab === "resultados";
@@ -210,9 +213,9 @@ export function DashboardFilters() {
           <div className="flex items-center gap-2 ml-auto shrink-0">
             {/* "Cargar Gastos" a la izquierda de Impagas (Diego, 27/10/2026). */}
             <CargarFactura />
-            <ImpagasBoton locales={locales} pdvId={pdvId} />
+            {!enParaMirar && <ImpagasBoton locales={locales} pdvId={pdvId} />}
             {/* "Sin carga" al lado de Impagas (Diego, 28/10/2026). */}
-            <SinCargaBoton />
+            {!enParaMirar && <SinCargaBoton />}
             {!isMobile && <RubrosConfigModal {...rubrosConfigProps} />}
             <button
               onClick={() => setPaletteOpen(true)}
