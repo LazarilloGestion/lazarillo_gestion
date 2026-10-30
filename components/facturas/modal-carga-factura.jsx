@@ -443,6 +443,9 @@ function ModalNuevaCarga(props) {
   const [importeV, setImporteV] = useState(ctx.importe > 0 ? fmtNum(ctx.importe) : "");
   // Desde una celda vacía del Panel: el importe es el del mes anterior y queda marcado hasta que lo toques (Diego 29/10).
   const [importeRevisar, setImporteRevisar] = useState(!!ctx.importeAnterior && ctx.importe > 0);
+  // Desde el Panel (celda vacía) o Sin carga ya vienen período, concepto e importe: el cursor arranca
+  // en el importe, que es lo único que suele cambiar (Diego 30/10/2026).
+  const vieneConImporte = !!((ctx.concepto || ctx.conceptoCodigo) && ctx.importe > 0);
 
   // pago
   // "Registrar el pago ahora" (Etapa 4, paso 4): arranca destildado; sin pago la factura queda IMPAGA.
@@ -1044,18 +1047,22 @@ function ModalNuevaCarga(props) {
         ) : (
           <>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div><span style={lab}>Período</span>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button type="button" tabIndex={-1} title="Mes anterior" onClick={() => elegirPeriodo(moverPeriodo(periodoV, -1))} style={{ ...btn(false), padding: "0 12px", height: 38 }}>‹</button>
-                <select style={{ ...sel, fontWeight: 700 }} autoFocus value={periodoV} onChange={(e) => elegirPeriodo(e.target.value)}>
-                  {(periodosV.includes(periodoV) ? periodosV : [periodoV, ...periodosV]).map((x) => <option key={x} value={x}>{nombrePeriodo(x)}</option>)}
-                </select>
-                <button type="button" tabIndex={-1} title="Mes siguiente" onClick={() => elegirPeriodo(moverPeriodo(periodoV, 1))} style={{ ...btn(false), padding: "0 12px", height: 38 }}>›</button>
-              </div></div>
-            <div><span style={lab}>Fecha del gasto <span style={{ textTransform: "none", fontWeight: 400, letterSpacing: 0 }}>· va al 15, cambiala si querés</span></span>
-              <FechaInput tabIndex={-1} style={{ ...inp, color: fechaV === fechaDelPeriodo(periodoV) ? C.gris : C.neg, border: errFecha ? `1.6px solid ${C.rojo}` : inp.border }} iso={fechaV}
-                onISO={(v) => { setFechaV(v); setErrFecha(false); }} />
-              {errFecha && <div style={{ fontSize: 11, color: C.rojo, fontWeight: 700, marginTop: 3 }}>Falta una fecha válida.</div>}</div>
+            {/* Período y fecha en una sola línea compacta (Diego 30/10/2026: "el período está enorme"). */}
+            <div style={{ gridColumn: "1 / -1", display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div><span style={lab}>Período</span>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button type="button" tabIndex={-1} title="Mes anterior" onClick={() => elegirPeriodo(moverPeriodo(periodoV, -1))} style={{ ...btn(false), padding: "0 10px", height: 36 }}>‹</button>
+                  <select style={{ ...sel, fontWeight: 700, width: 170 }} autoFocus={!vieneConImporte} value={periodoV} onChange={(e) => elegirPeriodo(e.target.value)}>
+                    {(periodosV.includes(periodoV) ? periodosV : [periodoV, ...periodosV]).map((x) => <option key={x} value={x}>{nombrePeriodo(x)}</option>)}
+                  </select>
+                  <button type="button" tabIndex={-1} title="Mes siguiente" onClick={() => elegirPeriodo(moverPeriodo(periodoV, 1))} style={{ ...btn(false), padding: "0 10px", height: 36 }}>›</button>
+                </div></div>
+              <div style={{ width: 150 }}><span style={lab}>Fecha del gasto</span>
+                <FechaInput tabIndex={-1} style={{ ...inp, color: fechaV === fechaDelPeriodo(periodoV) ? C.gris : C.neg, border: errFecha ? `1.6px solid ${C.rojo}` : inp.border }} iso={fechaV}
+                  onISO={(v) => { setFechaV(v); setErrFecha(false); }} /></div>
+              <span style={{ fontSize: 11.5, color: C.gris, paddingBottom: 10 }}>va al 15, cambiala si querés</span>
+              {errFecha && <div style={{ fontSize: 11, color: C.rojo, fontWeight: 700, paddingBottom: 10 }}>Falta una fecha válida.</div>}
+            </div>
             {/* Primero el concepto (el rubro se completa solo), después el rubro (Diego, 28/10/2026). */}
             <div><span style={lab}>Concepto</span>
               <Combo opciones={conceptosDe(rubroV)} valor={conceptoV} placeholder="Buscar concepto..." onElegir={(c) => { setConceptoV(c); setRubroV(rubroDe(c) || rubroV); }} /></div>
@@ -1065,6 +1072,7 @@ function ModalNuevaCarga(props) {
               <input style={inp} value={detalle} maxLength={200} onChange={(e) => setDetalle(e.target.value)} placeholder="Ej: ferretería, flete, devolución seña cancha" /></div>
             <div><span style={lab}>Importe{importeRevisar && <span style={{ textTransform: "none", fontWeight: 700, letterSpacing: 0, color: "#b45309" }}> · el de {nombrePeriodo(ctx.importeAnterior)}, corregilo</span>}</span>
               <input style={{ ...inp, textAlign: "right", fontWeight: 700, ...(importeRevisar ? { border: "1.6px solid #f59e0b", background: "#fffbeb" } : {}) }} value={importeV} placeholder="0,00"
+                autoFocus={vieneConImporte} onFocus={(e) => e.target.select()}
                 onChange={(e) => { setImporteV(fmtImp(e.target.value)); setImporteRevisar(false); }} /></div>
             <div><span style={lab}>PDV del gasto</span>
               <select style={sel} value={pdvV} onChange={(e) => setPdvV(e.target.value)}>{PDVS.map((p) => <option key={p}>{p}</option>)}</select></div>
