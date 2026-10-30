@@ -3,6 +3,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { fmtMillones, DIA_SEMANA_CORTO, type Metodo, type ProyeccionMes } from "@/lib/dashboard/proyeccion";
 import type { EgresosProyectados } from "@/lib/dashboard/egresos-proy";
 import type { FaltaCargar } from "@/hooks/use-egresos-proyeccion";
+import type { EquilibrioMes, EquilibrioProyectado } from "@/lib/dashboard/equilibrio";
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const pct1 = (x: number) => `${(x * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
@@ -206,6 +207,55 @@ export function TipProyectado({ titulo, grande, negativo, filas, children }: { t
           <div className="opacity-60">{titulo}</div>
           <div className={`text-[20px] font-bold my-0.5${negativo ? " text-red-400" : ""}`}>{grande}</div>
           {filas.map(([a, b]) => <Fila key={a} izq={a} der={b} />)}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// Punto de equilibrio de un mes (Diego 30/10/2026): cuánto había que vender, de dónde sale y cuánto
+// quedó de lo vendido arriba. En el mes en curso, con la proyección y lo que falta por día.
+export function EquilibrioTip({ e, p, anio, mes, detalle, variables, children }: {
+  e: EquilibrioMes; p?: EquilibrioProyectado | null; anio: number; mes: number;
+  detalle: { nombre: string; total: number }[]; variables: string[]; children: React.ReactNode;
+}) {
+  const pc = (x: number) => `${(x * 100).toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
+  const arriba = e.diferencia >= 0;
+  const resultado = e.diferencia * e.queda;
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="cursor-help border-b-[1.5px] border-dashed border-muted-foreground/40">{children}</span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end" className="block max-w-none w-[360px] p-3.5 text-[12.5px] leading-[1.45] font-normal text-left">
+          <div className="opacity-60">Punto de equilibrio · {nombreMes(anio, mes)} {anio}{p ? " · proyección" : ""}</div>
+          <div className="text-[22px] font-bold my-0.5">{e.equilibrio == null ? "—" : fmtMillones(e.equilibrio)}</div>
+          <div className={arriba ? "text-emerald-400" : "text-red-400"}>
+            {p ? "vendería" : "vendió"} {fmtMillones(e.ventas)} · {arriba ? `${fmtMillones(e.diferencia)} arriba` : `${fmtMillones(-e.diferencia)} abajo`}
+          </div>
+          <Sep />
+          <Fila izq="Gastos fijos" der={fmtMillones(e.fijos)} />
+          <Fila izq={`Gastos variables (${pc(e.pctVariable)} de la venta)`} der={fmtMillones(e.variable)} />
+          {!p && <div className="opacity-60">{detalle.slice(0, 4).map((d) => <Fila key={d.nombre} izq={`· ${capital(d.nombre)}`} der={fmtMillones(d.total)} />)}</div>}
+          <div className="opacity-60 mt-1">Fijos ÷ (1 − {pc(e.pctVariable)}) = {e.equilibrio == null ? "—" : fmtMillones(e.equilibrio)}</div>
+          <Sep />
+          <div>
+            De cada $ 100 que se venden arriba del equilibrio quedan <b>$ {Math.round(e.queda * 100)}</b>{" "}
+            (el resto se va en los gastos variables). {p ? "Te quedaría" : "Te quedó"}{" "}
+            <b className={resultado < 0 ? "text-red-400" : ""}>{p ? "~" : ""}{fmtMillones(resultado)}</b>.
+          </div>
+          {p && (
+            <>
+              <Sep />
+              {p.falta > 0
+                ? <div>Facturado {fmtMillones(p.facturado)}: faltan <b>{fmtMillones(p.falta)}</b> para llegar{p.porDia != null ? <> · <b>{fmtMillones(p.porDia)} por día</b> en los {p.diasRestantes} días que quedan</> : null}.</div>
+                : <div className="text-emerald-400">Ya se superó con lo facturado ({fmtMillones(p.facturado)}).</div>}
+              <div className="opacity-60 mt-1">Con los egresos proyectados y el % variable de los meses cerrados.</div>
+            </>
+          )}
+          <Sep />
+          <div className="opacity-60">Variables: {variables.join(", ")}. El resto es fijo.</div>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
